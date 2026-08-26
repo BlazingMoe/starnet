@@ -263,3 +263,15 @@ a.quest:hover .q-title{ text-shadow:0 0 12px rgba(255,157,47,.45); }
 }
 .st p{ margin:0; font-size:16px; line-height:1.5; color:var(--ink-d); }
 .st b{ color:var(--amber-b); }
+
+/* the phone-and-minion hero (channels guide) */
+.d-phonebody{ fill:rgba(0,0,0,.5); stroke:var(--amber); stroke-width:2; }
+.d-phonescreen{ fill:#0d0a06; stroke:rgba(255,157,47,.3); stroke-width:1; }
+.bub-you{ fill:rgba(255,157,47,.55); }
+.bub-min{ fill:rgba(255,157,47,.14); stroke:rgba(255,157,47,.35); stroke-width:1; }
+.d-minion{ fill:rgba(255,157,47,.12); stroke:var(--amber); stroke-width:1.6; }
+.d-eye{ fill:var(--amber-b); }
+.d-signal{ fill:none; stroke:var(--amber-d); stroke-width:2; stroke-dasharray:6 6; animation:fm-sig 1.2s linear infinite; }
+.d-sigarrow{ fill:var(--amber-d); }
+@keyframes fm-sig { to { stroke-dashoffset:-12; } }
+@media (prefers-reduced-motion: reduce){ .d-signal{ animation:none !important; } }
