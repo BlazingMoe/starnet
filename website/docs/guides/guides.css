@@ -275,3 +275,23 @@ a.quest:hover .q-title{ text-shadow:0 0 12px rgba(255,157,47,.45); }
 .d-sigarrow{ fill:var(--amber-d); }
 @keyframes fm-sig { to { stroke-dashoffset:-12; } }
 @media (prefers-reduced-motion: reduce){ .d-signal{ animation:none !important; } }
+
+/* REAL PROP ART (crew guide) — PNGs rendered from the engine's own draw functions.
+   Pixel art: never smooth it. */
+.gearstrip{ display:flex; flex-wrap:wrap; gap:18px 26px; justify-content:center; align-items:flex-end; padding:8px 0 4px; }
+.gearstrip .gs{ text-align:center; }
+.gearstrip img{ image-rendering:pixelated; height:104px; width:auto; display:block; margin:0 auto 6px; filter:drop-shadow(0 0 14px rgba(255,157,47,.14)); }
+.gearstrip .gs-n{ display:block; font-size:15px; letter-spacing:1.5px; color:var(--amber-b); }
+.gearstrip .gs-p{ display:block; font-size:13.5px; letter-spacing:1.5px; color:var(--amber-d); }
+.fm-hero .fh-cap{ margin:10px 0 2px; text-align:center; font-size:14px; letter-spacing:1px; color:rgba(236,224,207,.4); }
+
+.gearcards{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:18px 0; }
+@media (max-width:900px){ .gearcards{ grid-template-columns:repeat(2,1fr); } }
+@media (max-width:520px){ .gearcards{ grid-template-columns:1fr; } }
+.gc{ border:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; }
+.gc .gc-art{ background:rgba(0,0,0,.42); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:center; padding:12px; min-height:120px; }
+.gc .gc-art img{ image-rendering:pixelated; max-height:96px; width:auto; }
+.gc .gc-body{ padding:10px 13px 13px; }
+.gc .gc-n{ font-size:17px; letter-spacing:1.5px; color:var(--amber-b); }
+.gc .gc-p{ display:block; font-size:14px; letter-spacing:1.5px; color:var(--amber-d); margin:1px 0 6px; }
+.gc p{ margin:0; font-size:15.5px; line-height:1.5; color:var(--ink-d); }

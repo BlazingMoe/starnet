@@ -45,7 +45,15 @@
 <div class="fh-kicker">// FIELD MANUAL &middot; AGENTS &amp; GEAR</div>
 <h1>YOUR CREW &amp; THEIR GEAR</h1>
 <p class="fh-sub">Agents do the work. The gear you place decides what they&rsquo;re able to do.</p>
-<svg viewBox="0 0 480 214" role="img" aria-label="A room: an agent desk with its own computer, plus a cabinet, dish, databank and workbench it can use."><rect class="d-ghost" x="8" y="8" width="464" height="196"/><rect class="d-machine" x="190" y="74" width="60" height="60"/><rect class="d-inner" x="198" y="115" width="44" height="9"/><circle class="d-led blink" cx="205" cy="89" r="4"/><rect class="d-plate" x="216" y="83" width="26" height="12"/><g class="d-note"><text x="220" y="66" text-anchor="middle">THE AGENT</text></g><rect class="d-machine d-lit" x="258" y="88" width="34" height="34"/><g class="d-sub"><text x="275" y="138" text-anchor="middle">own PC</text></g><g class="d-sub"><text x="275" y="152" text-anchor="middle">= COMPUTE</text></g><rect class="d-machine" x="40" y="30" width="40" height="40"/><g class="d-sub"><text x="60" y="86" text-anchor="middle">cabinet</text></g><g class="d-sub"><text x="60" y="100" text-anchor="middle">= FILES</text></g><rect class="d-machine" x="40" y="130" width="40" height="40"/><g class="d-sub"><text x="60" y="186" text-anchor="middle">dish</text></g><g class="d-sub"><text x="60" y="200" text-anchor="middle">= WEB</text></g><rect class="d-machine" x="390" y="30" width="40" height="40"/><g class="d-sub"><text x="410" y="86" text-anchor="middle">databank</text></g><g class="d-sub"><text x="410" y="100" text-anchor="middle">= MEMORY</text></g><rect class="d-machine" x="390" y="130" width="40" height="40"/><g class="d-sub"><text x="410" y="186" text-anchor="middle">workbench</text></g><g class="d-sub"><text x="410" y="200" text-anchor="middle">= TERMINAL</text></g></svg>
+<div class="gearstrip">
+<div class="gs"><img src="props/console.png" alt="CONSOLE prop, actual in-game art"><span class="gs-n">CONSOLE</span><span class="gs-p">COMPUTE</span></div>
+<div class="gs"><img src="props/war_intelcab.png" alt="INTEL CAB prop, actual in-game art"><span class="gs-n">INTEL CAB</span><span class="gs-p">FILES</span></div>
+<div class="gs"><img src="props/comms_dish.png" alt="DISH prop, actual in-game art"><span class="gs-n">DISH</span><span class="gs-p">WEB</span></div>
+<div class="gs"><img src="props/core.png" alt="CORE prop, actual in-game art"><span class="gs-n">CORE</span><span class="gs-p">MEMORY</span></div>
+<div class="gs"><img src="props/workbench.png" alt="WORKBENCH prop, actual in-game art"><span class="gs-n">WORKBENCH</span><span class="gs-p">TERMINAL</span></div>
+<div class="gs"><img src="props/studio.png" alt="STUDIO prop, actual in-game art"><span class="gs-n">STUDIO</span><span class="gs-p">IMAGES</span></div>
+</div>
+<p class="fh-cap">actual in-game art &mdash; this is exactly what you place</p>
 </div>
 <div class="q-tags" style="margin:-10px 0 22px"><span class="tag hot">PLAIN ENGLISH</span><span class="tag">~4 MIN</span><span class="tag">NO SETUP NEEDED TO READ</span></div>
 <h2><span class="h-num">01</span>Getting an agent</h2>
@@ -56,14 +64,14 @@
 <p>An agent working on a line needs a desk (a <b>BAY</b>). One agent per desk, one desk per agent. Want three jobs running at the same time? That&rsquo;s three agents at three desks.</p>
 <h2><span class="h-num">03</span>Gear = powers</h2>
 <p class="lede">Furniture isn&rsquo;t decoration. The right gear switches on a real ability.</p>
-<table><tr><th>You place</th><th>The agent gains</th><th>Which means</th></tr>
-<tr><td><b>A computer</b></td><td>COMPUTE</td><td>they can run at all &mdash; no PC, no work</td></tr>
-<tr><td><b>A cabinet</b></td><td>FILES</td><td>reading and writing your files</td></tr>
-<tr><td><b>A signal dish</b></td><td>WEB</td><td>searching and reading the web</td></tr>
-<tr><td><b>A databank</b></td><td>MEMORY</td><td>remembering things between jobs</td></tr>
-<tr><td><b>A workbench</b></td><td>TERMINAL</td><td>running real code &mdash; asks you first</td></tr>
-<tr><td><b>A media studio</b></td><td>IMAGES</td><td>making and reading images</td></tr>
-</table>
+<div class="gearcards">
+<div class="gc"><div class="gc-art"><img src="props/console.png" alt="CONSOLE, actual in-game art"></div><div class="gc-body"><span class="gc-n">CONSOLE</span><span class="gc-p">grants COMPUTE</span><p>lets them run at all &mdash; no PC, no work</p></div></div>
+<div class="gc"><div class="gc-art"><img src="props/war_intelcab.png" alt="INTEL CAB, actual in-game art"></div><div class="gc-body"><span class="gc-n">INTEL CAB</span><span class="gc-p">grants FILES</span><p>reading and writing your files</p></div></div>
+<div class="gc"><div class="gc-art"><img src="props/comms_dish.png" alt="DISH, actual in-game art"></div><div class="gc-body"><span class="gc-n">DISH</span><span class="gc-p">grants WEB</span><p>searching and reading the web</p></div></div>
+<div class="gc"><div class="gc-art"><img src="props/core.png" alt="CORE, actual in-game art"></div><div class="gc-body"><span class="gc-n">CORE</span><span class="gc-p">grants MEMORY</span><p>remembering things between jobs</p></div></div>
+<div class="gc"><div class="gc-art"><img src="props/workbench.png" alt="WORKBENCH, actual in-game art"></div><div class="gc-body"><span class="gc-n">WORKBENCH</span><span class="gc-p">grants TERMINAL</span><p>running real code &mdash; asks you first</p></div></div>
+<div class="gc"><div class="gc-art"><img src="props/studio.png" alt="STUDIO, actual in-game art"></div><div class="gc-body"><span class="gc-n">STUDIO</span><span class="gc-p">grants IMAGES</span><p>making and reading images</p></div></div>
+</div>
 <p>These are the exact power words the app shows when you place the gear &mdash; the palette tile, the placement toast and this table all say the same thing.</p>
 <div class="trap"><span class="lbl">// THE ONE RULE PEOPLE MISS</span>Every agent needs <b>their own computer</b>. A desk with no PC shows <b>NO COMPUTE</b> and that agent cannot run. Everything else &mdash; cabinets, dishes, databanks &mdash; is shared: one is enough for the agents working around it.</div>
 <div class="tip"><span class="lbl">// IF AN AGENT &ldquo;CAN&rsquo;T&rdquo; DO SOMETHING</span>Check the gear before you blame the agent. No dish = no web. No cabinet = no files. Place the thing and the ability switches on. No restart, no settings.</div>
