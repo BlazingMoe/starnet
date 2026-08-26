@@ -250,3 +250,16 @@ a.quest:hover .q-title{ text-shadow:0 0 12px rgba(255,157,47,.45); }
 
 /* a folded block of fault cards keeps its grid inside the details body */
 .qa .qa-body .faultgrid{ margin:12px 0 4px; }
+
+/* the four-beat story under "The whole idea" — one numbered sentence per beat */
+.story{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:16px 0; }
+@media (max-width:900px){ .story{ grid-template-columns:repeat(2,1fr); } }
+@media (max-width:460px){ .story{ grid-template-columns:1fr; } }
+.st{ border:1px solid var(--line); background:var(--panel); padding:12px 13px 13px; position:relative; }
+.st .st-n{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; margin-bottom:8px;
+  background:var(--amber); color:#120a02; font-size:16px;
+}
+.st p{ margin:0; font-size:16px; line-height:1.5; color:var(--ink-d); }
+.st b{ color:var(--amber-b); }
