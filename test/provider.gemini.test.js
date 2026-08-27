@@ -179,6 +179,50 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.ok(p.reasoningEfforts('gemini-2.5-flash').indexOf('none') >= 0, 'a 2.5 model does advertise one');
   }
 
+  /* ---- THOUGHT SIGNATURES (Gemini 3). A functionCall part arrives with an opaque `thoughtSignature` that
+       MUST be echoed on that same functionCall part when the history replays — omit it and every tool
+       round-trip 400s ("Function call is missing a thought_signature"), killing the run on its first
+       internal tool call. It rides msg.reasoning (the loop's opaque-block park), keyed by call id. ---- */
+  {
+    // Stream: the signature comes back as an opaque reasoning block keyed by the SAME id tool_start publishes.
+    const sse = [
+      line({ candidates: [{ content: { parts: [
+        { functionCall: { name: 'station_inspect', args: { q: 1 } }, thoughtSignature: 'sig-A' },
+        { functionCall: { name: 'fs_list', args: { p: '/' } }, thoughtSignature: 'sig-B' }
+      ] }, finishReason: 'STOP' }] }),
+      ''
+    ].join('\n');
+    const p = makeGeminiProvider({ fetch: sseFetch(sse), key: 'k' });
+    const evs = await collect(p, { model: 'gemini-3-flash', messages: [], tools: [{ type: 'function', function: { name: 'station_inspect' } }] });
+    const sigs = evs.filter(e => e.type === 'reasoning' && e.block && e.block.type === 'gemini_tool_signature').map(e => e.block);
+    A.eq(sigs, [
+      { type: 'gemini_tool_signature', callId: 'call_0', signature: 'sig-A' },
+      { type: 'gemini_tool_signature', callId: 'call_1', signature: 'sig-B' }
+    ], 'each functionCall signature is parked as a reasoning block keyed by its harness call id');
+
+    // Replay: the parked signature reattaches to ITS OWN functionCall part — and only that part.
+    const conv = _internals.messagesToGemini([
+      { role: 'assistant', content: '', reasoning: [
+        { type: 'gemini_thought', text: 'scratchpad — never replayed as a signature' },
+        { type: 'gemini_tool_signature', callId: 'call_0', signature: 'sig-A' },
+        { type: 'gemini_tool_signature', callId: 'call_1', signature: 'sig-B' }
+      ], tool_calls: [
+        { id: 'call_0', function: { name: 'station_inspect', arguments: '{"q":1}' } },
+        { id: 'call_1', function: { name: 'fs_list', arguments: '{"p":"/"}' } }
+      ] },
+      { role: 'tool', tool_call_id: 'call_0', content: '{"ok":true}' }
+    ]);
+    A.eq(conv.contents[0].parts[0], { functionCall: { name: 'station_inspect', args: { q: 1 } }, thoughtSignature: 'sig-A' }, 'first functionCall replays with ITS signature');
+    A.eq(conv.contents[0].parts[1], { functionCall: { name: 'fs_list', args: { p: '/' } }, thoughtSignature: 'sig-B' }, 'second functionCall replays with its own — not the first one\'s');
+
+    // A signature-less transcript (pre-Gemini-3 history, or reasoning stripped on a provider switch) replays
+    // byte-identical to before: no thoughtSignature key at all, never an empty one.
+    const bare = _internals.messagesToGemini([
+      { role: 'assistant', content: 'ok', tool_calls: [{ id: 'call_7', function: { name: 'web', arguments: '{}' } }] }
+    ]);
+    A.eq(bare.contents[0].parts[1], { functionCall: { name: 'web', args: {} } }, 'no parked signature -> the part shape is unchanged');
+  }
+
   /* ---- A THOUGHT PART IS NOT THE ANSWER. Reachable before any thinking parameter existed here: the
        `includeThoughts:false` default is documented as silently ignored on some models. ---- */
   {

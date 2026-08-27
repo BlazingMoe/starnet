@@ -107,6 +107,22 @@
     }
     return { systemInstruction: system.length ? { parts: system } : null, rest: (messages || []).slice(i) };
   }
+  // THOUGHT SIGNATURES (Gemini 3 wire law). A functionCall part arrives with an opaque `thoughtSignature`
+  // that the NEXT request must echo on that same functionCall part when the history replays — omit it and
+  // every tool round-trip 400s ("Function call is missing a thought_signature"), which kills the run on its
+  // FIRST internal tool call. The loop already round-trips opaque adapter blocks via msg.reasoning (built
+  // for Anthropic's signed thinking, stripped on provider/model switch), so the signature rides there keyed
+  // by the harness call id — never as a new field on tool_calls, which openai-compatible ships verbatim.
+  function toolSignaturesOf(reasoning) {
+    const map = Object.create(null);
+    if (!Array.isArray(reasoning)) return map;
+    for (const b of reasoning) {
+      if (b && b.type === 'gemini_tool_signature' && b.callId && typeof b.signature === 'string' && b.signature) {
+        map[String(b.callId)] = b.signature;
+      }
+    }
+    return map;
+  }
   function messagesToGemini(messages) {
     const picked = extractLeadingSystem(messages || []);
     const contents = [];
@@ -121,6 +137,7 @@
       }
       if (msg.role === 'assistant') {
         const parts = contentToParts(msg.content);
+        const signatures = toolSignaturesOf(msg.reasoning);
         if (Array.isArray(msg.tool_calls)) {
           for (const tc of msg.tool_calls) {
             const fn = (tc && tc.function) || {};
@@ -128,7 +145,9 @@
             if (!name) continue;
             const callId = String((tc && tc.id) || fn.call_id || '');
             if (callId) callNames[callId] = name;
-            parts.push({ functionCall: { name, args: safeJson(fn.arguments, {}) } });
+            const part = { functionCall: { name, args: safeJson(fn.arguments, {}) } };
+            if (callId && signatures[callId]) part.thoughtSignature = signatures[callId];
+            parts.push(part);
           }
         }
         appendContent(contents, 'model', parts);
@@ -357,6 +376,12 @@
                 toolIndexOf.set(keyOf, idx);
                 sawToolCall = true;
                 yield { type: 'tool_start', index: idx, id: part.functionCall.id || ('call_' + idx), name: part.functionCall.name || '' };
+              }
+              // The part's thoughtSignature MUST come back on this call's functionCall part next turn (Gemini 3
+              // rejects the whole request without it). Parked as an opaque reasoning block keyed by the same call
+              // id tool_start published; messagesToGemini() reattaches it on replay.
+              if (typeof part.thoughtSignature === 'string' && part.thoughtSignature) {
+                yield { type: 'reasoning', block: { type: 'gemini_tool_signature', callId: part.functionCall.id || ('call_' + idx), signature: part.thoughtSignature } };
               }
               if (part.functionCall.args != null) { yield { type: 'tool_args', index: idx, chunk: argsStr }; if (hasArgs) argsSentFor.add(idx); }
               yield { type: 'tool_done', index: idx };
