@@ -182,6 +182,27 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   A.eq(l6.record({ pid: -4, cmd: 'x' }), null, 'negative pid refused');
   A.eq(l6.list().length, 0, 'nothing recorded from bad pids');
 
+  // ---- 7. cap pressure evicts PROVABLY-DEAD receipts, never the long-lived dev server at the front ----
+  // slice(-MAX) used to drop the EARLIEST receipts — exactly the hour-old dev server the boot sweep needs
+  // after a force-kill — while keeping the tail's short-lived churn.
+  {
+    const file7 = path.join(dir, 'l7.json');
+    // pid 1000 (the "dev server", recorded FIRST) is alive; pids 1001-1010 (early churn) are dead.
+    const aliveSet = new Set([1000]);
+    for (let p = 1011; p <= 1105; p++) aliveSet.add(p);
+    const l7 = makeProcLedger({
+      fs, pathMod: path, file: file7, clock,
+      probe: async (pids) => { const m = new Map(); for (const p of pids.map(Number)) if (aliveSet.has(p)) m.set(p, { cmd: 'x', created: 1 }); return m; },
+      killTree: async () => {}
+    });
+    for (let p = 1000; p <= 1105; p++) l7.record({ pid: p, cmd: p === 1000 ? 'npm run dev' : 'quick task ' + p, kind: 'shell.bg' });
+    await new Promise(r => setTimeout(r, 30));   // let the async pressure prune land
+    const pids7 = l7.list().map(r => r.pid);
+    A.ok(pids7.includes(1000), 'the oldest LIVE receipt (the dev server) survives cap pressure');
+    A.ok(!pids7.includes(1001), 'a provably-dead early receipt is the one evicted');
+    A.ok(pids7.length <= 101, 'the ledger stays near its cap after pruning (' + pids7.length + ')');
+  }
+
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
   A.report('procledger.test');
 })().catch(e => { console.error(e); process.exit(1); });
