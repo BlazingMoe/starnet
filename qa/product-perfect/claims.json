@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "ac65b4139c74e19147ac03e672b8f5a875aaec23",
+    "sourceCommit": "3ecda4cad8f0073a97e9f6652b4337bc47f2719d",
     "pathSetSha256": "4a4d5044dc5f1a8aa7e16d752bd899dc2b027dcd621bea4ae61df6a29d6a6912",
     "files": [
       {
@@ -128,8 +128,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 361242,
-        "sha256": "dd7a5cd16e42d2c4c97f9f717d66fc0e19e734925144ef5346bc957f75b67e6e"
+        "bytes": 361922,
+        "sha256": "5916ed19a01d7d7c868e52426da939d0c2286ce1d5f45da1211f2702b026080f"
       },
       {
         "path": "frontend/app/channels.js",
@@ -378,8 +378,8 @@
       },
       {
         "path": "frontend/app/marketplace.js",
-        "bytes": 263096,
-        "sha256": "dff8ad86e8f74d49bf21d78d43d152a08aee73253d9d8176c518690670f9ce36"
+        "bytes": 263860,
+        "sha256": "1c8f271f2a6759ad68a66d9e3638a85db574cac687a12964cb85a94666811881"
       },
       {
         "path": "frontend/app/mint.js",
@@ -913,8 +913,8 @@
       },
       {
         "path": "frontend/app/windows/routines.js",
-        "bytes": 50480,
-        "sha256": "1ce5be796d434b5f3ea3f5e380a076c56b43c779c038df97a64785023f060e77"
+        "bytes": 52847,
+        "sha256": "2516369764ae0189a599bc2f2dfd4c8507f71fe251a57c8a1700ae6445edd219"
       },
       {
         "path": "frontend/app/windows/trophies.js",
