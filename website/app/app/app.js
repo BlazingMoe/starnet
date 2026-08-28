@@ -3018,6 +3018,9 @@ const App = (() => {
     // model) the ranking consults; every step of it fails open, so a cold or unreachable ledger simply leaves the
     // spine ranking exactly as it did before this existed.
     if (typeof RecLedger !== 'undefined') RecLedger.init({ now: () => Date.now() });
+    // ENVIRONMENT DISCOVERY: the bay's read of the sidecar's blessed-roots scan shelf (findings whose citations
+    // are the repo's own lines). Fail-open like its siblings — no server read yet means no shelf, never a guess.
+    if (typeof DiscoveryStore !== 'undefined') DiscoveryStore.init({ now: () => Date.now() });
     // QUEST MEMORY (G1a): durable quest state — firstSeenAt/completedAt per quest + dismissed-forever — and
     // the open→done completion celebration (quest sting + gold toast + row flourish; NEVER XP). Self-persists
     // to its own key. Init AFTER XpStore/DossierStore so its first fold sees the real projection as a quiet

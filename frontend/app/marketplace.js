@@ -725,6 +725,10 @@ const Marketplace = (() => {
     const ready = readyShelfHTML();
     html += ready;
     if (!ready) html += forYouShelfHTML();
+    // FOUND ON YOUR PROJECTS — the environment-discovery shelf: findings the sidecar read out of the
+    // Commander's own blessed repos (the citation is the code's own line, no model involved). Sits below the
+    // recommendation row: it proposes CHORES the code already names, not what to run next.
+    if (!filtering) html += discoveryShelfHTML();
 
     const builtins = filtRecipes(Recipes.builtins());
     const customs = filtRecipes(Recipes.customs());
@@ -1910,6 +1914,36 @@ const Marketplace = (() => {
         (reason ? '<div class="mkt-slog-reason">' + esc(reason) + '</div>' : '') +
       '</div></div>';
   }
+  /* ---------- FOUND ON YOUR PROJECTS: the environment-discovery shelf ----------
+     The first surface where the station proposes work the Commander never typed. Every card's FOUND line is the
+     repo's own text (a TODO marker, the porcelain status), read from a BLESSED root by the sidecar's bounded
+     scan — nothing is model-authored, so nothing can be invented. Renders '' until a real server read lands
+     (the scoutColdState law: the frontend may not assert discovery state it can't prove) and '' when the shelf
+     is empty — discovery earns its section with real cards, it never sits as furniture. */
+  function discoveryFindings() {
+    try { return (typeof DiscoveryStore !== 'undefined' && DiscoveryStore.findings) ? (DiscoveryStore.findings() || []) : []; } catch (_) { return []; }
+  }
+  function discoveryShelfHTML() {
+    if (catFilter !== 'all' || query) return '';
+    const rows = discoveryFindings();
+    if (!rows.length) return '';
+    const deep = rows.length > 3 ? ' mkt-rail-deep' : '';
+    return '<div class="mkt-sect-h mkt-suggest-sect">🔭 FOUND ON YOUR PROJECTS — in the code’s own words</div><div class="mkt-rec-rail' + deep + '">' +
+      rows.map(discoveryCardHTML).join('') + '</div>';
+  }
+  function discoveryCardHTML(f) {
+    const base = (String(f.displayPath || f.root || '').split(/[\\/]+/).filter(Boolean).pop()) || '';
+    return '<div class="mkt-rec mkt-prospect mkt-disc" data-disc="' + esc(f.id) + '">' +
+      '<div class="mkt-rec-top"><span class="mkt-prospect-glyph" aria-hidden="true">' + (f.kind === 'wip' ? '🔧' : '🔭') + '</span>' +
+        '<div class="mkt-rec-id"><div class="mkt-rec-name">' + esc(f.title) + '</div>' +
+          '<div class="mkt-rec-tag">' + esc(base) + '</div></div></div>' +
+      '<div class="mkt-rec-why"><span class="mkt-rec-why-k">FOUND</span> ' + esc(f.quote) + '</div>' +
+      '<div class="mkt-prospect-prov">◇ read from your blessed project — nothing runs without your word</div>' +
+      '<div class="mkt-prospect-acts"><button class="bb sm mkt-disc-take" data-disc="' + esc(f.id) + '">▸ HAND IT TO THE CREW</button>' +
+        '<button class="bb sm mkt-disc-dismiss" data-disc="' + esc(f.id) + '" aria-label="dismiss this finding forever" title="dismiss forever — this exact finding won’t come back">✕</button></div>' +
+    '</div>';
+  }
+
   // a station-drafted recipe card — same card family as the prospect shelf (glyph + WHY + provenance + arm-confirmed
   // dismiss), because it makes the same promise: drafted from YOUR observed work, never saved without your review.
   function scoutRecipeCardHTML(p) {
@@ -2350,6 +2384,32 @@ const Marketplace = (() => {
         ArmConfirm.wire(b, { armedLabel: 'DISMISS FOREVER?', restLabel: '✕', timeoutMs: 4000, onConfirm: confirmDismiss });
       } else {
         b.addEventListener('click', () => armDelete(b, '✕', confirmDismiss, 'DISMISS FOREVER?'));
+      }
+    });
+    /* DISCOVERY findings: HAND IT posts the accepted verdict and PREFILLS the COMMS composer with a directive
+       that carries the finding's own citation — NOTHING auto-runs, the Commander edits and hits send
+       (Chat.prefill only scaffolds; the resummon law verbatim). Dismiss denylists the fingerprint server-side
+       forever → arm/confirm, same weight as the scout's. */
+    sc.querySelectorAll('.mkt-disc-take').forEach(b => b.addEventListener('click', () => {
+      const f = (typeof DiscoveryStore !== 'undefined' && DiscoveryStore.get) ? DiscoveryStore.get(b.dataset.disc) : null;
+      if (!f) { renderStage(); return; }
+      sfx('click');
+      try { if (DiscoveryStore.decide) DiscoveryStore.decide(f.id, 'accept'); } catch (_) {}
+      const dir = 'In my project ' + String(f.displayPath || f.root) + ' — ' + String(f.title) +
+        ' (the scan found: "' + String(f.quote) + '"). Take care of it.';
+      try { if (typeof Chat !== 'undefined' && Chat.prefill) Chat.prefill(dir); } catch (_) {}
+      renderStage();
+    }));
+    sc.querySelectorAll('.mkt-disc-dismiss').forEach(b => {
+      const confirmDiscDismiss = () => {
+        sfx('close');
+        try { if (typeof DiscoveryStore !== 'undefined' && DiscoveryStore.decide) DiscoveryStore.decide(b.dataset.disc, 'dismiss'); } catch (_) {}
+        renderStage();
+      };
+      if (typeof ArmConfirm !== 'undefined' && ArmConfirm.wire) {
+        ArmConfirm.wire(b, { armedLabel: 'DISMISS FOREVER?', restLabel: '✕', timeoutMs: 4000, onConfirm: confirmDiscDismiss });
+      } else {
+        b.addEventListener('click', () => armDelete(b, '✕', confirmDiscDismiss, 'DISMISS FOREVER?'));
       }
     });
   }
