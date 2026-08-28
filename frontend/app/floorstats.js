@@ -88,6 +88,11 @@
         if (p.workitemId && t) placedAt.set(p.workitemId, t);
         if (t) { inRing.push(t); prune(inRing, t); }
       } else if (name === 'workitem.delivered') {
+        // A routing-line PROOF dispatch (POST /api/routing/sample) marks itself sample:true precisely so
+        // consumers can tell a test from customer work — folding it into delivered/items-min told the
+        // Commander their five test presses were five real deliveries. The crate still rides the belt
+        // (workitem.placed is unmarked visual truth); only the throughput telemetry skips it.
+        if (p.sample) { if (p.workitemId) placedAt.delete(p.workitemId); return; }
         s.delivered++;
         if (t) { outRing.push(t); prune(outRing, t); }
         // DWELL: time this work-item spent riding the line, paired by workitemId to its placement.
