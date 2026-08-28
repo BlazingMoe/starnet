@@ -552,7 +552,14 @@
         if (sched.kind === 'interval') {
           const p = periodMs(sched);
           if (p <= 0) continue;
-          nextAt = dueAt + (Math.floor(lateness / p) + 1) * p;
+          /* RE-ANCHOR AFTER A TRANSIENT RETRY: markRun's backoff rewinds nextRunAt to now+backoff so the
+             SAME occurrence retries — but advancing from that instant phase-shifted the interval
+             PERMANENTLY (+backoff per transient failure, compounding forever; the header's own no-walk
+             promise). retryAnchorAt (stamped by the backoff, cleared on terminal settlement) preserves
+             the occurrence the schedule had already advanced to; the interval advances from IT. */
+          const ra = job.retryAnchorAt ? Date.parse(job.retryAnchorAt) : NaN;
+          const anchor = isFinite(ra) ? ra : dueAt;
+          nextAt = anchor > now ? anchor : anchor + (Math.floor((now - anchor) / p) + 1) * p;
         } else {
           nextAt = nextRecurringAt(sched, now, defaultTz);
         }
@@ -567,8 +574,10 @@
         if (sched.kind === 'interval') {
           const p = periodMs(sched);
           if (p <= 0) continue;
-          const periods = Math.floor(lateness / p) + 1;        // smallest k with dueAt + k*p > now
-          nextAt = dueAt + periods * p;
+          // same retry re-anchor as the on-time branch above — a stale backoff instant is not the schedule
+          const ra = job.retryAnchorAt ? Date.parse(job.retryAnchorAt) : NaN;
+          const anchor = isFinite(ra) ? ra : dueAt;
+          nextAt = anchor > now ? anchor : anchor + (Math.floor((now - anchor) / p) + 1) * p;   // smallest k with anchor + k*p > now
         } else if (isRecurring(sched)) {
           nextAt = nextRecurringAt(sched, now, defaultTz);
         }

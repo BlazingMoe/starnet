@@ -138,6 +138,14 @@ const iso = cron._internals.iso;
   A.eq(j.repeat.completed, 0, 'transient failure does NOT increment completed');
   A.eq(j.nextRunAt, iso(failAt + 90000), 'transient failure backs off to now + backoff');
   A.eq(j.state, 'error', 'transient failure is visible as error (still scheduled)');
+  // PHASE-SHIFT GUARD: the backoff rewinds nextRunAt, but the SCHEDULE's own occurrence must survive it —
+  // advancing the interval from the backoff instant walked an hourly routine +90s per transient, forever.
+  A.eq(j.retryAnchorAt, iso(failAt), 'the anchored occurrence survives the backoff rewind');
+  const plan = cron.dueJobs([j], failAt + 90000);
+  const adv = plan.advanced.find(n => n.jobId === 't1');
+  A.eq(adv && adv.nextAt, T0 + 2 * HOUR, 'the retry advance lands back on the interval GRID, not backoff+period');
+  jobs = store.markRun(jobs, 't1', { runId: 'r2', status: 'ok', reason: 'done' }, { now: failAt + 91000 });
+  A.eq(store.getJob(jobs, 't1').retryAnchorAt, null, 'a settled occurrence drops the retry anchor');
 }
 
 // ---- 10. transient retries are BOUNDED: after maxRetries it finalizes ----

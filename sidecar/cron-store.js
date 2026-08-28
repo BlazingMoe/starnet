@@ -483,6 +483,11 @@
       // transient failure with retries left: back off, stay eligible, do NOT finalize the occurrence.
       if (!ok && result.transient && (job.retryCount || 0) < maxRetries) {
         next.retryCount = (job.retryCount || 0) + 1;
+        // Preserve the ANCHORED occurrence before rewinding to the backoff instant: planTick advances an
+        // interval from its due instant, and anchoring on `now+backoff` phase-shifted the schedule
+        // permanently (+backoff per transient). The first transient of this occurrence stamps the anchor
+        // (nextRunAt still holds the advance-before-run value); later retries keep the original.
+        next.retryAnchorAt = job.retryAnchorAt || job.nextRunAt || null;
         next.nextRunAt = iso(now + backoffMs);
         next.state = 'error';                  // visible as failing-and-retrying, but still scheduled to fire
         return next;
@@ -498,6 +503,7 @@
         destination: String(job.deliver || 'local'), committedAt: iso(now), attempts: 0
       };
       next.retryCount = 0;
+      next.retryAnchorAt = null;   // the occurrence is settled — the retry re-anchor must not outlive it
       // CONSECUTIVE-FAILURE COUNTER (durable): terminal failures in a row; any ok/silent settlement resets it.
       next.consecutiveFailures = ok ? 0 : ((Number(job.consecutiveFailures) || 0) + 1);
       next.lastRunAt = iso(now);
