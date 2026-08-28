@@ -112,7 +112,7 @@
       const finalUsd = overageUsd > 0 ? rec.reservedUsd : rec.pendingUsd;
       // The overage must leave a trace SOMEWHERE the moment it happens — the return value alone proved to
       // be a trace nobody reads (every production caller discards it), so an absorbed overage was invisible.
-      if (overageUsd > 0) { try { console.warn('[billing] managed run ' + runId + ' over cap: reported $' + rec.pendingUsd.toFixed(4) + ' vs reserved $' + rec.reservedUsd.toFixed(4) + ' — charging the reservation; $' + overageUsd.toFixed(4) + ' overage absorbed'); } catch (_) {} }
+      if (overageUsd > 0) console.warn('[billing] managed run ' + runId + ' over cap: reported $' + rec.pendingUsd.toFixed(4) + ' vs reserved $' + rec.reservedUsd.toFixed(4) + ' — charging the reservation; $' + overageUsd.toFixed(4) + ' overage absorbed');
 
       if (ledger && (typeof ledger.recordStrict === 'function' || typeof ledger.record === 'function') && !rec.recorded) {
         try {
