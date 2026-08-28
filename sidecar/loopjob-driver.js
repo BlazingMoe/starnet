@@ -349,8 +349,14 @@
         }
         return launch(ctx.text || '');
       }).catch((e) => {
-        try { leases.delete(loop.id); } catch (_) {}
+        // SETTLE, never just drop the in-memory lease: by now claimFire + startIteration are PERSISTED and
+        // trackRun has lit the agent. Deleting only the lease left the durable fireClaim reading in-flight
+        // for the full staleMs on every tick, the iteration row 'running' forever, and the orphaned
+        // runsMeta entry keeping the agent posed at its desk — then reconcileBoot paused the loop for an
+        // "interrupted" iteration that never launched. settle() clears all three (and untracks the run).
         note('decline', fresh, { runId: runId, reason: 'context-threw', binding: 'internal', detail: { err: String((e && e.message) || e).slice(0, 200) } });
+        try { settle(loop.id, runId, { status: 'error', error: 'iteration failed before launch: ' + ((e && e.message) || e) }); }
+        catch (_) { try { leases.delete(loop.id); } catch (__) {} }
       });
       return true;
 
