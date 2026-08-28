@@ -1449,6 +1449,11 @@
         sfx('click');
         let n = 0, fails = 0; clearInterval(pollTimer);
         pollTimer = setInterval(async () => {
+          // Panel closed -> stop. Without this the poll outlived the window for its full ~120s
+          // (writing status into a detached tree, notifying from a dead panel), and a re-opened
+          // panel's fresh CONNECT couldn't clear it (new closure, new pollTimer) — two live polls.
+          // Same law as the connector-card poll above (stopCcPoll on !contains(body)).
+          if (!document.body.contains(body)) { clearInterval(pollTimer); return; }
           // E6d: guard the poll body so a throw can't leak an unhandled rejection AND never stops the timer.
           // Count consecutive failures toward an EARLY bail so a persistently-broken poll gives up instead of
           // spinning the full ~120s window; a success resets the streak.

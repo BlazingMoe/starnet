@@ -37,6 +37,18 @@ const total = rs => rs.reduce((a, r) => a + (typeof r.content === 'string' ? r.c
   A.eq(out.map(r => r.content.length), [50000, 50000, 50000, 50000], 'four equally large results get an equal share');
 }
 
+// ---- WIDE PARALLEL BATCH: shares smaller than the explanatory note must still respect the cap ----
+// squeeze() used to return the full ~330-char note whenever the share couldn't hold it, so a 900-result
+// batch of 250-char outputs "clamped" 225k of input into 297k of output — 48% OVER the cap it was
+// enforcing, with 100% of every result's content destroyed. The short marker must FIT the share.
+{
+  const rs = []; for (let i = 0; i < 900; i++) rs.push(mk('c' + i, 250));
+  const out = applyTurnBudget(rs, 200000);
+  A.ok(total(out) <= 200000, 'a wide batch of small results lands UNDER the cap (was 297k for a 200k cap)');
+  A.ok(out.every(r => r.content.length <= 250), 'no squeezed result GREW past its original content');
+  A.ok(out.every(r => /elided/.test(r.content)), 'each clamped result still carries an elision marker');
+}
+
 // ---- the note survives a SECOND clamp, and still points at the parked file ----
 {
   const out = applyTurnBudget([mk('p', 300000, 'parked/out-1.log'), mk('q', 300000)], 200000);

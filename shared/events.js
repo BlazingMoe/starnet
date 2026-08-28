@@ -22,7 +22,12 @@
   const EVENTS = {
     // ---- agent runtime (frozen) ----
     'agent.run.start': obj(['agentId', 'runId', 'trigger', 'model'], {
-      agentId: str, runId: str, trigger: { enum: ['directive', 'schedule', 'event'] }, model: str
+      // ADDITIVE WIDENING (2026-08-28, bug-sweep): 'loop' (loopjob-driver) and 'nightshift' (nightshift
+      // beats) are triggers the sidecar has emitted for months, but the frozen enum rejected them — every
+      // validating emitter (cronEmit tee, /api/nightshift/beat NDJSON) silently DROPPED those runs'
+      // start events, so the floor saw a loop iteration's middle and end but never its beginning (no work
+      // pose, no product crate). Enum values only added, never renamed/removed.
+      agentId: str, runId: str, trigger: { enum: ['directive', 'schedule', 'event', 'loop', 'nightshift'] }, model: str
     }),
     'agent.reasoning': obj(['agentId', 'runId', 'on'], { agentId: str, runId: str, on: bool }),
     'agent.token': obj(['agentId', 'runId', 'delta'], { agentId: str, runId: str, delta: str }),

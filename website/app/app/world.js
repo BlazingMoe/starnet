@@ -1187,6 +1187,15 @@ const World = (() => {
        and stack forever (every other handler is cv-scoped and dies with the replaced node). */
     document.addEventListener('visibilitychange', () => { if (!document.hidden) lastProbeAt = 0; });
     window.addEventListener('focus', () => { lastProbeAt = 0; });
+    /* STUCK CAMERA DRAG: a press dragged past the canvas edge and released elsewhere never delivers
+       cv's mouseup, so `drag` survived — the bare cursor then panned the camera on every crossing and
+       the next real click was swallowed as a "drag" (drag.moved was already true). Same class build.js
+       already fixed with releaseDrag()/blur; the stage never got it. Window/document-level, so these
+       live HERE in the one-time block — wireStageInput is locked to cv-only binds by ratchet. */
+    const releaseStageDrag = () => { if (!drag) return; drag = null; if (cv) cv.style.cursor = 'default'; };
+    window.addEventListener('mouseup', releaseStageDrag);
+    window.addEventListener('blur', releaseStageDrag);
+    document.addEventListener('pointercancel', releaseStageDrag);
     connectChannelBridge();   // open the SSE bridge so real inbound work animates as boxes on the belts
     pollFeedState();          // feed truth (channels/cron) for the NO FEED intake nag — server-proven, refreshed slowly
     pollShipStats();          // SHIPPED TODAY truth (completed runs since local midnight) — reload-proof
@@ -7229,8 +7238,20 @@ const World = (() => {
      state. noteRunEnd is IDEMPOTENT per runId (Set.delete), so every run.end consumer can call it and read
      the remaining count without depending on listener registration order. */
   const liveRunsByAgent = new Map();   // agentId -> Map(runId -> lastSeen ms), every live run regardless of trigger
-  function noteRunStart(aid, rid) { if (!aid || !rid) return; let s = liveRunsByAgent.get(aid); if (!s) { s = new Map(); liveRunsByAgent.set(aid, s); } s.set(rid, (typeof performance !== 'undefined') ? performance.now() : fnow); }
+  /* SNAPSHOT/EVENT RACE NET: a /api/state/snapshot response captured BEFORE a run ended can land AFTER the
+     run.end event already cleared it locally. reconcileFromSnapshot would then read that run as an ORPHAN
+     (liveRunsByAgent no longer tracks it) and re-light the agent — sat back down, "working…", WORKING badge —
+     for up to a full poll interval, for a run the harness already proved finished. Remember locally-observed
+     ends briefly so a stale snapshot can never resurrect one. */
+  const recentRunEnds = new Map();     // runId -> performance.now() at the locally-observed run.end
+  const RECENT_END_TTL_MS = 90000;     // outlives any in-flight snapshot (30s poll + response latency) with margin
+  function noteRunStart(aid, rid) { if (!aid || !rid) return; recentRunEnds.delete(rid); let s = liveRunsByAgent.get(aid); if (!s) { s = new Map(); liveRunsByAgent.set(aid, s); } s.set(rid, (typeof performance !== 'undefined') ? performance.now() : fnow); }
   function noteRunEnd(aid, rid) {
+    if (rid) {
+      const now = (typeof performance !== 'undefined') ? performance.now() : fnow;
+      recentRunEnds.set(rid, now);
+      for (const [k, t] of recentRunEnds) if (now - t > RECENT_END_TTL_MS) recentRunEnds.delete(k);   // cheap prune — the map only ever holds a poll window's worth of ends
+    }
     const s = aid ? liveRunsByAgent.get(aid) : null; if (!s) return 0;
     if (rid) s.delete(rid); else s.clear();   // a runId-less end can't be matched — treat it as agent-terminal (old behavior)
     if (!s.size) liveRunsByAgent.delete(aid);
@@ -7305,6 +7326,10 @@ const World = (() => {
       const live = new Set();
       for (const r of snap.activeRuns) {
         if (!r || !r.agentId) continue;
+        // A snapshot captured before this run ended still lists it; the locally-observed run.end is the
+        // NEWER truth. Skipping it (before live.add) both refuses the orphan re-light and lets the
+        // ended-during-outage branch below clear the agent's clock if this was its only run.
+        if (r.runId && recentRunEnds.has(r.runId)) continue;
         live.add(r.agentId);
         const startedAgo = Math.max(0, +r.startedMsAgo || 0);
         if (!runStartByAgent.has(r.agentId)) runStartByAgent.set(r.agentId, now - startedAgo);

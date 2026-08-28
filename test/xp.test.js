@@ -31,7 +31,10 @@ const edit = () => feedback(1, 'edited');
 const discard = () => feedback(-1, 'discarded');
 const helpful = () => feedback(2, 'helpful');
 const unhelpful = () => feedback(-1, 'unhelpful');
-const toolOk = runId => ({ name: 'agent.tool_result', payload: { agentId: 'a', runId, callId: 'c', ok: true, isError: false } });
+// Every real tool call carries a UNIQUE callId; xp dedupes on it (the hero page re-emits the harness's
+// authoritative tool_result with the resolved name attached, so each result reaches the bus twice).
+let _toolSeq = 0;
+const toolOk = runId => ({ name: 'agent.tool_result', payload: { agentId: 'a', runId, callId: 'c' + (++_toolSeq), ok: true, isError: false } });
 const delivered = () => ({ name: 'workitem.delivered', payload: { agentId: 'a', workitemId: 'w', finalQueueId: 'q' } });
 
 // ---- the curve: cumulative XP to REACH level n = 25*n*(n-1) ----
@@ -231,6 +234,20 @@ A.eq(ts.xp, 0, '15 tool successes still award 0 xp');
 A.eq(ts.samples, 0, 'tool results carry no satisfaction sample');
 A.eq(ts.confidence, 50, 'tool results never move confidence');
 A.eq(ts.counters.toolsOk, 15, 'tool successes still update operational counters (a real tool_result IS proof — committed immediately, never buffered)');
+
+// ---- the DOUBLE-EMIT dedupe: the same callId reaching the bus twice counts ONCE ----
+// chat.js re-emits the harness's authoritative tool_result with the resolved tool name attached, so every
+// interactive result arrives twice. Before dedupe the second (runId-less) copy also reset the per-run
+// buffer via freshRun(undefined), permanently wiping buffered memory-reuse credit.
+{
+  let dd = Xp.fresh();
+  dd = Xp.applyEvent(dd, { name: 'memory.used', payload: { agentId: 'a', runId: 'rd' } }).stats;
+  dd = Xp.applyEvent(dd, { name: 'agent.tool_result', payload: { agentId: 'a', runId: 'rd', callId: 'dup1', ok: true, isError: false } }).stats;
+  dd = Xp.applyEvent(dd, { name: 'agent.tool_result', payload: { agentId: 'a', runId: 'rd', callId: 'dup1', ok: true, isError: false, name: 'fs_read' } }).stats;
+  A.eq(dd.counters.toolsOk, 1, 'the re-emitted copy of the same callId does not double-count toolsOk');
+  dd = Xp.applyEvent(dd, { name: 'agent.run.end', payload: { agentId: 'a', runId: 'rd', reason: 'done', turns: 1, usd: 0 } }).stats;
+  A.eq(dd.counters.memReused, 1, 'buffered memory-reuse credit survives the duplicate and commits at run end');
+}
 
 // ---- expanded milestone table ----
 // memWrites / delivered stay IMMEDIATE (the write/delivery event is itself proof of the real action) — only
