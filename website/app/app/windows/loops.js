@@ -563,12 +563,20 @@
       if (t.needsProject && !extra.workdir) { sfx('bad'); msgEl.innerHTML = '<span style="color:var(--bad)">this shape needs a project folder</span>'; return; }
       pickedDir = extra.workdir; dailyCap = extra.perDayUsd;
 
+      /* IN-FLIGHT GUARD: START awaits bless -> testcheck -> POST /api/loops (~1s). Unguarded, a double-
+         click created TWO paid loops — and the second click could also satisfy the preflight's own
+         "press START again to go ahead anyway" arm on a SINGLE intent. Held for the whole sequence. */
+      const startBtn = body.querySelector('#lp-create');
+      if (startBtn && startBtn.disabled) return;
+      if (startBtn) startBtn.disabled = true;
+      const releaseStart = () => { if (startBtn) startBtn.disabled = false; };
+
       msgEl.textContent = 'starting…';
       if (extra.workdir) {
         try {
           const b = await (await post('/api/projects/bless', { path: extra.workdir, surface: 'interactive' })).json();
-          if (!b || !b.ok) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc((b && b.reason) || 'that folder could not be approved') + '</span>'; sfx('bad'); return; }
-        } catch (_) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ could not reach the station</span>'; sfx('bad'); return; }
+          if (!b || !b.ok) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc((b && b.reason) || 'that folder could not be approved') + '</span>'; sfx('bad'); releaseStart(); return; }
+        } catch (_) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ could not reach the station</span>'; sfx('bad'); releaseStart(); return; }
       }
 
       /* THE CHECK PRE-FLIGHT, now automatic. It used to be a TEST button, which asked the user to know to
@@ -592,6 +600,7 @@
             msgEl.innerHTML = '<span style="color:var(--gold)">⚠ ' + esc(warn) + '</span>' +
               '<span class="dim"> — fix it above, or press START again to go ahead anyway.</span>';
             sfx('bad');
+            releaseStart();
             return;
           }
         } catch (_) { /* the pre-flight is a courtesy; never block creation on a station hiccup */ }
@@ -601,7 +610,7 @@
       const spec = tpl.buildSpec(t, values, Object.assign({}, extra, { provider: provider, workdir: extra.workdir || undefined }));
       try {
         const r = await (await post('/api/loops', spec)).json();
-        if (r && r.error) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc(r.error) + '</span>'; sfx('bad'); return; }
+        if (r && r.error) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc(r.error) + '</span>'; sfx('bad'); releaseStart(); return; }
         msgEl.textContent = '';
         notify('loop started — it runs until ' + (t.rigor === 'hard' ? 'your check passes' : 'it stops finding things'), 'good');
         sfx('click');
@@ -611,6 +620,7 @@
         const tab = body.querySelector('#con-tab-automation-loops'); if (tab) tab.click();
         refresh();
       } catch (e) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc((e && e.message) || 'could not reach the station') + '</span>'; sfx('bad'); }
+      releaseStart();
     }
     body.querySelector('#lp-create').addEventListener('click', createLoop);
     shapeCards(); renderForm(); refresh();
