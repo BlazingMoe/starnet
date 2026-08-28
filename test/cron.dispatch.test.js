@@ -132,9 +132,15 @@ function intervalJob(id, everyStr) {
     s.clock.set(T0 + 3600000 + 480001);
     s.driver.applyTick(s.clock.now());
     A.eq(run1.opts.signal.aborted, true, 'the sweep aborted the zombie run');
+    // bug-sweep 2026-08-28: the SWEEP now records the reclaim as a transient failure (the hang is durable
+    // on the record — before this a reclaimed one-shot re-executed forever and a hanging recurring routine
+    // never advanced toward auto-disable). The FENCE property this block guards is unchanged: the reclaimed
+    // run's OWN late settle writes nothing beyond the sweep's record.
+    const afterSweep = s.getJob('a1');
+    A.eq(afterSweep.lastRunId, 'run-1', 'the sweep records the reclaim against the zombie run id');
+    A.eq(afterSweep.lastStatus, 'error', 'the reclaim is durable as a failed (transient) run');
     run1.reject(new Error('aborted')); await flush();
-    A.eq(s.getJob('a1').lastRunId, null, 'a reclaimed run\'s rejection never writes the job record');
-    A.eq(s.getJob('a1').lastStatus, null, 'no phantom error status from a fenced settle');
+    A.eq(s.getJob('a1'), afterSweep, 'the reclaimed run\'s rejection writes NOTHING further (generation fence holds)');
   }
 
   // ---- 4. DATA PLANE: upstream context reaches the model and completion gets the final reply once. ----

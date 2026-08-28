@@ -436,4 +436,38 @@ const iso = cron._internals.iso;
     { monitorHash: 'sha256:new', note: 'x'.repeat(8000), blocked: null }, 'monitor and isolated scratch state survive restart loading');
 }
 
+// ---- SETTLED ONE-SHOT HONESTY (bug-sweep 2026-08-28) ----
+// resumeJob must NOT re-arm a completed one-shot: planTick permanently rejects it on lastRunAt, so the old
+// re-arm promised "scheduled · next <past>" about a fire that could never happen. An explicit NEW once
+// schedule via updateJob IS a fresh commitment and re-arms honestly.
+{
+  const sched = cron.parseSchedule('in 1m', T0);
+  let jobs = store.createJob([], { id: 'os1', name: 'one', prompt: 'p', schedule: sched }, { id: 'os1', now: T0 });
+  jobs = store.markRun(jobs, 'os1', { runId: 'r1', status: 'ok', reason: 'done', output: 'done!' }, { now: T0 + MIN });
+  A.eq({ enabled: jobs[0].enabled, state: jobs[0].state }, { enabled: false, state: 'completed' }, 'the one-shot settled');
+
+  const resumed = store.resumeJob(jobs, 'os1', { now: T0 + HOUR });
+  A.eq(resumed[0], jobs[0], 'resumeJob leaves a settled one-shot untouched (no dead "scheduled" promise)');
+
+  const fresh = cron.parseSchedule('in 2h', T0 + HOUR);
+  let regened = store.updateJob(jobs, 'os1', { schedule: fresh }, { now: T0 + HOUR });
+  A.eq(regened[0].lastRunAt, null, 'an explicit NEW once schedule clears the settled bar (fresh commitment)');
+  A.eq(regened[0].fireClaim, null, 'the old fire-claim cannot suppress the new commitment');
+  A.eq(regened[0].state, 'paused', 'still disabled -> honestly paused (re-armable), never a stale completed');
+  regened = store.resumeJob(regened, 'os1', { now: T0 + HOUR });
+  A.eq(regened[0].enabled, true, 'resume after a real reschedule re-arms');
+  A.eq(regened[0].nextRunAt, iso(T0 + HOUR + 2 * HOUR), 'and the new time is the one that arms');
+  A.eq(cron.planTick(regened, T0 + HOUR + 2 * HOUR + 1).fire.length, 1, 'planTick fires the recommitted one-shot');
+}
+
+// ---- armAt NaN safety (bug-sweep 2026-08-28): a corrupt schedule arms to null, never throws iso(NaN) ----
+{
+  const bad = { kind: 'interval', minutes: NaN, display: 'every NaN' };
+  let jobs = store.createJob([], { id: 'nn1', name: 'n', prompt: 'p', schedule: bad }, { id: 'nn1', now: T0 });
+  A.eq(jobs[0].nextRunAt, null, 'a NaN-period schedule arms to null instead of throwing');
+  const resumed = store.resumeJob(jobs, 'nn1', { now: T0 + MIN });
+  A.eq(resumed[0].nextRunAt, null, 'resume over the corrupt schedule also arms to null, no throw');
+  A.eq(cron.isFireable(bad), false, 'isFireable now rejects the schedule (visible as unfireable, not idle-forever)');
+}
+
 A.report('cron-store');

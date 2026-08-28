@@ -372,4 +372,35 @@ A.ok(/label: 'STILL TRUE'/.test(cardBody), 'the label is unpunctuated like every
 A.ok(/recAccept\('recruit', '', false\);/.test(A.fnBody(chatSrc, 'function maybeRecruit(')),
   'recruitment records its accept (it had a real accept path and folded nothing, drifting down against channels that do)');
 
+/* ── 12. THE OUTCOME FORWARD (dead-wires lane, 2026-08-28): each attributed outcome ALSO reaches the durable
+   ledger, so the server's replay() quality term stops being structurally zero for the spine and the earned
+   record survives the browser profile. The forward is injectable; the fake below records what crosses it. ── */
+{
+  const settles = [];
+  const fakeLedger = { settle: (ch, outcome, runId) => { settles.push(ch + '/' + outcome + '/' + (runId || '')); } };
+  S.init({ now: () => CLOCK, recLedger: fakeLedger });
+  S.noteAccept({ channel: 'seed', dim: '', spawnsWork: true, id: 'seed-1' });
+  S.claimForRun('run-f1', 'agent');
+  bus.emit('agent.run.end', { runId: 'run-f1', reason: 'error' });
+  A.eq(settles.length, 0, 'an interrupted run forwards nothing — the ledger hears exactly what the EWMA folds');
+  bus.emit('agent.run.end', { runId: 'run-f1', reason: 'done' });
+  A.eq(settles.join('|'), 'seed/completed/run-f1', 'a clean finish crosses to the durable ledger with its run');
+  S.noteVerdict('run-f1', 'great');
+  A.eq(settles.join('|'), 'seed/completed/run-f1|seed/great/run-f1', 'so does the Commander’s own verdict');
+  S.noteDecline({ channel: 'seed' }, false);
+  A.eq(settles.length, 2, 'a card decline does NOT cross here — that is the verdict path’s wire, not an outcome');
+  // an accept whose run never came forwards the drop signal so the ledger can release the awaiting row
+  S.noteAccept({ channel: 'routine', dim: '', spawnsWork: true, id: 'r-1' });
+  CLOCK += 10 * 60 * 1000;
+  S.claimForRun('run-f2', 'agent');
+  A.eq(settles.slice(-1)[0], 'routine/deferred/', 'an expired accept forwards `deferred` (the row must not wait forever)');
+  // and a null injection silences the forward entirely (the node default), fail-open
+  const n = settles.length;
+  S.init({ now: () => CLOCK, recLedger: null });
+  S.noteAccept({ channel: 'seed', dim: '', spawnsWork: true, id: 'seed-2' });
+  S.claimForRun('run-f3', 'agent');
+  bus.emit('agent.run.end', { runId: 'run-f3', reason: 'done' });
+  A.eq(settles.length, n, 'recLedger:null disables the forward — the store never throws for a missing wire');
+}
+
 A.report('recqualitystore.test');

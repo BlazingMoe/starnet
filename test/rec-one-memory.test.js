@@ -121,6 +121,65 @@ A.eq(RecLedger.normKey('draft the q3 report') === RecLedger.normKey('draft the q
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   2b. THE OUTCOME WIRE + THE IMPRESSION TTL (dead-wires lane, 2026-08-28)
+   Two audit findings, one seam: spine rows never received an outcome (the ledger's replay() quality term was
+   structurally zero for surface `spine`), and no writer anywhere set `expiresAt` (unanswered impressions
+   depressed acceptanceRate forever). note() now declares an expiry; settle() carries the quality store's
+   attributed outcomes onto the accepted row.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+{
+  const h = harness({ json: { entries: [], model: null } });
+  clock = 2000;
+  RecLedger.init({ fetch: h.fetch, now: nowFn });
+
+  // the TTL: every impression declares when it stops being answerable
+  RecLedger.note({ kind: 'seed', title: 'summarize my inbox', why: 'you keep asking (4×)' });
+  const shown = h.posts().filter(b => b && b.surface === 'spine')[0];
+  A.eq(shown.expiresAt, 2000 + RecLedger.SHOWN_TTL_MS,
+    'every spine impression declares an expiry, so an ignored card lapses instead of depressing acceptance forever');
+  A.eq(RecLedger.SHOWN_TTL_MS, 14 * 86400000, '…14 days, the scout draft TTL — the one existing answer to this question');
+
+  // an accept keeps the row awaiting its outcome; the run's finish advances it
+  A.eq(RecLedger.accepted('seed'), true, 'the accept is recorded (precondition)');
+  A.eq(RecLedger.settle('seed', 'completed', 'run-1'), true, 'the spawned run finishing settles the row');
+  const st = h.posts().filter(b => b && b.state).slice(-1)[0];
+  A.eq(st.id + '/' + st.state + '/' + st.reason, shown.id + '/completed/completed',
+    '…as state `completed` on the SAME row the impression minted');
+
+  // the Commander's rating becomes outcome.quality — the number replay() folds
+  A.eq(RecLedger.settle('seed', 'great', 'run-1'), true, 'a 👍 after the finish still finds the row');
+  const oc = h.posts().slice(-1)[0];
+  A.eq(oc.id, shown.id, 'the quality lands on the same row');
+  A.eq(oc.outcome.quality, 1, 'great → +1 (the vocabulary suggeststore already posts)');
+  A.eq(oc.outcome.runId, 'run-1', '…attributed to the run that earned it');
+  A.eq(RecLedger.settle('seed', 'ok', 'run-1'), false, 'a rating closes the row — nothing can re-settle it');
+
+  // ok / miss map honestly
+  RecLedger.note({ kind: 'arc', title: 'decompose the goal' });
+  RecLedger.accepted('arc');
+  RecLedger.settle('arc', 'miss', 'run-2');
+  A.eq(h.posts().slice(-1)[0].outcome.quality, -1, 'miss → −1');
+
+  // an accept whose work never came is dropped silently — the ledger has no accepted→deferred edge, correctly
+  RecLedger.note({ kind: 'routine', title: 'weekly report' });
+  RecLedger.accepted('routine');
+  const n0 = h.posts().length;
+  A.eq(RecLedger.settle('routine', 'deferred', ''), false, 'no run inside the window → nothing to post');
+  A.eq(h.posts().length, n0, '…and nothing was posted');
+  A.eq(RecLedger.settle('routine', 'great', 'run-9'), false,
+    '…and the row is gone, so a much-later unrelated rating can never be attributed to it');
+
+  // the verdict path's own vocabulary is refused here, and a channel with nothing awaiting says nothing
+  RecLedger.note({ kind: 'recruit', title: 'recruit a Researcher' });
+  RecLedger.accepted('recruit');
+  A.eq(RecLedger.settle('recruit', 'engaged', ''), false, 'engaged/declined belong to the verdict path — refused');
+  A.eq(RecLedger.settle('curiosity', 'completed', ''), false, 'a channel that never had an accept has no outcome to report');
+  RecLedger.note({ kind: 'curiosity', title: 'what is your stack' });
+  A.eq(RecLedger.declined('curiosity', false), true, 'a declined offer… (precondition)');
+  A.eq(RecLedger.settle('curiosity', 'completed', ''), false, '…never awaits an outcome');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
    3. THE READ
    ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 STEPS.push(async () => {
@@ -380,6 +439,28 @@ A.ok(/qsplit: '\/api\/recommendations\/eval', h: handleRecommendationsEval/.test
 A.ok(/RecommendationEval\.evaluate\(rows/.test(idxSrc), '…through the same pure evaluate() the CI script uses');
 A.ok(/recommendationLedger\.sweep\(Date\.now\(\)\)/.test(idxSrc),
   'the recommendations read lapses expired un-answered rows (the scoutSweep discipline)');
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   10. THE DEAD WIRES, WIRED (dead-wires lane, 2026-08-28 — source-locked: DOM/bus flow)
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+// the `declines` scorer term finally has a writer: the session decline count, real declines only
+A.ok(/c\.declines = recDeclinesOf\(c\.kind\)/.test(pass),
+  'the pass attaches the session decline count to every candidate (the term had NO writer since the band redesign)');
+A.ok(/if \(!deferred\) \{ const k = String\(channel \|\| ''\); if \(k\) sessionDeclines\.set\(k, \(sessionDeclines\.get\(k\) \|\| 0\) \+ 1\); \}/.test(decline),
+  'recDecline counts a REAL decline toward it — and a deferral ("not now") is a timing signal that never does');
+// the quality store forwards each attributed outcome to the durable ledger (spine rows finally get outcomes)
+const rqsSrc = read('frontend/app/recqualitystore.js');
+A.ok(/forward\(stamp\.channel, 'completed', runId\)/.test(A.fnBody(rqsSrc, 'function onRunEnd(p)')),
+  'a clean finish of an attributed run reaches the durable ledger, not just localStorage');
+A.ok(/forward\(stamp\.channel, v, String\(runId \|\| ''\)\)/.test(A.fnBody(rqsSrc, 'function noteVerdict(runId, verdict)')),
+  '…and so does the Commander\'s own 👍/👌/👎 on it');
+A.ok(/deps\.recLedger !== undefined\) \? deps\.recLedger : \(typeof RecLedger !== 'undefined'/.test(rqsSrc),
+  'the forward is injectable for the node test and defaults to the global — no wiring step to forget');
+// seed and routine answer the spine rows their cards minted (they were permanently-`shown` orphans)
+A.ok(/rl\.accepted\('seed'\)/.test(read('frontend/app/seedstore.js')) && /rl\.declined\('seed', false\)/.test(read('frontend/app/seedstore.js')),
+  'a seed card\'s save/wave-off answers its own ledger row');
+A.ok(/rl\.accepted\('routine'\)/.test(read('frontend/app/routinenudgestore.js')) && /rl\.declined\('routine', false\)/.test(read('frontend/app/routinenudgestore.js')),
+  '…and so does a routine nudge\'s');
 
 Promise.all(PENDING).then(() => A.report('rec one memory (W1)'),
   e => { console.error(e); process.exit(1); });

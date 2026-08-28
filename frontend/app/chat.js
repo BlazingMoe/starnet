@@ -5368,20 +5368,35 @@ const Chat = (() => {
     try { if (typeof RecQualityStore !== 'undefined' && RecQualityStore.weightFor) return RecQualityStore.weightFor(kind, dim); } catch (_) {}
     return null;
   }
-  /* ── THE ONE MEMORY (one-memory lane, 2026-08-05) ────────────────────────────────────────────────────
-     Every verdict below now lands in BOTH places, and they answer different questions:
+  /* ── THE ONE MEMORY (one-memory lane, 2026-08-05; stated honestly, dead-wires lane 2026-08-28) ───────
+     A verdict below lands in BOTH places, and they answer different questions:
        · RecQualityStore — "how well does THIS CHANNEL do?" Browser-local, an EWMA over outcomes, read only here.
        · RecLedger       — "did the Commander already answer THIS THING, anywhere?" The durable cross-surface
                            ledger the bay, the scout, the night shift, the quest minter and reflection all
                            already write and read. Until this lane it had never heard a single COMMS verdict, so
                            an idea waved off at a card could be built overnight and shelved the next morning.
-     Both are fail-open and neither is load-bearing for the card itself: a station with no ledger reachable keeps
-     behaving exactly as it did. recAccept/recDecline stay the ONE choke point every channel already calls. */
+     THE STATED EXCEPTIONS (this comment used to claim "every verdict lands in both", which was never true):
+     study and suggest verdicts reach the quality store here but their LEDGER rows are minted and verdicted by
+     their own stores (RecLedger.OWN_LEDGER — note() refuses them, so the ledger call below is a deliberate
+     no-op for those two); seed and routine answer their spine rows from their own stores (seedstore.js /
+     routinenudgestore.js), which call the ledger beside their quality-store writes.
+     Both stores are fail-open and neither is load-bearing for the card itself: a station with no ledger
+     reachable keeps behaving exactly as it did. recAccept/recDecline stay the ONE choke point for the rest. */
   function recAccept(channel, dim, spawnsWork, id) {
     try { if (typeof RecQualityStore !== 'undefined' && RecQualityStore.noteAccept) RecQualityStore.noteAccept({ channel: channel, dim: dim || '', spawnsWork: !!spawnsWork, id: id || '' }); } catch (_) {}
     try { if (typeof RecLedger !== 'undefined' && RecLedger.accepted) RecLedger.accepted(channel); } catch (_) {}
   }
+  /* THE SESSION DECLINE COUNT (dead-wires lane, 2026-08-28). recommend.js has carried a `declines` term —
+     −15 per recent decline, capped at −45 — since the band redesign, and NOTHING ever populated it. This is its
+     writer, and its scope is deliberately the SESSION, in memory only: the long-horizon record already lives in
+     the quality EWMA (declines fold it down) and the ledger preference weight (declines fold it negative), so a
+     durable third copy of the same events would triple-count them. What neither carries is "you already waved
+     this channel off TODAY" — the short-horizon anti-nag the term was documented as. Deferrals ("not now") are
+     timing signals and do not count; a reload honestly forgets, exactly like RUN_META. */
+  const sessionDeclines = new Map();   // channel → real declines this session (never deferrals)
+  function recDeclinesOf(kind) { return sessionDeclines.get(String(kind || '')) || 0; }
   function recDecline(channel, dim, deferred) {
+    if (!deferred) { const k = String(channel || ''); if (k) sessionDeclines.set(k, (sessionDeclines.get(k) || 0) + 1); }
     try { if (typeof RecQualityStore !== 'undefined' && RecQualityStore.noteDecline) RecQualityStore.noteDecline({ channel: channel, dim: dim || '' }, !!deferred); } catch (_) {}
     try {
       if (typeof RecLedger !== 'undefined' && RecLedger.declined) {
@@ -5909,6 +5924,10 @@ const Chat = (() => {
        durable ledger's decayed tally of what the Commander has actually accepted and declined on every surface.
        Two-sided and bounded (recommend.js PREF_MAX) — see that module for why this modifier, alone, may promote. */
     for (const c of cands) { if (c && c.preference == null) c.preference = recPreferenceOf(c.kind, c.dim); }
+    /* THE SESSION DECLINE COUNT (dead-wires lane): the third read, same place — a channel the Commander already
+       waved off this session gets structurally quieter for the rest of it (recommend.js DECLINE_STEP/DECLINE_MAX,
+       populated for the first time here). Per-channel caps and the declined memory remain the real floor. */
+    for (const c of cands) { if (c && c.declines == null) c.declines = recDeclinesOf(c.kind); }
 
     /* AND THE HARD HALF OF THAT MEMORY: an offer whose exact proposal the Commander has already declined ANYWHERE
        is not re-ranked, it is REMOVED. That is the discipline every server-side propose filter already holds, and

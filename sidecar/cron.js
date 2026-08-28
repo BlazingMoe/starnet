@@ -356,8 +356,19 @@
     return null;
   }
 
+  /* isFireable — can this schedule ever PRODUCE a fire time? Kind alone is not enough: a migrated/hand-edited
+     record like { kind:'interval', minutes:NaN } or { kind:'cron', expr:'garbage' } passed the old kind-only
+     check, so the driver's unfireable-marking (step 1c) never saw it and the routine sat "scheduled" forever —
+     and a NaN period flowed into iso(NaN) and threw the WHOLE tick out for every routine in the store. */
   function isFireable(schedule) {
-    return !!(schedule && (schedule.kind === 'once' || schedule.kind === 'interval' || schedule.kind === 'cron'));
+    if (!schedule) return false;
+    if (schedule.kind === 'once') {
+      const t = typeof schedule.runAt === 'number' ? schedule.runAt : Date.parse(schedule.runAt);
+      return isFinite(t);
+    }
+    if (schedule.kind === 'interval') { const p = periodMs(schedule); return isFinite(p) && p > 0; }
+    if (schedule.kind === 'cron') return cronSpec(schedule) != null;
+    return false;
   }
 
   function isRecurring(schedule) {
@@ -531,12 +542,16 @@
         // This is what makes a legitimately-long research run fire EXACTLY ONCE: as long as its driver keeps
         // renewing heartbeatAt (on run-progress events), age-of-claim never triggers a zombie reclaim.
         if (job.heartbeatAt != null) {
+          // NEGATIVE age (a backwards clock step — NTP correction, manual set) means the stamp is in the
+          // future: that is unambiguously NOT stale, so it must suppress like a fresh beat. Requiring
+          // age >= 0 here made both in-flight guards fall through on a clock rewind and DOUBLE-FIRED a
+          // genuinely-running one-shot across a restart.
           const beatAge = now - job.heartbeatAt;
-          if (beatAge >= 0 && beatAge < heartbeatStaleMs) continue;   // heartbeat fresh → in-flight → not due
+          if (beatAge < heartbeatStaleMs) continue;   // fresh (or future-stamped) heartbeat → in-flight → not due
           // else: heartbeat stale (holder crashed — beats stopped) → fall through to the claim reclaim below
         }
         const claimAge = now - job.fireClaim;
-        if (claimAge >= 0 && claimAge < maxRunMs) continue;     // fresh claim → in-flight → not due
+        if (claimAge < maxRunMs) continue;     // fresh (or future-stamped) claim → in-flight → not due
         // else: zombie claim → fall through and re-fire (reclaim)
       }
 
@@ -560,7 +575,7 @@
         let nextAt = null;
         if (sched.kind === 'interval') {
           const p = periodMs(sched);
-          if (p <= 0) continue;
+          if (!(p > 0)) continue;                    // NaN-safe: NaN <= 0 is false, but !(NaN > 0) is true
           /* RE-ANCHOR AFTER A TRANSIENT RETRY: markRun's backoff rewinds nextRunAt to now+backoff so the
              SAME occurrence retries — but advancing from that instant phase-shifted the interval
              PERMANENTLY (+backoff per transient failure, compounding forever; the header's own no-walk
@@ -572,7 +587,7 @@
         } else {
           nextAt = nextRecurringAt(sched, now, defaultTz);
         }
-        if (nextAt == null) continue;
+        if (nextAt == null || !isFinite(nextAt)) continue;   // a NaN advance would throw iso(NaN) out of the whole tick
         fire.push({ jobId: job.id, scheduledFor: dueAt });
         next.push({ jobId: job.id, nextAt: nextAt, prevAt: dueAt });
       } else {
@@ -582,7 +597,7 @@
         let nextAt = null;
         if (sched.kind === 'interval') {
           const p = periodMs(sched);
-          if (p <= 0) continue;
+          if (!(p > 0)) continue;                    // NaN-safe (see the on-time branch)
           // same retry re-anchor as the on-time branch above — a stale backoff instant is not the schedule
           const ra = job.retryAnchorAt ? Date.parse(job.retryAnchorAt) : NaN;
           const anchor = isFinite(ra) ? ra : dueAt;
@@ -590,7 +605,7 @@
         } else if (isRecurring(sched)) {
           nextAt = nextRecurringAt(sched, now, defaultTz);
         }
-        if (nextAt == null) continue;
+        if (nextAt == null || !isFinite(nextAt)) continue;   // NaN-safe (see the on-time branch)
         next.push({ jobId: job.id, nextAt: nextAt, prevAt: dueAt });
         if (misfirePolicy(job) === 'fire_once') {
           // the backlog collapses to ONE catch-up run: advance-before-run still persists the FUTURE

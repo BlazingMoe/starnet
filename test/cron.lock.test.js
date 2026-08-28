@@ -397,6 +397,37 @@ function tmpFile(name) { const f = path.join(tmpRoot, name); cleanup.push(f); re
     A.ok(LI.defaultPidAlive(0) === true && LI.defaultPidAlive(-1) === true, 'defaultPidAlive treats a garbage/zero pid conservatively as ALIVE');
   }
 
+  // ---- SELF-LEAKED LOCK RECLAIM (bug-sweep 2026-08-28): our own orphaned stamp never locks us out ----
+  // A release whose unlink fails (EBUSY from an AV/indexer — the Windows path this module exists for) left
+  // OUR live-pid stamp on disk; the pid probe then said "alive" (it's us!) and cron self-muted for a full
+  // maxRunMs. deadHolder now treats own-pid + not-held-by-this-instance as provably leaked.
+  {
+    const lf = path.join(tmpRoot, 'selfleak.lock');
+    cleanup.push(lf);
+    const clock = makeClock(T0);
+    const lock = makeCronLock({ fs: realFs, path, lockfile: lf, now: () => clock.now(), maxRunMs: 480000, pid: 4242, nonce: () => 'n1' });
+    realFs.writeFileSync(lf, '4242:orphaned');            // our own pid, but THIS instance holds nothing
+    const r = lock.withLock(() => 'ran');
+    A.eq(r, { ran: true, result: 'ran' }, 'an own-pid orphan lockfile is reclaimed immediately (no 8-minute self-mute)');
+    A.eq(realFs.existsSync(lf), false, 'the reclaimed lock was released cleanly after the pass');
+  }
+
+  // ---- TORN-CREATE CLEANUP (bug-sweep 2026-08-28): a failed stamp write never leaves a blocking orphan ----
+  {
+    const lf = path.join(tmpRoot, 'torn.lock');
+    cleanup.push(lf);
+    const clock = makeClock(T0);
+    let failWrites = true;
+    const tornFs = Object.assign(Object.create(realFs), {
+      writeSync: (...a) => { if (failWrites) throw new Error('ENOSPC: fake full disk'); return realFs.writeSync(...a); }
+    });
+    const lock = makeCronLock({ fs: tornFs, path, lockfile: lf, now: () => clock.now(), maxRunMs: 480000, pid: 555, nonce: () => 'n' });
+    A.eq(lock.withLock(() => 'x').ran, false, 'a torn create acquires nothing');
+    A.eq(realFs.existsSync(lf), false, 'the created-but-unwritten lockfile is removed, not left to block every acquirer');
+    failWrites = false;
+    A.eq(lock.withLock(() => 'y'), { ran: true, result: 'y' }, 'the very next pass acquires normally (no maxRunMs outage)');
+  }
+
   // tidy up the temp dir (best-effort).
   try { for (const f of cleanup) { try { realFs.unlinkSync(f); } catch (_) {} } realFs.rmdirSync(tmpRoot, { recursive: true }); } catch (_) {}
 
