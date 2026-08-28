@@ -240,5 +240,32 @@ function mkHub(store, sendImpl, events) {
     hub.close();
   }
 
+  // ---- H. PARTIAL redelivery persists its progress: already-received chunks are never re-sent ----
+  // A 3-chunk queued reply whose 3rd chunk hit a blip used to stay in the outbox WHOLE, so every retry
+  // pass replayed chunks 1-2 at the member before failing again — the first two-thirds of the answer
+  // over and over, the end never arriving until the transport healed for one full pass.
+  {
+    const events = [];
+    const store = mkStore(memFs());
+    store.pushOutbox({ channel: 'telegram', chatId: 'pp', text: 'AAAABBBBCCCC', runId: 'r-pp' });
+    const sends = []; let calls = 0;
+    const hub = makeChannelHub({
+      channel: 'telegram',
+      runOnce: async () => {},
+      store,
+      send: async (chatId, text) => { calls++; sends.push(text); return calls === 3 ? { ok: false, error: 'blip' } : { ok: true }; },
+      secrets: () => ({ key: 'k', model: 'm', configured: true }),
+      emit: (name, payload) => events.push([name, payload]),
+      newId: (() => { let n = 0; return () => 'prun-' + (++n); })(),
+      sleep: () => Promise.resolve(), outboxRetryMs: 5, maxMessageLength: 4
+    });
+    await hub._internals.flushOutbox();
+    A.eq(store.loadOutbox('telegram')[0].text, 'CCCC', 'after a mid-item blip the item keeps ONLY the undelivered remainder');
+    await hub._internals.flushOutbox();
+    A.eq(sends, ['AAAA', 'BBBB', 'CCCC', 'CCCC'], 'the retry sends only the remainder — never the chunks the member already read');
+    A.eq(store.loadOutbox('telegram'), [], 'the item completes and drains');
+    hub.close();
+  }
+
   A.report('channels.outbox.test');
 })().catch(e => { console.error(e); process.exit(1); });
