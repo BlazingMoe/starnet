@@ -61,6 +61,23 @@ async function fireAndSettle(s, reply) {
     A.eq(s.getJob('j1').lastStatus, 'ok', 'and its durable record is clean');
   }
 
+  /* ---- a TRUNCATED entry run buys no hops: the line advances only on reason 'done' ---- */
+  // max_turns/budget/missing-terminal set no errMsg, yet finishFire records them as failures. The old gate
+  // read only errMsg+buf, so a truncated run spent real money on every downstream hop over partial stage-one
+  // material — and then the routine was recorded failed anyway.
+  {
+    const s = setup({ advanceChain: async () => ({ text: 'SHOULD NEVER RUN', hops: [{}], stopped: null }) });
+    s.clock.set(T0 + 60000);
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 1, 'the routine fired one run');
+    s.runs[0].opts.emit('agent.token', { delta: 'partial material before the ceiling' });
+    s.runs[0].opts.emit('agent.run.end', { reason: 'max_turns' });
+    s.runs[0].resolve();
+    await flush(); await flush(); await flush();
+    A.eq(s.chainCalls.length, 0, 'a max_turns entry run advances NO downstream hop');
+    A.eq(lastOf(s.events, 'cron.result').outcome, 'failed', 'and the routine settles as the failure finishFire already judged it');
+  }
+
   /* ---- the lease is renewed per hop: a long line must not be swept as a zombie ---- */
   {
     let renewed = 0;

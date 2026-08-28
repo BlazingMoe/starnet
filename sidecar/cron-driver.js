@@ -479,7 +479,11 @@
       } catch (e) { p = Promise.reject(e); }
       Promise.resolve(p).then(
         function () {
-          if (!advanceChain || state.errMsg || !String(state.buf || '').trim()) { finishFire(job.id, runId, state, null); return; }
+          // The line advances ONLY on a COMPLETED entry run. finishFire treats any terminal reason other
+          // than 'done' as failure, yet this gate let a truncated run (max_turns/budget/missing terminal —
+          // none of which set errMsg) buy every downstream hop on partial stage-one material, then recorded
+          // the routine as failed anyway. The reason check closes that split verdict.
+          if (!advanceChain || state.errMsg || state.reason !== 'done' || !String(state.buf || '').trim()) { finishFire(job.id, runId, state, null); return; }
           // hops ride the ROUTINE'S OWN stream so its session reads as one multi-stage job, and each hop renews
           // the lease — a line that outran the heartbeat would be declared a zombie and re-fired mid-work.
           Promise.resolve(advanceChain({
