@@ -132,7 +132,7 @@ function makeCronLock(deps) {
         // is OUR empty/torn orphan. Leaving it blocked every acquirer for a full maxRunMs (fresh mtime, no
         // parseable pid -> neither reclaim path fires) — and FOREVER for reclaimByAge:false callers. Remove
         // what we created; a racer cannot own this inode (wx guarantees it is ours).
-        try { fs.unlinkSync(lockfile); } catch (_) {}
+        try { fs.unlinkSync(lockfile); } catch (e2) { warn('could not remove own torn lockfile (' + ((e2 && e2.code) || e2) + ') — own-pid reclaim will recover it'); }
       }
       return null;                          // EEXIST (someone holds it) or a write error -> not ours
     }

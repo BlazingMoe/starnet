@@ -10952,7 +10952,7 @@ function handleCronUpdate(req, res) {
     // PAUSE ABORTS THE IN-FLIGHT RUN (loops parity — modelSetLoopEnabled): "pause" means stop unattended
     // work NOW, not after up to maxRunMs more spend. Only after the durable write above succeeded, so a
     // failed save never kills a run the store still says is armed.
-    if (enabled === false) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (_) {} } }
+    if (enabled === false) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (e) { failNote('cron.pause.abort', e); } } }
     json(200, { ok: true, job: cronStore.getJob(cronJobs, id) });
   }).catch(() => { try { json(400, { error: 'bad request' }); } catch (_) {} });
 }
@@ -10970,7 +10970,7 @@ function handleCronRemove(req, res) {
     // deleting a firing routine let the run spend to completion and then silently discard its result (the
     // record it would settle into no longer exists). The abort settles through finishFire, which tolerates
     // the missing record.
-    if (doomed) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (_) {} } }
+    if (doomed) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (e) { failNote('cron.remove.abort', e); } } }
     try { await withCronWrite(jobs => cronStore.removeJob(jobs, id)); }   // G4.3: re-read-modify-write under the lock
     catch (e) { return json(500, { error: 'could not save: ' + ((e && e.message) || e) }); }
     if (doomed && doomed.name) markMintDeclined(doomed.agentId, doomed.name);   // sticky: the agent must not resurrect it
@@ -11241,7 +11241,7 @@ async function handleCronRun(req, res) {
     // conveyor work-item this route placed. Before this, Run Now's crate NEVER settled (its terminal events
     // bypass cronEmitNotify), so every press permanently inflated the agent's queueDepth by one.
     { const lz = cronDriver.leases.get(job.id); if (lz && lz.runId === runId) cronDriver.leases.delete(job.id); }
-    try { settleCronWorkitem(runId, state.reason); } catch (_) {}
+    try { settleCronWorkitem(runId, state.reason); } catch (e) { failNote('cron.runNow.settle', e); }
     dropSteer(runId, 'manual-run');      // drop any un-drained steering notes so they can't leak to a later run (mirror handleRun); logs a count if non-empty
     const ok = !state.errMsg;
     try {
