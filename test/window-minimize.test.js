@@ -56,8 +56,8 @@ A.ok(/if \(key === 'agents'\) rerender\('agents', false\)/.test(resB),
 A.ok(/captureForms\(\)/.test(src) && /restoreForms\(keep\)/.test(src) && /swap === false \? captureForms\(\)/.test(src),
   '_render(false) captures input/textarea/select state before the innerHTML rebuild and restores it after');
 // and the measurement primitive itself refuses a minimized/zero-size window (the 8,8 corner-teleport class)
-A.ok(/minimized\[resolvedKey\] \|\| \(!w\.offsetWidth && !w\.offsetHeight\)/.test(src),
-  'fitTermInViewport refuses to measure a minimized or zero-size window at the primitive, covering every caller');
+A.ok(/minimized\[resolvedKey\] \|\| \(w\.classList && w\.classList\.contains\('term-min-hidden'\)\)/.test(src),
+  'fitTermInViewport refuses to measure a minimized window at the primitive (marker-keyed), covering every caller');
 A.ok(/placeTerm\(w, key\)/.test(resB), 'restoreTerm re-applies the remembered geometry via placeTerm (lands it back exactly)');
 
 // placeTerm honours the captured termPos (the geometry round-trip completes)

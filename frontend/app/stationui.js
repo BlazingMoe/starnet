@@ -644,8 +644,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // REFUSE TO MEASURE THE UNMEASURABLE, at the primitive: a minimized (.term-min-hidden = display:none)
     // window reads 0 for every offset, so the "repair" below computed 8,8 and PERSISTED it — teleporting a
     // dragged window to the corner across reloads. Guarding one caller left the async ones (skill-library
-    // fetch callbacks, restore races) exposed; a zero-size box is unmeasurable whatever the reason.
-    if (minimized[resolvedKey] || (!w.offsetWidth && !w.offsetHeight)) return;
+    // fetch callbacks, restore races) exposed. Keyed on the minimize MARKERS, not on zero offsets — a
+    // headless test DOM reads 0 for every visible element too.
+    if (minimized[resolvedKey] || (w.classList && w.classList.contains('term-min-hidden'))) return;
     const savedSize = termSize[resolvedKey];
     if (savedSize) resizeTermTo(w, resolvedKey, savedSize.width, savedSize.height, persist);
     // A window whose CURRENT box outgrows the viewport (TEXT SIZE zoom-up, or a monitor shrink with
