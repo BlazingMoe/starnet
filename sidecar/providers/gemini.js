@@ -341,6 +341,7 @@
         if (!j || typeof j !== 'object') return;
         if (j.error) throw new Error('gemini stream error: ' + ((j.error && (j.error.message || j.error.status || j.error.code)) || 'unknown'));
         const candidates = Array.isArray(j.candidates) ? j.candidates : [];
+        let usageEmittedForFrame = false;   // usage rides the done-carrying frame; emit it exactly once, BEFORE done
         for (let ci = 0; ci < candidates.length; ci++) {
           const c = candidates[ci] || {};
           const parts = (((c.content || {}).parts) || []);
@@ -388,11 +389,16 @@
             }
           }
           if (c.finishReason && !doneEmitted) {
+            // USAGE BEFORE DONE (adapter contract): Gemini's final frame carries finishReason and
+            // usageMetadata together, and every other adapter (anthropic/codex/openrouter) yields usage
+            // first. Emitting done first lost the tokens on any consumer that breaks at done (auxVisionCall)
+            // — a Gemini-only silent under-bill.
+            if (j.usageMetadata) { yield { type: 'usage', usage: normalizeUsage(j.usageMetadata) }; usageEmittedForFrame = true; }
             doneEmitted = true;
             yield { type: 'done', finishReason: finishFor(c.finishReason, sawToolCall) };
           }
         }
-        if (j.usageMetadata) yield { type: 'usage', usage: normalizeUsage(j.usageMetadata) };
+        if (j.usageMetadata && !usageEmittedForFrame) yield { type: 'usage', usage: normalizeUsage(j.usageMetadata) };
       }
 
       try {

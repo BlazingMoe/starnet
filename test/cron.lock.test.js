@@ -325,6 +325,41 @@ function tmpFile(name) { const f = path.join(tmpRoot, name); cleanup.push(f); re
     holder.release();
   }
 
+  /* ---- 6c. PRE-BOOT RECLAIM (the DEAD-END SCREENS pid-reuse law): a lockfile written BEFORE the current
+     OS boot cannot have a live holder — every pre-boot process is dead, even when its stamped pid number
+     now belongs to some unrelated live process (pid reuse after reboot made kill(pid,0) say ALIVE FOREVER,
+     which with reclaimByAge:false bricked recovery with exit 73 on every launch). bootedAt is opt-in. ---- */
+  {
+    const lockfile = tmpFile('preboot.lock');
+    const clock = makeClock(T0);
+    // the "crashed pre-reboot" holder: pid probes ALIVE (modeling pid reuse by an unrelated process)
+    const ghost = makeCronLock({ fs: realFs, path, lockfile, now: () => clock.now(), maxRunMs: 480000, pid: 313, nonce: () => 'G', pidAlive: () => true });
+    A.ok(ghost._internals.acquire(), 'the pre-reboot holder stamps its lock');
+    // contender booted AFTER the lockfile was written (real mtime is wall-clock "now"): reclaimable
+    const rebooted = makeCronLock({
+      fs: realFs, path, lockfile, now: () => clock.now(), maxRunMs: 480000,
+      pid: 44, nonce: () => 'RB', pidAlive: () => true, reclaimByAge: false,
+      bootedAt: () => Date.now() + 120000
+    });
+    A.ok(rebooted._internals.deadHolder(), 'a pre-boot lockfile is provably dead even though its pid number probes alive');
+    let ranReboot = false;
+    A.ok(rebooted.withLock(() => { ranReboot = true; }).ran && ranReboot, 'the post-reboot contender reclaims and runs');
+    rebooted.release();
+    // control: a bootedAt EARLIER than the lockfile mtime (same-boot holder) must NOT reclaim
+    const lockfile3 = tmpFile('sameboot.lock');
+    const holder3 = makeCronLock({ fs: realFs, path, lockfile: lockfile3, now: () => clock.now(), maxRunMs: 480000, pid: 314, nonce: () => 'H', pidAlive: () => true });
+    A.ok(holder3._internals.acquire(), 'the same-boot holder stamps its lock');
+    const sameBoot = makeCronLock({
+      fs: realFs, path, lockfile: lockfile3, now: () => clock.now(), maxRunMs: 480000,
+      pid: 45, nonce: () => 'SB', pidAlive: () => true, reclaimByAge: false,
+      bootedAt: () => Date.now() - 3600000
+    });
+    A.ok(!sameBoot._internals.deadHolder(), 'a same-boot live-pid lock is still respected');
+    let ranSame = false;
+    A.ok(!sameBoot.withLock(() => { ranSame = true; }).ran && !ranSame, 'no reclaim from a live same-boot holder');
+    holder3.release();
+  }
+
   /* ---- 7. DEAD-PID RECLAIM: a lock stamped with a pid that is NOT alive is reclaimed IMMEDIATELY, even when
      its mtime is fresh (not yet stale). A crash-killed sidecar leaves a fresh-mtime lock; the mtime break alone
      would mute cron for the whole maxRunMs window. The pid probe (injected here) closes that gap. An ALIVE

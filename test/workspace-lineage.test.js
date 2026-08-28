@@ -119,6 +119,24 @@ try {
   fs.rmSync(legacy, { recursive: true, force: true });
   fs.rmSync(snapshots, { recursive: true, force: true });
   fs.unlinkSync(path.join(current, '.fresh-start.json'));
+
+  // START FRESH DRAINS PAST THE LISTING PAGE: meaningfulEntries caps each listing at 40 (bounded gate
+  // evidence), but a real station with a full roster easily exceeds 40 state files. Moving one page and
+  // returning ok left the remainder as live evidence — the gate stayed shut and the station was torn.
+  {
+    const many = [];
+    for (let i = 0; i < 23; i++) { many.push('crew' + String(i).padStart(2, '0') + '.notebook.json', 'crew' + String(i).padStart(2, '0') + '.todo.json'); }
+    many.push('agent.save.json', 'agent.roster.json', 'ledger.jsonl');
+    for (const f of many) fs.writeFileSync(path.join(current, f), '{"v":1}');
+    A.ok(many.length > 40, 'fixture exceeds one 40-entry listing page (' + many.length + ' files)');
+    const big = startFresh({ fs, path, workspaceRoot: current, candidateRoots: [], snapshotsRoot: snapshots, platform: process.platform, now: () => Date.UTC(2026, 7, 28, 12, 0, 0) });
+    A.eq(big.ok, true, 'start fresh succeeds on a >40-file station');
+    A.eq(big.moved.length, many.length, 'EVERY state file moved (' + big.moved.length + '/' + many.length + '), not just the first listing page');
+    const bigAfter = inspectWorkspaceLineage({ fs, path, workspaceRoot: current, candidateRoots: [], snapshotsRoot: snapshots, platform: process.platform });
+    A.eq(bigAfter.onboardingAllowed, true, 'the gate opens — no current-workspace evidence remains');
+    for (const f of many) A.eq(fs.existsSync(path.join(big.quarantine, f)), true, 'quarantine holds ' + f);
+    fs.unlinkSync(path.join(current, '.fresh-start.json'));
+  }
   A.report('workspace-lineage.test');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

@@ -92,13 +92,24 @@ function startFresh(deps) {
   const stamp = new Date(now()).toISOString().replace(/[^0-9]/g, '').slice(0, 14);
   const quarantine = path.join(path.dirname(current), QUARANTINE_DIR, stamp);
   const moved = [];
-  const entries = meaningfulEntries(fs, path, current);
+  /* DRAIN, never sample: meaningfulEntries caps each listing at 40 for the gate's BOUNDED evidence
+     report, but Start Fresh must move EVERY state file — moving one 40-file page and returning ok left
+     the rest as live current-workspace evidence, so the next inspect kept the PRIOR STATION DATA gate
+     shut (the exact dead end this exit was built to remove) with the station torn in half (early-
+     alphabet files quarantined, later ones live). Loop pages until the listing is empty; the pass
+     ceiling only guards against a pathological directory that regrows entries. */
+  let entries = meaningfulEntries(fs, path, current);
   if (entries.length) {
     try { fs.mkdirSync(quarantine, { recursive: true }); }
     catch (e) { return { ok: false, error: 'could not create quarantine folder: ' + String(e && e.message || e), quarantine, moved }; }
-    for (const entry of entries) {
-      try { fs.renameSync(entry.path, path.join(quarantine, entry.name)); moved.push(entry.name); }
-      catch (e) { return { ok: false, error: 'could not move ' + entry.name + ': ' + String(e && e.message || e), quarantine, moved }; }
+    let passes = 0;
+    while (entries.length) {
+      if (++passes > 200) return { ok: false, error: 'quarantine did not converge after 200 passes', quarantine, moved };
+      for (const entry of entries) {
+        try { fs.renameSync(entry.path, path.join(quarantine, entry.name)); moved.push(entry.name); }
+        catch (e) { return { ok: false, error: 'could not move ' + entry.name + ': ' + String(e && e.message || e), quarantine, moved }; }
+      }
+      entries = meaningfulEntries(fs, path, current);
     }
   }
   const acknowledgedRoots = lineage.evidence

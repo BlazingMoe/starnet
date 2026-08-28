@@ -208,9 +208,15 @@
           if (ledger && ownedChild.pid) { try { ledger.release(ownedChild.pid); } catch (_) {} }
           const detail = 'mcp stdio process exited' + (code == null ? '' : ' code=' + code) + (signal ? ' signal=' + signal : '') + (stderrBuf.trim() ? ': ' + stderrBuf.trim().slice(0, 200) : '');
           const hadPending = pendingIds.size > 0;
+          const wasClosed = closed;                 // true only when OUR close() asked the child to go
           closed = true;
           failAll(detail);
-          if (hadPending || (code && code !== 0)) onError(new Error(detail));
+          // ANY exit we did not request is a transport death — a clean idle code-0 self-exit included.
+          // Skipping onError for those left the manager at state 'up' over a dead child: ensureLive
+          // short-circuits on 'up', the stdio call path has no CALL_FAIL_LIMIT net (that lives in
+          // httpCall), and per-call lastUsedAt bumps kept the idle recycle away — so the connector
+          // answered -32000 forever while the panel reported up with a full tool list.
+          if (!wasClosed || hadPending) onError(new Error(detail));
         });
       }
       if (timeoutMs > 0 && child.stdin && typeof child.stdin.setDefaultEncoding === 'function') child.stdin.setDefaultEncoding('utf8');

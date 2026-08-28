@@ -125,7 +125,13 @@
     function readIndexRaw(aid) {
       let raw;
       try { raw = fs.readFileSync(indexFileFor(aid), 'utf8'); }
-      catch (e) { return { status: 'corrupt' }; }     // absent OR unreadable — try recovery/rebuild
+      catch (e) {
+        // ENOENT alone means "no index" (recovery/rebuild allowed). Any OTHER errno is a TRANSIENT read
+        // failure (AV/backup software holding the file, fd exhaustion) — the durable-store law: conflating
+        // it with absent let the LOSSY git rebuild (runId/turn are not recoverable from git) overwrite a
+        // perfectly good index the moment one read hiccuped, permanently killing rollback-by-run.
+        return { status: (e && e.code === 'ENOENT') ? 'corrupt' : 'unreadable' };
+      }
       if (raw == null || String(raw).length === 0) return { status: 'corrupt' };   // torn write
       let obj; try { obj = JSON.parse(raw); } catch (e) { return { status: 'corrupt' }; }
       const idx = cp.loadIndex(obj);
@@ -222,6 +228,9 @@
     async function loadIndexResilient(aid) {
       const m = readIndexRaw(aid);
       if (m.status === 'ok') return m.index;
+      // TRANSIENT read failure: serve .bak/empty for THIS pass and never rebuild — the rebuild's
+      // re-persist would overwrite the (still intact) index with the lossy git reconstruction.
+      if (m.status === 'unreadable') return loadIndex(aid);
       // main empty/corrupt -> try .bak (sync), then git rebuild.
       const viaBak = loadIndex(aid);                   // consults main + .bak
       if (viaBak.snapshots.length) return viaBak;

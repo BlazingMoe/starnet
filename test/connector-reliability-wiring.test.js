@@ -22,8 +22,8 @@ A.eq(/ENV\('KEY_POOL'\)/.test(host), false, 'global cross-provider key pool is n
 A.ok(/connectorOauthAttempts/.test(host) && /oauth\/cancel/.test(connectors), 'OAuth cancellation reaches both UI and backend discovery');
 A.ok(/state\.json/.test(host) && /saveJsonVerified/.test(host), 'connector config and OAuth state share a read-back-verified durable envelope');
 A.ok(/clientSecret: clientSecret, tokenEndpointAuthMethod: tokenEndpointAuthMethod/.test(host)
-  && /clientSecret: pending\.clientSecret/.test(host) && /clientSecret: t\.clientSecret/.test(host),
-  'DCR client secrets stay inside the protected callback/refresh persistence path');
+  && /clientSecret: pending\.clientSecret/.test(host) && /clientSecret: cur\.clientSecret/.test(host),
+  'DCR client secrets stay inside the protected callback/refresh persistence path');   // `cur` = the single-flight refresh's freshest stored entry (was `t` before the per-connector refresh coalescing)
 A.ok(/migrateConnectorCatalogKeyHeaders/.test(host) && /headers\[catalogEntry\.keyHeader\] = token;[\s\S]{0,80}token = ''/.test(host),
   'catalog-specific API key headers migrate and save without also sending a stale Bearer credential');
 A.report('connector-reliability-wiring.test');

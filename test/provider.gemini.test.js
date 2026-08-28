@@ -20,6 +20,9 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.eq(evs.filter(e => e.type === 'text').map(e => e.delta).join(''), 'Hello', 'text chunks stream');
     A.eq(evs.find(e => e.type === 'usage').usage.total_tokens, 5, 'usageMetadata remapped');
     A.eq(evs.find(e => e.type === 'done').finishReason, 'stop', 'STOP -> stop');
+    // USAGE BEFORE DONE (adapter contract): Gemini's final frame carries both; every other adapter yields
+    // usage first, and a consumer that breaks at done (auxVisionCall) lost Gemini's tokens — silent under-bill.
+    A.ok(evs.findIndex(e => e.type === 'usage') < evs.findIndex(e => e.type === 'done'), 'usage is emitted BEFORE done');
   }
 
   // B. functionCall parts become one harness tool call with JSON args.
