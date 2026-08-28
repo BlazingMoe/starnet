@@ -222,6 +222,17 @@
         return it;
       },
 
+      // Persist redelivery PROGRESS: after a partial flush (chunks 1..k delivered, k+1 failed) the item
+      // keeps only the UNDELIVERED remainder, so the next pass never re-sends text the member already read.
+      replaceOutboxText(id, text) {
+        const items = this.loadOutbox();
+        const it = items.find(x => x.id === String(id));
+        if (!it) return undefined;
+        it.text = String(text == null ? '' : text);
+        writeJsonAtomic(outboxFile(), { version: 1, items: items });
+        return it;
+      },
+
       // ---- durable inbox: admitted messages survive a crash between offset confirmation and reply ----
       loadInbox(channel) {
         const raw = readJson(inboxFile());

@@ -106,6 +106,24 @@ async function rejects(p, re, msg) {
     A.ok(/Wrote f\.js/.test(r.content), "another agent's own workspace is unaffected by this agent's stamps");
   }
 
+  // ---- our OWN edit/append re-arm the baseline: read -> edit -> write never fabricates a race ----
+  // stampSeen used to be called only by fs.read and fs.write, so the agent's own fs.edit/fs.append moved
+  // the mtime past its stamp and the NEXT fs.write refused with "someone else edited it" — one spurious
+  // refusal plus one fabricated concurrency story per edit-then-write sequence.
+  {
+    await writeTool.run({ path: 'g.js', content: 'base' }, CTX);
+    await readTool.run({ path: 'g.js' }, CTX);
+    await new Promise(r => setTimeout(r, 20));   // guarantee the edit lands on a later mtime tick
+    await editTool.run({ path: 'g.js', find: 'base', replace: 'edited' }, CTX);
+    const r = await writeTool.run({ path: 'g.js', content: 'final rewrite' }, CTX);
+    A.ok(/Wrote g\.js/.test(r.content), 'read -> fs.edit -> fs.write is our own sequence — no stale-write refusal');
+    await readTool.run({ path: 'g.js' }, CTX);
+    await new Promise(r => setTimeout(r, 20));
+    await appendTool.run({ path: 'g.js', content: '+tail' }, CTX);
+    const r2 = await writeTool.run({ path: 'g.js', content: 'after append' }, CTX);
+    A.ok(/Wrote g\.js/.test(r2.content), 'read -> fs.append -> fs.write likewise');
+  }
+
   await fsp.rm(ROOT, { recursive: true, force: true });
   A.report('fs.stale-write.test');
 })().catch(async (e) => {

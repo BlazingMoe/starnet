@@ -687,16 +687,23 @@
       catch (e) { return reject(new Error('could not start shell: ' + ((e && e.message) || e))); }
       const t0 = now();
       let out = '', fullOut = '', total = 0, truncated = false, settled = false, timedOut = false, aborted = false;
-      const append = function (buf) {
-        const complete = buf.toString();
+      const append = function (text) {
+        const complete = String(text);
         fullOut += complete;
         if (total >= maxBytes) { truncated = true; return; }
         let s = complete;
         if (total + s.length > maxBytes) { s = s.slice(0, maxBytes - total); truncated = true; }
         out += s; total += s.length;
       };
-      if (child.stdout) child.stdout.on('data', append);
-      if (child.stderr) child.stderr.on('data', append);
+      // per-stream StringDecoder: a multi-byte UTF-8 char straddling a pipe chunk boundary must not
+      // become U+FFFD in the output the model reads (same fix as environment.js).
+      const { StringDecoder } = require('node:string_decoder');
+      const mkDecoded = function () {
+        const dec = new StringDecoder('utf8');
+        return function (buf) { append(typeof buf === 'string' ? buf : dec.write(buf)); };
+      };
+      if (child.stdout) child.stdout.on('data', mkDecoded());
+      if (child.stderr) child.stderr.on('data', mkDecoded());
       const timer = setTimeout(function () { timedOut = true; killTree(spawn, child, isWin); }, timeoutMs);
       const onAbort = function () { aborted = true; killTree(spawn, child, isWin); };
       if (sig) { if (sig.aborted) { onAbort(); } else { try { sig.addEventListener('abort', onAbort, { once: true }); } catch (_) {} } }

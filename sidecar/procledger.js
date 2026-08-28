@@ -137,12 +137,35 @@
       // cmd may already be redacted by the caller. Plaintext argv is not durable identity: pinIdentity() records
       // the kernel-reported creation time after spawn, making (pid, created) the exact identity instead.
       const entry = { pid, cmd: String(o.cmd || '').slice(0, 400), kind: String(o.kind || 'proc'), startedAt: now(), created: null };
-      live = live.filter(r => r.pid !== pid).concat([entry]).slice(-MAX_ENTRIES);
+      live = live.filter(r => r.pid !== pid).concat([entry]);
+      if (live.length > MAX_ENTRIES) prunePressure();
       save();
       // All callers (including browser children) get exact identity. Callers may also await pinIdentity(pid);
       // concurrent requests dedupe onto the same probe below.
       Promise.resolve(pinIdentity(pid)).catch(() => {});
       return entry;
+    }
+
+    /* CAP PRESSURE: slice(-MAX_ENTRIES) evicted from the FRONT — the earliest-recorded receipts, which are
+       exactly the long-lived children (the dev server from the top of the session) whose receipt the boot
+       sweep NEEDS after a force-kill — while retaining the tail's short-lived churn. Under pressure we now
+       probe the oldest receipts and drop only the PROVABLY-DEAD ones; a hard 4x ceiling (with a log) is the
+       last-resort bound so a runaway spawner still cannot grow the file forever. An empty probe result is
+       ambiguous on POSIX (ps failure resolves empty) — prune nothing then; the hard ceiling backstops. */
+    let pruning = false;
+    function prunePressure() {
+      if (live.length > MAX_ENTRIES * 4) {
+        log('[proc-ledger] over hard ceiling (' + live.length + '); dropping oldest receipts');
+        live = live.slice(-(MAX_ENTRIES * 4));
+      }
+      if (pruning || live.length <= MAX_ENTRIES) return;
+      pruning = true;
+      const candidates = live.slice(0, (live.length - MAX_ENTRIES) + 10).map(r => Number(r.pid));
+      Promise.resolve(probe(candidates)).then((found) => {
+        if (!found || !found.size) return;   // ambiguous (probe failure) — never launder live receipts into "dead"
+        const gone = new Set(candidates.filter(p => !found.has(p)));
+        if (gone.size) { live = live.filter(r => !gone.has(Number(r.pid))); save(); }
+      }).catch((e) => { log('[proc-ledger] pressure prune failed: ' + ((e && e.message) || e)); }).finally(() => { pruning = false; });
     }
 
     // Pin the exact OS identity after spawn without persisting the real command line (which can contain secrets).

@@ -22,6 +22,7 @@
 
   const AID_RE = /^[A-Za-z0-9_-]{1,40}$/;
   const nodeCrypto = require('node:crypto');
+  const { note: envFailNote } = require('./failopen.js');
   const WIN = (typeof process !== 'undefined' && process.platform) === 'win32';
   const DEFAULT_DOCKER_IMAGE = 'node:20-bookworm';
 
@@ -127,11 +128,36 @@
     }
     return ('00000000' + h.toString(16)).slice(-8);
   }
+  /* best-effort tree-kill — the ORDER is the whole fix (same law shell.js/shellbg.js already carry):
+     on Windows `taskkill /T` must inspect the LIVE shell leader to discover its descendants. Killing the
+     leader first raced that discovery — taskkill reported "process not found" while the command and its
+     grandchildren kept running, holding workspace file locks after every shell.exec timeout/abort (this
+     module is the production path: index.js wires environment.execute ahead of shell.js's runCommand).
+     child.kill() is now only the fallback when taskkill itself fails. */
   function killTree(spawn, child, isWin) {
+    if (isWin && child.pid) {
+      let fellBack = false;
+      const fallback = () => {
+        if (fellBack) return;
+        fellBack = true;
+        try { child.kill(); } catch (e) { envFailNote('environment.killTree.fallback', e); }
+      };
+      try {
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+        if (killer && typeof killer.on === 'function') {
+          killer.on('error', fallback);
+          killer.on('close', (code) => { if (code !== 0) fallback(); });
+        }
+        try { if (killer && typeof killer.unref === 'function') killer.unref(); } catch (e) { envFailNote('environment.killTree.unref', e); }
+        return;
+      } catch (_) {
+        fallback();
+        return;
+      }
+    }
     try { child.kill(); } catch (_) {}
     try {
-      if (isWin && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-      else if (child.pid && typeof process !== 'undefined') process.kill(child.pid, 'SIGKILL');
+      if (child.pid && typeof process !== 'undefined') process.kill(child.pid, 'SIGKILL');
     } catch (_) {}
   }
 
@@ -163,8 +189,8 @@
 
       const t0 = now();
       let out = '', fullOut = '', total = 0, truncated = false, timedOut = false, aborted = false, settled = false;
-      const append = function (buf) {
-        const complete = buf == null ? '' : String(buf);
+      const append = function (text) {
+        const complete = text == null ? '' : String(text);
         fullOut += complete;
         if (total >= maxBytes) { truncated = true; return; }
         let s = complete;
@@ -172,8 +198,16 @@
         out += s;
         total += s.length;
       };
-      if (child.stdout && child.stdout.on) child.stdout.on('data', append);
-      if (child.stderr && child.stderr.on) child.stderr.on('data', append);
+      /* Per-stream StringDecoder: each 'data' Buffer used to be decoded in isolation, so a multi-byte
+         UTF-8 character straddling a 64KB pipe chunk boundary became U+FFFD in the output the model reads
+         (and any parser downstream chokes on). One decoder PER stream — stdout and stderr interleave. */
+      const { StringDecoder } = require('node:string_decoder');
+      const mkDecoded = function () {
+        const dec = new StringDecoder('utf8');
+        return function (buf) { append(typeof buf === 'string' ? buf : dec.write(buf)); };
+      };
+      if (child.stdout && child.stdout.on) child.stdout.on('data', mkDecoded());
+      if (child.stderr && child.stderr.on) child.stderr.on('data', mkDecoded());
 
       const timer = setTimeout(function () { timedOut = true; killTree(spawn, child, isWin); }, timeoutMs);
       const onAbort = function () { aborted = true; killTree(spawn, child, isWin); };

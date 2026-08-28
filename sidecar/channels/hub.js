@@ -822,13 +822,14 @@
           try { const r0 = typeof store.getChatRecord === 'function' ? store.getChatRecord(String(it.chatId)) : null; dead = !!(r0 && r0.unreachable); } catch (_) {}
           if (dead) { try { store.removeOutbox(it.id); } catch (e) { failNote('channels.hub.outbox.remove', e); } continue; }
           const chunks = chunkText(it.text, maxMessageLength);
-          let ok = true;
-          for (const c of chunks) {
+          let ok = true, sentUpTo = 0;
+          for (let ci = 0; ci < chunks.length; ci++) {
             let r;
             // Thread only, never the quote: a delayed reply still belongs in its topic, but the message it was
             // answering is hours old and quoting it now would read as a bot talking to the past.
-            try { r = await send(it.chatId, c, routeOpts(it.chatId, false) || undefined); } catch (e) { r = { ok: false }; }
+            try { r = await send(it.chatId, chunks[ci], routeOpts(it.chatId, false) || undefined); } catch (e) { r = { ok: false }; }
             if (!r || r.ok === false) { ok = false; break; }
+            sentUpTo = ci + 1;
           }
           if (ok) {
             try { store.removeOutbox(it.id); } catch (e) { failNote('channels.hub.outbox.remove', e); }
@@ -836,6 +837,11 @@
             if (it.agentId) ev.agentId = String(it.agentId);
             try { emit('channel.delivery', ev); } catch (_) {}
             continue;
+          }
+          // PROGRESS: chunks the member already received must never be re-sent — a flaky transport used to
+          // replay the first two-thirds of a long answer on every retry pass. Keep only the remainder.
+          if (sentUpTo > 0 && typeof store.replaceOutboxText === 'function') {
+            try { store.replaceOutboxText(it.id, chunks.slice(sentUpTo).join('')); } catch (e) { failNote('channels.hub.outbox.progress', e); }
           }
           let bumped = null;
           try { bumped = (typeof store.bumpOutboxTry === 'function') ? store.bumpOutboxTry(it.id) : null; } catch (e) { failNote('channels.hub.outbox.bump', e); }

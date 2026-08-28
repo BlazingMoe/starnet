@@ -373,5 +373,23 @@ function makeFakeSpawn() {
     }
   }
 
+  // ---- a multi-byte UTF-8 char split across two 'data' chunks decodes cleanly (no U+FFFD) ----
+  // Each Buffer chunk used to be stringified in isolation, so any non-ASCII output crossing a 64KB pipe
+  // boundary reached the model as replacement characters — and the corruption persisted downstream.
+  {
+    const spawn = makeFakeSpawn();
+    const env = makeEnvironmentManager({ spawn, fs, pathMod: path, root, bg: { start: () => ({ ok: true }), status: () => [], kill: () => ({ ok: true }) }, clock,
+      env: { PATH: 'safe-path' }, config: { backend: 'local' } });
+    const before = spawn.calls.length;
+    const p = env.execute({ agentId: 'a1', cmd: 'echo check', timeoutMs: 1000 });
+    const child = spawn.calls[before].child;
+    const check = Buffer.from('✓ passed', 'utf8');      // '✓' is 3 bytes — split it mid-sequence
+    child.stdout.emit('data', check.slice(0, 1));
+    child.stdout.emit('data', check.slice(1));
+    const r = await p;
+    A.ok(r.out.indexOf('✓ passed') >= 0, 'the split character reassembles across the chunk boundary');
+    A.eq(r.out.indexOf('�'), -1, 'no replacement character reaches the model');
+  }
+
   A.report('environment.test');
 })().catch(e => { console.log('FAIL: environment.test threw - ' + (e && e.stack || e)); process.exit(1); });
