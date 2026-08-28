@@ -234,7 +234,11 @@ function capture(opts) {
           JSON.parse(bak.toString('utf8'));
           data = bak;
           skipped.push({ path: item.rel + '.bak', reason: 'promoted: torn main captured from its last-known-good .bak' });
-        } catch (_) { /* no usable .bak — the torn main rides as-is (forensic truth) */ }
+        } catch (bakErr) {
+          // No usable .bak — the torn main rides as-is (forensic truth). A MISSING sibling is the normal
+          // case; an existing-but-unusable one earns a receipt on the report so the gap is visible.
+          if (bakErr && bakErr.code !== 'ENOENT') skipped.push({ path: item.rel + '.bak', reason: 'unusable .bak: ' + ((bakErr && bakErr.message) || bakErr) });
+        }
       }
     }
     let redactedFields = [];

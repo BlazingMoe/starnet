@@ -309,8 +309,8 @@
            in a SIDE git-dir; the old repo is removed only after commit + rev-parse succeed, and the swap
            is two renames with a restore on failure. */
         const fresh = gitDir + '.reinit';
-        const cleanup = () => { try { fs.rmSync(fresh, { recursive: true, force: true }); } catch (_) {} };
-        try { fs.rmSync(fresh, { recursive: true, force: true }); } catch (_) {}
+        const cleanup = () => { try { fs.rmSync(fresh, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.cleanup', e); } };
+        cleanup();
         fs.mkdirSync(fresh, { recursive: true });
         const gitAt = (dir, args) => runGit(['--git-dir', dir, '--work-tree', workTreeFor(aid, scope),
           '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false',
@@ -322,14 +322,15 @@
         const sha = (await gitAt(fresh, ['rev-parse', 'HEAD'])).stdout.trim();
         if (!cp.isValidId(sha)) { cleanup(); return false; }
         const old = gitDir + '.old';
-        try { fs.rmSync(old, { recursive: true, force: true }); } catch (_) {}
+        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
         try { fs.renameSync(gitDir, old); } catch (_) { cleanup(); return false; }
         try { fs.renameSync(fresh, gitDir); }
         catch (_) {
-          try { fs.renameSync(old, gitDir); } catch (__) {}   // failed swap: put the original history back
+          // failed swap: put the original history back — a restore failure here is the one truly bad exit
+          try { fs.renameSync(old, gitDir); } catch (e) { failNote('checkpoint.reinit.restore', e); }
           cleanup(); return false;
         }
-        try { fs.rmSync(old, { recursive: true, force: true }); } catch (_) {}
+        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
         try {
           const size = await measure(aid, scope);
           const existing = await loadIndexResilient(aid);
