@@ -188,8 +188,8 @@
 
       const t0 = now();
       let out = '', fullOut = '', total = 0, truncated = false, timedOut = false, aborted = false, settled = false;
-      const append = function (buf) {
-        const complete = buf == null ? '' : String(buf);
+      const append = function (text) {
+        const complete = text == null ? '' : String(text);
         fullOut += complete;
         if (total >= maxBytes) { truncated = true; return; }
         let s = complete;
@@ -197,8 +197,16 @@
         out += s;
         total += s.length;
       };
-      if (child.stdout && child.stdout.on) child.stdout.on('data', append);
-      if (child.stderr && child.stderr.on) child.stderr.on('data', append);
+      /* Per-stream StringDecoder: each 'data' Buffer used to be decoded in isolation, so a multi-byte
+         UTF-8 character straddling a 64KB pipe chunk boundary became U+FFFD in the output the model reads
+         (and any parser downstream chokes on). One decoder PER stream — stdout and stderr interleave. */
+      const { StringDecoder } = require('node:string_decoder');
+      const mkDecoded = function () {
+        const dec = new StringDecoder('utf8');
+        return function (buf) { append(typeof buf === 'string' ? buf : dec.write(buf)); };
+      };
+      if (child.stdout && child.stdout.on) child.stdout.on('data', mkDecoded());
+      if (child.stderr && child.stderr.on) child.stderr.on('data', mkDecoded());
 
       const timer = setTimeout(function () { timedOut = true; killTree(spawn, child, isWin); }, timeoutMs);
       const onAbort = function () { aborted = true; killTree(spawn, child, isWin); };

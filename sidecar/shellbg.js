@@ -35,6 +35,7 @@
   'use strict';
 
   const WIN = (typeof process !== 'undefined' && process.platform) === 'win32';
+  const { StringDecoder } = require('node:string_decoder');
 
   function killTree(spawn, child, isWin) {
     /* On Windows taskkill must see the LIVE root in order to discover `/T` descendants. Killing the shell
@@ -152,8 +153,12 @@
       } catch (_) {}
       const bgId = newId ? 'bg_' + String(newId()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) : 'bg_' + (++seq);
       const rec = { bgId, agentId, cmd, child, out: '', running: true, exitCode: null, killed: false, startedAt: now(), endedAt: null, dropped: 0, stdinClosed: false, outputPath: null, outputBytes: 0, outputSpillError: '' };
-      const append = (buf) => {
-        let s = ''; try { s = redact(String(buf)); } catch (_) { s = String(buf); }
+      // per-stream StringDecoder (same fix as shell.js/environment.js): a multi-byte UTF-8 character
+      // straddling a pipe chunk boundary must not persist as U+FFFD — this path also SPILLS the corrupt
+      // text to the durable output file before the model ever pages it.
+      const mkDec = () => { const dec = new StringDecoder('utf8'); return (buf) => append(typeof buf === 'string' ? buf : dec.write(buf)); };
+      const append = (text) => {
+        let s = ''; try { s = redact(String(text)); } catch (_) { s = String(text); }
         if (spill && s) {
           try {
             const saved = spill({ agentId, kind: 'shell-bg', id: bgId, text: s });
@@ -173,8 +178,8 @@
           rec.out = rec.out.slice(cut);
         }
       };
-      if (child.stdout && child.stdout.on) child.stdout.on('data', append);
-      if (child.stderr && child.stderr.on) child.stderr.on('data', append);
+      if (child.stdout && child.stdout.on) child.stdout.on('data', mkDec());
+      if (child.stderr && child.stderr.on) child.stderr.on('data', mkDec());
       const settle = (code) => {
         if (!rec.running) return;
         rec.running = false; rec.endedAt = now();
