@@ -320,6 +320,12 @@ function applyPendingRecovery(opts) {
     fs, path, lockfile, now,
     maxRunMs: Number(o.lockMaxRunMs) > 0 ? Number(o.lockMaxRunMs) : RECOVERY_LOCK_MAX_RUN_MS,
     pid: o.lockPid, nonce: o.lockNonce, pidAlive: o.lockPidAlive,
+    // bootedAt (opt-in, injected by index.js): with reclaimByAge:false the pid probe was the ONLY way this
+    // lock ever broke — after a crash + reboot the stamped pid usually belongs to some unrelated live
+    // process, so the lock read BUSY FOREVER and every boot exited 73 (the DEAD-END SCREENS pid-reuse law,
+    // already fixed in workspace-owner.js). A lockfile written before the current OS boot cannot have a
+    // live holder; cron-lock reclaims it.
+    bootedAt: o.lockBootedAt,
     reclaimByAge: false
   });
   const attempt = lock.withLock(function () { return applyPendingRecoveryLocked(o); });

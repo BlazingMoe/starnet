@@ -407,7 +407,8 @@ const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
 // production may self-heal only one unambiguous valid legacy root; conflicts stay read-only for the picker.
 const startupWorkspaceRecovery = workspaceRecovery.applyPendingRecovery({
   fs, path, platform: process.platform, home: os.homedir(), workspaceRoot: WORKSPACES,
-  candidateRoots: DEV_MODE ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE, now: Date.now
+  candidateRoots: DEV_MODE ? [] : RECOVERY_CANDIDATE_ROOTS, auto: !DEV_MODE, now: Date.now,
+  lockBootedAt: makeBootedAt(() => Date.now())   // a recovery lock left by a pre-reboot crash must not brick every boot (exit 73)
 });
 if (startupWorkspaceRecovery && startupWorkspaceRecovery.lockUnavailable) {
   // A LIVE concurrent process holds the parent-level recovery lock — it may be renaming this very

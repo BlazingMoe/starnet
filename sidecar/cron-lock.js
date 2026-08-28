@@ -77,6 +77,25 @@ function makeCronLock(deps) {
   const reclaimByAge = d.reclaimByAge !== false;
   const pid = (d.pid != null) ? d.pid : (typeof process !== 'undefined' && process.pid) || 0;
   const nonceFn = typeof d.nonce === 'function' ? d.nonce : defaultNonce;
+  /* bootedAt: wall-clock ms of the current OS boot — OPT-IN, exactly like workspace-owner.js (the factory
+     default is inert so injected fake clocks in tests are never compared against the real machine's boot).
+     WHY THIS EXISTS (the DEAD-END SCREENS law, 2026-08-22: PIDs RESET AT BOOT): with reclaimByAge:false the
+     pid probe was the ONLY reclaim path, and after crash + reboot the stamped pid usually belongs to some
+     unrelated live process — kill(pid,0) then says ALIVE FOREVER, the lock never breaks, and the recovery
+     caller exits 73 on every launch. A lockfile whose mtime predates this boot cannot have a live holder
+     (every pre-boot process is dead by definition), torn/malformed stamps included. 60s slack absorbs
+     os.uptime() skew so a holder that locked seconds after boot is never misjudged. */
+  const bootedAt = typeof d.bootedAt === 'function' ? d.bootedAt : function () { return 0; };
+  const BOOT_SLACK_MS = 60 * 1000;
+  function predatesBoot() {
+    const b = Number(bootedAt()) || 0;
+    if (!(b > 0)) return false;
+    try {
+      const st = fs.statSync(lockfile);
+      const m = (st && typeof st.mtimeMs === 'number') ? st.mtimeMs : (st && st.mtime ? st.mtime.getTime() : 0);
+      return m > 0 && m < (b - BOOT_SLACK_MS);
+    } catch (_) { return false; }
+  }
   // injected for tests; defaults to the process.kill(pid,0) probe. Returns true when the holder pid is (or may be)
   // alive, false only when we can PROVE the holder process is gone.
   const pidAlive = typeof d.pidAlive === 'function' ? d.pidAlive : defaultPidAlive;
@@ -131,6 +150,7 @@ function makeCronLock(deps) {
   // pid, returns false (fall back to the mtime stale break — never reclaim a lock we can't prove is dead).
   // This closes the gap where a crash-killed sidecar's lock would otherwise mute cron for the full maxRunMs.
   function deadHolder() {
+    if (predatesBoot()) return true;                // a pre-boot lockfile's holder is gone by definition (torn stamp included)
     let raw = '';
     try { raw = String(fs.readFileSync(lockfile, 'utf8')); } catch (_) { return false; }
     const i = raw.indexOf(':');
