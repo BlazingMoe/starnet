@@ -784,7 +784,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     w.removeAttribute('aria-hidden');
     // The dossier displays live model and run counters. It stays mounted while minimized, so refresh that
     // readout before revealing it again; other windows keep their in-progress DOM and draft state untouched.
-    if (key === 'agents') rerender('agents');
+    // …UNLESS a CONFIG draft is dirty: the rerender rebuilds the editor from the PERSISTED doc, so
+    // minimize -> restore silently reverted everything typed since the last SAVE, bypassing the
+    // unsaved-draft guard entirely (that guard only fires on close). Counters go briefly stale instead.
+    if (key === 'agents' && !windowDirty(w)) rerender('agents');
     // land it back at the remembered spot (or CSS-centre if never moved), lift to top, replay power-on.
     placeTerm(w, key);
     w.style.zIndex = U.zTop();
@@ -1026,7 +1029,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         void body.offsetWidth;   // restart the animation if it was mid-flight
         body.classList.add('swap-in');
       }
-      requestAnimationFrame(() => fitTermInViewport(w, key, true));
+      // NEVER measure a minimized window: .term-min-hidden is display:none, so every offset reads 0 and
+      // fitTermInViewport "repaired" a dragged window to 8,8 — and PERSISTED it (a background store poke
+      // on a minimized QUEST LOG/OUTBOX moved it to the top-left corner across reloads). restoreTerm's
+      // own clearRestore re-fits with real geometry once the window is visible again.
+      requestAnimationFrame(() => { if (!minimized[key]) fitTermInViewport(w, key, true); });
     };
     w._render();
     // a11y: land focus on the dialog itself (role=dialog, tabIndex -1) — NOT the first control, which
@@ -1039,7 +1046,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      `open.tasks._render(false)`). Default stays true so every existing caller — user-driven swaps —
      keeps its fade. Store pokes (quests) pass false: a background poll must never visibly blink a
      panel the Commander is reading. */
-  function rerender(key, swap) { if (open[key]) open[key]._render(swap !== false); }
+  function rerender(key, swap) {
+    const w = open[key];
+    if (!w) return;
+    /* A BACKGROUND poke (swap === false) must never rebuild a body the Commander is typing into:
+       builders repaint via innerHTML, so a store poke landing mid-keystroke wiped the quest log's
+       journey form (metric label/baseline/target — six stores poke that window from non-user paths).
+       Skip THIS poke when a field inside the window has focus or carries a dirty draft; the next poke
+       or any user action repaints. User-driven rerenders (swap !== false) are byte-identical. */
+    if (swap === false) {
+      const ae = document.activeElement;
+      const typing = !!(ae && w.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable));
+      if (typing || windowDirty(w)) return;
+    }
+    w._render(swap !== false);
+  }
   function syncBB() {
     document.querySelectorAll('.bb[data-term]').forEach(b => b.classList.toggle('active', !!open[b.dataset.term]));
   }
