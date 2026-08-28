@@ -185,8 +185,19 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     s.driver.applyTick(s.clock.now());
     A.eq(ac.aborted, true, 'the zombie run was aborted by the lease sweep');
     A.ok(s.events.some(e => e.name === 'cron.skipped' && e.payload.reason === 'stale-lock-reclaimed'), 'emitted stale-lock-reclaimed');
-    // self-heal: once the zombie's lease is reclaimed the (still-due) job becomes eligible and re-fires that tick.
-    A.eq(s.runs.length, 2, 'after reclaim the freed job re-fired (no longer wedged)');
+    // A RECLAIM IS A REAL OUTCOME (bug-sweep 2026-08-28): the sweep records a TRANSIENT failure — the hang is
+    // durable on the record (before this it left NO trace: consecutive-hang routines never tripped auto-disable
+    // and a one-shot's fireClaim re-executed forever) — and the job re-fires after the bounded backoff, not
+    // silently in the same pass.
+    A.eq(s.runs.length, 1, 'the reclaim itself did NOT instantly re-fire (bounded backoff, not a hot loop)');
+    const reclaimed = s.getJob('j1');
+    A.eq(reclaimed.lastStatus, 'error', 'the reclaim is recorded as a failed run');
+    A.ok(String(reclaimed.lastError || '').indexOf('reclaimed') >= 0, 'lastError names the reclaim');
+    A.eq(reclaimed.retryCount, 1, 'the reclaim consumed one transient retry');
+    // self-heal: past the backoff the job is due again and re-fires with a fresh lease.
+    s.clock.set(T0 + 60000 + 100001 + 90001);                 // past the 90s transient backoff
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 2, 'after the backoff the freed job re-fired (no longer wedged)');
     A.ok(s.driver.leases.size === 1 && s.driver.leases.get('j1').runId === s.runs[1].runId, 'a fresh lease tracks the new run');
   }
 
@@ -626,7 +637,11 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     s.driver.applyTick(s.clock.now());
     A.eq(ac.aborted, true, 'a crashed (heartbeat-stopped) run is aborted by the sweep');
     A.ok(s.events.some(e => e.name === 'cron.skipped' && e.payload.reason === 'stale-lock-reclaimed'), 'a heartbeat-stale run emits stale-lock-reclaimed');
-    A.eq(s.runs.length, 2, 'after reclaim the freed job re-fired (self-heal)');
+    // reclaim = recorded transient failure + bounded backoff (bug-sweep 2026-08-28), then the self-heal re-fire.
+    A.eq(s.runs.length, 1, 'the reclaim did not instantly re-fire (bounded backoff)');
+    s.clock.set(T0 + 60000 + 100001 + 90001);                  // past the 90s transient backoff
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 2, 'after the backoff the freed job re-fired (self-heal)');
   }
 
   // ---- NS-0 TELEMETRY: an at-capacity deferral now EMITS cron.skipped{at-capacity} + a cron.tick.deferred count. ----
@@ -685,6 +700,59 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     legacy.clock.set(T0 + 60000);
     legacy.driver.applyTick(legacy.clock.now());
     A.eq(legacy.runs.length, 1, 'a host that injects no agentExists keeps the pre-guard behavior');
+  }
+
+  // ---- FIRE-THROW CONTAINMENT (bug-sweep 2026-08-28): one job's throwing fire never eats the tick. ----
+  // Step 3 persists EVERY planned job's advance before step 5 launches; before this fix a throw out of
+  // fireJob (an injected dep hitting a corrupt record) aborted the loop, and the remaining jobs' already-
+  // consumed occurrences were silently lost — forever, when the throw was deterministic.
+  {
+    const a = intervalJob('ta', 'every 1m');
+    const b = intervalJob('tb', 'every 1m');
+    const s = setup([a, b], okRun(), {
+      identityForAgent: (agentId) => { if (agentId === 'cron_ta') throw new Error('corrupt roster record'); return {}; }
+    });
+    s.clock.set(T0 + 60000);
+    let threw = null;
+    try { s.driver.applyTick(s.clock.now()); } catch (e) { threw = e; }
+    A.eq(threw, null, 'the tick itself never throws on a single job\'s fire failure');
+    A.eq(s.runs.length, 1, 'the OTHER due job still fired');
+    A.eq(s.runs[0].agentId, 'cron_tb', 'the surviving fire is the healthy job');
+    const broken = s.getJob('ta');
+    A.eq(broken.lastStatus, 'error', 'the throwing job records a failed run');
+    A.ok(String(broken.lastError || '').indexOf('corrupt roster record') >= 0, 'lastError carries the real cause');
+    A.ok(s.events.some(e => e.name === 'cron.result' && e.payload.jobId === 'ta' && e.payload.outcome === 'failed'), 'an honest cron.result{failed} for the throwing job');
+    A.ok(!s.driver.leases.has('ta'), 'no orphaned lease is left behind for the failed fire');
+    // deterministic throw stays contained on later ticks too — the healthy job keeps firing.
+    await flush();                                              // let tb's first run settle (lease released)
+    s.clock.set(T0 + 120000);
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.filter(r => r.agentId === 'cron_tb').length, 2, 'the healthy job fired again next tick (never starved)');
+  }
+
+  // ---- ONE-SHOT ZOMBIE RECLAIM CLEARS ITS CLAIM (bug-sweep 2026-08-28): no eternal re-execute loop. ----
+  // Before this, a reclaimed one-shot's late settlement was UNOWNED (generation fence) so markRun never ran:
+  // fireClaim stayed persisted + lastRunAt stayed null, and planTick re-fired the SAME one-shot every
+  // ~maxRunMs forever — real provider spend each cycle. Now the reclaim itself records a transient failure.
+  {
+    const j = onceJob('oz', 'in 1m');
+    const silentRun = (o) => { o.emit('agent.run.start', { agentId: 'a', runId: o.runId, trigger: o.trigger, model: o.model }); return new Promise(() => {}); };
+    const s = setup([j], silentRun, { maxRunMs: 100000 });
+    s.clock.set(T0 + 60000);
+    s.driver.applyTick(s.clock.now());                          // fires; fireClaim persisted before launch
+    A.ok(s.getJob('oz').fireClaim != null, 'the one-shot fire-claim is stamped at launch');
+    s.clock.set(T0 + 60000 + 100001);                           // silence > staleMs -> sweep reclaims
+    s.driver.applyTick(s.clock.now());
+    const reclaimed = s.getJob('oz');
+    A.eq(reclaimed.fireClaim, null, 'the reclaim CLEARS the persisted fire-claim (no zombie re-execute loop)');
+    A.eq(reclaimed.heartbeatAt, null, 'the durable heartbeat is cleared with it');
+    A.eq(reclaimed.lastStatus, 'error', 'the hang is durable on the record');
+    A.eq(reclaimed.retryCount, 1, 'the reclaim consumed one bounded transient retry');
+    A.eq(s.runs.length, 1, 'no instant re-fire in the reclaim pass');
+    // the bounded retry: past the backoff it re-fires ONCE more (not an unbounded ~maxRunMs loop).
+    s.clock.set(T0 + 60000 + 100001 + 90001);
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 2, 'the one-shot retries once past the backoff (bounded, visible retry)');
   }
 
   require('./cron.run-now.test.js');

@@ -147,6 +147,15 @@
         if (killer && typeof killer.on === 'function') {
           killer.on('error', fallback);
           killer.on('close', (code) => { if (code !== 0) fallback(); });
+          // SETTLEMENT GUARANTEE: runProcess resolves only on the child's 'close', and taskkill is now the
+          // only thing that kills it — a hung/never-closing taskkill would leave the exec promise (and its
+          // caller's tool call) pending past the very timeout that fired it. Bound the wait.
+          // (never cleared: after a "successful" taskkill the direct kill is a harmless no-op on a dead
+          // child, and the rescue for one that somehow survived the tree sweep.)
+          const guard = setTimeout(fallback, 5000);
+          if (guard && typeof guard.unref === 'function') guard.unref();
+        } else {
+          fallback();   // a spawn handle we cannot observe is a killer we cannot trust
         }
         try { if (killer && typeof killer.unref === 'function') killer.unref(); } catch (e) { envFailNote('environment.killTree.unref', e); }
         return;

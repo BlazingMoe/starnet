@@ -50,8 +50,14 @@ const resB = body(/function restoreTerm\(key\)\s*\{[\s\S]*?\n  \}/, 'restoreTerm
 A.ok(/if \(!w \|\| !minimized\[key\]\) return/.test(resB), 'restoreTerm no-ops on a window that is not minimized');
 A.ok(/delete minimized\[key\]/.test(resB) && /removeChip\(key\)/.test(resB), 'restoreTerm clears the minimized flag and removes the chip');
 A.ok(/classList\.remove\('term-min-hidden'/.test(resB) && /removeAttribute\('aria-hidden'\)/.test(resB), 'restoreTerm un-hides the window');
-A.ok(/if \(key === 'agents' && !windowDirty\(w\)\) rerender\('agents'\)/.test(resB),
-  'restoring the Agent Dossier refreshes its live counters before reveal — UNLESS a CONFIG draft is dirty (the rerender rebuilds the editor from the persisted doc, so an unguarded restore silently reverted everything typed since the last SAVE, bypassing the unsaved-draft close guard)');
+A.ok(/if \(key === 'agents'\) rerender\('agents', false\)/.test(resB),
+  'restoring the Agent Dossier refreshes its live counters through the swap:false form-preserving render — fresh counters AND a dirty CONFIG draft survive together (the earlier skip-while-dirty guard keyed off a data-dirty flag nothing cleared and froze the refresh)');
+// the form-preservation mechanism the restore relies on must exist: capture before the builder, restore after
+A.ok(/captureForms\(\)/.test(src) && /restoreForms\(keep\)/.test(src) && /swap === false \? captureForms\(\)/.test(src),
+  '_render(false) captures input/textarea/select state before the innerHTML rebuild and restores it after');
+// and the measurement primitive itself refuses a minimized/zero-size window (the 8,8 corner-teleport class)
+A.ok(/minimized\[resolvedKey\] \|\| \(w\.classList && w\.classList\.contains\('term-min-hidden'\)\)/.test(src),
+  'fitTermInViewport refuses to measure a minimized window at the primitive (marker-keyed), covering every caller');
 A.ok(/placeTerm\(w, key\)/.test(resB), 'restoreTerm re-applies the remembered geometry via placeTerm (lands it back exactly)');
 
 // placeTerm honours the captured termPos (the geometry round-trip completes)

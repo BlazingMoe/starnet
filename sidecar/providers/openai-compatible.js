@@ -178,15 +178,28 @@
       // strings of PARALLEL calls into one corrupt call; assign instead a stable index per call id —
       // or the next free slot when the id is also absent.
       const idxById = {};
+      const lastIdxByName = {};   // name -> the most recent slot opened for that name (id/index-less servers)
+      const argsAcc = {};         // idx -> accumulated raw args, so completeness can arbitrate name repeats
       let nextIdx = 0;
+      const argsComplete = (s) => { if (!s) return false; try { JSON.parse(s); return true; } catch (_) { return false; } };
       function callIndex(tc) {
         if (tc.index != null) { if (tc.index >= nextIdx) nextIdx = tc.index + 1; return tc.index; }
         const id = tc.id ? String(tc.id) : '';
         if (id) { if (idxById[id] == null) idxById[id] = nextIdx++; return idxById[id]; }
         const fn = tc.function || {};
-        // A call HEADER (has a name) opens the next slot; a bare argument chunk continues the
-        // current one — streaming servers may send id/index-less continuation deltas.
-        if (fn.name) return nextIdx++;
+        if (fn.name) {
+          /* An id/index-less delta bearing a NAME is ambiguous between "a new call" and "a continuation
+             that echoes the name on every delta" (several vLLM/Ollama/LiteLLM builds do the latter —
+             review pass: treating every name as a new call split ONE call into N invalid fragments).
+             Arbitrate by the current same-name slot's ARGS: still-incomplete JSON -> this delta continues
+             it; complete (or no prior slot) -> a genuinely new call opens its own slot. */
+          const prior = lastIdxByName[fn.name];
+          if (prior != null && !argsComplete(argsAcc[prior])) return prior;
+          const idx = nextIdx++;
+          lastIdxByName[fn.name] = idx;
+          return idx;
+        }
+        // a bare argument chunk (no name either) continues the current slot
         return nextIdx > 0 ? nextIdx - 1 : 0;
       }
       let doneEmitted = false;   // exactly one terminal event per stream (see STREAM-END TRUTH below)
@@ -214,7 +227,7 @@
               started[idx] = true;
               yield { type: 'tool_start', index: idx, id: tc.id || ('call_' + idx), name: fn.name || '' };
             }
-            if (typeof fn.arguments === 'string' && fn.arguments) yield { type: 'tool_args', index: idx, chunk: fn.arguments };
+            if (typeof fn.arguments === 'string' && fn.arguments) { argsAcc[idx] = (argsAcc[idx] || '') + fn.arguments; yield { type: 'tool_args', index: idx, chunk: fn.arguments }; }
           }
         }
         if (choice.finish_reason && !doneEmitted) {

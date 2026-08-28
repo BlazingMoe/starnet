@@ -46,6 +46,14 @@ const RecLedger = (() => {
   const SURFACE = 'spine';
   const DECLINED_CAP = 250;      // the tail the browser keeps in memory — the ledger itself is capped at 4000
   const ROW_CAP = 20;            // channel → live row memory; there are ten channels, so this never evicts in practice
+  /* HOW LONG AN UNANSWERED IMPRESSION MAY SIT ON THE LEDGER (dead-wires lane, 2026-08-28). The server's expiry
+     sweep existed and ran on every GET, but NO writer ever set `expiresAt` — so a card the Commander simply never
+     clicked stayed a `shown` row forever, quietly depressing acceptanceRate for an offer nobody could act on any
+     more. Every row this module mints now declares one. The sweep's own law is unchanged and matters here: an
+     expiry is NEVER a verdict — only rows still sitting at `shown`/`opened` drop, and a dropped row feeds nothing
+     (it never enters the declined memory). 14 days matches the scout's draft TTL: the one other place the station
+     already decided how long an un-answered proposal stays answerable. */
+  const SHOWN_TTL_MS = 14 * 86400000;
   /* Channels whose rows are minted elsewhere (law 4) and channels that are not offers at all (law 5). Both lists
      are stated here rather than at the call sites so a new channel author reads one place and gets it right. */
   const OWN_LEDGER = { study: 1, suggest: 1 };
@@ -55,6 +63,7 @@ const RecLedger = (() => {
   let declined = new Set();      // normalized keys of every EXPLICITLY declined title, from every surface
   let model = null;              // the ledger's replay preference model { kinds, traits, projects } or null
   let rows = new Map();          // channel → { id, target, title } — the offer currently awaiting a verdict
+  let awaiting = new Map();      // channel → { id } — an ACCEPTED offer awaiting the outcome its work produces
   let seq = 0;
   let loadedAt = 0;
 
@@ -152,7 +161,8 @@ const RecLedger = (() => {
       id: id, surface: SURFACE, kind: channel, title: title, target: target,
       traits: [channel].concat(c.dim ? ['dim:' + String(c.dim)] : []),
       evidence: why ? [(evidenceKind === 'quote' ? { id: 'cite', type: 'quote', quote: why } : { id: 'cite', type: 'rationale', text: why })] : [],
-      contextId: SURFACE + ':minute:' + Math.floor(now() / 60000), modelVersion: 'spine-v1'
+      contextId: SURFACE + ':minute:' + Math.floor(now() / 60000), modelVersion: 'spine-v1',
+      expiresAt: now() + SHOWN_TTL_MS
     });
     return id;
   }
@@ -168,7 +178,44 @@ const RecLedger = (() => {
     if (!row) return false;
     rows.delete(ch);
     post({ id: row.id, state: String(state || ''), reason: String(reason || '') });
+    /* an ACCEPT is not the end of the row's story — the work it spawns still owes the ledger its outcome
+       (settle() below). Every other verdict is terminal for this module's bookkeeping. */
+    if (state === 'accepted') {
+      awaiting.set(ch, { id: row.id });
+      while (awaiting.size > ROW_CAP) { const k = awaiting.keys().next().value; awaiting.delete(k); }
+    }
     return true;
+  }
+
+  /* ── THE OUTCOME WIRE (dead-wires lane, 2026-08-28) ──────────────────────────────────────────────────────
+     The browser quality EWMA (recqualitystore.js) has known for weeks whether an accepted spine offer's run
+     really finished and how the Commander rated it — and none of that ever reached the durable ledger, so for
+     surface `spine` the server's replay() quality term was structurally zero and every channel's earned record
+     died with the browser profile. settle() is the missing half of the accept: recqualitystore forwards each
+     outcome it folds, and this module translates the ones the ledger can hold.
+
+       completed    → the accepted row advances to state `completed` (the state machine allows it; the row is
+                      KEPT here, because the Commander's rating usually lands after the finish).
+       great/ok/miss→ the Commander's own verdict becomes the row's outcome.quality — the same ±1 vocabulary
+                      suggeststore already posts — and closes this module's interest in the row.
+       deferred     → the accept produced no run inside the attribution window. The ledger's state machine has
+                      no accepted→deferred edge (correctly — the accept was real), so nothing is posted; the row
+                      is dropped so a much-later unrelated rating can never be attributed to it.
+     Everything else (engaged / declined) is already recorded by the verdict path and is refused here. Fail-open
+     like every write in this file: no row awaiting → nothing to say. */
+  const OUTCOME_QUALITY = { great: 1, ok: 0.25, miss: -1 };
+  function settle(channel, outcome, runId) {
+    const ch = String(channel || '').slice(0, 40);
+    const row = ch ? awaiting.get(ch) : null;
+    if (!row) return false;
+    if (outcome === 'completed') { post({ id: row.id, state: 'completed', reason: 'completed' }); return true; }
+    if (Object.prototype.hasOwnProperty.call(OUTCOME_QUALITY, String(outcome || ''))) {
+      awaiting.delete(ch);
+      post({ id: row.id, outcome: { quality: OUTCOME_QUALITY[outcome], runId: String(runId || ''), completedAt: now() } });
+      return true;
+    }
+    if (outcome === 'deferred') { awaiting.delete(ch); return false; }
+    return false;
   }
   // the accept/decline the spine's channels record, in the ledger's own vocabulary. `deferred` is the mild timing
   // signal ("not now"); a plain decline is a verdict about the thing itself.
@@ -179,14 +226,14 @@ const RecLedger = (() => {
 
   function init(opts) {
     deps = opts || {};
-    declined = new Set(); model = null; rows = new Map(); seq = 0; loadedAt = 0;
+    declined = new Set(); model = null; rows = new Map(); awaiting = new Map(); seq = 0; loadedAt = 0;
     refresh(true);
   }
-  function reset() { declined = new Set(); model = null; rows = new Map(); loadedAt = 0; }
+  function reset() { declined = new Set(); model = null; rows = new Map(); awaiting = new Map(); loadedAt = 0; }
 
-  return { init, reset, refresh, isDeclined, preferenceOf, note, verdict, accepted, declined: declinedVerdict,
-    normKey, fingerprint, SURFACE, OWN_LEDGER, NOT_AN_OFFER,
-    _rows: () => rows, _model: () => model, _declinedKeys: () => Array.from(declined), _setModelForTest: m => { model = m; } };
+  return { init, reset, refresh, isDeclined, preferenceOf, note, verdict, accepted, declined: declinedVerdict, settle,
+    normKey, fingerprint, SURFACE, OWN_LEDGER, NOT_AN_OFFER, SHOWN_TTL_MS,
+    _rows: () => rows, _awaiting: () => awaiting, _model: () => model, _declinedKeys: () => Array.from(declined), _setModelForTest: m => { model = m; } };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { RecLedger };

@@ -143,7 +143,7 @@ const SYNC_BASELINE = {
   'consentwait.js': 1,
   'credits-link.js': 2,
   'credits.js': 3,
-  'cron-driver.js': 17,   // AUDITED — 17 left: emit() wrappers, warn wrapper, abort on stale lease / E-STOP
+  'cron-driver.js': 16,   // AUDITED — 16 left: emit() wrappers, warn wrapper, abort on stale lease / E-STOP (ratcheted down: the fire loop's swallowed throw now records a real failure, bug-sweep 2026-08-28)
   'cron-lock.js': 4,   // AUDITED — 4 left: fd close / unlink / release teardown
   'deliverable-store.js': 3,   // AUDITED — 3 left: journal absent on first load, fd close in finally, stat size default
   'domain-store.js': 1,

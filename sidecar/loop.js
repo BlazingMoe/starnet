@@ -171,9 +171,12 @@
     // destroying 100% of every result's content.
     const room = budget - note.length;
     if (room < 200) {
-      const short = '\n[elided by the per-TURN output cap' + (parkedPath ? ' — full output saved to ' + parkedPath : '') + ']';
+      // The marker must keep BOTH halves of the note's contract, however small the share: the parked-file
+      // pointer AND the do-not-repeat instruction — dropping the prohibition (review pass) let the model
+      // re-issue the same wide calls next turn, squeezed identically, burning turns with no feedback.
+      const short = '\n[elided by the per-TURN output cap — do not repeat this call' + (parkedPath ? '; full output saved to ' + parkedPath : '') + ']';
       if (short.length >= budget) {
-        const bare = '\n[elided]';
+        const bare = '\n[elided — do not repeat this call]';
         return bare.length >= budget ? bare.slice(0, Math.max(0, budget)) : content.slice(0, budget - bare.length) + bare;
       }
       return content.slice(0, budget - short.length) + short;

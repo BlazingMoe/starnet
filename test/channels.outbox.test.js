@@ -267,5 +267,38 @@ function mkHub(store, sendImpl, events) {
     hub.close();
   }
 
+  // ---- H2. a FENCED partial remainder is rebuilt from RAW splits, and progress never counts as failure ----
+  // Joining the fence-doctored send chunks baked reopenFences's synthetic ``` markers into the stored
+  // text; the next pass re-fenced them — stray fence lines growing per retry on long code replies. And
+  // bumpOutboxTry counted a pass that delivered real chunks toward the escalation ceiling.
+  {
+    const { chunkTextParts } = require('../sidecar/channels/hub.js');
+    const events = [];
+    const store = mkStore(memFs());
+    const fencedText = 'intro line\n```\ncode a\ncode b\ncode c\ncode d\n```\nclosing prose';
+    store.pushOutbox({ channel: 'telegram', chatId: 'fx', text: fencedText, runId: 'r-fx' });
+    const parts = chunkTextParts(fencedText, 24);
+    A.ok(parts.send.length >= 3 && parts.send.join('') !== fencedText, 'fixture: the fenced text splits and the send view is decorated');
+    const sends = []; let calls = 0;
+    const hub = makeChannelHub({
+      channel: 'telegram', runOnce: async () => {}, store,
+      send: async (chatId, text) => { calls++; sends.push(text); return calls === 2 ? { ok: false, error: 'blip' } : { ok: true }; },
+      secrets: () => ({ key: 'k', model: 'm', configured: true }),
+      emit: (name, payload) => events.push([name, payload]),
+      newId: (() => { let n = 0; return () => 'fxrun-' + (++n); })(),
+      sleep: () => Promise.resolve(), outboxRetryMs: 5, maxMessageLength: 24
+    });
+    await hub._internals.flushOutbox();
+    const stored = store.loadOutbox('telegram')[0];
+    A.eq(stored.text, parts.raw.slice(1).join(''), 'the remainder is the RAW tail of the original text — no synthetic fences baked in');
+    A.eq(stored.tries, 0, 'a pass that delivered a real chunk is progress, never a counted failure');
+    while (store.loadOutbox('telegram').length && calls < 40) await hub._internals.flushOutbox();
+    A.eq(store.loadOutbox('telegram'), [], 'the item completes across retries');
+    const fenceLines = (sends.join('\n').match(/^[ \t]{0,3}```/gm) || []).length;
+    const perfectLines = (chunkTextParts(fencedText, 24).send.join('\n') + '\n' + chunkTextParts(parts.raw.slice(1).join(''), 24).send.join('\n')).match(/^[ \t]{0,3}```/gm).length;
+    A.ok(fenceLines <= perfectLines, 'no fence duplication accumulates across retries (' + fenceLines + ' <= ' + perfectLines + ')');
+    hub.close();
+  }
+
   A.report('channels.outbox.test');
 })().catch(e => { console.error(e); process.exit(1); });

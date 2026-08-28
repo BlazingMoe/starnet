@@ -6,8 +6,10 @@
    it computes an overview + per-model spend + outcome breakdown + per-agent + a runs/spend-over-time series.
 
    Pure: rows in, plain object out (no I/O, no clock — the caller passes nowMs + bucketMs). Tool-usage ranking is
-   intentionally NOT here: tool calls aren't persisted (only emitted), so folding them would require new storage —
-   a noted follow-on, not faked. UMD: window.SK.insights in the browser, module.exports under node — unit-testable. */
+   intentionally NOT here — a noted follow-on, not faked. (The original blocker — "tool calls aren't persisted" —
+   no longer holds: runstore rows now carry toolTrace. The fold just hasn't been built yet; whoever builds it
+   should read toolTrace off the same rows this fold already receives.)
+   UMD: window.SK.insights in the browser, module.exports under node — unit-testable. */
 'use strict';
 (function (root, factory) {
   const api = factory();

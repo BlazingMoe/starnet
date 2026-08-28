@@ -49,11 +49,19 @@ const SeedStore = (() => {
       if (handled) return; handled = true;
       // THE OUTCOME LOOP (quality loop, Q2): saving a seed authors a recipe rather than launching a run, so the
       // accept IS the outcome; a wave-off is the Commander's own signal about this channel. Fail-open.
+      // AND THE LEDGER'S HALF (dead-wires lane, 2026-08-28): the spine minted a `shown` row for this card
+      // (RecLedger.note — seed is not OWN_LEDGER), and until now nothing ever answered it, so every seed offer
+      // sat on the durable ledger as an unanswered impression forever. The verdict lands in both places.
       const rq = (typeof RecQualityStore !== 'undefined') ? RecQualityStore : null;
-      if (choice && choice.value === 'save') { save(s); if (rq && rq.noteAccept) { try { rq.noteAccept({ channel: 'seed', spawnsWork: false, id: s.key }); } catch (_) {} } }
-      else {
+      const rl = (typeof RecLedger !== 'undefined') ? RecLedger : null;
+      if (choice && choice.value === 'save') {
+        save(s);
+        if (rq && rq.noteAccept) { try { rq.noteAccept({ channel: 'seed', spawnsWork: false, id: s.key }); } catch (_) {} }
+        if (rl && rl.accepted) { try { rl.accepted('seed'); } catch (_) {} }
+      } else {
         if (typeof MintStore !== 'undefined' && MintStore.markDismissed) MintStore.markDismissed(s.key);
         if (rq && rq.noteDecline) { try { rq.noteDecline({ channel: 'seed' }, false); } catch (_) {} }
+        if (rl && rl.declined) { try { rl.declined('seed', false); } catch (_) {} }
       }
     });
   }

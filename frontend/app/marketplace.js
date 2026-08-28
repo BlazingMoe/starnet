@@ -3025,6 +3025,11 @@ const Marketplace = (() => {
       .then(res => res.json().catch(() => ({})).then(d => ({ ok: res.ok, d })))
       .then(({ ok, d }) => {
         if (!ok || (d && d.error)) { sfx('bad'); note((d && d.error) || 'could not schedule the routine', 'bad'); if (btn) { btn.disabled = false; btn.textContent = '◷ SCHEDULE IT'; } return; }
+        // the mint gate's refusals are 200s with NO error key — treating them as success said "scheduled"
+        // about a routine the server refused to create (declined name) or silently swapped for an old one
+        // (near-duplicate). Same fix as the AUTOMATION window.
+        if (d && d.declined) { sfx('bad'); note(d.message || 'this routine name was deleted before — pick a different name', 'bad'); if (btn) { btn.disabled = false; btn.textContent = '◷ SCHEDULE IT'; } return; }
+        if (d && d.duplicate) { sfx('bad'); note('a similar routine already exists' + (d.job && d.job.name ? (': "' + d.job.name + '"') : '') + ' — nothing new was created', 'warn'); if (btn) { btn.disabled = false; btn.textContent = '◷ SCHEDULE IT'; } return; }
         cronJobs = null;   // invalidate the cache so the dossier's live-routine badge refreshes
         sfx('click');
         note('routine scheduled: ' + r.name + ' — ' + cadenceLabel(launchCadence === 'custom' ? null : launchCadence).replace('one-shot', 'on your schedule') + '. find it in ROUTINES.', 'good');

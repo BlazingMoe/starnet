@@ -641,6 +641,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function fitTermInViewport(w, key, persist) {
     if (!w) return;
     const resolvedKey = key || Object.keys(open).find(k => open[k] === w);
+    // A minimized (display:none) window reads 0 for every offset — the repair would compute 8,8 and
+    // PERSIST it. Refuse at the primitive (marker-keyed; headless DOMs read 0 for visible nodes too).
+    if (minimized[resolvedKey] || (w.classList && w.classList.contains('term-min-hidden'))) return;
     const savedSize = termSize[resolvedKey];
     if (savedSize) resizeTermTo(w, resolvedKey, savedSize.width, savedSize.height, persist);
     // A window whose CURRENT box outgrows the viewport (TEXT SIZE zoom-up, or a monitor shrink with
@@ -783,11 +786,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     w.classList.remove('term-min-hidden', 'term-minimizing');
     w.removeAttribute('aria-hidden');
     // The dossier displays live model and run counters. It stays mounted while minimized, so refresh that
-    // readout before revealing it again; other windows keep their in-progress DOM and draft state untouched.
-    // …UNLESS a CONFIG draft is dirty: the rerender rebuilds the editor from the PERSISTED doc, so
-    // minimize -> restore silently reverted everything typed since the last SAVE, bypassing the
-    // unsaved-draft guard entirely (that guard only fires on close). Counters go briefly stale instead.
-    if (key === 'agents' && !windowDirty(w)) rerender('agents');
+    // readout before revealing it again. swap:false engages _render's form-state preservation, so a dirty
+    // CONFIG draft (textarea value + data-dirty + caret) survives the rebuild instead of being reverted to
+    // the persisted doc — fresh counters AND the draft, not a choice between them.
+    if (key === 'agents') rerender('agents', false);
     // land it back at the remembered spot (or CSS-centre if never moved), lift to top, replay power-on.
     placeTerm(w, key);
     w.style.zIndex = U.zTop();
@@ -1020,8 +1022,70 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       else if (ev.shiftKey && act === first) { ev.preventDefault(); last.focus(); }
       else if (!ev.shiftKey && act === last) { ev.preventDefault(); first.focus(); }
     });
+    /* BACKGROUND-POKE FORM PRESERVATION (generalizes buildTasks's kbLive capture/restore, 2026-08-04).
+       A swap:false rebuild is a DATA poke on a window the Commander may be typing into: builders repaint
+       via innerHTML, which wiped in-progress field values (the quest journey metrics), stole focus and
+       reset selection. Capture every form control's volatile state before the rebuild and restore it
+       after — matched by id first, then by structural path. This replaces the earlier skip-while-dirty
+       guard, which keyed off a data-dirty flag nothing ever cleared (one keystroke froze the window's
+       refresh for the life of the page) and never covered <input> at all. Restoring is idempotent over
+       builders that already preserve their own fields (the task board). */
+    const ctrlPath = (el) => {
+      if (el.id) return '#' + el.id;
+      const parts = [];
+      let n = el;
+      while (n && n !== body && n.parentElement) {
+        const p = n.parentElement;
+        const sibs = Array.from(p.children).filter(c => c.tagName === n.tagName);
+        parts.unshift(n.tagName + ':' + sibs.indexOf(n));
+        n = p;
+      }
+      return parts.join('>');
+    };
+    const ctrlFind = (path) => {
+      if (path.charAt(0) === '#') return body.querySelector(path.replace(/([^\w#-])/g, '\\$1'));
+      let n = body;
+      for (const seg of path.split('>')) {
+        const i = seg.lastIndexOf(':');
+        const tag = seg.slice(0, i), idx = Number(seg.slice(i + 1));
+        const kids = n ? Array.from(n.children).filter(c => c.tagName === tag) : [];
+        n = kids[idx] || null;
+        if (!n) return null;
+      }
+      return n;
+    };
+    const captureForms = () => {
+      const rows = [];
+      const ae = document.activeElement;
+      for (const el of body.querySelectorAll('input, textarea, select')) {
+        const isCheck = el.type === 'checkbox' || el.type === 'radio';
+        rows.push({
+          path: ctrlPath(el), value: isCheck ? null : el.value, checked: isCheck ? el.checked : null,
+          dirty: el.dataset ? el.dataset.dirty : undefined,
+          focused: el === ae,
+          selS: (el === ae && typeof el.selectionStart === 'number') ? el.selectionStart : null,
+          selE: (el === ae && typeof el.selectionEnd === 'number') ? el.selectionEnd : null
+        });
+      }
+      return rows;
+    };
+    const restoreForms = (rows) => {
+      for (const r of rows) {
+        let el = null;
+        try { el = ctrlFind(r.path); } catch (_) { el = null; }
+        if (!el) continue;
+        try {
+          if (r.checked != null) el.checked = r.checked;
+          else if (r.value != null && el.value !== r.value) el.value = r.value;
+          if (r.dirty != null && el.dataset) el.dataset.dirty = r.dirty;
+          if (r.focused) { el.focus(); if (r.selS != null && typeof el.setSelectionRange === 'function') el.setSelectionRange(r.selS, r.selE == null ? r.selS : r.selE); }
+        } catch (_) { /* a rebuilt control that refuses restore is no worse than the old wipe */ }
+      }
+    };
     w._render = (swap) => {
+      const keep = swap === false ? captureForms() : null;   // background poke: preserve what the Commander typed
       builder(body);
+      if (keep && keep.length) restoreForms(keep);
       // tab/section crossfade: fade the freshly-injected body in on RE-renders (tab swaps,
       // live refreshes) — not on the initial mount, which already plays the CRT power-on.
       if (swap) {
@@ -1046,21 +1110,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      `open.tasks._render(false)`). Default stays true so every existing caller — user-driven swaps —
      keeps its fade. Store pokes (quests) pass false: a background poll must never visibly blink a
      panel the Commander is reading. */
-  function rerender(key, swap) {
-    const w = open[key];
-    if (!w) return;
-    /* A BACKGROUND poke (swap === false) must never rebuild a body the Commander is typing into:
-       builders repaint via innerHTML, so a store poke landing mid-keystroke wiped the quest log's
-       journey form (metric label/baseline/target — six stores poke that window from non-user paths).
-       Skip THIS poke when a field inside the window has focus or carries a dirty draft; the next poke
-       or any user action repaints. User-driven rerenders (swap !== false) are byte-identical. */
-    if (swap === false) {
-      const ae = document.activeElement;
-      const typing = !!(ae && w.contains(ae) && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable));
-      if (typing || windowDirty(w)) return;
-    }
-    w._render(swap !== false);
-  }
+  // swap=false → no crossfade AND form-state preservation: a background DATA poke repaints in place with
+  // every in-progress field value, focus and selection carried across the rebuild (see w._render).
+  function rerender(key, swap) { if (open[key]) open[key]._render(swap !== false); }
   function syncBB() {
     document.querySelectorAll('.bb[data-term]').forEach(b => b.classList.toggle('active', !!open[b.dataset.term]));
   }

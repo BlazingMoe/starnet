@@ -228,6 +228,23 @@ function okFetch(url) {
     timers.advance(120000);
     await Promise.resolve(); await Promise.resolve();
     A.ok(FakeWS._instances.length > n3, 'and still reconnects after the backoff elapses');
+    // PERSISTENT op 9 escalates past the guided wait too (review pass: fixedDelayMs used to bypass both
+    // backoff mechanisms — a flat 1-5s IDENTIFY loop forever, ~29k identifies/day, still a ban).
+    for (let i = 0; i < 6; i++) {
+      const wN = FakeWS._last(); wN.open(); wN.emit({ op: 10, d: { heartbeat_interval: 10000 } });
+      wN.emit({ op: 9, d: false });
+      timers.advance(10000);
+      await Promise.resolve(); await Promise.resolve();
+    }
+    const wX = FakeWS._last(); wX.open(); wX.emit({ op: 10, d: { heartbeat_interval: 10000 } });
+    const nX = FakeWS._instances.length;
+    wX.emit({ op: 9, d: false });
+    timers.advance(1500);
+    await Promise.resolve(); await Promise.resolve();
+    A.eq(FakeWS._instances.length, nX, 'a persistent invalid-session no longer retries at the flat guided wait — backoff has taken over');
+    timers.advance(60000);
+    await Promise.resolve(); await Promise.resolve();
+    A.ok(FakeWS._instances.length > nX, 'but the reconnect still happens once the escalated backoff elapses');
     gw.close();
   }
 

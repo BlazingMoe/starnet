@@ -239,7 +239,16 @@
     function row(j) {
       const on = j.enabled;
       const autoPaused = !on && j.disabledReason === 'consecutive-failures';
-      const stateBadge = on ? '<span style="color:var(--gold)">● scheduled</span>'
+      // A SETTLED ONE-SHOT is DONE, not paused: the backend permanently refuses to re-arm it (planTick's
+      // lastRunAt bar), so drawing "○ paused" with an ENABLE button promised a fire that can never happen —
+      // ENABLE round-tripped and the row then read "● scheduled · next 3d ago" forever. RESCHEDULE (which
+      // genuinely re-arms it with a fresh time) is the honest re-run path and stays.
+      const completedOnce = !on && j.state === 'completed' && j.schedule && j.schedule.kind === 'once';
+      // real lease state off GET /api/cron (additive `inFlight`) — never synthesized client-side.
+      const running = j.inFlight === true;
+      const stateBadge = running ? '<span style="color:var(--gold)">● running</span>'
+        : completedOnce ? '<span style="color:var(--good,var(--gold))">✓ completed</span>'
+        : on ? '<span style="color:var(--gold)">● scheduled</span>'
         : autoPaused ? '<span style="color:var(--bad)">○ paused — failing</span>'
         : '<span class="dim">○ paused</span>';
       // A routine can remain scheduled while E-STOP has durably stood down the global scheduler. Keep the saved
@@ -285,11 +294,12 @@
         failureStreakLine(j) +
         deliveryLine(j) +
         '<div class="mc-acts">' +
-          '<button class="bb xs" data-act="run">▶ RUN NOW</button>' +
+          '<button class="bb xs" data-act="run"' + (running ? ' disabled title="already running — one run per routine"' : '') + '>▶ RUN NOW</button>' +
           // RESCHEDULE — the same picker, opened on this routine's current schedule. Before this you could
           // only DELETE and re-create a routine to move it an hour, which also threw away its run history.
           '<button class="bb xs" data-act="resched">◷ RESCHEDULE</button>' +
-          '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>' +
+          // no toggle on a settled one-shot: ENABLE can't re-arm it (see completedOnce above)
+          (completedOnce ? '' : '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>') +
           // REVOKE — a standing unattended permission must be withdrawable without deleting the routine.
           // Only rendered when there is something to revoke, so an ordinary routine's action row is unchanged.
           (grantsOf.length ? '<button class="bb xs" data-act="revoke" title="stop this routine using the terminal / your connected tools">⌫ REVOKE ACCESS</button>' : '') +
@@ -535,8 +545,15 @@
         refresh(); return;
       }
       if (act === 'toggle') {
+        // A PAUSE/RESUME CLAIM MUST BE PROVEN (same law as delete/revoke above): fetch resolves on 4xx/5xx,
+        // and the swallowed catch meant a failed DISABLE clicked, toasted nothing, and left the routine armed
+        // while the user walked away believing it was stopped.
         sfx('click'); const on = rowEl.dataset.on === '1';
-        try { await post('/api/cron/update', { id, patch: { enabled: !on } }); } catch (_) {} refresh(); return;
+        try {
+          const r = await post('/api/cron/update', { id, patch: { enabled: !on } });
+          if (!r.ok) notify(on ? 'could NOT pause — the routine is still armed' : 'could NOT enable this routine', 'warn');
+        } catch (_) { notify('could not reach the station — the routine was NOT ' + (on ? 'paused' : 'enabled'), 'warn'); }
+        refresh(); return;
       }
       if (act === 'run') {
         sfx('click'); btn.disabled = true; const old = btn.textContent; btn.textContent = '… posting line';
@@ -622,6 +639,11 @@
           attachToSession: !!body.querySelector('#rt-continue').checked
         })).json();
         if (r && r.error) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc(r.error) + '</span>'; sfx('bad'); }
+        // THE MINT GATE'S REFUSALS ARE 200s (declined / near-duplicate name): treating "no error key" as
+        // success toasted "scheduled", cleared the form, and the list redrew WITHOUT the routine — the
+        // user's work silently gone. Say what actually happened and keep their text in the form.
+        else if (r && r.declined) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc(r.message || 'a routine with this name was deleted before — pick a different name') + '</span>'; sfx('bad'); }
+        else if (r && r.duplicate) { msgEl.innerHTML = '<span style="color:var(--warn,var(--gold))">◈ ' + esc('a similar routine already exists' + (r.job && r.job.name ? (': "' + r.job.name + '"') : '') + ' — nothing new was created') + '</span>'; sfx('bad'); }
         else {
           msgEl.textContent = '';
           // HONEST create-confirm: don't claim "scheduled" if the scheduler that fires it is off. armStateLine

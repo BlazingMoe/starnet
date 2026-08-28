@@ -93,14 +93,18 @@
     return out;
   }
 
-  // split text into <=max-length pieces, preferring to break at the last newline/space so words/lines stay whole.
-  function chunkText(text, max) {
+  /* split text into <=max-length pieces, preferring to break at the last newline/space so words/lines stay
+     whole. chunkTextParts returns BOTH views, aligned 1:1: `send` carries the fence-doctored chunks the wire
+     wants (reopenFences injects synthetic ``` markers), `raw` the undecorated splits of the original text.
+     Anyone persisting an undelivered REMAINDER must rebuild it from `raw` — joining decorated chunks bakes
+     the synthetic fences into the stored text, and the next pass re-fences them (stray ``` lines per retry). */
+  function chunkTextParts(text, max) {
     const s = String(text == null ? '' : text);
     // A non-positive `max` makes `end === i` below, so the loop pushes '' forever without advancing. No
     // caller passes one today (adapters default to 4096), but an unbounded loop is not a thing to leave
     // one bad config away.
     max = (typeof max === 'number' && isFinite(max) && max > 0) ? Math.floor(max) : 4096;
-    if (s.length <= max) return s.length ? [s] : [];
+    if (s.length <= max) { const one = s.length ? [s] : []; return { raw: one, send: one }; }
     // Leave room for the fence markers reopenFences may add, but ONLY when there is a fence to worry about —
     // an ordinary long reply keeps the exact old boundaries.
     const fenced = /^[ \t]{0,3}```/m.test(s);
@@ -119,8 +123,9 @@
       out.push(s.slice(i, end));
       i = end;
     }
-    return fenced ? reopenFences(out) : out;
+    return { raw: out, send: fenced ? reopenFences(out) : out };
   }
+  function chunkText(text, max) { return chunkTextParts(text, max).send; }
 
   /* Render an inbound message's `replyTo` as the preamble that goes ABOVE the member's own words in the turn.
 
@@ -821,7 +826,8 @@
           let dead = false;
           try { const r0 = typeof store.getChatRecord === 'function' ? store.getChatRecord(String(it.chatId)) : null; dead = !!(r0 && r0.unreachable); } catch (_) {}
           if (dead) { try { store.removeOutbox(it.id); } catch (e) { failNote('channels.hub.outbox.remove', e); } continue; }
-          const chunks = chunkText(it.text, maxMessageLength);
+          const parts = chunkTextParts(it.text, maxMessageLength);
+          const chunks = parts.send;
           let ok = true, sentUpTo = 0;
           for (let ci = 0; ci < chunks.length; ci++) {
             let r;
@@ -839,12 +845,19 @@
             continue;
           }
           // PROGRESS: chunks the member already received must never be re-sent — a flaky transport used to
-          // replay the first two-thirds of a long answer on every retry pass. Keep only the remainder.
+          // replay the first two-thirds of a long answer on every retry pass. The remainder is rebuilt from
+          // the RAW (undecorated) splits: joining the fence-doctored send chunks baked reopenFences's
+          // synthetic ``` markers into the stored text, which the next pass re-fenced — stray fence lines
+          // growing per retry on every long code-bearing reply.
           if (sentUpTo > 0 && typeof store.replaceOutboxText === 'function') {
-            try { store.replaceOutboxText(it.id, chunks.slice(sentUpTo).join('')); } catch (e) { failNote('channels.hub.outbox.progress', e); }
+            try { store.replaceOutboxText(it.id, parts.raw.slice(sentUpTo).join('')); } catch (e) { failNote('channels.hub.outbox.progress', e); }
           }
+          // A pass that delivered real chunks is PROGRESS, not another failed attempt — it must not count
+          // toward the escalation ceiling, or a long message advancing one chunk per pass reads as failing.
           let bumped = null;
-          try { bumped = (typeof store.bumpOutboxTry === 'function') ? store.bumpOutboxTry(it.id) : null; } catch (e) { failNote('channels.hub.outbox.bump', e); }
+          if (sentUpTo === 0) {
+            try { bumped = (typeof store.bumpOutboxTry === 'function') ? store.bumpOutboxTry(it.id) : null; } catch (e) { failNote('channels.hub.outbox.bump', e); }
+          }
           if (bumped && bumped.tries === OUTBOX_ESCALATE_TRIES) {
             try { emit('channel.delivery', { channel, chatId: String(it.chatId), runId: it.runId || '', ok: false, chunks: 0, reason: 'redelivery-delayed' }); } catch (_) {}
             try { console.error('[' + channel + '] outbox item for chat ' + it.chatId + ' still delayed after ' + OUTBOX_ESCALATE_TRIES + ' attempts; retained for retry'); } catch (_) {}
@@ -1985,5 +1998,5 @@
     };
   }
 
-  return { makeChannelHub, chunkText, endNote, parseCommand, matchAgent, fmtAgentLine, isSupersedeRaceRefusal, coerceChoice, menuCommands, helpText, replyPreamble, REPLY_QUOTE_MAX, COMMANDS, _internals: { TASK_SUFFIX, DEFAULT_PERSONA, parseCommand, matchAgent, fmtAgentLine, isSupersedeRaceRefusal, coerceChoice, menuCommands, helpText, replyPreamble, COMMANDS } };
+  return { makeChannelHub, chunkText, chunkTextParts, endNote, parseCommand, matchAgent, fmtAgentLine, isSupersedeRaceRefusal, coerceChoice, menuCommands, helpText, replyPreamble, REPLY_QUOTE_MAX, COMMANDS, _internals: { TASK_SUFFIX, DEFAULT_PERSONA, parseCommand, matchAgent, fmtAgentLine, isSupersedeRaceRefusal, coerceChoice, menuCommands, helpText, replyPreamble, COMMANDS } };
 });

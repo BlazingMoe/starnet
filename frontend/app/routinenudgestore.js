@@ -149,13 +149,19 @@ const RoutineNudgeStore = (() => {
         if (handled) return; handled = true;
         // THE OUTCOME LOOP (quality loop, Q2): scheduling opens the SCHEDULE IT form rather than launching a
         // run, so the accept IS the outcome; a wave-off is real signal about this channel. Fail-open.
+        // AND THE LEDGER'S HALF (dead-wires lane, 2026-08-28): the spine minted a `shown` row for this card
+        // (RecLedger.note — routine is not OWN_LEDGER) and nothing ever answered it; the durable ledger read
+        // every routine nudge as permanently unanswered. The verdict lands in both places.
         const rq = (typeof RecQualityStore !== 'undefined') ? RecQualityStore : null;
+        const rl = (typeof RecLedger !== 'undefined') ? RecLedger : null;
         if (choice && choice.value === 'routine') {
           if (typeof App !== 'undefined' && App.openRecipeLaunch) App.openRecipeLaunch(c.id, 'routine');
           if (rq && rq.noteAccept) { try { rq.noteAccept({ channel: 'routine', spawnsWork: false, id: c.id }); } catch (_) {} }
+          if (rl && rl.accepted) { try { rl.accepted('routine'); } catch (_) {} }
         } else {
           markDismissed(c.id);   // an explicit "not now" is a decision — never offer this recipe again
           if (rq && rq.noteDecline) { try { rq.noteDecline({ channel: 'routine' }, false); } catch (_) {} }
+          if (rl && rl.declined) { try { rl.declined('routine', false); } catch (_) {} }
         }
       }
     );

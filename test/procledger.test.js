@@ -188,7 +188,8 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   {
     const file7 = path.join(dir, 'l7.json');
     // pid 1000 (the "dev server", recorded FIRST) is alive; pids 1001-1010 (early churn) are dead.
-    const aliveSet = new Set([1000]);
+    // The probe canary (our own pid) always answers — a healthy probe proves absence means dead.
+    const aliveSet = new Set([1000, Number(process.pid)]);
     for (let p = 1011; p <= 1105; p++) aliveSet.add(p);
     const l7 = makeProcLedger({
       fs, pathMod: path, file: file7, clock,
@@ -201,6 +202,34 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
     A.ok(pids7.includes(1000), 'the oldest LIVE receipt (the dev server) survives cap pressure');
     A.ok(!pids7.includes(1001), 'a provably-dead early receipt is the one evicted');
     A.ok(pids7.length <= 101, 'the ledger stays near its cap after pruning (' + pids7.length + ')');
+
+    // ALL-DEAD WINDOW STILL PRUNES (review pass): an empty candidate result used to read as "ambiguous"
+    // and no-op forever — the normal steady state once the oldest window is all churn — so the ledger
+    // climbed to the hard ceiling and front-dropped the very receipt the fix protects. The canary makes
+    // absence provable. A probe that misses even the canary (broken) must still prune nothing.
+    const file8 = path.join(dir, 'l8.json');
+    let probeBroken = false;
+    const l8 = makeProcLedger({
+      fs, pathMod: path, file: file8, clock,
+      probe: async (pids) => {
+        const m = new Map();
+        if (probeBroken) return m;                                  // broken: not even the canary answers
+        for (const p of pids.map(Number)) if (p === Number(process.pid) || p === 2000) m.set(p, { cmd: 'x', created: 1 });
+        return m;
+      },
+      killTree: async () => {}
+    });
+    l8.record({ pid: 2000, cmd: 'npm run dev', kind: 'shell.bg' });                 // the long-lived child (alive)
+    for (let p = 2001; p <= 2110; p++) l8.record({ pid: p, cmd: 'churn ' + p, kind: 'shell.bg' });   // all dead
+    await new Promise(r => setTimeout(r, 30));
+    const pids8 = l8.list().map(r => r.pid);
+    A.ok(pids8.includes(2000), 'the live dev server survives an ALL-DEAD candidate window');
+    A.ok(pids8.length <= 101, 'the all-dead window pruned down to the cap (' + pids8.length + ') instead of no-opping to the hard ceiling');
+    probeBroken = true;
+    const before8 = l8.list().length;
+    for (let p = 3000; p <= 3020; p++) l8.record({ pid: p, cmd: 'more ' + p, kind: 'shell.bg' });
+    await new Promise(r => setTimeout(r, 30));
+    A.ok(l8.list().length >= before8, 'a BROKEN probe (canary missing) prunes nothing — live receipts are never laundered into dead');
   }
 
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {}

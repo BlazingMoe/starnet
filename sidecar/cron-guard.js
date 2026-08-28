@@ -180,8 +180,13 @@
     'curl\\s+[^\\n]*(?:-H|--header)\\s+["\']Authorization:\\s*token\\s+' + SECRET_VAR + '["\']\\s+["\']?https://api\\.github\\.com(?:/|\\b)', 'i'
   );
   function stripSafeConstructs(text) {
-    const m = GITHUB_AUTH_RE.exec(text);
-    return m ? text.replace(m[0], 'curl https://api.github.com/user') : text;
+    // EVERY occurrence, not just the first (bug-sweep 2026-08-28): a prompt with two legitimate GitHub auth
+    // curls had its second one survive into EXFIL_PATTERNS, so a working routine failed closed on every tick
+    // until the consecutive-failure ceiling silently paused it. The replacement never re-matches, so this
+    // terminates. Bounded as a belt against a pathological prompt.
+    let out = String(text), m, guard = 0;
+    while (guard++ < 64 && (m = GITHUB_AUTH_RE.exec(out))) out = out.replace(m[0], 'curl https://api.github.com/user');
+    return out;
   }
 
   function match(text, patterns) {

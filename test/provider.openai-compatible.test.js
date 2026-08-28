@@ -91,6 +91,44 @@ module.exports = (async () => {
     A.eq(evs.filter(e => e.type === 'tool_args').map(e => e.chunk).join(''), '{"q":"x"}', 'continuation args land on the same slot');
   }
 
+  // NAME-ECHOING continuation deltas (no id, no index, name repeated per delta — several vLLM/Ollama/
+  // LiteLLM builds): one call streamed across deltas stays ONE call while its args are incomplete JSON.
+  {
+    const fetchImpl = async () => {
+      const sse = [
+        line({ choices: [{ delta: { tool_calls: [{ function: { name: 'fs_read', arguments: '{"path":' } }] } }] }),
+        line({ choices: [{ delta: { tool_calls: [{ function: { name: 'fs_read', arguments: '"a.txt"}' } }] } }] }),
+        line({ choices: [{ finish_reason: 'tool_calls', delta: {} }] }),
+        'data: [DONE]', ''
+      ].join('\n');
+      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'fs_read' } }] });
+    A.eq(evs.filter(e => e.type === 'tool_start').length, 1, 'a name-echoing continuation opens NO second call');
+    A.eq(evs.filter(e => e.type === 'tool_args').map(e => e.chunk).join(''), '{"path":"a.txt"}', 'the args reassemble into one valid call');
+  }
+
+  // ...but two SEQUENTIAL whole-call deltas with the same name (each with COMPLETE args) are two calls.
+  {
+    const fetchImpl = async () => {
+      const sse = [
+        line({ choices: [{ delta: { tool_calls: [{ function: { name: 'fs_read', arguments: '{"path":"x"}' } }] } }] }),
+        line({ choices: [{ delta: { tool_calls: [{ function: { name: 'fs_read', arguments: '{"path":"y"}' } }] } }] }),
+        line({ choices: [{ finish_reason: 'tool_calls', delta: {} }] }),
+        'data: [DONE]', ''
+      ].join('\n');
+      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'fs_read' } }] });
+    const starts = evs.filter(e => e.type === 'tool_start');
+    A.eq(starts.length, 2, 'complete-args same-name deltas are DISTINCT calls (never arg-concatenated)');
+    const argsFor2 = idx => evs.filter(e => e.type === 'tool_args' && e.index === idx).map(e => e.chunk).join('');
+    A.eq(argsFor2(starts[0].index), '{"path":"x"}', 'first call keeps its own args');
+    A.eq(argsFor2(starts[1].index), '{"path":"y"}', 'second call keeps its own args');
+  }
+
   // model catalog parsing and no-auth local shape
   {
     const calls = [];

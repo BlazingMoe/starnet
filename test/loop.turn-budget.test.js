@@ -47,6 +47,7 @@ const total = rs => rs.reduce((a, r) => a + (typeof r.content === 'string' ? r.c
   A.ok(total(out) <= 200000, 'a wide batch of small results lands UNDER the cap (was 297k for a 200k cap)');
   A.ok(out.every(r => r.content.length <= 250), 'no squeezed result GREW past its original content');
   A.ok(out.every(r => /elided/.test(r.content)), 'each clamped result still carries an elision marker');
+  A.ok(out.every(r => /do not repeat this call/.test(r.content)), 'the marker keeps the do-not-repeat instruction — the feedback signal that stops the model re-issuing the same wide calls');
 }
 
 // ---- the note survives a SECOND clamp, and still points at the parked file ----

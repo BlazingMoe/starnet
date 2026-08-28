@@ -4722,7 +4722,14 @@ const cronDriver = makeCronDriver({
     // AUTOMATION: a routine whose prompt IS a slash command runs the COMMAND, not a model turn. Same redirect
     // shape as the workshop sentinel above. Deterministic, zero spend, and the answer is the identical text
     // every other surface prints — "/usage every morning at 9" needs no model and should not pay for one.
-    if (first && first.charAt(0) === '/' && !opts.cronScript) return runSlashRoutine(first, opts);
+    if (first && first.charAt(0) === '/' && !opts.cronScript) {
+      // TRUTHFUL SNAPSHOT for the slash lane too (bug-sweep 2026-08-28): runSlashRoutine emits
+      // agent.run.start, and this early return skipped the runsMeta registration below — the one autonomous
+      // lane /api/state/snapshot didn't list, so the 30s reconcile stood the agent down mid-command.
+      const slashRunId = opts && opts.runId ? String(opts.runId) : '';
+      if (slashRunId) runsMeta.set(slashRunId, { agentId: String((opts && opts.agentId) || 'agent'), startedAt: Date.now(), source: 'cron' });
+      return Promise.resolve(runSlashRoutine(first, opts)).finally(() => { if (slashRunId) runsMeta.delete(slashRunId); });
+    }
     // TRUTHFUL SNAPSHOT: register the scheduled run in runsMeta for its lifetime. The frontend's
     // reconnect/30s reconciliation (world.js reconcileFromSnapshot) treats /api/state/snapshot as the
     // authority on live runs and STANDS DOWN any agent whose run it doesn't list — a scheduled fire
@@ -4850,6 +4857,11 @@ function cronTickHealthy() {
   }
   try {
     const r = cronLock.withLock(() => cronDriver.applyTick(Date.now()));
+    // LOCK HELD ELSEWHERE = OUR TICK DID NOT RUN (bug-sweep 2026-08-28): stamping success on a {ran:false}
+    // pass made a sidecar that never once acquired the lock report healthy:true to /api/cron, the panel and
+    // the tray, forever. Leave lastSuccessAt untouched so health AGES honestly; it is not an error either
+    // (the lock holder may be ticking fine — its own health says so).
+    if (r && r.ran === false) return r;
     cronHealth.lastSuccessAt = Date.now();
     cronHealth.lastTickError = null;
     return r;
@@ -10529,7 +10541,14 @@ function cronStateSnapshot(now) {
   };
   // `halted` (additive, Lane 4D): the durable E-STOP stand-down — enabled records the user's arm INTENT while
   // halted says the timer is frozen anyway, so the panel can say "paused by E-STOP" instead of a false "armed".
-  return { jobs: cronJobs, enabled: cronArmed, halted: cronHalted, tickMs: CRON_TICK_MS, health: health,
+  // `inFlight` (additive, bug-sweep 2026-08-28): real per-job lease state (mirrors the loops snapshot's
+  // inFlight) so the panel can gray RUN NOW on a routine that is genuinely running instead of double-firing.
+  const jobs = (Array.isArray(cronJobs) ? cronJobs : []).map(j => {
+    if (!j || !j.id) return j;
+    const lease = cronDriver.leases.get(j.id);
+    return (lease && !lease.settlement) ? Object.assign({}, j, { inFlight: true }) : j;
+  });
+  return { jobs: jobs, enabled: cronArmed, halted: cronHalted, tickMs: CRON_TICK_MS, health: health,
     degraded: cronDegraded ? { quarantinePath: cronDegraded.quarantinePath, since: cronDegraded.since } : null,
     maxConsecutiveFailures: CRON_MAX_CONSECUTIVE_FAILURES };
 }
@@ -10821,6 +10840,11 @@ async function createCronJobFromSpec(body) {
     body.noAgent = body.noAgent === true;
     body.attachToSession = body.attachToSession === true;
     if (body.noAgent && !body.script) throw new Error('script-only routines require a script');
+    // A routine with NOTHING TO RUN must be refused here, not stored: an empty prompt sailed through
+    // (scanRoutinePrompt passes empty, makeJob coerces to ''), minting a routine that fires every tick with
+    // an empty user message and fails at the provider until auto-pause. The panel guards this client-side;
+    // the API (routine.create tool, recipes, raw POST) did not.
+    if (!String(body.prompt || '').trim() && !body.script) throw new Error('a routine needs a prompt (or a script)');
     if (body.script) cronScriptSpec({ id: 'validate', agentId, script: body.script, workdir: body.workdir, unattendedGrants: body.unattendedGrants });
     const mode = String(body.deliver || 'local');
     if (mode === 'origin' && !(body.origin && (body.origin.target || (body.origin.channel && body.origin.chatId) || body.origin.sessionId || body.origin.streamId))) throw new Error('origin delivery needs a captured channel or session origin');
@@ -10925,6 +10949,10 @@ function handleCronUpdate(req, res) {
         return next;
       });
     } catch (e) { return json(500, { error: 'could not save: ' + ((e && e.message) || e) }); }
+    // PAUSE ABORTS THE IN-FLIGHT RUN (loops parity — modelSetLoopEnabled): "pause" means stop unattended
+    // work NOW, not after up to maxRunMs more spend. Only after the durable write above succeeded, so a
+    // failed save never kills a run the store still says is armed.
+    if (enabled === false) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (e) { failNote('cron.pause.abort', e); } } }
     json(200, { ok: true, job: cronStore.getJob(cronJobs, id) });
   }).catch(() => { try { json(400, { error: 'bad request' }); } catch (_) {} });
 }
@@ -10938,6 +10966,11 @@ function handleCronRemove(req, res) {
     // W6: capture the job BEFORE removal so we can mark its name declined in the creating agent's mint ledger —
     // a routine the Commander deletes must never be re-minted by the agent that made it.
     const doomed = cronStore.getJob(cronJobs, id);
+    // DELETE ABORTS THE IN-FLIGHT RUN (bug-sweep 2026-08-28, loops parity — modelRemoveLoop): before this,
+    // deleting a firing routine let the run spend to completion and then silently discard its result (the
+    // record it would settle into no longer exists). The abort settles through finishFire, which tolerates
+    // the missing record.
+    if (doomed) { const lease = cronDriver.leases.get(id); if (lease && lease.ac) { try { lease.ac.abort(); } catch (e) { failNote('cron.remove.abort', e); } } }
     try { await withCronWrite(jobs => cronStore.removeJob(jobs, id)); }   // G4.3: re-read-modify-write under the lock
     catch (e) { return json(500, { error: 'could not save: ' + ((e && e.message) || e) }); }
     if (doomed && doomed.name) markMintDeclined(doomed.agentId, doomed.name);   // sticky: the agent must not resurrect it
@@ -10996,6 +11029,17 @@ async function handleCronRun(req, res) {
   let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
   const job = cronStore.getJob(cronJobs, String(body.id || ''));
   if (!job) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'no such routine' })); }
+  // ONE RUN PER ROUTINE — MANUAL INCLUDED (bug-sweep 2026-08-28): the scheduled path holds a one-in-flight
+  // lease, but Run Now never consulted it, so a click while the tick's run was live double-executed the
+  // routine (double provider spend, double connector writes, and whichever settlement landed last clobbered
+  // the other's markRun). Refuse honestly instead; the panel's row shows inFlight from GET /api/cron.
+  {
+    const live = cronDriver.leases.get(job.id);
+    if (live && !live.settlement) {
+      res.writeHead(409, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'this routine is already running — wait for it to finish' }));
+    }
+  }
   // INJECTION TRIPWIRE at FIRE time (defense in depth): re-scan the assembled prompt before spending anything.
   // This is what catches a routine authored BEFORE the scanner existed, and — once skills/contextFrom get their
   // runtime consumers — content loaded at run time that create-time scanning never saw.
@@ -11011,6 +11055,9 @@ async function handleCronRun(req, res) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: scan.error, blocked: scan.patternId }));
     }
+    // USE THE SANITIZED TEXT — same fix as the scheduled fire (cron-driver.js): scanAssembled strips
+    // invisible unicode, but the raw string was what reached the model. Inert sanitization until this line.
+    if (typeof scan.cleaned === 'string' && scan.cleaned) assembledPrompt = scan.cleaned;
   }
   const model = cronModelFor(job);
   const provider = cronProviderFor(job);
@@ -11035,7 +11082,7 @@ async function handleCronRun(req, res) {
     try { out = await runSlashRoutine(assembledPrompt, { agentId: job.agentId, runId: runIdC, emit: emitC }); }
     catch (e) { out = { ok: false, text: 'that command failed: ' + ((e && e.message) || e) }; }
     try {
-      await withCronWrite(jobs => cronStore.markRun(jobs, job.id, { runId: runIdC, status: out.ok ? 'ok' : 'error', reason: out.ok ? 'done' : 'error', error: out.ok ? undefined : out.text }, { now: Date.now(), defaultTz: CRON_HOST_TZ }));
+      await withCronWrite(jobs => cronStore.markRun(jobs, job.id, { runId: runIdC, status: out.ok ? 'ok' : 'error', reason: out.ok ? 'done' : 'error', error: out.ok ? undefined : out.text }, { now: Date.now(), defaultTz: CRON_HOST_TZ, maxConsecutiveFailures: CRON_MAX_CONSECUTIVE_FAILURES }));
     } catch (_) {}
     try { cronEmit('cron.result', { jobId: job.id, runId: runIdC, outcome: out.ok ? 'ok' : 'failed', reason: out.ok ? 'done' : 'error' }); } catch (_) {}
     try { res.end(); } catch (_) {}
@@ -11048,6 +11095,11 @@ async function handleCronRun(req, res) {
   const runId = crypto.randomUUID();
   runs.set(runId, ac);
   runsMeta.set(runId, { agentId: job.agentId, startedAt: Date.now(), source: 'cron' });
+  // Register the manual run in the DRIVER's lease map (the other half of the one-run-per-routine fix): the
+  // scheduled tick's leases.has() check now sees a live Run Now and reports already-running instead of
+  // firing a concurrent duplicate. Heartbeat renews off the tee below; the driver's stale sweep governs a
+  // silent manual run by exactly the same rule as a scheduled one. Removed in the finally.
+  cronDriver.leases.set(job.id, { runId: runId, startedAt: Date.now(), heartbeatAt: Date.now(), ac: ac, isOnce: false });
   // res 'close', not req 'close' — same disconnect-detection law as handleRun: readBody() already consumed the
   // request, so req 'close' has fired before this listener attaches and a dead watcher was never noticed (F1).
   res.on('close', () => { ac.abort(); runs.delete(runId); runsMeta.delete(runId); });
@@ -11057,6 +11109,7 @@ async function handleCronRun(req, res) {
   const state = { buf: '', errMsg: null, reason: null, transient: false, usd: 0 };
   const teeEmit = (name, payload) => {
     try { emit(name, payload); } catch (_) {}
+    { const lz = cronDriver.leases.get(job.id); if (lz && lz.runId === runId) lz.heartbeatAt = Date.now(); }   // liveness for the driver's stale sweep
     const p = payload || {};
     if (name === 'agent.token') state.buf += (p.delta || '');
     else if (name === 'agent.tool_call') state.buf = '';
@@ -11184,12 +11237,17 @@ async function handleCronRun(req, res) {
     }
     runs.delete(runId);
     runsMeta.delete(runId);
+    // release OUR manual lease (never a successor's — the stale sweep may have reclaimed it) and settle the
+    // conveyor work-item this route placed. Before this, Run Now's crate NEVER settled (its terminal events
+    // bypass cronEmitNotify), so every press permanently inflated the agent's queueDepth by one.
+    { const lz = cronDriver.leases.get(job.id); if (lz && lz.runId === runId) cronDriver.leases.delete(job.id); }
+    try { settleCronWorkitem(runId, state.reason); } catch (e) { failNote('cron.runNow.settle', e); }
     dropSteer(runId, 'manual-run');      // drop any un-drained steering notes so they can't leak to a later run (mirror handleRun); logs a count if non-empty
     const ok = !state.errMsg;
     try {
       // G4.3: record the manual run's outcome as a re-read-modify-write under the lock (don't clobber a
       // concurrent advance/CRUD save with a stale in-memory snapshot).
-      await withCronWrite(jobs => cronStore.markRun(jobs, job.id, { runId: runId, status: ok ? 'ok' : 'error', reason: state.reason || (ok ? 'done' : 'error'), error: state.errMsg || undefined, transient: state.transient, output: ok ? String(state.buf || '').trim() : undefined, usd: state.usd || 0 }, { now: Date.now(), defaultTz: CRON_HOST_TZ }));
+      await withCronWrite(jobs => cronStore.markRun(jobs, job.id, { runId: runId, status: ok ? 'ok' : 'error', reason: state.reason || (ok ? 'done' : 'error'), error: state.errMsg || undefined, transient: state.transient, output: ok ? String(state.buf || '').trim() : undefined, usd: state.usd || 0 }, { now: Date.now(), defaultTz: CRON_HOST_TZ, maxConsecutiveFailures: CRON_MAX_CONSECUTIVE_FAILURES }));
     } catch (_) {}
     try { cronEmit('cron.result', { jobId: job.id, runId: runId, outcome: !ok ? 'failed' : ((state.buf || '').trim() === '[SILENT]' ? 'silent' : 'ok'), reason: state.reason || (ok ? 'done' : 'error') }); } catch (_) {}
     try { await deliverCronResult(cronStore.getJob(cronJobs, job.id) || job, { runId, outcome: !ok ? 'failed' : ((state.buf || '').trim() === '[SILENT]' ? 'silent' : 'ok'), text: String(state.buf || '').trim(), error: state.errMsg || null }); } catch (_) {}
@@ -13959,6 +14017,9 @@ async function runOnce(o) {
         emit('agent.run.end', { agentId, runId, reason: 'error', turns: 0, usd: 0 });
         return;
       }
+      // USE THE SANITIZED TEXT — same fix as the scheduled/Run-Now fires: stripped invisible unicode must
+      // not ride the raw string into the model turn below.
+      if (typeof scan.cleaned === 'string') checked.output = scan.cleaned;
     }
     if (o.noAgent || checked.wakeAgent === false) {
       emit('agent.run.start', { agentId, runId, trigger: trigger, model: '' });

@@ -152,17 +152,28 @@
        probe the oldest receipts and drop only the PROVABLY-DEAD ones; a hard 4x ceiling (with a log) is the
        last-resort bound so a runaway spawner still cannot grow the file forever. An empty probe result is
        ambiguous on POSIX (ps failure resolves empty) — prune nothing then; the hard ceiling backstops. */
-    let pruning = false;
+    let pruning = false, lastPruneAt = 0;
     function prunePressure() {
       if (live.length > MAX_ENTRIES * 4) {
         log('[proc-ledger] over hard ceiling (' + live.length + '); dropping oldest receipts');
         live = live.slice(-(MAX_ENTRIES * 4));
       }
       if (pruning || live.length <= MAX_ENTRIES) return;
-      pruning = true;
+      // ONE probe attempt per 30s: record() runs on every spawn, and each probe is a real subprocess
+      // (PowerShell on Windows) — an over-cap session must not pay one per shell command. (Inert under
+      // an injected zero clock, so tests drive the prune deterministically.)
+      const t = now();
+      if (t && lastPruneAt && t - lastPruneAt < 30000) return;
+      pruning = true; lastPruneAt = t;
       const candidates = live.slice(0, (live.length - MAX_ENTRIES) + 10).map(r => Number(r.pid));
-      Promise.resolve(probe(candidates)).then((found) => {
-        if (!found || !found.size) return;   // ambiguous (probe failure) — never launder live receipts into "dead"
+      /* THE CANARY: an empty probe result used to be treated as ambiguous, but an all-dead oldest window
+         is the NORMAL steady state — so the prune was a permanent no-op and the hard ceiling front-dropped
+         exactly the long-lived receipt the fix protects. Probing our own pid alongside disambiguates:
+         a healthy probe always finds the canary, so canary-present + candidate-absent = provably dead;
+         canary absent = the probe itself is broken -> prune nothing. */
+      const selfPid = (typeof process !== 'undefined' && Number(process.pid)) || 0;
+      Promise.resolve(probe(selfPid ? candidates.concat([selfPid]) : candidates)).then((found) => {
+        if (!found || (selfPid && !found.has(selfPid))) return;   // broken probe — never launder live receipts into "dead"
         const gone = new Set(candidates.filter(p => !found.has(p)));
         if (gone.size) { live = live.filter(r => !gone.has(Number(r.pid))); save(); }
       }).catch((e) => { log('[proc-ledger] pressure prune failed: ' + ((e && e.message) || e)); }).finally(() => { pruning = false; });

@@ -207,6 +207,26 @@ function fakeLedger() {
   A.eq((billing.status('r6') || {}).settled, false, 'failed finalization remains retryable');
 }
 
+// ---- the leak-guard's usd:0 replay after a FAILED settle charges the REAL remembered spend, never $0 ----
+// A transient ledger/refund throw left the record unsettled; index.js's finally then re-enters with
+// usd:0 (the leak-guard). Before pendingUsd, that replay settled at $0 and refunded the whole
+// reservation — a run that really spent money became free with no trace.
+{
+  const payment = fakePayment({ acct: 5 });
+  let ledgerFails = 1;
+  const rows = [];
+  const ledger = { record(row) { if (ledgerFails-- > 0) throw new Error('transient'); rows.push(row); } };
+  const billing = makeBilling({ payment, ledger });
+  A.eq(billing.beginRun({ mode: 'managed', accountId: 'acct', runId: 'r6c', capUsd: 3 }).ok, true, 'managed run reserves credit');
+  A.eq(billing.finishRun({ runId: 'r6c', reason: 'done', usd: 1.2, tokens: 10, turns: 1 }).ok, false, 'first settle fails on the transient ledger');
+  const replay = billing.finishRun({ runId: 'r6c', reason: 'leak-guard', usd: 0 });   // exactly index.js's finally
+  A.eq(replay.ok, true, 'the leak-guard replay settles');
+  A.eq(replay.usd, 1.2, 'at the REAL remembered spend — never $0');
+  A.ok(Math.abs(replay.refundUsd - 1.8) < 1e-9, 'refunding only the unused headroom');
+  A.eq(rows[0].usd, 1.2, 'the ledger row carries the real spend');
+  A.ok(Math.abs(payment.get('acct') - 3.8) < 1e-9, 'the account gets back exactly reserved-minus-spent');
+}
+
 // ---- strict durable ledgers fail closed for managed credits before refunding reserved credit ----
 {
   const payment = fakePayment({ acct: 5 });

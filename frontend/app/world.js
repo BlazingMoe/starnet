@@ -7244,7 +7244,10 @@ const World = (() => {
      for up to a full poll interval, for a run the harness already proved finished. Remember locally-observed
      ends briefly so a stale snapshot can never resurrect one. */
   const recentRunEnds = new Map();     // runId -> performance.now() at the locally-observed run.end
-  const RECENT_END_TTL_MS = 90000;     // outlives any in-flight snapshot (30s poll + response latency) with margin
+  // Covers one full poll cycle (30s) + response latency: long enough that a snapshot ISSUED before the
+  // run ended cannot re-light it, short enough that the server's authority resumes on the NEXT poll —
+  // a veto that outlives the in-flight window would let one spurious run.end hide a genuinely live run.
+  const RECENT_END_TTL_MS = 35000;
   function noteRunStart(aid, rid) { if (!aid || !rid) return; recentRunEnds.delete(rid); let s = liveRunsByAgent.get(aid); if (!s) { s = new Map(); liveRunsByAgent.set(aid, s); } s.set(rid, (typeof performance !== 'undefined') ? performance.now() : fnow); }
   function noteRunEnd(aid, rid) {
     if (rid) {
@@ -7327,9 +7330,12 @@ const World = (() => {
       for (const r of snap.activeRuns) {
         if (!r || !r.agentId) continue;
         // A snapshot captured before this run ended still lists it; the locally-observed run.end is the
-        // NEWER truth. Skipping it (before live.add) both refuses the orphan re-light and lets the
-        // ended-during-outage branch below clear the agent's clock if this was its only run.
-        if (r.runId && recentRunEnds.has(r.runId)) continue;
+        // NEWER truth — but only BRIEFLY. The age check lives HERE, at the read (review pass: a bare
+        // has() never expired on an idle page, so a spurious early run.end could veto the authoritative
+        // snapshot forever — the reconcile exists precisely to let the server correct local drift, and a
+        // run the server still reports live after the in-flight window must win again).
+        const endedAt = r.runId ? recentRunEnds.get(r.runId) : undefined;
+        if (endedAt !== undefined && now - endedAt < RECENT_END_TTL_MS) continue;
         live.add(r.agentId);
         const startedAgo = Math.max(0, +r.startedMsAgo || 0);
         if (!runStartByAgent.has(r.agentId)) runStartByAgent.set(r.agentId, now - startedAgo);
