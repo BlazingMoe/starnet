@@ -580,13 +580,20 @@
          need no new registration site: index.js already registers whatever this returns, unions the names
          into the resolved grant set, and marks them network + consent-gated. */
       if (makeAuxDefs) {
+        // THE SERVER'S OWN TOOL WINS THE NAME. A server that publishes a tool literally named
+        // 'resources'/'prompts' AND the matching capability collided with these host-authored browse
+        // tools on the fixed name mcp__<id>__resources — and registry.register is last-write-wins, so
+        // appending the aux def OVERWROTE the real tool (while the per-agent path, first-wins, kept it:
+        // the two projections disagreed). Skip an aux def whose name a real tool already claimed.
+        const claimed = {};
+        for (const d of defs) claimed[d.name] = true;
         for (const d of makeAuxDefs({
           connectorId: c.id, label: c.label,
           listResources: (c.resources || []).length ? (() => Promise.resolve(c.resources)) : null,
           readResource: (c.resources || []).length ? ((uri) => readResource(c.id, uri)) : null,
           listPrompts: (c.prompts || []).length ? (() => Promise.resolve(c.prompts)) : null,
           getPrompt: (c.prompts || []).length ? ((n, a) => getPrompt(c.id, n, a)) : null
-        })) defs.push(d);
+        })) { if (!claimed[d.name]) defs.push(d); }
       }
       return defs;
     }

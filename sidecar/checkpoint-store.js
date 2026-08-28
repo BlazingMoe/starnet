@@ -301,14 +301,36 @@
     async function reinitFromCurrentTree(aid, scope) {
       try {
         const gitDir = gitDirFor(aid, scope);
-        try { fs.rmSync(gitDir, { recursive: true, force: true }); } catch (_) { return false; }
-        fs.mkdirSync(gitDir, { recursive: true });
-        if ((await git(aid, scope, ['init', '-q'])).code !== 0) return false;
-        if ((await git(aid, scope, ['add', '-A'])).code !== 0) return false;
-        const com = await git(aid, scope, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)']);
-        if (com.code !== 0) return false;
-        const sha = (await git(aid, scope, ['rev-parse', 'HEAD'])).stdout.trim();
-        if (!cp.isValidId(sha)) return false;
+        /* BUILD THE REPLACEMENT FIRST, DESTROY SECOND. Deleting the history and only then running
+           init/add/commit meant any failure — disk full (the very state that trips the ceiling), or a
+           stale index.lock — returned false with the WHOLE shadow repo already gone while the index kept
+           advertising snapshots whose objects no longer existed: every rewind point a silent lie, and
+           readIndexRaw's 'ok' meant the git rebuild never ran to notice. The fresh baseline is now proven
+           in a SIDE git-dir; the old repo is removed only after commit + rev-parse succeed, and the swap
+           is two renames with a restore on failure. */
+        const fresh = gitDir + '.reinit';
+        const cleanup = () => { try { fs.rmSync(fresh, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.cleanup', e); } };
+        cleanup();
+        fs.mkdirSync(fresh, { recursive: true });
+        const gitAt = (dir, args) => runGit(['--git-dir', dir, '--work-tree', workTreeFor(aid, scope),
+          '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false',
+          '-c', 'user.email=starnet@local', '-c', 'user.name=starnet'].concat(args), { cwd: workTreeFor(aid, scope) });
+        if ((await gitAt(fresh, ['init', '-q'])).code !== 0) { cleanup(); return false; }
+        if ((await gitAt(fresh, ['add', '-A'])).code !== 0) { cleanup(); return false; }
+        const com = await gitAt(fresh, ['commit', '-q', '--allow-empty', '-m', 'baseline (repo re-init: size ceiling)']);
+        if (com.code !== 0) { cleanup(); return false; }
+        const sha = (await gitAt(fresh, ['rev-parse', 'HEAD'])).stdout.trim();
+        if (!cp.isValidId(sha)) { cleanup(); return false; }
+        const old = gitDir + '.old';
+        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
+        try { fs.renameSync(gitDir, old); } catch (_) { cleanup(); return false; }
+        try { fs.renameSync(fresh, gitDir); }
+        catch (_) {
+          // failed swap: put the original history back — a restore failure here is the one truly bad exit
+          try { fs.renameSync(old, gitDir); } catch (e) { failNote('checkpoint.reinit.restore', e); }
+          cleanup(); return false;
+        }
+        try { fs.rmSync(old, { recursive: true, force: true }); } catch (e) { failNote('checkpoint.reinit.old', e); }
         try {
           const size = await measure(aid, scope);
           const existing = await loadIndexResilient(aid);

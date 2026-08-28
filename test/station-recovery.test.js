@@ -181,5 +181,23 @@ A.throws(() => R.restore({ bundle: v2, targetRoot: rollbackTarget, replaceExisti
 A.eq(hashFile(path.join(rollbackTarget, 'agent.todo.json')), beforeActivationHash, 'activation failure leaves current generation unchanged');
 A.eq(fs.existsSync(rollbackTarget + '.rollback-should-not-exist'), false, 'activation failure creates no false rollback generation');
 
+// I. A bundle captured AFTER a crash carries the last-known-good save, never the torn main.
+// savestore keeps agent.save.json.bak precisely for a torn main, and the bundle excludes .bak
+// generations — so a post-crash capture used to ship the zero-byte main, drop the only good copy,
+// stamp complete, and restore an amnesiac station (readTagged quarantines the save with no .bak left).
+{
+  const goodSave = read(source, 'agent.save.json');
+  write('agent.save.json.bak', goodSave);
+  write('agent.save.json', '');   // hard-kill torn main: zero bytes
+  const crashed = R.capture({ workspaceRoot: source, browserStore: browserV1, now: 3000, appVersion: '0.9.1-test', lastCompletedMutation: 101 });
+  const row = crashed.files.find(f => f.path === 'agent.save.json');
+  A.ok(row && row.bytes > 0, 'the captured save is non-empty');
+  const body = Buffer.from(row.data, 'base64').toString('utf8');
+  A.eq(body, goodSave, 'the bundle carries the .bak (last-known-good) bytes under the main path');
+  A.ok((crashed.report.skipped || []).some(s => /promoted: torn main/.test(s.reason || '')), 'the promotion is recorded, not silent');
+  write('agent.save.json', goodSave);   // restore fixture for any later block
+  fs.unlinkSync(path.join(source, 'agent.save.json.bak'));
+}
+
 fs.rmSync(tmp, { recursive: true, force: true });
 A.report('station-recovery.test');

@@ -74,6 +74,25 @@ function localHM(ms, tz) {
   A.ok(after > fire, 'next fire is strictly later (never doubled)');
 }
 
+// ---- 3b. NONEXISTENT time in a gap that STRADDLES LOCAL MIDNIGHT (Havana: transition at 00:00) ----
+// Cuba springs forward AT midnight: 23:59 Mar 7 -> 01:00 Mar 8, so minute-of-day reads 1439 -> 60 and the
+// plain `>` gap test saw nothing — a `30 0 * * *` routine's fire was silently SKIPPED that day, violating
+// the never-skipped policy the function documents. The rollover-adjusted axis (-1 -> 60) sees the gap.
+{
+  const HV = 'America/Havana';
+  const anchor = U(2026, 3, 7, 5, 28);                             // 00:28 local Mar 7 (-05:00)
+  const sched = cron.parseSchedule('30 0 * * *', anchor, { tz: HV });
+  const fire1 = cron.nextFireAt(sched, null, anchor);
+  A.eq(fire1, U(2026, 3, 7, 5, 30), 'pre-transition daily fire = 00:30 CST (-05:00) = 05:30Z');
+  A.eq(localHM(fire1, HV), '00:30', 'pre-transition fire reads 00:30 local');
+  const fire2 = cron.nextFireAt(sched, cron._internals.iso(fire1), fire1);
+  A.eq(fire2, U(2026, 3, 8, 5, 30), 'the skipped 00:30 fires at its post-transition equivalent (01:30 CDT = 05:30Z), not skipped');
+  A.eq(localHM(fire2, HV), '01:30', 'post-transition fire reads 01:30 local (00:30 shifted across the 1h gap)');
+  const fire3 = cron.nextFireAt(sched, cron._internals.iso(fire2), fire2);
+  A.eq(fire3, U(2026, 3, 9, 4, 30), 'exactly once: the next fire is Mar 9 00:30 CDT (-04:00) = 04:30Z');
+  A.eq(localHM(fire3, HV), '00:30', 'and the schedule is back on its wall time');
+}
+
 // ---- 4. AMBIGUOUS local time: `30 1 * * *` on a fall-back day fires once (the FIRST occurrence) ----
 {
   // 2026-11-01 NY: 01:30 local occurs TWICE — first at 05:30Z (EDT) then at 06:30Z (EST).

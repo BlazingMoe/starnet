@@ -400,6 +400,25 @@ function world(opts) {
     for (let i = 0; i < 3; i++) { w4.tick(T0 + i * MIN); await w4.flush(); }
     A.eq(w4.loop().state, 'paused', 'three blind passes park the loop');
     A.ok(/could not read the project folder/.test(w4.loop().stopReason || ''), 'with the real reason on the record');
+
+    // (e) a THROW between context and launch (projectLine/stationFor/buildMessages) SETTLES the iteration.
+    // The old catch only deleted the in-memory lease: the persisted fireClaim read in-flight for the full
+    // staleMs, the iteration row stayed 'running' forever, and the tracked run kept the agent posed at its
+    // desk — then reconcileBoot paused the loop for an iteration that never launched.
+    const w5 = world({
+      context: () => Promise.resolve({ text: 'ok', reachable: true }),
+      projectLine: () => { throw new Error('projectLine exploded'); }
+    });
+    w5.seed({ workdir: 'C:/proj', queueCap: 5 });
+    w5.tick(T0);
+    await w5.flush();
+    A.eq(w5.calls.length, 0, 'the model was never called');
+    const it5 = w5.loop().iterations[0];
+    A.eq(it5 && it5.outcome, 'failed', 'the pre-launch throw settles the iteration as failed, never running-forever');
+    A.ok(/projectLine exploded/.test((it5 && it5.error) || ''), 'quoting the real error');
+    w5.tick(T0 + MIN);
+    await w5.flush();
+    A.eq(w5.loop().iterations.length >= 2 || w5.loop().state === 'paused', true, 'the next tick is free to act — no zombie fire-claim blocks it');
   }
 
   /* ---- 14. THE DESK STAYS LIT: a loop pass is a REAL run in the host registry ---------------------------

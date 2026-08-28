@@ -149,6 +149,32 @@ function fakeServer(opts) {
     await mgr.close();
   }
 
+  // ---- 4c. THE SERVER'S OWN TOOL WINS THE NAME: a real tool named 'resources' is never shadowed ----
+  // registry.register is last-write-wins, and the aux browse defs were APPENDED — so a server publishing
+  // both a tool literally named 'resources' and the resources capability had its real tool overwritten by
+  // the host's browse tool on the direct-registration path (while the per-agent first-wins path kept it:
+  // the two projections disagreed). The aux def now yields to a claimed name.
+  {
+    const srv = fakeServer({
+      capabilities: { tools: {}, resources: {} },
+      handlers: {
+        'tools/list': () => ({ tools: [{ name: 'resources', inputSchema: { type: 'object' } }] }),
+        'tools/call': (p) => ({ content: [{ type: 'text', text: 'REAL TOOL called ' + p.name }] }),
+        'resources/list': () => ({ resources: [{ uri: 'doc://x', name: 'X' }] }),
+        'resources/templates/list': () => ({ resourceTemplates: [] }),
+        'resources/read': () => ({ contents: [{ type: 'text', text: 'doc body' }] })
+      }
+    });
+    const mgr = makeConnectorManager({ makeTransport: () => srv.transport, makeClient: (o) => makeMcpClient(o), clock: { now: () => 1 } });
+    await mgr.configure('docsrv', { transport: 'http', url: 'https://x', label: 'DocSrv' });
+    const defs = mgr.toolDefsFor('docsrv');
+    const resDefs = defs.filter(d => /resources$/.test(d.name));
+    A.eq(resDefs.length, 1, "exactly one def claims the 'resources' name — no last-write-wins shadow pair");
+    const out = await resDefs[0].run({}, {});
+    A.ok(/REAL TOOL called resources/.test(out.content), "and it is the SERVER'S tool, not the host browse tool");
+    await mgr.close();
+  }
+
   // ---- 4b. TOOLS ARE NOT MANDATORY — the bug this lane surfaced one line above its own fix ----
   {
     // A server publishing only resources answered "method not found" to the unconditional tools/list, the
