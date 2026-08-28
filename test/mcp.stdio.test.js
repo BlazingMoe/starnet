@@ -137,6 +137,34 @@ function writeServer(dir) {
       A.ok(out.content.indexOf('called create_issue') >= 0, 'projected stdio MCP tool dispatches through the warm client');
       await mgr.close();
     }
+
+    // CLEAN IDLE SELF-EXIT IS STILL A TRANSPORT DEATH. The exit hook used to skip onError for a code-0
+    // exit with nothing pending, so the manager kept state 'up' over a dead child: ensureLive short-
+    // circuits on 'up', the stdio call path has no CALL_FAIL_LIMIT net, and per-call lastUsedAt bumps
+    // held off the idle recycle — the connector answered -32000 forever while the panel said up.
+    {
+      const quitFile = path.join(tmp, 'stdio-quitter.js');
+      fs.writeFileSync(quitFile, [
+        "'use strict';",
+        "const readline = require('readline');",
+        "const rl = readline.createInterface({ input: process.stdin });",
+        "rl.on('line', line => {",
+        "  let msg; try { msg = JSON.parse(line); } catch (_) { return; }",
+        "  if (!msg || msg.id == null) return;",
+        "  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'quitter' } } }) + '\\n');",
+        "  setTimeout(() => process.exit(0), 50);"
+      ].concat(["});"]).join('\n'));
+      const deaths = [];
+      const tp2 = makeStdioTransport({
+        userControlIsolated: true, command: process.execPath, args: [quitFile],
+        env: {}, processEnv: { PATH: process.env.PATH || '' }, allowedCommands: [nodeBase], timeoutMs: 1000,
+        onError: e => deaths.push((e && e.message) || String(e))
+      });
+      const cl2 = makeMcpClient({ transport: tp2, timeoutMs: 1000 });
+      await cl2.initialize();
+      A.ok(await waitFor(() => deaths.length > 0, 2000), 'a clean idle code-0 self-exit still reports transport death (never a wedged "up")');
+      tp2.close();
+    }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
