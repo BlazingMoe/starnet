@@ -115,7 +115,10 @@
      without `timezone`, the /routine slash action — plus every un-pause and every terminal-error re-arm. */
   function armAt(schedule, lastRunIso, now, defaultTz) {
     const ms = cron.nextFireAt(schedule, lastRunIso, now, defaultTz ? { defaultTz: defaultTz } : undefined);
-    return ms != null ? iso(ms) : null;
+    // finite-only: a corrupt schedule (NaN minutes/runAt) must arm to null (visible as unfireable), never
+    // reach iso(NaN) — new Date(NaN).toISOString() THROWS, and from markRun's re-arm that throw left the
+    // settlement uncommitted and the lease retried forever.
+    return (ms != null && isFinite(ms)) ? iso(ms) : null;
   }
 
   /* makeJob — normalize a creation spec into a full CronJob record. `id` comes from spec.id or ctx.id
@@ -278,6 +281,14 @@
       if (Object.prototype.hasOwnProperty.call(patch, 'schedule')) {
         next.schedule = patch.schedule || null;
         next.scheduleDisplay = next.schedule && next.schedule.display ? next.schedule.display : '';
+        // A NEW once-schedule on a SETTLED one-shot is a fresh commitment: clear the settled markers so the
+        // new time genuinely arms. Without this, planTick's lastRunAt bar silently made every reschedule of
+        // a completed one-shot a dead promise ("next in 3d" about a fire that could never happen). A plain
+        // re-enable WITHOUT a new schedule stays refused (resumeJob's settled-one-shot guard).
+        if (next.schedule && next.schedule.kind === 'once' && next.lastRunAt) {
+          next.lastRunAt = null; next.fireClaim = null; next.heartbeatAt = null;
+          if (!next.enabled && next.state === 'completed') next.state = 'paused';   // re-armable again, honestly labeled
+        }
         if (next.enabled) next.nextRunAt = armAt(next.schedule, null, now, ctx && ctx.defaultTz);   // re-anchor at now
       }
       if (['agentId', 'model', 'provider', 'deliver', 'origin'].some(k => Object.prototype.hasOwnProperty.call(patch, k))) {
@@ -294,13 +305,18 @@
 
   function resumeJob(jobs, id, ctx) {
     const now = (ctx && ctx.now) || 0;
-    return mapJob(jobs, id, (job) =>
-      Object.assign({}, job, {
+    return mapJob(jobs, id, (job) => {
+      // A SETTLED ONE-SHOT is never re-armable (same guard as triggerJob): planTick permanently rejects a
+      // once-job with lastRunAt set, so stamping it enabled+scheduled here promised "next run at <past>"
+      // about a fire that can never happen — the exact claim the harness may never make.
+      if (job.schedule && job.schedule.kind === 'once' && job.lastRunAt) return job;
+      return Object.assign({}, job, {
         enabled: true, state: 'scheduled', nextRunAt: armAt(job.schedule, null, now, ctx && ctx.defaultTz),
         // a deliberate re-enable forgives the failure streak: the counter restarts from zero and the
         // auto-disable reason is cleared (otherwise one more failure would re-pause it instantly).
         consecutiveFailures: 0, disabledReason: null, disabledAt: null
-      }));
+      });
+    });
   }
 
   /* triggerJob — make a job DUE on the very next scheduler tick, without running it inline.
