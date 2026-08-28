@@ -22,6 +22,7 @@
 
   const AID_RE = /^[A-Za-z0-9_-]{1,40}$/;
   const nodeCrypto = require('node:crypto');
+  const { note: envFailNote } = require('./failopen.js');
   const WIN = (typeof process !== 'undefined' && process.platform) === 'win32';
   const DEFAULT_DOCKER_IMAGE = 'node:20-bookworm';
 
@@ -139,7 +140,7 @@
       const fallback = () => {
         if (fellBack) return;
         fellBack = true;
-        try { child.kill(); } catch (_) {}
+        try { child.kill(); } catch (e) { envFailNote('environment.killTree.fallback', e); }
       };
       try {
         const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
@@ -147,7 +148,7 @@
           killer.on('error', fallback);
           killer.on('close', (code) => { if (code !== 0) fallback(); });
         }
-        try { if (killer && typeof killer.unref === 'function') killer.unref(); } catch (_) {}
+        try { if (killer && typeof killer.unref === 'function') killer.unref(); } catch (e) { envFailNote('environment.killTree.unref', e); }
         return;
       } catch (_) {
         fallback();

@@ -36,6 +36,7 @@
 
   const WIN = (typeof process !== 'undefined' && process.platform) === 'win32';
   const { StringDecoder } = require('node:string_decoder');
+  const { note: bgFailNote } = require('./failopen.js');
 
   function killTree(spawn, child, isWin) {
     /* On Windows taskkill must see the LIVE root in order to discover `/T` descendants. Killing the shell
@@ -68,7 +69,8 @@
        ledger.release() removed the receipt the boot sweep would have needed. Kill the GROUP (negative
        pid — the same form procledger.js uses); the leader-only kill is the fallback when no group exists. */
     let groupKilled = false;
-    try { if (child.pid) { process.kill(-Number(child.pid), 'SIGKILL'); groupKilled = true; } } catch (_) {}
+    try { if (child.pid) { process.kill(-Number(child.pid), 'SIGKILL'); groupKilled = true; } }
+    catch (e) { bgFailNote('shellbg.killTree.group', e); }   // no group (not detached / already gone) -> leader fallback below
     if (!groupKilled) {
       try { child.kill(); } catch (_) {}
       try {

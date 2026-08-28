@@ -165,7 +165,7 @@
         if (!found || !found.size) return;   // ambiguous (probe failure) — never launder live receipts into "dead"
         const gone = new Set(candidates.filter(p => !found.has(p)));
         if (gone.size) { live = live.filter(r => !gone.has(Number(r.pid))); save(); }
-      }).catch(() => {}).finally(() => { pruning = false; });
+      }).catch((e) => { log('[proc-ledger] pressure prune failed: ' + ((e && e.message) || e)); }).finally(() => { pruning = false; });
     }
 
     // Pin the exact OS identity after spawn without persisting the real command line (which can contain secrets).
