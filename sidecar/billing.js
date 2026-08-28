@@ -98,12 +98,21 @@
         rec.finalUsd = reportedUsd;
         return { ok: true, mode: rec.mode, runId, usd: reportedUsd, settled: true };
       }
+      // REMEMBER THE REAL SPEND ACROSS FAILED SETTLES: the ledger/refund attempts below can still return
+      // fail() with the record unsettled, and the caller's leak-guard then re-enters with usd:0 — which
+      // used to settle at $0 and refund the whole reservation for a run that really spent money. The
+      // highest spend ever REPORTED for this run is the truth every later retry settles at, whatever usd
+      // that retry carries.
+      rec.pendingUsd = Math.max(num(rec.pendingUsd) || 0, reportedUsd);
       // Over-cap spend settles AT the reservation — the cap is the customer's ceiling, never a tripwire.
       // Refusing here left the record unsettled, so the caller's leak-guard re-settled the run at usd=0
       // and refunded the WHOLE reservation: an over-cap run became a free run. Clamp instead: charge the
       // full reservation, refund nothing, and surface the overage so the caller can log it.
-      const overageUsd = reportedUsd > rec.reservedUsd ? reportedUsd - rec.reservedUsd : 0;
-      const finalUsd = overageUsd > 0 ? rec.reservedUsd : reportedUsd;
+      const overageUsd = rec.pendingUsd > rec.reservedUsd ? rec.pendingUsd - rec.reservedUsd : 0;
+      const finalUsd = overageUsd > 0 ? rec.reservedUsd : rec.pendingUsd;
+      // The overage must leave a trace SOMEWHERE the moment it happens — the return value alone proved to
+      // be a trace nobody reads (every production caller discards it), so an absorbed overage was invisible.
+      if (overageUsd > 0) { try { console.warn('[billing] managed run ' + runId + ' over cap: reported $' + rec.pendingUsd.toFixed(4) + ' vs reserved $' + rec.reservedUsd.toFixed(4) + ' — charging the reservation; $' + overageUsd.toFixed(4) + ' overage absorbed'); } catch (_) {} }
 
       if (ledger && (typeof ledger.recordStrict === 'function' || typeof ledger.record === 'function') && !rec.recorded) {
         try {
