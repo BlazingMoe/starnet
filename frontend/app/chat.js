@@ -749,7 +749,13 @@ const Chat = (() => {
       }
     };
     // SLASH PALETTE: a leading "/" opens the command menu and filters it live as you type past it.
-    input.addEventListener('input', () => { autoGrowInput(); warmChat(); histIdx = -1; const v = input.value; if (v[0] === '/') openSlash(v.slice(1)); else closeSlash(); });   // real typing exits history-recall mode
+    // Once-guarded like every other wiring in this block: Chat.init re-runs per session entry
+    // (DISCONNECT -> resume), and #chat-input is a persistent node — an unguarded addEventListener
+    // stacked one more handler per re-entry.
+    if (!input.__inputWired) {
+      input.__inputWired = true;
+      input.addEventListener('input', () => { autoGrowInput(); warmChat(); histIdx = -1; const v = input.value; if (v[0] === '/') openSlash(v.slice(1)); else closeSlash(); });   // real typing exits history-recall mode
+    }
     const stopBtn = el('chat-stop'); if (stopBtn) stopBtn.onclick = stopActive;
     const sendBtn = el('chat-send'); if (sendBtn) sendBtn.onclick = () => { submitComposer(); input.focus(); };   // SEND chip: same path as Enter, keep the caret
     wireComposerAttachments();   // ATTACHMENTS: paperclip · paste · drag-drop -> stage files in the composer
@@ -817,8 +823,13 @@ const Chat = (() => {
   }
   function wireComposerAttachments() {
     const btn = el('chat-attach');
-    if (btn) btn.onclick = () => { if (attachInput) attachInput.click(); };
+    if (btn) btn.onclick = () => { if (attachInput) attachInput.click(); };   // property assignments are idempotent — safe to re-run
     if (attachInput) attachInput.onchange = () => { handleFiles(attachInput.files); attachInput.value = ''; };
+    // The addEventListener wiring below targets PERSISTENT nodes (#chat-input, #chat-inputrow) and
+    // Chat.init re-runs per session entry: unguarded, every DISCONNECT/resume cycle stacked another
+    // paste + drop handler, so one pasted screenshot staged (and uploaded, and billed) N times.
+    if (input.__attachWired) return;
+    input.__attachWired = true;
     // PASTE: a screenshot or copied file pasted into the message box becomes an attachment (text still types normally)
     input.addEventListener('paste', ev => {
       const items = ev.clipboardData && ev.clipboardData.files;
@@ -7989,7 +8000,7 @@ const Chat = (() => {
         // sse.js:runTeeView — so the in-band stream stays the richest source for the page that started the run.)
         // callId joins it to its tool_call; isError drives the success-vs-failure surge. `summary`/`ms` ride
         // along per the frozen event shape so any consumer sees the result's own words, never a bare 'error'.
-        onToolResult: ev => { if (!ev.isError) runToolsOk++; const nm = callNames[ev.callId] || 'tool'; Channels.addToolResult(ws.id, { callId: ev.callId, name: nm, summary: ev.summary, isError: ev.isError, ms: ev.ms }); presenceToolResult(ws); if (isActiveWs(ws)) resolveChip(ev, nm); if (typeof U !== 'undefined' && U.bus && ev.callId) U.bus.emit('agent.tool_result', { name: nm, agentId: ws.agentId, callId: ev.callId, ok: !ev.isError, isError: !!ev.isError, summary: ev.summary, ms: ev.ms }); },
+        onToolResult: ev => { if (!ev.isError) runToolsOk++; const nm = callNames[ev.callId] || 'tool'; Channels.addToolResult(ws.id, { callId: ev.callId, name: nm, summary: ev.summary, isError: ev.isError, ms: ev.ms }); presenceToolResult(ws); if (isActiveWs(ws)) resolveChip(ev, nm); if (typeof U !== 'undefined' && U.bus && ev.callId) U.bus.emit('agent.tool_result', { name: nm, agentId: ws.agentId, runId: ev.runId, callId: ev.callId, ok: !ev.isError, isError: !!ev.isError, summary: ev.summary, ms: ev.ms }); },   // runId rides along: a runId-less copy reset xp.js's per-run buffer (freshRun(undefined)) and wiped buffered memory-reuse credit
         onDeliverable: ev => {
           // Any produced file is an openable product (image_generate emits kind:'image', fs.write emits
           // kind:'file'). How we RENDER it is decided client-side from the EXTENSION (the reference harness's model), not
