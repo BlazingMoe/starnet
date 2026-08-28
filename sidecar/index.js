@@ -4141,19 +4141,37 @@ const CONNECTOR_OAUTH_FLOW_MS = 60000;
 // refresh an oauth connector's access token when it's near expiry; returns the freshest access token ('' if not authed).
 // `force` (the manager's 401 path) refreshes on the SERVER'S word regardless of the local expiry clock — a live 401
 // outranks needsRefresh, which only guesses from expires_in.
+const connectorOauthRefreshInFlight = new Map();   // connector id -> the ONE in-flight refresh promise
 async function ensureConnectorOauthToken(id, force) {
   const t = connectorOauth.byId[id];
   if (!t || !t.accessToken) return '';
   if ((force === true || mcpOauth.needsRefresh(t.expiresAt, Date.now())) && t.refreshToken && t.tokenEndpoint) {
-    try {
-      const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: t.tokenEndpoint, refreshToken: t.refreshToken,
-        clientId: t.clientId, clientSecret: t.clientSecret, tokenEndpointAuthMethod: t.tokenEndpointAuthMethod,
-        resource: t.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
-      const next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), id, Object.assign({}, t, nt));
-      if (!persistConnectorState(next.configs, next.oauth)) throw new Error('refreshed token could not be saved');
-      adoptConnectorState(next);
-      return nt.accessToken;
-    } catch (e) { console.warn('[connectors] oauth refresh failed for ' + id + ':', (e && e.message) || e); return t.accessToken; }
+    /* SINGLE-FLIGHT per connector — same law as ensureCodexAccessToken/ensureOAuthAccessToken above.
+       OAuth 2.1 servers ROTATE refresh tokens, so two agents 401ing the same connector in parallel raced
+       two refreshes with the SAME refresh token: the loser got invalid_grant (swallowed), returned its
+       pre-await STALE accessToken, and the manager's second 401 flipped a just-refreshed connector to
+       "reauthentication required". Check→assign below has no await between them (race-free on one thread). */
+    const live = connectorOauthRefreshInFlight.get(id);
+    if (live) return live;
+    const flight = (async () => {
+      const cur = connectorOauth.byId[id];              // freshest view once we own the flight
+      if (!cur || !cur.accessToken || !cur.refreshToken || !cur.tokenEndpoint) return (cur && cur.accessToken) || '';
+      try {
+        const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
+          clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
+          resource: cur.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
+        const next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), id, Object.assign({}, cur, nt));
+        if (!persistConnectorState(next.configs, next.oauth)) throw new Error('refreshed token could not be saved');
+        adoptConnectorState(next);
+        return nt.accessToken;
+      } catch (e) {
+        console.warn('[connectors] oauth refresh failed for ' + id + ':', (e && e.message) || e);
+        const after = connectorOauth.byId[id];          // hand back the freshest token we still have
+        return (after && after.accessToken) || cur.accessToken;
+      }
+    })().finally(() => { connectorOauthRefreshInFlight.delete(id); });
+    connectorOauthRefreshInFlight.set(id, flight);
+    return flight;
   }
   return t.accessToken;
 }
