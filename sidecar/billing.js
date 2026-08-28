@@ -92,15 +92,18 @@
       if (!rec) return fail('unknown_run');
       if (rec.settled) return { ok: true, mode: rec.mode, runId, usd: rec.finalUsd || 0, settled: true };
 
-      const finalUsd = num(o.usd);
+      const reportedUsd = num(o.usd);
       if (rec.mode !== 'managed') {
         rec.settled = true;
-        rec.finalUsd = finalUsd;
-        return { ok: true, mode: rec.mode, runId, usd: finalUsd, settled: true };
+        rec.finalUsd = reportedUsd;
+        return { ok: true, mode: rec.mode, runId, usd: reportedUsd, settled: true };
       }
-      if (finalUsd > rec.reservedUsd) {
-        return fail('managed_credit_over_cap', { runId, usd: finalUsd, reservedUsd: rec.reservedUsd });
-      }
+      // Over-cap spend settles AT the reservation — the cap is the customer's ceiling, never a tripwire.
+      // Refusing here left the record unsettled, so the caller's leak-guard re-settled the run at usd=0
+      // and refunded the WHOLE reservation: an over-cap run became a free run. Clamp instead: charge the
+      // full reservation, refund nothing, and surface the overage so the caller can log it.
+      const overageUsd = reportedUsd > rec.reservedUsd ? reportedUsd - rec.reservedUsd : 0;
+      const finalUsd = overageUsd > 0 ? rec.reservedUsd : reportedUsd;
 
       if (ledger && (typeof ledger.recordStrict === 'function' || typeof ledger.record === 'function') && !rec.recorded) {
         try {
@@ -135,7 +138,8 @@
       rec.settled = true;
       rec.finalUsd = finalUsd;
       rec.refundUsd = refundUsd;
-      return { ok: true, mode: 'managed', runId, usd: finalUsd, refundUsd, settled: true };
+      rec.overageUsd = overageUsd;
+      return { ok: true, mode: 'managed', runId, usd: finalUsd, refundUsd, overageUsd, settled: true };
     }
 
     function status(runId) {

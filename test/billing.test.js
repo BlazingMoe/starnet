@@ -169,19 +169,28 @@ function fakeLedger() {
   A.eq((billing.status('r5aa') || {}).settled, false, 'false-returning refund leaves finalization retryable');
 }
 
-// ---- cap kill: reconciled managed spend cannot exceed the reserved cap ----
+// ---- cap kill: reconciled managed spend settles AT the reservation, never above and never free ----
+// Refusing over-cap settles used to leave the record unsettled, so the run's leak-guard re-settled it
+// at usd=0 and refunded the ENTIRE reservation — an over-cap run became a $0 run. The cap is a ceiling:
+// clamp the charge to the reservation, refund nothing, surface the overage.
 {
   const payment = fakePayment({ acct: 5 });
   const ledger = fakeLedger();
   const billing = makeBilling({ payment, ledger });
   A.eq(billing.beginRun({ mode: 'managed', accountId: 'acct', runId: 'r5b', capUsd: 2 }).ok, true, 'reserve succeeds');
   const settled = billing.finishRun({ runId: 'r5b', reason: 'done', usd: 2.01, tokens: 10, turns: 1 });
-  A.eq(settled.ok, false, 'over-cap managed spend is refused');
-  A.eq(settled.reason, 'managed_credit_over_cap', 'over-cap reason is explicit');
+  A.eq(settled.ok, true, 'over-cap managed spend settles');
+  A.eq(settled.usd, 2, 'over-cap charge is clamped to the reservation');
+  A.eq(Math.abs(settled.overageUsd - 0.01) < 1e-9, true, 'the overage is surfaced to the caller');
   A.eq(payment.get('acct'), 3, 'over-cap finalization does not refund reserved credit');
   A.eq(payment.calls.filter(c => c.op === 'credit').length, 0, 'over-cap finalization emits no credit');
-  A.eq(ledger.rows.length, 0, 'over-cap finalization records no final spend');
-  A.eq((billing.status('r5b') || {}).settled, false, 'over-cap run remains unsettled for explicit recovery');
+  A.eq(ledger.rows.length, 1, 'over-cap finalization records the clamped final spend');
+  A.eq(ledger.rows[0].usd, 2, 'the ledger row carries the clamped charge');
+  A.eq((billing.status('r5b') || {}).settled, true, 'over-cap run is settled — the leak-guard $0 re-settle can never fire');
+  const replay = billing.finishRun({ runId: 'r5b', reason: 'leak-guard', usd: 0 });
+  A.eq(replay.ok, true, 'leak-guard replay is idempotent');
+  A.eq(replay.usd, 2, 'leak-guard replay reports the already-settled clamped charge, not $0');
+  A.eq(payment.calls.filter(c => c.op === 'credit').length, 0, 'leak-guard replay refunds nothing');
 }
 
 // ---- final spend persistence failures fail closed before refunding reserved credit ----
