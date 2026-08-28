@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "503f16141c53f97112f8a4e9df71558e4cccdf98",
-    "pathSetSha256": "4a4d5044dc5f1a8aa7e16d752bd899dc2b027dcd621bea4ae61df6a29d6a6912",
+    "sourceCommit": "1dfe1f55718035efb9332c7b68dc8845b5297a15",
+    "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
     "files": [
       {
         "path": "INSTALL.md",
@@ -63,8 +63,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 364582,
-        "sha256": "246e70bfd0090edc127307a58946a375dc4b704c89071df5f3aad3513766cddf"
+        "bytes": 364906,
+        "sha256": "87c1b9ef83b61f7a834116e7c7ad03dbde793c441961abd54fc9b1db34a6743a"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -227,6 +227,11 @@
         "sha256": "0481646acd843976e8a831ba3c68db097a62a300c488bf98012be1cf947e9d42"
       },
       {
+        "path": "frontend/app/discoverystore.js",
+        "bytes": 3943,
+        "sha256": "6521c7a4a89d1176f39478b9827396a5ace2e537e337e985f8be1197eb46328d"
+      },
+      {
         "path": "frontend/app/dockglow.js",
         "bytes": 4519,
         "sha256": "c7fb3204260168b80bd4ece91071c1872b7812694f17a96ee399131f34410261"
@@ -378,8 +383,8 @@
       },
       {
         "path": "frontend/app/marketplace.js",
-        "bytes": 263860,
-        "sha256": "1c8f271f2a6759ad68a66d9e3638a85db574cac687a12964cb85a94666811881"
+        "bytes": 268260,
+        "sha256": "0a342e758e85332dc518dd443e1e7ade9b90d5e7eacec3de917bca793f716cc1"
       },
       {
         "path": "frontend/app/mint.js",
@@ -1048,8 +1053,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 76998,
-        "sha256": "52d29d48576815c2ce9e12586cef7b077f6faa3cf3b98862e6740af0195436b5"
+        "bytes": 77211,
+        "sha256": "239b6092a46a1b3df1819e8ba0e159aca7fc4eb2422952fc621b7153d214247c"
       },
       {
         "path": "frontend/js/arcade.js",
