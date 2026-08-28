@@ -202,13 +202,19 @@
       }
 
       // capability gate (M1.3): is this tool granted to the agent right now?
+      // Guarded like authorize/consent above: dispatch's contract is NEVER-throws, and an exception
+      // out of a gate becomes a fatal durability-boundary run end instead of a plain tool error.
       if (ctx.canUse) {
-        const g = ctx.canUse(call, tool);
+        let g;
+        try { g = ctx.canUse(call, tool); } catch (e) { g = { ok: false, reason: 'capability gate error' }; }
         if (!g || !g.ok) return errResult('capability denied: ' + ((g && g.reason) || call.name), 'capdenied');
       }
 
-      // schema-validate args; on failure run() is NOT called
-      const v = schema.validate(tool.schema || {}, call.args);
+      // schema-validate args; on failure run() is NOT called. Connector tools carry server-supplied
+      // schemas verbatim — a malformed one must read as an invalid-arguments error, not a throw.
+      let v;
+      try { v = schema.validate(tool.schema || {}, call.args); }
+      catch (e) { v = { ok: false, errors: ['schema error: ' + ((e && e.message) || e)] }; }
       if (!v.ok) return errResult('invalid arguments for ' + call.name + ': ' + v.errors.join('; '));
 
       // consent gate (M1.4): a denied/cancelled prompt performs NO action

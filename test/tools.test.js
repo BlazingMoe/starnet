@@ -137,6 +137,19 @@ const call = (name, args, id) => ({ id: id || 'c1', name, args, argsRaw: JSON.st
     reg.register({ name: 'priv', schema: { type: 'object' }, run: async () => { gated++; return 'x'; } });
     const cg = await reg.dispatch(call('priv', {}), { canUse: () => ({ ok: false, reason: 'no compute placed' }) });
     A.eq(cg.isError, true, 'capability denied -> isError'); A.eq(cg.summary, 'capdenied', 'capdenied summary'); A.eq(gated, 0, 'capability denial did not run');
+
+    // NEVER-throws contract holds at the two remaining gates: a throwing capability gate and a
+    // malformed (throw-inducing) tool schema must come back as tool errors, not rejections —
+    // a rejection past the durable journal boundary ends the whole run as 'durability_boundary'.
+    const cthrow = await reg.dispatch(call('priv', {}), { canUse: () => { throw new Error('gate exploded'); } });
+    A.eq(cthrow.isError, true, 'throwing capability gate -> isError, not a rejection');
+    A.eq(gated, 0, 'throwing capability gate did not run the tool');
+    let ranBadSchema = 0;
+    // a non-array `enum` makes shared/schema.js call .some on a number -> TypeError (MCP servers ship schemas verbatim)
+    reg.register({ name: 'badschema', schema: { type: 'object', properties: { a: { enum: 5 } } }, run: async () => { ranBadSchema++; return 'x'; } });
+    const sthrow = await reg.dispatch(call('badschema', { a: 1 }), {});
+    A.eq(sthrow.isError, true, 'throw-inducing schema -> isError, not a rejection');
+    A.eq(ranBadSchema, 0, 'schema failure did not run the tool');
   }
 
   // ============ C. loop integration: tool_call -> tool_result -> final answer ============
