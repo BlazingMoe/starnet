@@ -234,4 +234,38 @@ const job = (o) => Object.assign({ id: 'j1', enabled: true, schedule: null, next
   A.eq(cron.planTick([j], c.now()).fire.length, 1, 'due after advancing the injected clock one period');
 }
 
+// ---- isFireable validates the schedule can PRODUCE a time (bug-sweep 2026-08-28) ----
+{
+  A.eq(cron.isFireable({ kind: 'interval', minutes: 60 }), true, 'a sane interval is fireable');
+  A.eq(cron.isFireable({ kind: 'interval', minutes: NaN }), false, 'NaN minutes -> unfireable (was: kind-only pass)');
+  A.eq(cron.isFireable({ kind: 'interval', minutes: 0 }), false, 'zero period -> unfireable');
+  A.eq(cron.isFireable({ kind: 'once', runAt: 1700000000000 }), true, 'a numeric once runAt is fireable');
+  A.eq(cron.isFireable({ kind: 'once', runAt: NaN }), false, 'NaN runAt -> unfireable');
+  A.eq(cron.isFireable({ kind: 'cron', expr: 'garbage' }), false, 'an unparseable cron expr -> unfireable');
+  A.eq(cron.isFireable(cron.parseSchedule('0 9 * * *', 1700000000000)), true, 'a parsed cron schedule stays fireable');
+}
+
+// ---- a NaN-period job can never poison the plan (bug-sweep 2026-08-28) ----
+// Before this, { minutes: NaN } sailed past every `p <= 0` guard, pushed { nextAt: NaN } into plan.next,
+// and the driver's iso(NaN) advance THREW the whole tick out — every routine in the store stopped firing.
+{
+  const good = { id: 'g', enabled: true, schedule: { kind: 'interval', minutes: 1 }, nextRunAt: new Date(1700000000000).toISOString() };
+  const bad = { id: 'b', enabled: true, schedule: { kind: 'interval', minutes: NaN }, nextRunAt: new Date(1700000000000).toISOString() };
+  const plan = cron.planTick([bad, good], 1700000000000 + 60000);
+  A.eq(plan.next.every(nx => isFinite(nx.nextAt)), true, 'no NaN advance ever reaches the plan');
+  A.eq(plan.fire.some(f => f.jobId === 'g'), true, 'the healthy job still plans to fire alongside the corrupt one');
+  A.eq(plan.fire.some(f => f.jobId === 'b'), false, 'the corrupt job is excluded, not exploded');
+}
+
+// ---- backwards clock: a future-stamped in-flight one-shot stays suppressed (bug-sweep 2026-08-28) ----
+// An NTP step back made now < heartbeatAt/fireClaim; the old `age >= 0 &&` guards then treated a genuinely
+// in-flight one-shot as due and DOUBLE-FIRED it across a restart. A negative age is unambiguously not stale.
+{
+  const T = 1700000000000;
+  const j = { id: 'o', enabled: true, schedule: { kind: 'once', runAt: T }, nextRunAt: new Date(T).toISOString(),
+    lastRunAt: null, fireClaim: T + 120000, heartbeatAt: T + 120000 };   // stamped 2min in the "future"
+  const plan = cron.planTick([j], T + 60000, { maxRunMs: 480000 });      // clock stepped back below the stamps
+  A.eq(plan.fire.length, 0, 'a future-stamped (clock-rewind) in-flight one-shot is NOT re-fired');
+}
+
 A.report('cron');
