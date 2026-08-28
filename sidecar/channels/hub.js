@@ -1271,8 +1271,9 @@
       const key = String(msg.chatId) + '|' + String(msg.userId || '') + '|' + String(msg.threadId || '');
       let rec = textBatches.get(key);
       if (!rec) {
-        rec = { msg: Object.assign({}, msg), intake: intake, seq: 0, resolve: null, done: null };
-        rec.done = new Promise(r => { rec.resolve = r; });
+        rec = { msg: Object.assign({}, msg), intake: intake, seq: 0, resolve: null, reject: null, done: null };
+        rec.done = new Promise((res, rej) => { rec.resolve = res; rec.reject = rej; });
+        rec.done.catch(() => {});   // the winner never awaits rec.done — keep a loserless rejection handled
         textBatches.set(key, rec);
       } else {
         const prior = String(rec.msg.text || '').trim();
@@ -1284,15 +1285,20 @@
       await sleep(TEXT_BATCH_WAIT_MS);
       if (textBatches.get(key) !== rec || rec.seq !== mySeq) return rec.done;
       textBatches.delete(key);
+      // The batch's outcome must reach EVERY merged bubble: resolving unconditionally told the losing
+      // bubbles' durable-inbox wrappers "handled" even when processing threw, so their rows were removed
+      // and only the winner's original (unmerged) message survived for recovery — the rest were lost.
       try { await processInbound(rec.msg, rec.intake); }
-      finally { rec.resolve(); }
+      catch (e) { rec.reject(e); throw e; }
+      rec.resolve();
     }
 
     async function albumInbound(msg, gid, intake) {
       let rec = albums.get(gid);
       if (!rec) {
-        rec = { msg: Object.assign({}, msg, { media: Array.isArray(msg.media) ? msg.media.slice() : [] }), intake: intake, seq: 0, resolve: null, done: null };
-        rec.done = new Promise(r => { rec.resolve = r; });
+        rec = { msg: Object.assign({}, msg, { media: Array.isArray(msg.media) ? msg.media.slice() : [] }), intake: intake, seq: 0, resolve: null, reject: null, done: null };
+        rec.done = new Promise((res, rej) => { rec.resolve = res; rec.reject = rej; });
+        rec.done.catch(() => {});   // same handled-rejection guard as the text batch
         albums.set(gid, rec);
       } else {
         if (Array.isArray(msg.media) && msg.media.length) rec.msg.media = rec.msg.media.concat(msg.media);
@@ -1302,8 +1308,10 @@
       await sleep(ALBUM_WAIT_MS);
       if (albums.get(gid) !== rec || rec.seq !== mySeq) return rec.done;   // a newer part re-armed the debounce
       albums.delete(gid);
+      // Same failure propagation as textInbound: every merged part's durable-inbox row must survive a throw.
       try { await processInbound(rec.msg, rec.intake); }
-      finally { rec.resolve(); }
+      catch (e) { rec.reject(e); throw e; }
+      rec.resolve();
     }
 
     async function processInbound(msg, intake) {

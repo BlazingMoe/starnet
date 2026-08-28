@@ -208,5 +208,37 @@ function mkHub(store, sendImpl, events) {
     hub.close();
   }
 
+  // ---- G. a FAILED merged text batch keeps EVERY bubble's durable inbox receipt, not just the winner's ----
+  // The debounce loser used to `return rec.done`, which resolved even when processing threw — its receipt
+  // was removed as "handled" while the merged work had actually failed, so recovery replayed only the
+  // winning bubble and the rest of the thought was permanently lost.
+  {
+    const events = [];
+    const store = mkStore(memFs(), { maxOutbox: 1 });
+    store.pushOutbox({ channel: 'telegram', chatId: 'old', text: 'older delayed answer', runId: 'old-run' });
+    let sendOk = false;
+    const sends = [];
+    const hub = makeChannelHub({
+      channel: 'telegram',
+      runOnce: async (o) => { o.emit('agent.run.start', { runId: o.runId }); o.emit('agent.token', { delta: 'the result' }); o.emit('agent.run.end', { reason: 'done' }); },
+      store,
+      send: async (chatId, text) => { sends.push({ chatId, text }); return sendOk ? { ok: true } : { ok: false, error: 'down' }; },
+      secrets: () => ({ key: 'k', model: 'm', configured: true }),
+      emit: (name, payload) => events.push([name, payload]),
+      newId: (() => { let n = 0; return () => 'grun-' + (++n); })(),
+      sleep: () => new Promise(r => setTimeout(r, 0)), outboxRetryMs: 5, textBatchWaitMs: 1
+    });
+    const bubble = (text, mid) => ({ chatId: '91', chatType: 'dm', userId: 'u1', text, messageId: mid, ts: 6 });
+    const outcomes = await Promise.allSettled([hub.onInbound(bubble('check the deploy', 'b1')), hub.onInbound(bubble('and the logs', 'b2'))]);
+    A.eq(outcomes.map(o => o.status), ['rejected', 'rejected'], 'the batch failure reaches every merged bubble, loser included');
+    A.eq(store.loadInbox('telegram').map(x => x.id).sort(), ['telegram|91|b1', 'telegram|91|b2'], 'BOTH bubbles remain durably pending after the merged processing failed');
+
+    sendOk = true;
+    await hub._internals.flushOutbox();
+    for (let i = 0; i < 40 && store.loadInbox('telegram').length; i++) await new Promise(r => setTimeout(r, 0));
+    A.eq(store.loadInbox('telegram'), [], 'capacity recovery replays and completes every pending bubble');
+    hub.close();
+  }
+
   A.report('channels.outbox.test');
 })().catch(e => { console.error(e); process.exit(1); });
