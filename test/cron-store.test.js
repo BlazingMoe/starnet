@@ -148,6 +148,25 @@ const iso = cron._internals.iso;
   A.eq(store.getJob(jobs, 't1').retryAnchorAt, null, 'a settled occurrence drops the retry anchor');
 }
 
+// ---- 9b. every path that re-anchors nextRunAt also drops the retry anchor ----
+// updateJob/resumeJob/triggerJob rewrite nextRunAt; a surviving retryAnchorAt would override the
+// re-anchored schedule in planTick and phase-lock the routine to the abandoned old grid ("I changed
+// the schedule and it ignored me").
+{
+  const mkStuck = () => {
+    let js = store.createJob([], { id: 'ra', schedule: cron.parseSchedule('every 1h', T0) }, { now: T0 });
+    js = store.markRun(js, 'ra', { runId: 'r', status: 'error', error: 'net', transient: true }, { now: T0 + HOUR, backoffMs: 90000 });
+    A.ok(store.getJob(js, 'ra').retryAnchorAt, 'fixture: a retry anchor is stamped');
+    return js;
+  };
+  let js = store.updateJob(mkStuck(), 'ra', { schedule: cron.parseSchedule('every 15m', T0 + HOUR) }, { now: T0 + HOUR + 60000 });
+  A.eq(store.getJob(js, 'ra').retryAnchorAt, null, 'a schedule EDIT clears the retry anchor');
+  js = store.resumeJob(store.pauseJob(mkStuck(), 'ra'), 'ra', { now: T0 + HOUR + 60000 });
+  A.eq(store.getJob(js, 'ra').retryAnchorAt, null, 'pause -> RESUME clears the retry anchor');
+  js = store.triggerJob(mkStuck(), 'ra', { now: T0 + HOUR + 60000 });
+  A.eq(store.getJob(js, 'ra').retryAnchorAt, null, 'a manual TRIGGER clears the retry anchor');
+}
+
 // ---- 10. transient retries are BOUNDED: after maxRetries it finalizes ----
 {
   let jobs = store.createJob([], { id: 't2', schedule: cron.parseSchedule('every 1h', T0) }, { now: T0 });

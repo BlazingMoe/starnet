@@ -279,6 +279,7 @@
         next.schedule = patch.schedule || null;
         next.scheduleDisplay = next.schedule && next.schedule.display ? next.schedule.display : '';
         if (next.enabled) next.nextRunAt = armAt(next.schedule, null, now, ctx && ctx.defaultTz);   // re-anchor at now
+        next.retryAnchorAt = null;   // the OLD schedule's retry anchor must never phase-lock the new cadence
       }
       if (['agentId', 'model', 'provider', 'deliver', 'origin'].some(k => Object.prototype.hasOwnProperty.call(patch, k))) {
         next.blockedConfig = null;
@@ -299,7 +300,9 @@
         enabled: true, state: 'scheduled', nextRunAt: armAt(job.schedule, null, now, ctx && ctx.defaultTz),
         // a deliberate re-enable forgives the failure streak: the counter restarts from zero and the
         // auto-disable reason is cleared (otherwise one more failure would re-pause it instantly).
-        consecutiveFailures: 0, disabledReason: null, disabledAt: null
+        // The pre-pause retry anchor goes with it — a resumed job advances from ITS re-anchored
+        // nextRunAt, never the grid of the failure it was paused during.
+        consecutiveFailures: 0, disabledReason: null, disabledAt: null, retryAnchorAt: null, retryCount: 0
       }));
   }
 
@@ -322,7 +325,9 @@
     const now = (ctx && ctx.now) || 0;
     return mapJob(jobs, id, (job) => {
       if (job.schedule && job.schedule.kind === 'once' && job.lastRunAt) return job;   // settled one-shot: never re-armable
-      return Object.assign({}, job, { enabled: true, state: 'scheduled', nextRunAt: iso(now) });
+      // a manual trigger owns the next fire completely — a stale retry anchor advancing from an old grid
+      // after the triggered run settles would phase-shift the schedule the Commander just touched.
+      return Object.assign({}, job, { enabled: true, state: 'scheduled', nextRunAt: iso(now), retryAnchorAt: null });
     });
   }
 
