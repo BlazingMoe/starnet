@@ -165,10 +165,19 @@
       : '\n\n[... elided by the per-TURN output cap: the tool calls in this turn returned more text together '
         + 'than one turn may carry. Do not repeat this call as-is — narrow it, or make fewer calls per turn so '
         + 'each one keeps more of its output. The end of the output follows ...]\n\n';
-    // A budget too small to hold the note leaves head-only: the note is the one part that must survive, since
-    // it is what tells the model this is not the whole answer.
+    // A share too small to carry the full note gets a SHORT marker that must itself FIT the share.
+    // Returning the full ~330-char note here made every squeezed result note-sized regardless of budget,
+    // so a wide parallel batch (share < ~530) EXCEEDED the cap it was enforcing — by a third, while
+    // destroying 100% of every result's content.
     const room = budget - note.length;
-    if (room < 200) return content.slice(0, Math.max(0, budget - note.length > 0 ? budget - note.length : 0)) + note;
+    if (room < 200) {
+      const short = '\n[elided by the per-TURN output cap' + (parkedPath ? ' — full output saved to ' + parkedPath : '') + ']';
+      if (short.length >= budget) {
+        const bare = '\n[elided]';
+        return bare.length >= budget ? bare.slice(0, Math.max(0, budget)) : content.slice(0, budget - bare.length) + bare;
+      }
+      return content.slice(0, budget - short.length) + short;
+    }
     const head = Math.floor(room * 0.7), tail = room - head;
     return content.slice(0, head) + note + content.slice(content.length - tail);
   }
