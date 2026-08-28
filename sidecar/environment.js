@@ -127,11 +127,36 @@
     }
     return ('00000000' + h.toString(16)).slice(-8);
   }
+  /* best-effort tree-kill — the ORDER is the whole fix (same law shell.js/shellbg.js already carry):
+     on Windows `taskkill /T` must inspect the LIVE shell leader to discover its descendants. Killing the
+     leader first raced that discovery — taskkill reported "process not found" while the command and its
+     grandchildren kept running, holding workspace file locks after every shell.exec timeout/abort (this
+     module is the production path: index.js wires environment.execute ahead of shell.js's runCommand).
+     child.kill() is now only the fallback when taskkill itself fails. */
   function killTree(spawn, child, isWin) {
+    if (isWin && child.pid) {
+      let fellBack = false;
+      const fallback = () => {
+        if (fellBack) return;
+        fellBack = true;
+        try { child.kill(); } catch (_) {}
+      };
+      try {
+        const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+        if (killer && typeof killer.on === 'function') {
+          killer.on('error', fallback);
+          killer.on('close', (code) => { if (code !== 0) fallback(); });
+        }
+        try { if (killer && typeof killer.unref === 'function') killer.unref(); } catch (_) {}
+        return;
+      } catch (_) {
+        fallback();
+        return;
+      }
+    }
     try { child.kill(); } catch (_) {}
     try {
-      if (isWin && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-      else if (child.pid && typeof process !== 'undefined') process.kill(child.pid, 'SIGKILL');
+      if (child.pid && typeof process !== 'undefined') process.kill(child.pid, 'SIGKILL');
     } catch (_) {}
   }
 
