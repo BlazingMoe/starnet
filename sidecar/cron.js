@@ -264,20 +264,45 @@
 
   function has(values, value) { return values.indexOf(value) >= 0; }
 
+  /* cronDateOk — can any minute of the LOCAL calendar date holding `ms` match the spec's date fields?
+     The single source of the Vixie/croniter day semantics: if both DOM and DOW are restricted, either may
+     match; if one is wildcard/full-range, the restricted field controls through ordinary AND matching.
+     Used by the matcher below AND by the scan's day-skip (a date this rejects has no matchable minute). */
+  function cronDateOk(spec, ms, tz, lf) {
+    const f = spec.fields;
+    if (!has(f.month, lf.month)) return false;
+    const dom = has(f.dayOfMonth, lf.day);
+    const dow = has(f.dayOfWeek, localDow(ms, tz));
+    if (!spec.dayOfMonthWildcard && !spec.dayOfWeekWildcard) return dom || dow;
+    return dom && dow;
+  }
+
   // does the cron spec match the LOCAL wall-clock of `ms` in `tz`? (tz='UTC' reproduces the old UTC match.)
   function cronMatchesSpec(spec, ms, tz) {
     const f = spec.fields;
     const lf = localFieldsOf(ms, tz);
     if (!has(f.minute, lf.minute)) return false;
     if (!has(f.hour, lf.hour)) return false;
-    if (!has(f.month, lf.month)) return false;
+    return cronDateOk(spec, ms, tz, lf);
+  }
 
-    const dom = has(f.dayOfMonth, lf.day);
-    const dow = has(f.dayOfWeek, localDow(ms, tz));
-    // Vixie/croniter-style day semantics: if both DOM and DOW are restricted, either may match.
-    // If one is wildcard/full-range, the restricted field controls through ordinary AND matching.
-    if (!spec.dayOfMonthWildcard && !spec.dayOfWeekWildcard) return dom || dow;
-    return dom && dow;
+  /* cronDateFeasible — can the spec's date fields EVER name a real calendar date? false only for a
+     well-formed but IMPOSSIBLE dom/month combination (e.g. "0 0 30 2 *" — Feb 30, "0 0 31 4 *" — Apr 31).
+     Such an expression parses cleanly, matches nothing, and before this check the rejection was produced
+     by grinding the ENTIRE bounded search (5y × 366d × 1440min of formatToParts) synchronously — a
+     multi-second event-loop stall reachable straight from POST /api/cron[/preview]. Feb 29 stays feasible
+     (leap years exist; whether one falls inside the bounded window is the scan's business, not this check's).
+     Only the dom-controls case can be infeasible: with both DOM and DOW restricted the day rule is OR, so
+     the DOW leg alone can always satisfy some date. */
+  const MONTH_MAX_DAY = { 1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31 };
+  function cronDateFeasible(spec) {
+    if (spec.dayOfMonthWildcard || !spec.dayOfWeekWildcard) return true;
+    const f = spec.fields;
+    for (const mo of f.month) {
+      const mx = MONTH_MAX_DAY[mo] || 31;
+      for (const d of f.dayOfMonth) if (d <= mx) return true;
+    }
+    return false;
   }
 
   // does a cron spec match a SYNTHETIC local time (the skipped wall-time inside a spring-forward gap)?
@@ -312,6 +337,7 @@
   function nextCronFireAt(schedule, anchorMs, tz) {
     const spec = cronSpec(schedule);
     if (!spec) return null;
+    if (!cronDateFeasible(spec)) return null;   // an impossible dom/month combo answers in O(fields), not a 2.6M-step scan
     const zone = tz == null || tz === '' ? 'UTC' : tz;
     let t = Math.floor((anchorMs || 0) / MIN) * MIN + MIN;  // strictly after the anchor, minute-granular
     const stop = t + CRON_SEARCH_LIMIT_MS;
@@ -351,6 +377,24 @@
       }
       const inRepeat = repeatBand >= 0 && lf.minOfDay <= repeatBand;
       if (!inRepeat && cronMatchesSpec(spec, t, zone)) return t;
+      /* DAY-SKIP (perf, bug-sweep 2026-08-28): when this local DATE can never match (wrong month/dom/dow),
+         leap toward local midnight instead of grinding ~1440 formatToParts calls through it — a sparse
+         schedule ("0 0 29 2 *", monthly grace scans) cost seconds of synchronous event-loop stall. The
+         jump UNDERSHOOTS midnight by >= 61 minutes so the day boundary — where the midnight-straddling
+         spring-forward gaps (Havana/Santiago) live — is still crossed one minute at a time, exactly as the
+         adjacent-minute drift detector above requires. A mid-skip DST transition is invisible by
+         construction: `prev` is re-derived at (landing - 1min), so the detector always compares ADJACENT
+         minutes, and no skipped minute could have matched (that is the skip's precondition), so no gap-fire
+         or repeat-suppression decision is ever lost. Never jump while a fall-back repeat band is armed.
+         The worst DST shift is +-1h, so landing stays strictly inside the same local day (1440-61+60 < 1440). */
+      if (repeatBand < 0 && !cronDateOk(spec, t, zone, lf)) {
+        const skip = 1440 - lf.minOfDay - 61;
+        if (skip > 1) {
+          t += (skip - 1) * MIN;                 // the for-step adds the final minute of the jump
+          prev = localFieldsOf(t, zone);         // adjacent-minute baseline at the landing point
+          continue;
+        }
+      }
       prev = lf;
     }
     return null;
@@ -367,7 +411,10 @@
       return isFinite(t);
     }
     if (schedule.kind === 'interval') { const p = periodMs(schedule); return isFinite(p) && p > 0; }
-    if (schedule.kind === 'cron') return cronSpec(schedule) != null;
+    if (schedule.kind === 'cron') {
+      const spec = cronSpec(schedule);
+      return spec != null && cronDateFeasible(spec);   // an impossible dom/month combo can never fire — visible, not idle-forever
+    }
     return false;
   }
 
