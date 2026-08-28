@@ -219,6 +219,24 @@ function capture(opts) {
       continue;
     }
     let data = fs.readFileSync(item.abs);
+    /* LAST-KNOWN-GOOD SUBSTITUTION: savestore keeps <file>.bak precisely so a torn main can be recovered,
+       and this bundle intentionally excludes .bak generations — so a bundle captured after a hard kill
+       shipped the torn/zero-byte main and DROPPED the only good copy: completeness still read 'present',
+       the bundle stamped complete, and restore produced a station whose save quarantines on first load
+       with no .bak to fall back to. When an included .json main does not parse and its sibling .bak does,
+       the bundle carries the .bak bytes as the file (recorded in skipped as a promotion). */
+    if (policy.action === 'include' && /\.json$/i.test(item.rel)) {
+      let mainOk = data.length > 0;
+      if (mainOk) { try { JSON.parse(data.toString('utf8')); } catch (_) { mainOk = false; } }
+      if (!mainOk) {
+        try {
+          const bak = fs.readFileSync(item.abs + '.bak');
+          JSON.parse(bak.toString('utf8'));
+          data = bak;
+          skipped.push({ path: item.rel + '.bak', reason: 'promoted: torn main captured from its last-known-good .bak' });
+        } catch (_) { /* no usable .bak — the torn main rides as-is (forensic truth) */ }
+      }
+    }
     let redactedFields = [];
     if (policy.action === 'sanitize') {
       const clean = sanitizeManagedJson(item.rel, data);
