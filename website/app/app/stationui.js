@@ -641,11 +641,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function fitTermInViewport(w, key, persist) {
     if (!w) return;
     const resolvedKey = key || Object.keys(open).find(k => open[k] === w);
-    // REFUSE TO MEASURE THE UNMEASURABLE, at the primitive: a minimized (.term-min-hidden = display:none)
-    // window reads 0 for every offset, so the "repair" below computed 8,8 and PERSISTED it — teleporting a
-    // dragged window to the corner across reloads. Guarding one caller left the async ones (skill-library
-    // fetch callbacks, restore races) exposed. Keyed on the minimize MARKERS, not on zero offsets — a
-    // headless test DOM reads 0 for every visible element too.
+    // A minimized (display:none) window reads 0 for every offset — the repair would compute 8,8 and
+    // PERSIST it. Refuse at the primitive (marker-keyed; headless DOMs read 0 for visible nodes too).
     if (minimized[resolvedKey] || (w.classList && w.classList.contains('term-min-hidden'))) return;
     const savedSize = termSize[resolvedKey];
     if (savedSize) resizeTermTo(w, resolvedKey, savedSize.width, savedSize.height, persist);
