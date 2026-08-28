@@ -173,6 +173,22 @@
       const dec = new TextDecoder();
       let buf = '';
       const started = {};
+      // Index bookkeeping for servers that omit tool_calls[].index (every non-streamed choice.message,
+      // and some streaming servers, e.g. Mistral). Collapsing them all to 0 concatenated the argument
+      // strings of PARALLEL calls into one corrupt call; assign instead a stable index per call id —
+      // or the next free slot when the id is also absent.
+      const idxById = {};
+      let nextIdx = 0;
+      function callIndex(tc) {
+        if (tc.index != null) { if (tc.index >= nextIdx) nextIdx = tc.index + 1; return tc.index; }
+        const id = tc.id ? String(tc.id) : '';
+        if (id) { if (idxById[id] == null) idxById[id] = nextIdx++; return idxById[id]; }
+        const fn = tc.function || {};
+        // A call HEADER (has a name) opens the next slot; a bare argument chunk continues the
+        // current one — streaming servers may send id/index-less continuation deltas.
+        if (fn.name) return nextIdx++;
+        return nextIdx > 0 ? nextIdx - 1 : 0;
+      }
       let doneEmitted = false;   // exactly one terminal event per stream (see STREAM-END TRUTH below)
 
       function parseLine(line) {
@@ -192,7 +208,7 @@
         if (typeof d.content === 'string' && d.content) yield { type: 'text', delta: d.content };
         if (Array.isArray(d.tool_calls)) {
           for (const tc of d.tool_calls) {
-            const idx = tc.index != null ? tc.index : 0;
+            const idx = callIndex(tc);
             const fn = tc.function || {};
             if (!started[idx] && (tc.id || fn.name)) {
               started[idx] = true;

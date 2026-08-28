@@ -49,6 +49,48 @@ module.exports = (async () => {
     A.eq(evs.find(e => e.type === 'done').finishReason, 'tool_calls', 'tool finish is normalized');
   }
 
+  // parallel tool calls WITHOUT .index (non-streamed choice.message; some streaming servers too, e.g.
+  // Mistral) must not collapse into one corrupt call — each id gets its own slot.
+  {
+    const fetchImpl = async () => {
+      const sse = [
+        line({ choices: [{ message: { tool_calls: [
+          { id: 'a', function: { name: 'fs_read', arguments: '{"path":"x"}' } },
+          { id: 'b', function: { name: 'fs_read', arguments: '{"path":"y"}' } }
+        ] }, finish_reason: 'tool_calls' }] }),
+        'data: [DONE]', ''
+      ].join('\n');
+      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'fs_read' } }] });
+    const starts = evs.filter(e => e.type === 'tool_start');
+    A.eq(starts.length, 2, 'both index-less parallel calls start');
+    A.eq(starts.map(s => s.id), ['a', 'b'], 'each call keeps its own id');
+    A.eq(starts[0].index !== starts[1].index, true, 'the calls occupy distinct slots');
+    const argsFor = idx => evs.filter(e => e.type === 'tool_args' && e.index === idx).map(e => e.chunk).join('');
+    A.eq(argsFor(starts[0].index), '{"path":"x"}', 'first call args are intact');
+    A.eq(argsFor(starts[1].index), '{"path":"y"}', 'second call args are not concatenated onto the first');
+  }
+
+  // index-less STREAMED call: a bare argument continuation chunk (no id, no name) stays on the
+  // current slot instead of opening a phantom one.
+  {
+    const fetchImpl = async () => {
+      const sse = [
+        line({ choices: [{ delta: { tool_calls: [{ id: 'c1', function: { name: 'web_search', arguments: '{"q":' } }] } }] }),
+        line({ choices: [{ delta: { tool_calls: [{ function: { arguments: '"x"}' } }] } }] }),
+        line({ choices: [{ finish_reason: 'tool_calls', delta: {} }] }),
+        'data: [DONE]', ''
+      ].join('\n');
+      return new Response(sse, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'http://local/v1' });
+    const evs = await collect(p, { model: 'm', messages: [], tools: [{ type: 'function', function: { name: 'web_search' } }] });
+    A.eq(evs.filter(e => e.type === 'tool_start').length, 1, 'continuation chunk opens no phantom call');
+    A.eq(evs.filter(e => e.type === 'tool_args').map(e => e.chunk).join(''), '{"q":"x"}', 'continuation args land on the same slot');
+  }
+
   // model catalog parsing and no-auth local shape
   {
     const calls = [];
