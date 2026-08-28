@@ -269,7 +269,46 @@
     // CRM & Sales
     { id: 'intercom', name: 'Intercom', category: 'CRM & Sales', authType: 'apikey', transport: 'http',
       url: 'https://mcp.intercom.com/mcp', official: true, homepage: 'https://intercom.com',
-      blurb: 'Search Intercom conversations, contacts, and articles. Paste an Intercom access token.' }
+      blurb: 'Search Intercom conversations, contacts, and articles. Paste an Intercom access token.' },
+
+    /* ── WAVE 4 (all live-probed 2026-08-28 with the sidecar's own handshake — initialize → RFC 9728/8414
+       discovery → RFC 7591 registration MINTING a real PKCE client against the loopback redirect; the open
+       row connected keyless). Re-probed and still absent, with reasons: Figma + Dropbox refuse the client
+       mint (403 / registration_not_supported), Slack + Box are live OAuth with NO dynamic registration
+       (Google-class — need a pre-registered vendor app + staticOauth in a later slice, same as Microsoft
+       365), Atlassian-direct + Heroku serve no discovery metadata, and zoom/salesforce/zendesk/twilio/
+       calendly/mailchimp/shopify/trello/perplexity/elevenlabs remain dead or 404. ── */
+    // Docs & Knowledge — zero-setup
+    { id: 'openai-devdocs', name: 'OpenAI DevDocs', category: 'Docs & Knowledge', authType: 'none', transport: 'http',
+      url: 'https://developers.openai.com/mcp', official: true, homepage: 'https://developers.openai.com',
+      aliases: ['openai', 'openai docs', 'openai api docs', 'gpt docs'],
+      blurb: "Search OpenAI's developer documentation — API references, guides, and model docs." },
+    // Productivity — OAuth+DCR (mint-proven)
+    { id: 'todoist', name: 'Todoist', category: 'Productivity', authType: 'oauth', transport: 'http',
+      url: 'https://ai.todoist.net/mcp', official: true, homepage: 'https://todoist.com',
+      aliases: ['todoist', 'todo', 'task list', 'tasks'],
+      blurb: 'Create, search, and complete Todoist tasks and projects. Needs Todoist sign-in (OAuth).' },
+    { id: 'clickup', name: 'ClickUp', category: 'Productivity', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.clickup.com/mcp', official: true, homepage: 'https://clickup.com',
+      aliases: ['clickup', 'click up', 'tasks', 'project management'],
+      blurb: 'Tasks, docs, and spaces in ClickUp. Needs ClickUp sign-in (OAuth).' },
+    // Developer Tools — OAuth+DCR (mint-proven)
+    { id: 'railway', name: 'Railway', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.railway.com/mcp', official: true, homepage: 'https://railway.com',
+      aliases: ['railway', 'deploy', 'hosting'],
+      blurb: 'Manage Railway projects, services, and deployments. Needs Railway sign-in (OAuth).' },
+    { id: 'grafana', name: 'Grafana', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.grafana.com/mcp', official: true, homepage: 'https://grafana.com',
+      aliases: ['grafana', 'dashboards', 'observability', 'metrics'],
+      blurb: 'Query dashboards, metrics, and incidents in Grafana Cloud. Needs Grafana sign-in (OAuth).' },
+    { id: 'posthog', name: 'PostHog', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.posthog.com/mcp', official: true, homepage: 'https://posthog.com',
+      aliases: ['posthog', 'product analytics', 'feature flags', 'analytics'],
+      blurb: 'Product analytics, insights, and feature flags from PostHog. Needs PostHog sign-in (OAuth).' },
+    { id: 'cloudflare-bindings', name: 'Cloudflare', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://bindings.mcp.cloudflare.com/mcp', official: true, homepage: 'https://cloudflare.com',
+      aliases: ['cloudflare', 'workers', 'kv', 'r2', 'd1'],
+      blurb: 'Manage Cloudflare Workers, KV, R2, and D1 resources on your account. Needs Cloudflare sign-in (OAuth).' }
   ];
 
   // ── selectors (pure) ────────────────────────────────────────────────────────────────────────────────

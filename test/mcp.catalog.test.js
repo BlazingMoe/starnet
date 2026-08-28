@@ -240,6 +240,27 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
   A.eq(C.get('atlassian').via, 'zapier', 'Atlassian stays on the proven route until an authenticated direct tool call exists');
 }
 
+// ---- L. wave-4 additions (2026-08-28): mint-proven OAuth+DCR rows + one zero-setup docs row ----
+{
+  for (const id of ['todoist', 'clickup', 'railway', 'grafana', 'posthog', 'cloudflare-bindings']) {
+    const e = C.get(id);
+    A.ok(e, id + ' is in the catalog');
+    A.eq(e.authType, 'oauth', id + ' is an oauth connector (DCR mint live-proven 2026-08-28)');
+    A.ok(/^https:\/\/\S+/.test(e.url), id + ' has a concrete https endpoint');
+    A.ok(!e.via, id + ' signs in directly — no aggregator detour');
+    A.eq(e.staticOauth, null, id + ' rides dynamic registration, not a pre-registered client');
+    A.eq(C.installConfig(id), null, id + ' is stood up by the sign-in flow, not one-click upsert');
+    A.ok(e.aliases.length >= 2, id + ' carries the names a Commander actually types');
+  }
+  const oai = C.get('openai-devdocs');
+  A.eq(oai.authType, 'none', 'OpenAI DevDocs is zero-setup');
+  A.eq(oai.installable, true, 'OpenAI DevDocs installs with no key');
+  A.eq(oai.category, 'Docs & Knowledge', 'OpenAI DevDocs files under Docs & Knowledge');
+  // the two Cloudflare surfaces stay DISTINCT cards: keyless docs search vs account-scoped OAuth management.
+  A.ok(C.get('cloudflare-docs') && C.get('cloudflare-bindings'), 'Cloudflare docs and account cards coexist');
+  A.ok(C.get('cloudflare-docs').name !== C.get('cloudflare-bindings').name, 'the two Cloudflare cards have distinct names');
+}
+
 // report() LAST — it is what calls process.exit(fail?1:0). This file used to end in a bare
 // console.log, so every assertion failure printed FAIL and STILL exited 0: the fast gate scored
 // it green no matter what broke. Never end an _assert.js test any other way.
