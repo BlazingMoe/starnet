@@ -58,6 +58,15 @@ function boot(port, workspaces, fixture, attemptsLeft) {
   };
 
   try {
+    // Malformed JSON must ANSWER 400, not hang: readJsonBody returns null on bad JSON, and the old
+    // `if (!body) return;` guard ended the handler with no response — the client socket hung until
+    // Node's requestTimeout. The 5s abort makes a regression fail fast instead of stalling the gate.
+    for (const route of ['/api/skill-exchange/registry', '/api/skill-exchange/inspect', '/api/skill-exchange/install', '/api/skill-exchange/registries']) {
+      const headers = { 'Content-Type': 'application/json' }; if (token) headers['X-StarNet-Token'] = token;
+      const r = await fetch(base + route, { method: 'POST', headers, cache: 'no-store', body: '{"url":', signal: AbortSignal.timeout(5000) });
+      A.eq(r.status, 400, 'malformed JSON to ' + route + ' answers 400 instead of hanging the socket');
+    }
+
     const savedTap = await api('/api/skill-exchange/registries', { action: 'add', url: 'https://example.com/registry.json', label: 'HTTP tap' });
     A.eq(savedTap.status, 200, 'a user-managed community registry tap persists through the real route');
     let taps = await api('/api/skill-exchange/registries');

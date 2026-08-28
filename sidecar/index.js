@@ -13269,19 +13269,19 @@ async function handleSkillToggle(req, res) {
 async function handleSkillExchangeInspect(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   const body = await readJsonBody(req, readBody, 1 << 16, res);
-  if (!body) return;
+  if (body === null) return json(400, { ok: false, error: 'bad json' });
   try { const preview = await skillExchange.inspect({ url: body.url }); skillMetrics.record('inspect', 'success', { guardAction: preview.guardAction, fileCount: preview.files.length, bytes: preview.packageBytes }); return json(200, { ok: true, preview }); }
   catch (e) { skillMetrics.record('inspect', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not inspect that skill' }); }
 }
 async function handleSkillExchangeRegistry(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   try { const result = await skillRegistry.search({ url: body.url, query: body.query }); skillMetrics.record('registry', 'success', {}); return json(200, Object.assign({ ok: true }, result)); }
   catch (e) { skillMetrics.record('registry', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not search that registry' }); }
 }
 async function handleSkillExchangeDiscover(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   try { const result = await skillRegistry.discover({ site: body.site, query: body.query }); skillMetrics.record('discover', 'success', {}); return json(200, Object.assign({ ok: true }, result)); }
   catch (e) { skillMetrics.record('discover', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not discover that site registry' }); }
 }
@@ -13293,7 +13293,7 @@ function serveSkillExchangeRegistries(req, res) {
 }
 async function handleSkillExchangeRegistries(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   const action = String(body.action || 'add').toLowerCase();
   let url; try { url = new URL(String(body.url || '')); } catch (_) { return json(400, { ok: false, error: 'enter a public HTTPS registry URL' }); }
   if (url.protocol !== 'https:' || url.username || url.password) return json(400, { ok: false, error: 'skill registries must use public HTTPS' });
@@ -13310,14 +13310,14 @@ async function handleSkillExchangeRegistries(req, res) {
 async function handleSkillExchangeImport(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   const body = await readJsonBody(req, readBody, 2 << 20, res);
-  if (!body) return;
+  if (body === null) return json(400, { ok: false, error: 'bad json' });
   try { const preview = await skillExchange.inspectEnvelope({ envelope: body.envelope }); skillMetrics.record('import', 'success', { guardAction: preview.guardAction, fileCount: preview.files.length, bytes: preview.packageBytes }); return json(200, { ok: true, preview }); }
   catch (e) { skillMetrics.record('import', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not inspect that package' }); }
 }
 async function handleSkillExchangeInstall(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   const body = await readJsonBody(req, readBody, 1 << 16, res);
-  if (!body) return;
+  if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent');
   if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try {
@@ -13334,7 +13334,7 @@ async function handleSkillExchangeInstall(req, res) {
 async function handleSkillExchangeCheck(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   const body = await readJsonBody(req, readBody, 1 << 16, res);
-  if (!body) return;
+  if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent');
   if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try { const preview = await skillExchange.check({ agentId, id: body.id }); skillMetrics.record('check', 'success', {}); return json(200, { ok: true, preview }); }
@@ -13342,28 +13342,28 @@ async function handleSkillExchangeCheck(req, res) {
 }
 async function handleSkillExchangeExport(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent'); if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try { const result = skillExchange.exportPackage({ agentId, id: body.id }); skillMetrics.record('export', 'success', {}); return json(200, Object.assign({ ok: true }, result)); }
   catch (e) { skillMetrics.record('export', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not export that skill' }); }
 }
 async function handleSkillExchangePublishHandoff(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent'); if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try { return json(200, { ok: true, handoff: skillExchange.publishHandoff({ agentId, id: body.id }) }); }
   catch (e) { return json(400, { ok: false, error: (e && e.message) || 'could not prepare a publish handoff' }); }
 }
 async function handleSkillExchangeGenerations(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent'); if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try { return json(200, Object.assign({ ok: true }, skillExchange.generations({ agentId, id: body.id }))); }
   catch (e) { return json(400, { ok: false, error: (e && e.message) || 'could not list skill generations' }); }
 }
 async function handleSkillExchangeRollback(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
-  const body = await readJsonBody(req, readBody, 1 << 16, res); if (!body) return;
+  const body = await readJsonBody(req, readBody, 1 << 16, res); if (body === null) return json(400, { ok: false, error: 'bad json' });
   const agentId = String(body.agentId || 'agent'); if (!isAgentId(agentId)) return json(403, { ok: false, error: 'forbidden' });
   try { const result = skillExchange.rollback({ agentId, id: body.id, digest: body.digest }); skillMetrics.record('rollback', 'success', {}); return json(200, result); }
   catch (e) { skillMetrics.record('rollback', 'failed', { error: e && e.message }); return json(400, { ok: false, error: (e && e.message) || 'could not roll back that skill' }); }
