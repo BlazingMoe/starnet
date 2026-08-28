@@ -76,6 +76,8 @@ function makeCronLock(deps) {
   const maxRunMs = d.maxRunMs || (8 * 60 * 1000);
   const reclaimByAge = d.reclaimByAge !== false;
   const pid = (d.pid != null) ? d.pid : (typeof process !== 'undefined' && process.pid) || 0;
+  // injected-or-console diagnostic line (a release that cannot unlink must never be silent).
+  const warn = typeof d.warn === 'function' ? d.warn : function (m) { try { console.warn('[cron-lock] ' + m); } catch (_) {} };
   const nonceFn = typeof d.nonce === 'function' ? d.nonce : defaultNonce;
   /* bootedAt: wall-clock ms of the current OS boot — OPT-IN, exactly like workspace-owner.js (the factory
      default is inert so injected fake clocks in tests are never compared against the real machine's boot).
@@ -124,7 +126,14 @@ function makeCronLock(deps) {
       fd = fs.openSync(lockfile, 'wx');     // O_EXCL | O_CREAT | O_WRONLY — fails EEXIST if present
       fs.writeSync(fd, mine);
     } catch (e) {
-      if (fd != null) { try { fs.closeSync(fd); } catch (_) {} }
+      if (fd != null) {
+        try { fs.closeSync(fd); } catch (_) {}
+        // The O_EXCL create SUCCEEDED (fd is ours) but the stamp write failed (ENOSPC/EIO): the file on disk
+        // is OUR empty/torn orphan. Leaving it blocked every acquirer for a full maxRunMs (fresh mtime, no
+        // parseable pid -> neither reclaim path fires) — and FOREVER for reclaimByAge:false callers. Remove
+        // what we created; a racer cannot own this inode (wx guarantees it is ours).
+        try { fs.unlinkSync(lockfile); } catch (_) {}
+      }
       return null;                          // EEXIST (someone holds it) or a write error -> not ours
     }
     try { fs.closeSync(fd); } catch (_) {}
@@ -157,6 +166,12 @@ function makeCronLock(deps) {
     if (i <= 0) return false;                       // no pid segment -> can't prove dead
     const holderPid = Number(raw.slice(0, i));
     if (!Number.isInteger(holderPid) || holderPid <= 0) return false;
+    // OUR OWN pid stamped while THIS instance believes it holds nothing = a leaked self-lock (a release whose
+    // unlink failed — EBUSY from an AV/indexer is live on the Windows path this module exists for). Without
+    // this the pid probe says "alive" (it's us!) and we lock OURSELVES out of cron for a full maxRunMs.
+    // Safe: one lock instance per lockfile per process (the composition root), so no live acquisition of
+    // this file can exist in-process while heldStamp is null.
+    if (holderPid === Number(pid) && !heldStamp) return true;
     return !pidAlive(holderPid);                    // proven-dead pid -> reclaimable NOW (don't wait for mtime)
   }
 
@@ -210,10 +225,16 @@ function makeCronLock(deps) {
     if (depth > 1) { depth--; return; }   // an inner (nested) release — keep the lock for the outer scope
     const mine = heldStamp;
     heldStamp = null; depth = 0;
-    try {
-      const cur = String(fs.readFileSync(lockfile, 'utf8'));
-      if (cur === mine) fs.unlinkSync(lockfile);
-    } catch (_) { /* already gone / unreadable — nothing to release */ }
+    let cur = null;
+    try { cur = String(fs.readFileSync(lockfile, 'utf8')); } catch (_) { return; /* already gone — nothing to release */ }
+    if (cur !== mine) return;                        // a stale sweep replaced it — never unlink a successor's lock
+    try { fs.unlinkSync(lockfile); }
+    catch (e) {
+      // A FAILED unlink is the OPPOSITE of "nothing to release": our own live-pid stamp stays on disk and
+      // blocks every later acquire (self-heals via the own-pid deadHolder branch, but say it out loud —
+      // silent here meant "ticks stopped for 8 minutes" with no log line explaining why).
+      warn('cron-lock: release could not unlink ' + lockfile + ' (' + ((e && e.code) || e) + ') — own-pid reclaim will recover it');
+    }
   }
 
   // withLock(fn) — acquire, run fn() if acquired (else NO-OP this pass), always release on the way out.
