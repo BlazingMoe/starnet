@@ -256,4 +256,29 @@ const envelope = (over) => Object.assign({ schema: 'starnet.save', version: 3, u
   A.eq(s.recoveryNotice('agent'), undefined, 'a normal save writes no marker');
 }
 
+// ---- P. SHORT-WRITE SAFETY: a writeSync that makes partial progress must still produce a COMPLETE save ----
+// POSIX lets writeSync return having written fewer bytes than asked. The old single-shot write fsynced and
+// renamed that PREFIX over the good main while save() reported ok — the next load quarantined it and fell
+// back to .bak, losing the acknowledged save. Same hazard durable-write.js documents; savestore predated it.
+{
+  const base = memFs();
+  const fds = new Map(); let fdSeq = 0;
+  const fsx = Object.assign({}, base, {
+    openSync(p) { const id = ++fdSeq; fds.set(id, { p, chunks: [] }); return id; },
+    writeSync(fd, buf, offset, len) {
+      const f = fds.get(fd);
+      const n = Math.min(3, len);   // trickle: at most 3 bytes per call
+      f.chunks.push(Buffer.from(buf.slice(offset, offset + n)));
+      return n;
+    },
+    fsyncSync() {},
+    closeSync(fd) { const f = fds.get(fd); if (f) { base.files.set(f.p, Buffer.concat(f.chunks).toString('utf8')); base.events.push(['write', f.p]); fds.delete(fd); } }
+  });
+  const s = mk(fsx);
+  const r = s.save('agent', envelope({ updatedAt: 200, agent: { id: 'agent', name: 'TRICKLE-ÅÖÜ', stats: { xp: 7 } } }));
+  A.eq(r.ok, true, 'save succeeds over a trickling writeSync');
+  const back = s.load('agent');
+  A.eq(back && back.agent && back.agent.name, 'TRICKLE-ÅÖÜ', 'the FULL envelope (multi-byte chars included) round-trips — never a fsynced prefix');
+}
+
 A.report('save.test');

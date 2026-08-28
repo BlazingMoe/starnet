@@ -137,8 +137,25 @@
     function writeDurable(file, data) {
       const tmp = file + '.' + (++tmpSeq) + '.tmp';
       if (typeof fs.openSync === 'function' && typeof fs.fsyncSync === 'function' && typeof fs.writeSync === 'function') {
+        // FULL-WRITE LOOP (the exact hazard durable-write.js documents): a single unchecked writeSync may
+        // make partial progress — fsync + rename of that prefix then replaces the good main with a torn
+        // save while save() reports ok, and the next load quarantines it. Write a Buffer with progress
+        // accounting; a non-advancing write throws BEFORE the rename, so main is never touched.
+        const bytes = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf8');
         let fd = null;
-        try { fd = fs.openSync(tmp, 'w'); fs.writeSync(fd, data); fs.fsyncSync(fd); }
+        try {
+          fd = fs.openSync(tmp, 'w');
+          let offset = 0;
+          while (offset < bytes.length) {
+            const wrote = fs.writeSync(fd, bytes, offset, bytes.length - offset);
+            if (wrote === undefined) break;   // an injected test fs without a byte count keeps single-shot semantics
+            if (!Number.isInteger(wrote) || wrote <= 0 || offset + wrote > bytes.length) {
+              throw new Error('short write on ' + tmp + ': ' + offset + '/' + bytes.length);
+            }
+            offset += wrote;
+          }
+          fs.fsyncSync(fd);
+        }
         finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
       } else {
         fs.writeFileSync(tmp, data);   // test/in-memory fs: no fsync available, plain write
