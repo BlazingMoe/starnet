@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "1a2a3ec824f3de714731c7715bcd56f8a73496af",
+    "sourceCommit": "ac65b4139c74e19147ac03e672b8f5a875aaec23",
     "pathSetSha256": "4a4d5044dc5f1a8aa7e16d752bd899dc2b027dcd621bea4ae61df6a29d6a6912",
     "files": [
       {
@@ -213,8 +213,8 @@
       },
       {
         "path": "frontend/app/deliverables.js",
-        "bytes": 29804,
-        "sha256": "3f1416df9b3ed4fb3c7ea46a452652657550b31883ac296aef471af3b163c11c"
+        "bytes": 30351,
+        "sha256": "f672eccc660ca7a53340c15975a126f98cee57e96b22f780b3248ac70b1a86c2"
       },
       {
         "path": "frontend/app/diagnostics.js",
@@ -743,8 +743,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 642773,
-        "sha256": "e7f0723a22ea9d76f048ed58d34a2f41c8c145ec4da1eb2e76adc0793eea2363"
+        "bytes": 644301,
+        "sha256": "2451aa101e73649c8faa0460739195eefc1f0c4dace9007d288561cf77b1bb65"
       },
       {
         "path": "frontend/app/study.js",
@@ -893,8 +893,8 @@
       },
       {
         "path": "frontend/app/windows/loops.js",
-        "bytes": 43646,
-        "sha256": "e30766f865b007129f18477a8a6239a4aab5336c282da978a6852744f525a654"
+        "bytes": 44287,
+        "sha256": "daac8c0e1938795f457a6480b93d69f81181284b7415a3c32db5dfb10bf14444"
       },
       {
         "path": "frontend/app/windows/messaging.js",
@@ -913,8 +913,8 @@
       },
       {
         "path": "frontend/app/windows/routines.js",
-        "bytes": 50136,
-        "sha256": "20f19c05e037a5fed40b4b536513dcfbac21bd81df7ebeb531de2a72794b8605"
+        "bytes": 50480,
+        "sha256": "1ce5be796d434b5f3ea3f5e380a076c56b43c779c038df97a64785023f060e77"
       },
       {
         "path": "frontend/app/windows/trophies.js",

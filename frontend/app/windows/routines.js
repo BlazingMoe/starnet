@@ -583,12 +583,17 @@
     });
 
     body.querySelector('#rt-add').addEventListener('click', async () => {
+      // IN-FLIGHT GUARD (every other async control in this file has one; this was the omission): a
+      // double-click created TWO identical routines, both firing on the same schedule forever.
+      const addBtn = body.querySelector('#rt-add');
+      if (addBtn.disabled) return;
       const name = (body.querySelector('#rt-name').value || '').trim();
       const prompt = (body.querySelector('#rt-prompt').value || '').trim();
       const schedule = (body.querySelector('#rt-sched').value || '').trim();
       const agentId = (body.querySelector('#rt-agent').value || '').trim();
       const provider = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined;
       if (!prompt || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt and a schedule are required'; return; }
+      addBtn.disabled = true;
       msgEl.textContent = 'saving…';
       try {
         // tz honesty (G4.1): send the browser's IANA timezone so a wall-clock schedule ("every morning 9:00")
@@ -634,6 +639,7 @@
           if (picker) picker.refresh(); else { body.querySelector('#rt-sched').value = ''; pvEl.textContent = ''; }
         }
       } catch (e) { msgEl.innerHTML = '<span style="color:var(--bad)">✕ ' + esc((e && e.message) || 'failed to reach the sidecar') + '</span>'; sfx('bad'); }
+      addBtn.disabled = false;
       refresh();
     });
 
