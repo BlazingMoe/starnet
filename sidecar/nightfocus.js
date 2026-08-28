@@ -229,6 +229,15 @@
       const mentions = Math.max(0, Math.floor(num(p.mentionCount)));
       const why = ['you worked in ' + label + (tag ? ' — last touched ' + tag : '') + (p.isGitRepo ? ' (a git repo I can read + patch)' : '')];
       if (mentions > 0) why.push(mentions + ' recent run' + (mentions === 1 ? '' : 's') + ' point at it');
+      /* ENVIRONMENT DISCOVERY citations (2026-08-28): what the repo's own bounded scan found — an uncommitted
+         working tree, a TODO the code itself carries. Each line arrives WITH its verbatim quote (discovery.js
+         findingsForRoot caps them at 2, and normFocus's 6-line cap still binds). Deliberately EVIDENCE ONLY:
+         the score is untouched, the same law the topic boost holds — citations may explain a choice the
+         recency ranking already made, never re-rank it. */
+      for (const f of (Array.isArray(p.findings) ? p.findings : []).slice(0, 2)) {
+        const q = f && str(f.quote).replace(/\s+/g, ' ').trim();
+        if (q) why.push(q.slice(0, 160));
+      }
       const tb = topicBoost(inputs.topics, label + ' ' + str(p.displayPath || p.root));
       if (tb && tb.why) why.push(tb.why);   // the boost is only ever taken WITH its cited evidence
       // a project with NO touch metadata still scores a small floor (it IS blessed = the user chose it) so it can

@@ -220,6 +220,19 @@ const goal = { text: 'launch the beta', done: 1, total: 4, next: 'wire the signu
   A.eq(cleared.avoid.length, 0, 'removeAvoid lifts the boundary');
 })();
 
+// ---- ENVIRONMENT DISCOVERY citations ride the project why — evidence only, never a score term ----
+(function discoveryFindingsCited() {
+  const base = projects();
+  const withF = base.map((p, i) => i === 0 ? Object.assign({}, p, { findings: [{ quote: 'its own code says: "a.js:1: // TODO wire the dial"' }, { quote: 'x2' }, { quote: 'x3-over-cap' }] }) : p);
+  const plain = F.resolveFocus({ projects: base, threads: [], goal: null }, { now: T0 });
+  const cited = F.resolveFocus({ projects: withF, threads: [], goal: null }, { now: T0 });
+  A.ok(cited.why.some(w => w.indexOf('TODO wire the dial') >= 0), 'a discovery finding\'s verbatim quote rides the focus why');
+  A.eq(cited.why.filter(w => /^x/.test(w)).length, 1, 'at most 2 finding lines join (the third is dropped)');
+  A.eq(plain.ref, cited.ref, 'findings NEVER change which project wins — evidence only, the topic-boost law');
+  const bare = F.resolveFocus({ projects: base.map(p => Object.assign({}, p, { findings: [{ quote: '' }, null] })), threads: [], goal: null }, { now: T0 });
+  A.eq(bare.why.some(w => !w), false, 'an empty or null finding contributes no line (never a bare vibe)');
+})();
+
 // ---- focusLine renders a cited, human-legible directive header ----
 (function focusLineCited() {
   const f = F.resolveFocus({ projects: projects(), threads, goal }, { now: T0 });

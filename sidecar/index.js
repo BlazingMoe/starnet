@@ -205,6 +205,7 @@ const Autopilot = require('../frontend/app/autopilot.js'); // NS-1: the pure, no
 const Autonomy = require('../frontend/app/autonomy.js');   // NS-1: the pure posture engine (summary/normalize) — the SERVER reads the same shape the dial writes
 const Interests = require('./interests.js');               // SCOUT lane 1: pure topic-interest engine (EWMA histogram + evidence-grounded extraction)
 const Scout = require('./scout.js');                        // SCOUT lane 2: pure drafting gates + recipe parse + the honest mint ledger
+const Discovery = require('./discovery.js');                // ENVIRONMENT DISCOVERY: blessed-root scan findings with verbatim citations (pure half)
 const ProspectGen = require('../frontend/app/prospect.js'); // SCOUT: the pure prospect generator — REUSED server-side (same directive + hard validation)
 const SharedSpecialties = require('../shared/specialties.js');           // SCOUT: builtin class catalog (prospect dedup + context)
 const RecipeCatalogAll = require('../frontend/app/recipe-catalog/index.js'); // SCOUT: builtin recipe catalog (draft dedup + context)
@@ -4923,7 +4924,12 @@ function nightFocusInputs() {
       const m = meta[root] || {};
       const base = nightfocus.baseName(m.displayPath || root).toLowerCase();
       const mentionCount = base ? runTitles.reduce((n, t) => n + (t.indexOf(base) >= 0 ? 1 : 0), 0) : 0;
-      return { root, displayPath: m.displayPath || root, lastTouchedAt: m.lastTouchedAt || 0, isGitRepo: !!m.isGitRepo, mentionCount };
+      // ENVIRONMENT DISCOVERY join: the repo's own staged findings ride as bounded CITATION lines (≤2). They
+      // strengthen the focus's why with what the code itself says — deliberately NOT a score term (the topic-
+      // boost law: evidence may explain a choice the recency ranking already made, never re-rank it).
+      let findings = [];
+      try { findings = Discovery.findingsForRoot(discoveryState, root); } catch (_) { findings = []; }
+      return { root, displayPath: m.displayPath || root, lastTouchedAt: m.lastTouchedAt || 0, isGitRepo: !!m.isGitRepo, mentionCount, findings };
     });
   } catch (_) { projects = []; }
   let threads = [];
@@ -5460,6 +5466,134 @@ async function handleScoutDecide(req, res) {
   await recommendationLedger.verdict('scout:' + id, decision === 'accept' ? 'accepted' : 'declined', decision === 'accept' ? 'accepted' : String(body.reason || 'not_relevant'), Date.now()).catch(swallow('recledger.verdict', null));
   persistScout();
   json(200, { ok: true, item: item });
+}
+
+/* ── ENVIRONMENT DISCOVERY (2026-08-28) — the station looks at the Commander's OWN projects for the first time.
+   Every proactive surface until now studied only what the Commander TYPED. This tick walks the BLESSED roots
+   (and nothing else — isBlessedRoot is re-checked at use, the projectscan trust boundary refuses the rest),
+   turns the bounded snapshot into findings whose citations are the repo's own lines (discovery.js: no model
+   call, nothing to hallucinate), and stages them for the shelf + the recommendation ledger. Discovery is NOT
+   authority: a finding is an offer, and only the Commander's accept turns it into work (propose-and-confirm).
+   The personalization PAUSE gates the whole engine — a paused station scans nothing and stages nothing. */
+const DISCOVERY_FILE = path.join(WORKSPACES, 'discovery.state.json');
+const DISCOVERY_TICK_MS = Math.max(60 * 1000, Number(process.env.SKYNET_ENV_DISCOVERY_TICK_MS) || 15 * 60 * 1000);
+let discoveryState = (() => { try { const o = loadResilient(DISCOVERY_FILE, 'discovery'); return Discovery.normalize(o && o.state); } catch (_) { return Discovery.normalize(null); } })();
+function persistDiscovery() { try { saveResilient(DISCOVERY_FILE, { v: 1, state: discoveryState }); } catch (e) { console.warn('[discovery] state persist failed:', (e && e.message) || e); } }
+let discoveringNow = false;
+async function runDiscoveryCycle(opts) {
+  opts = opts || {};
+  const now = Date.now();
+  discoveryState = Discovery.sweep(discoveryState, now);   // expiries first, so the shelf read stays truthful
+  const roots = blessedRoots();
+  const d = Discovery.decide(discoveryState, { now: now, roots: roots, force: !!opts.force });
+  if (!d.fire) { persistDiscovery(); return { ok: true, fired: false, binding: d.binding }; }
+  const declinedIdx = buildDeclinedIndex('agent');
+  let staged = 0;
+  for (const root of d.roots) {
+    if (!isBlessedRoot(root)) continue;   // the trust boundary, re-checked at the moment of use (a revoke wins)
+    let meta = {};
+    try { meta = (projectsStore.snapshot().projects || []).find(p => p.root === root) || {}; } catch (_) { meta = {}; }
+    let scan = null;
+    try { scan = await projectScan.scan(root, { sinceMs: now - 14 * 86400000 }); } catch (_) { scan = null; }
+    discoveryState = Discovery.markScanned(discoveryState, root, { now: now });
+    const label = Discovery.baseName(meta.displayPath || root);
+    if (!scan || scan.ok !== true) {
+      discoveryState = Discovery.note(discoveryState, { outcome: 'none', reason: 'scan ' + ((scan && scan.reason) || 'failed'), title: label }, { now: now });
+      continue;
+    }
+    const findings = Discovery.extractFindings(scan, { root: root, displayPath: meta.displayPath || root, now: now });
+    if (!findings.length) {
+      // the anti-silent-no-mint law: a clean repo is a recorded outcome, never an unexplained quiet
+      discoveryState = Discovery.note(discoveryState, { outcome: 'none', reason: 'clean scan', title: label }, { now: now });
+      continue;
+    }
+    for (const f of findings) {
+      if (declinedIdx.has(f.title) || declinedIdx.has(f.quote)) {
+        discoveryState = Discovery.note(discoveryState, { outcome: 'rejected', reason: 'declined elsewhere', title: f.title }, { now: now });
+        continue;
+      }
+      if (!Discovery.eligible(discoveryState, f)) continue;   // staged/denylisted/resolved/full — the reducer's one predicate
+      discoveryState = Discovery.stage(discoveryState, f, { now: now });
+      staged++;
+      // the impression on the ONE ledger — the finding's citation is the repo's own line, typed as the quote it is
+      recommendationLedger.record({
+        id: 'discovery:' + f.fingerprint.slice(0, 100),
+        surface: 'discovery', kind: f.kind, title: f.title, target: f.root,
+        evidence: [{ id: 'scan', type: 'quote', quote: f.quote }],
+        readiness: { ready: true, reasons: [] }, projectId: f.root, modelVersion: 'discovery-v1'
+      }, Date.now()).catch(swallow('recledger.record'));
+    }
+  }
+  persistDiscovery();
+  return { ok: true, fired: true, scanned: d.roots.length, staged: staged };
+}
+let discoveryTimer = null;
+function discoveryTick(force) {
+  try {
+    if (String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return;
+    if (discoveringNow) return;
+    if (!personalizationStore.read().enabled) return;   // the PAUSE is server authority here too
+    discoveringNow = true;
+    runDiscoveryCycle({ force: !!force }).catch(swallow('discovery.cycle')).finally(() => { discoveringNow = false; });
+  } catch (_) { discoveringNow = false; }
+}
+function armDiscovery() {
+  if (discoveryTimer || String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return false;
+  discoveryTimer = setInterval(() => discoveryTick(false), DISCOVERY_TICK_MS);
+  if (discoveryTimer.unref) discoveryTimer.unref();
+  const boot = setTimeout(() => discoveryTick(false), 5000);   // boot catch-up look, same shape as quest refresh
+  if (boot.unref) boot.unref();
+  console.log('  · environment discovery armed (' + Math.round(DISCOVERY_TICK_MS / 60000) + 'm tick, blessed roots only)');
+  return true;
+}
+// GET /api/discovery — the honest status read: staged findings, the attempt trail, and WHY the engine is quiet.
+function handleDiscoveryGet(req, res) {
+  discoveryState = Discovery.sweep(discoveryState, Date.now());
+  const roots = (() => { try { return blessedRoots(); } catch (_) { return []; } })();
+  const d = Discovery.decide(discoveryState, { now: Date.now(), roots: roots });
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({
+    ok: true,
+    enabled: String(process.env.SKYNET_ENV_DISCOVERY || '') !== '0' && personalizationStore.read().enabled,
+    personalizationEnabled: personalizationStore.read().enabled,
+    rootsBlessed: roots.length,
+    binding: d.fire ? 'due' : d.binding,
+    staged: discoveryState.staged,
+    ledger: discoveryState.ledger.slice(-20),
+    lastCycleAt: discoveryState.lastCycleAt
+  }));
+}
+// POST /api/discovery/decide { id, decision:'accept'|'dismiss' } — the Commander's verdict on a finding.
+// dismiss denylists the fingerprint forever; accept resolves it (picked up — never re-nag). Unknown id → ok:false.
+async function handleDiscoveryDecide(req, res) {
+  let body; try { body = JSON.parse(await readBody(req, 1 << 14)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  const id = String(body.id || '');
+  const decision = body.decision === 'accept' ? 'accept' : (body.decision === 'dismiss' ? 'dismiss' : '');
+  if (!decision) return json(400, { ok: false, error: 'decision must be accept|dismiss' });
+  const item = discoveryState.staged.find(f => f.id === id) || null;
+  if (!item) return json(200, { ok: false, error: 'unknown id' });
+  discoveryState = decision === 'accept' ? Discovery.accept(discoveryState, id, { now: Date.now() }) : Discovery.dismiss(discoveryState, id, { now: Date.now() });
+  await recommendationLedger.verdict('discovery:' + item.fingerprint.slice(0, 100),
+    decision === 'accept' ? 'accepted' : 'declined',
+    decision === 'accept' ? 'accepted' : String(body.reason || 'not_relevant'), Date.now()).catch(swallow('recledger.verdict', null));
+  persistDiscovery();
+  json(200, { ok: true, item: item });
+}
+// POST /api/discovery/scan — the Commander's own SCAN NOW: forces one cycle past cooldown/freshness. Still
+// refuses while paused (the pause is authority) and while a cycle is already in flight (honest 'busy').
+async function handleDiscoveryScan(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  if (String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return json(200, { ok: false, reason: 'disabled' });
+  if (!personalizationStore.read().enabled) return json(200, { ok: false, reason: 'personalization-paused' });
+  if (discoveringNow) return json(200, { ok: false, reason: 'busy' });
+  discoveringNow = true;
+  try {
+    const out = await runDiscoveryCycle({ force: true });
+    json(200, out);
+  } catch (e) {
+    json(200, { ok: false, reason: 'cycle failed' });
+  } finally { discoveringNow = false; }
 }
 
 // ONE recommendation lifecycle API. Browser and server surfaces write the same bounded envelope, so "not now"
@@ -8452,6 +8586,10 @@ const ROUTES = [
   { m: 'POST', exact: '/api/scout/context', h: handleScoutContext },
   { m: 'POST', exact: '/api/scout/decide', h: handleScoutDecide },
   { m: 'POST', exact: '/api/scout/telemetry', h: handleScoutTelemetry },
+  // ENVIRONMENT DISCOVERY: findings from the Commander's own blessed roots (verbatim citations, no model spend)
+  { m: 'GET', exact: '/api/discovery', h: handleDiscoveryGet },
+  { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
+  { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
   { m: 'GET', qsplit: '/api/recommendations', h: handleRecommendationsGet },
   { m: 'POST', exact: '/api/recommendations', h: handleRecommendationsPost },
@@ -8943,6 +9081,10 @@ server.listen(PORT, '127.0.0.1', () => {
   try {
     armQuestRefresh();
   } catch (e) { console.warn('[questrefresh] start failed:', (e && e.message) || e); }
+  // ENVIRONMENT DISCOVERY: the blessed-roots scan tick (no model spend; personalization pause gates every cycle).
+  try {
+    armDiscovery();
+  } catch (e) { console.warn('[discovery] start failed:', (e && e.message) || e); }
   // WORKSHOP zombie-claim boot sweep: a shift that crashed mid-build leaves an item stamped buildingRunId; at
   // boot NO run is live, so any such stamp is a zombie that would mute the agent's backlog forever. Clear them
   // (isRunLive is all-false at boot) so the next shift can claim again. Best-effort, fire-and-forget per agent.
