@@ -157,11 +157,12 @@
         resumeUrl = d.resume_gateway_url || null;
         botUserId = (d.user && d.user.id != null) ? String(d.user.id) : botUserId;
         backoffAttempt = 0;
+        immediateStreak = 0;   // a real READY proves the fast-resume path healthy again
         setState('up', '');
         log('READY — session ' + (sessionId ? sessionId.slice(0, 6) + '…' : '?') + ', bot ' + (botUserId || '?'));
         return;
       }
-      if (t === 'RESUMED') { setState('up', ''); log('RESUMED'); return; }
+      if (t === 'RESUMED') { immediateStreak = 0; setState('up', ''); log('RESUMED'); return; }
       if (t === 'MESSAGE_CREATE') {
         // never act on our own messages (avoids the bot talking to itself).
         const author = d.author || {};
@@ -191,7 +192,10 @@
           // d === true means the session is resumable; false means start fresh.
           const resumable = payload.d === true;
           log('op 9 invalid session (resumable=' + resumable + ')');
-          return reconnect(resumable, true);
+          // Discord's own guidance: wait 1-5s before re-identifying after op 9. The old immediate
+          // reconnect made a persistently invalid session (identify rate-limit, unresumable) a ZERO-DELAY
+          // ws+REST loop — each iteration also hitting GET /gateway/bot — which ends in a CloudFlare ban.
+          return reconnect(resumable, true, 1000 + Math.floor(random() * 4000));
         }
         default: return;
       }
@@ -202,14 +206,20 @@
     // otherwise an exponential-backoff delay is used (an unexpected drop). `canResume` keeps session_id+seq so the
     // next HELLO RESUMEs; false clears them so it IDENTIFYs fresh.
     let reconnecting = false;
-    function reconnect(canResume, immediate) {
+    let immediateStreak = 0;   // consecutive no-backoff reconnects without an intervening READY/RESUMED
+    function reconnect(canResume, immediate, fixedDelayMs) {
       if (closed || reconnecting) return;
       reconnecting = true;
       clearTimers();
       const sock = ws; ws = null; identifiedThisConn = false;
       if (sock) { try { sock.__dead = true; } catch (_) {} try { sock.onclose = null; sock.onmessage = null; sock.onerror = null; sock.onopen = null; } catch (_) {} try { sock.close(); } catch (_) {} }
       if (!canResume) { sessionId = null; lastSeq = null; }
-      const delay = immediate ? 0 : backoffDelay();
+      // `immediate` skips backoff for the FIRST couple of attempts only: op 7 / a zombie heartbeat wants a
+      // fast resume, but if the server keeps bouncing us before READY ever lands, an unconditional 0ms was
+      // a reconnect storm with no ceiling (backoffAttempt was neither read nor bumped on this path).
+      const delay = fixedDelayMs != null ? fixedDelayMs
+        : immediate ? (immediateStreak++ < 2 ? 0 : backoffDelay())
+        : backoffDelay();
       if (delay > 0) setState('reconnecting', 'retry in ' + Math.round(delay / 1000) + 's');
       reconnectTimer = setTimeoutImpl(function () { reconnectTimer = null; reconnecting = false; openConnection(); }, delay);
     }

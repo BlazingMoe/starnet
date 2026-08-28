@@ -188,6 +188,49 @@ function okFetch(url) {
     gw.close();
   }
 
+  // ---- D2. NO RECONNECT STORM: op 9 waits 1-5s, and repeated no-READY immediates escalate to backoff ----
+  // A persistently invalid session used to reconnect with delay 0 (backoffAttempt neither read nor bumped
+  // on the immediate path) — a tight ws+REST loop against Discord that ends in a CloudFlare IP ban.
+  {
+    const timers = fakeTimers();
+    const FakeWS = makeFakeWS();
+    const gw = makeDiscordGateway({
+      token: 'BOT', onMessage: () => {}, fetch: okFetch, WebSocketImpl: FakeWS, gatewayUrl: 'wss://gw.test',
+      setTimeoutImpl: timers.setTimeoutImpl, clearTimeoutImpl: timers.clearTimeoutImpl, now: timers.now, random: () => 0
+    });
+    await Promise.resolve(); await Promise.resolve();
+    let ws = FakeWS._last(); ws.open();
+    ws.emit({ op: 10, d: { heartbeat_interval: 10000 } });
+    // op 9: the reconnect must NOT fire immediately — Discord guidance is a 1-5s wait before re-identify.
+    let count = FakeWS._instances.length;
+    ws.emit({ op: 9, d: false });
+    timers.advance(999);
+    await Promise.resolve(); await Promise.resolve();
+    A.eq(FakeWS._instances.length, count, 'op 9 does not reconnect inside the first second');
+    timers.advance(2);
+    await Promise.resolve(); await Promise.resolve();
+    A.ok(FakeWS._instances.length > count, 'op 9 reconnects after the guided wait');
+    // repeated op 7 with no READY in between: the first two ride free, the third pays backoff.
+    for (let i = 0; i < 2; i++) {
+      const w = FakeWS._last(); w.open(); w.emit({ op: 10, d: { heartbeat_interval: 10000 } });
+      const n = FakeWS._instances.length;
+      w.emit({ op: 7 });
+      timers.advance(0);
+      await Promise.resolve(); await Promise.resolve();
+      A.ok(FakeWS._instances.length > n, 'immediate reconnect #' + (i + 1) + ' still fires with no delay');
+    }
+    const w3 = FakeWS._last(); w3.open(); w3.emit({ op: 10, d: { heartbeat_interval: 10000 } });
+    const n3 = FakeWS._instances.length;
+    w3.emit({ op: 7 });
+    timers.advance(0);
+    await Promise.resolve(); await Promise.resolve();
+    A.eq(FakeWS._instances.length, n3, 'the third consecutive no-READY immediate pays a backoff instead of 0ms');
+    timers.advance(120000);
+    await Promise.resolve(); await Promise.resolve();
+    A.ok(FakeWS._instances.length > n3, 'and still reconnects after the backoff elapses');
+    gw.close();
+  }
+
   // ---- E. unexpected close -> backoff reconnect; a fatal close code stops for good ----
   {
     const timers = fakeTimers();
