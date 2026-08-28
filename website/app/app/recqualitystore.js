@@ -55,6 +55,20 @@ const RecQualityStore = (() => {
 
   const engine = () => (typeof RecQuality !== 'undefined' && RecQuality && RecQuality.fold) ? RecQuality : null;
   const ready = () => !!(state && engine());
+  /* THE OUTCOME FORWARD (dead-wires lane, 2026-08-28). This store was the ONLY place that ever learned what an
+     accepted spine offer's work actually produced — and it kept that knowledge in localStorage, so the durable
+     ledger's replay() quality term was structurally zero for surface `spine` and the whole earned record died
+     with the browser profile. Each attributed outcome is now ALSO handed to RecLedger.settle(), which owns the
+     translation into ledger vocabulary (and refuses what the ledger has no place for). Forwarded from the
+     specific attribution sites below — never from the generic fold — so a channel's unrelated card verdicts can
+     never touch a previous accept's awaiting row. Injectable for the node test (deps.recLedger; pass null to
+     silence), global RecLedger by default in the browser so there is no wiring step to forget. Fail-open. */
+  function forward(channel, outcome, runId) {
+    try {
+      const rl = (deps && deps.recLedger !== undefined) ? deps.recLedger : (typeof RecLedger !== 'undefined' ? RecLedger : null);
+      if (rl && rl.settle) rl.settle(channel, outcome, runId);
+    } catch (_) {}
+  }
   // the INJECTED clock (deps.now), exactly like the sibling growth stores — so the node test can fast-forward the
   // pending stamp's expiry instead of sleeping through it. Falls back to the wall clock in the browser.
   function nowMs() { const n = deps && typeof deps.now === 'function' ? Number(deps.now()) : NaN; return Number.isFinite(n) ? n : Date.now(); }
@@ -153,7 +167,7 @@ const RecQualityStore = (() => {
       /* A NEW ACCEPT MUST NOT SILENTLY SWALLOW THE OLD ONE. Overwriting left the first offer with no record at
          all — it was accepted, and the loop learned nothing from it. It waited for a run that never came, which
          is the same evidence a "not now" carries: right idea, wrong moment. Settle it as `deferred` and move on. */
-      if (pending) { try { noteOutcome(pending, 'deferred'); } catch (_) {} }
+      if (pending) { try { noteOutcome(pending, 'deferred'); } catch (_) {} if (pending) forward(pending.channel, 'deferred', ''); }
       pending = { channel: String(stamp.channel).slice(0, 40), dim: stamp.dim ? String(stamp.dim).slice(0, 40) : '', id: String(stamp.id || '').slice(0, 80), at: nowMs() };
       return pending;
     }
@@ -187,6 +201,7 @@ const RecQualityStore = (() => {
     if (Number.isFinite(armedAt) && (nowMs() - armedAt) > PENDING_TTL_MS) {
       const expired = pending; pending = null;
       try { noteOutcome(expired, 'deferred'); } catch (_) {}
+      forward(expired.channel, 'deferred', '');
       return null;
     }
     const stamp = { channel: pending.channel, dim: pending.dim, id: pending.id };
@@ -203,7 +218,10 @@ const RecQualityStore = (() => {
     const stamp = stampFor(runId);
     if (!stamp) return null;      // an unattributed run says nothing about any channel
     const v = verdict === 'great' ? 'great' : verdict === 'miss' ? 'miss' : verdict === 'ok' ? 'ok' : null;
-    return v ? noteOutcome(stamp, v) : null;
+    if (!v) return null;
+    const out = noteOutcome(stamp, v);
+    forward(stamp.channel, v, String(runId || ''));
+    return out;
   }
 
   /* the run an accepted offer spawned finished. A CLEAN finish is a weak positive — the work the offer proposed
@@ -220,6 +238,7 @@ const RecQualityStore = (() => {
     if (p.reason !== 'done') return;
     settled.add(runId);
     noteOutcome(stamp, 'completed');
+    forward(stamp.channel, 'completed', runId);
   }
   function bind() {
     if (bound) return;
