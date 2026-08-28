@@ -268,4 +268,57 @@ const job = (o) => Object.assign({ id: 'j1', enabled: true, schedule: null, next
   A.eq(plan.fire.length, 0, 'a future-stamped (clock-rewind) in-flight one-shot is NOT re-fired');
 }
 
+// ---- CRON SEARCH STALL (bug-sweep 2026-08-28): impossible dates answer instantly, sparse dates skip days ----
+{
+  const T = 1700000000000;   // 2023-11-14T22:13:20Z
+  // 1. an impossible-but-well-formed dom/month combo returns null WITHOUT the 2.6M-step scan.
+  //    Pre-fix this pair cost multiple SECONDS of synchronous Intl calls straight from POST /api/cron.
+  const t0 = Date.now();
+  A.eq(cron.parseSchedule('0 0 30 2 *', T), null, 'Feb 30 is rejected at parse (never a stored dead routine)');
+  A.eq(cron.parseSchedule('0 0 31 4 *', T), null, 'Apr 31 is rejected at parse');
+  A.eq(cron._internals.nextCronFireAt({ kind: 'cron', expr: '0 0 30 2 *' }, T, 'UTC'), null, 'a stored Feb-30 record computes null');
+  const impossibleMs = Date.now() - t0;
+  A.ok(impossibleMs < 1000, 'the impossible-date rejection is instant (took ' + impossibleMs + 'ms; pre-fix: seconds)');
+  A.eq(cron.isFireable({ kind: 'cron', expr: '0 0 30 2 *' }), false, 'an impossible-date cron is visibly unfireable, not idle-forever');
+  A.eq(cron.isFireable({ kind: 'cron', expr: '0 0 29 2 *' }), true, 'Feb 29 stays fireable (leap years exist)');
+
+  // 2. Feb 29 is FOUND (the day-skip must not skip the one matching date) — and found fast.
+  const t1 = Date.now();
+  const leap = cron._internals.nextCronFireAt({ kind: 'cron', expr: '0 0 29 2 *' }, T, 'UTC');
+  const leapMs = Date.now() - t1;
+  A.eq(leap, Date.UTC(2024, 1, 29, 0, 0), 'the next Feb 29 after 2023-11 is 2024-02-29T00:00Z');
+  A.ok(leapMs < 2000, 'the leap-day search completes quickly (took ' + leapMs + 'ms; pre-fix: minute-grind)');
+
+  // 3. both dom AND dow restricted = OR semantics — the dow leg keeps an "impossible" dom feasible.
+  const orNext = cron._internals.nextCronFireAt({ kind: 'cron', expr: '0 0 30 2 1' }, T, 'UTC');
+  A.eq(orNext, Date.UTC(2024, 1, 5), 'Feb-30-or-Monday fires the first February Monday (the OR leg is never starved by the feasibility check)');
+
+  // 4. EQUIVALENCE vs a brute-force minute scan (UTC): the day-skip may change SPEED, never the answer.
+  const brute = (schedule, anchor, days) => {
+    const f = schedule.fields, hasv = (a, v) => a.indexOf(v) >= 0;
+    const end = anchor + days * 86400000;
+    for (let t = Math.floor(anchor / 60000) * 60000 + 60000; t <= end; t += 60000) {
+      const d = new Date(t);
+      if (!hasv(f.minute, d.getUTCMinutes()) || !hasv(f.hour, d.getUTCHours()) || !hasv(f.month, d.getUTCMonth() + 1)) continue;
+      const dom = hasv(f.dayOfMonth, d.getUTCDate()), dow = hasv(f.dayOfWeek, d.getUTCDay());
+      if ((!schedule.dayOfMonthWildcard && !schedule.dayOfWeekWildcard) ? (dom || dow) : (dom && dow)) return t;
+    }
+    return null;
+  };
+  const exprs = ['0 9 * * *', '*/15 * * * *', '0 0 1 * *', '30 14 15 6 *', '0 8 * * 1', '0 0 13 * 5', '5 4 31 1,3,5 *'];
+  const anchors = [T, T + 37 * 3600000, T + 400 * 86400000 + 12345678];
+  for (const e of exprs) for (const a of anchors) {
+    const sched = cron.parseSchedule(e, a);
+    A.ok(sched && sched.kind === 'cron', 'parsed ' + e);
+    A.eq(cron._internals.nextCronFireAt(sched, a, 'UTC'), brute(sched, a, 400), 'day-skip answer == brute minute scan for "' + e + '" @ +' + Math.round((a - T) / 3600000) + 'h');
+  }
+
+  // 5. day-skip + DST gap on the MATCHING day: "30 2 8 3 *" in America/New_York — the scan skips
+  //    Jan..Mar-7 day-by-day, then Mar 8 2026 is the spring-forward day and 02:30 sits IN the gap →
+  //    policy fires the post-transition equivalent 03:30 EDT (07:30Z). Proves the jump never lands past
+  //    a day boundary and the gap detector still sees adjacent minutes where it matters.
+  const gap = cron._internals.nextCronFireAt({ kind: 'cron', expr: '30 2 8 3 *', tz: 'America/New_York' }, Date.UTC(2026, 0, 1), 'America/New_York');
+  A.eq(gap, Date.UTC(2026, 2, 8, 7, 30), 'a gap-swallowed sparse-date fire lands at its post-transition equivalent (03:30 EDT)');
+}
+
 A.report('cron');
