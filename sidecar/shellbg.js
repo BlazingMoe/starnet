@@ -61,10 +61,19 @@
         return;
       }
     }
-    try { child.kill(); } catch (_) {}
-    try {
-      if (child.pid) process.kill(child.pid, 'SIGKILL');
-    } catch (_) {}
+    /* POSIX: the child is spawned `detached` (below) precisely so it LEADS its own process group — but the
+       old code then killed only the LEADER, so `sh -c`'s grandchildren (npm -> node server.js) were
+       reparented to init still holding their ports while the record read "exited (killed)" and
+       ledger.release() removed the receipt the boot sweep would have needed. Kill the GROUP (negative
+       pid — the same form procledger.js uses); the leader-only kill is the fallback when no group exists. */
+    let groupKilled = false;
+    try { if (child.pid) { process.kill(-Number(child.pid), 'SIGKILL'); groupKilled = true; } } catch (_) {}
+    if (!groupKilled) {
+      try { child.kill(); } catch (_) {}
+      try {
+        if (child.pid) process.kill(child.pid, 'SIGKILL');
+      } catch (_) {}
+    }
   }
 
   function makeShellBg(deps) {
