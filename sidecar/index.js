@@ -15284,9 +15284,13 @@ async function runOnce(o) {
       });
       if (execution.journalStarted() && !execution.journalFailed()) execution.markToolSettled(c.id);
       // record the SUCCESSFUL write (only successes protect anything); a ledger write failure never fails the run.
+      // AWAITED: fire-and-forget left a window where the mutation had executed but its ledger row was still
+      // in the durable-store mutex when the process died — the retry then missed on lookup and RE-SENT the
+      // write (the exact double-send this ledger exists to prevent). The loop may not advance past a
+      // protected mutation until its receipt is on disk. Still fail-open on ledger errors.
       if (idemKey && r && r.ok && !r.isError) {
-        idempotencyLedger.record(idemKey, { scope: idempotencyScope, runId, tool: c.name, summary: r.summary, content: r.content })
-          .catch(e => failNote('idempotency.record', e));
+        try { await idempotencyLedger.record(idemKey, { scope: idempotencyScope, runId, tool: c.name, summary: r.summary, content: r.content }); }
+        catch (e) { failNote('idempotency.record', e); }
       }
     } catch (e) {
       if (execution.journalStarted()) throw fatalToolBoundary('result', e);
