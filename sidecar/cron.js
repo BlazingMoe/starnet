@@ -322,12 +322,21 @@
     for (; t <= stop; t += MIN) {
       const lf = localFieldsOf(t, zone);
       if (zone !== 'UTC') {
-        if (lf.minOfDay > prev.minOfDay + 1) {
-          // SPRING-FORWARD gap (prev.minOfDay+1 .. lf.minOfDay-1 are skipped). Fire any matching skipped
+        // A spring-forward gap can straddle LOCAL MIDNIGHT (Havana/Santiago: transition at 00:00, so the
+        // clock reads 23:59 -> 01:00 next day). On the raw minute-of-day axis that is 1439 -> 60 and the
+        // plain `>` test saw NO gap — a 00:30 routine silently skipped its fire that day, violating this
+        // function's own never-skipped policy. Compare on a rollover-adjusted axis instead: when the day
+        // changed, the previous minute sits at (minOfDay - 1440) relative to the new day, so the ordinary
+        // midnight step (1439 -> 0) reads as -1 -> 0 (no gap) while Havana reads -1 -> 60 (a 60min gap).
+        const dayChanged = lf.day !== prev.day || lf.month !== prev.month || lf.year !== prev.year;
+        const effPrev = (dayChanged && lf.minOfDay < prev.minOfDay) ? prev.minOfDay - 1440 : prev.minOfDay;
+        if (lf.minOfDay > effPrev + 1) {
+          // SPRING-FORWARD gap (effPrev+1 .. lf.minOfDay-1 are skipped). Fire any matching skipped
           // wall time at its post-transition equivalent (skipped minute + gap size = this side of the gap).
-          const gap = lf.minOfDay - prev.minOfDay - 1;
-          for (let m = prev.minOfDay + 1; m < lf.minOfDay; m++) {
-            if (cronMatchesLocalHM(spec, t, zone, Math.floor(m / 60) % 24, m % 60)) {
+          const gap = lf.minOfDay - effPrev - 1;
+          for (let m = effPrev + 1; m < lf.minOfDay; m++) {
+            const hm = ((m % 1440) + 1440) % 1440;   // m < 0 = a pre-midnight minute of the PREVIOUS day
+            if (cronMatchesLocalHM(spec, m < 0 ? t - MIN : t, zone, Math.floor(hm / 60) % 24, hm % 60)) {
               return t + (m + gap - lf.minOfDay) * MIN;       // the instant whose local clock reads m+gap
             }
           }
