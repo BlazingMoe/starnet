@@ -242,7 +242,9 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
 // ---- L. wave-4 additions (2026-08-28): mint-proven OAuth+DCR rows + one zero-setup docs row ----
 {
-  for (const id of ['todoist', 'clickup', 'railway', 'grafana', 'posthog', 'cloudflare-bindings']) {
+  for (const id of ['todoist', 'clickup', 'railway', 'grafana', 'posthog', 'cloudflare-bindings',
+    'cal-com', 'fireflies', 'algolia', 'buildkite', 'datadog', 'globalping', 'honeybadger',
+    'jam', 'sanity', 'semgrep', 'close-crm', 'ramp']) {
     const e = C.get(id);
     A.ok(e, id + ' is in the catalog');
     A.eq(e.authType, 'oauth', id + ' is an oauth connector (DCR mint live-proven 2026-08-28)');

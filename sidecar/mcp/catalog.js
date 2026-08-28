@@ -308,7 +308,65 @@
     { id: 'cloudflare-bindings', name: 'Cloudflare', category: 'Developer Tools', authType: 'oauth', transport: 'http',
       url: 'https://bindings.mcp.cloudflare.com/mcp', official: true, homepage: 'https://cloudflare.com',
       aliases: ['cloudflare', 'workers', 'kv', 'r2', 'd1'],
-      blurb: 'Manage Cloudflare Workers, KV, R2, and D1 resources on your account. Needs Cloudflare sign-in (OAuth).' }
+      blurb: 'Manage Cloudflare Workers, KV, R2, and D1 resources on your account. Needs Cloudflare sign-in (OAuth).' },
+
+    /* ── WAVE 4b (same 2026-08-28 probe run, batch 2 — every row below MINTED a real DCR client against the
+       loopback redirect). Probed and absent, with reasons: Chargebee / Front / Render are live OAuth with NO
+       dynamic registration (the staticOauth-class backlog alongside Slack/Box/M365); Kagi, Klaviyo, and
+       Hunter 401 but serve no protected-resource metadata; CircleCI / LaunchDarkly / Pipedream 404; Auth0,
+       DigitalOcean, Fastly, Fly.io, Neo4j, Scaleway, Temporal have no reachable hosted endpoint; Semrush 301s. ── */
+    // Productivity
+    { id: 'cal-com', name: 'Cal.com', category: 'Productivity', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.cal.com/mcp', official: true, homepage: 'https://cal.com',
+      aliases: ['cal', 'cal.com', 'calendar', 'scheduling', 'bookings'],
+      blurb: 'Read and manage your Cal.com bookings and schedules. Needs Cal.com sign-in (OAuth).' },
+    { id: 'fireflies', name: 'Fireflies', category: 'Productivity', authType: 'oauth', transport: 'http',
+      url: 'https://api.fireflies.ai/mcp', official: true, homepage: 'https://fireflies.ai',
+      aliases: ['fireflies', 'meeting notes', 'transcripts', 'meetings'],
+      blurb: 'Search your Fireflies meeting transcripts, summaries, and action items. Needs Fireflies sign-in (OAuth).' },
+    // Developer Tools
+    { id: 'algolia', name: 'Algolia', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.algolia.com/mcp', official: true, homepage: 'https://algolia.com',
+      aliases: ['algolia', 'search index', 'search api'],
+      blurb: 'Manage Algolia indices, records, and search configuration. Needs Algolia sign-in (OAuth).' },
+    { id: 'buildkite', name: 'Buildkite', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.buildkite.com/mcp', official: true, homepage: 'https://buildkite.com',
+      aliases: ['buildkite', 'ci', 'pipelines', 'builds'],
+      blurb: 'Inspect Buildkite pipelines, builds, and test results. Needs Buildkite sign-in (OAuth).' },
+    { id: 'datadog', name: 'Datadog', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.datadoghq.com/api/unstable/mcp-server/mcp', official: true, homepage: 'https://datadoghq.com',
+      aliases: ['datadog', 'monitoring', 'observability', 'apm', 'logs'],
+      blurb: 'Query Datadog monitors, dashboards, logs, and incidents (Datadog Preview endpoint). Needs Datadog sign-in (OAuth).' },
+    { id: 'globalping', name: 'Globalping', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.globalping.dev/mcp', official: true, homepage: 'https://globalping.io',
+      aliases: ['globalping', 'ping', 'traceroute', 'network test', 'latency'],
+      blurb: 'Run ping, traceroute, DNS, and HTTP tests from probes around the world. Needs Globalping sign-in (OAuth).' },
+    { id: 'honeybadger', name: 'Honeybadger', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.honeybadger.io/mcp', official: true, homepage: 'https://honeybadger.io',
+      aliases: ['honeybadger', 'error tracking', 'uptime', 'exceptions'],
+      blurb: 'Inspect Honeybadger errors, uptime checks, and projects. Needs Honeybadger sign-in (OAuth).' },
+    { id: 'jam', name: 'Jam', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.jam.dev/mcp', official: true, homepage: 'https://jam.dev',
+      aliases: ['jam', 'bug reports', 'screen recording', 'repro'],
+      blurb: 'Read Jam bug reports — console logs, network requests, and repro steps. Needs Jam sign-in (OAuth).' },
+    { id: 'sanity', name: 'Sanity', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.sanity.io/mcp', official: true, homepage: 'https://sanity.io',
+      aliases: ['sanity', 'cms', 'headless cms', 'content'],
+      blurb: 'Query and edit content in your Sanity datasets. Needs Sanity sign-in (OAuth).' },
+    { id: 'semgrep', name: 'Semgrep', category: 'Developer Tools', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.semgrep.ai/mcp', official: true, homepage: 'https://semgrep.dev',
+      aliases: ['semgrep', 'security scan', 'static analysis', 'sast'],
+      blurb: 'Scan code for security issues with Semgrep rules and review findings. Needs Semgrep sign-in (OAuth).' },
+    // CRM & Sales
+    { id: 'close-crm', name: 'Close', category: 'CRM & Sales', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.close.com/mcp', official: true, homepage: 'https://close.com',
+      aliases: ['close', 'close crm', 'crm', 'leads', 'sales'],
+      blurb: 'Search and update Close CRM leads, contacts, and opportunities. Needs Close sign-in (OAuth).' },
+    // Payments & Finance
+    { id: 'ramp', name: 'Ramp', category: 'Payments & Finance', authType: 'oauth', transport: 'http',
+      url: 'https://mcp.ramp.com/mcp', official: true, homepage: 'https://ramp.com',
+      aliases: ['ramp', 'corporate cards', 'expenses', 'spend'],
+      blurb: 'Query Ramp transactions, cards, and spend programs. Needs Ramp sign-in (OAuth).' }
   ];
 
   // ── selectors (pure) ────────────────────────────────────────────────────────────────────────────────
