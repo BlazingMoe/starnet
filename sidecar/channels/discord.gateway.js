@@ -157,12 +157,12 @@
         resumeUrl = d.resume_gateway_url || null;
         botUserId = (d.user && d.user.id != null) ? String(d.user.id) : botUserId;
         backoffAttempt = 0;
-        immediateStreak = 0;   // a real READY proves the fast-resume path healthy again
+        immediateStreak = 0; guidedStreak = 0;   // a real READY proves the reconnect path healthy again
         setState('up', '');
         log('READY — session ' + (sessionId ? sessionId.slice(0, 6) + '…' : '?') + ', bot ' + (botUserId || '?'));
         return;
       }
-      if (t === 'RESUMED') { immediateStreak = 0; setState('up', ''); log('RESUMED'); return; }
+      if (t === 'RESUMED') { immediateStreak = 0; guidedStreak = 0; setState('up', ''); log('RESUMED'); return; }
       if (t === 'MESSAGE_CREATE') {
         // never act on our own messages (avoids the bot talking to itself).
         const author = d.author || {};
@@ -206,7 +206,8 @@
     // otherwise an exponential-backoff delay is used (an unexpected drop). `canResume` keeps session_id+seq so the
     // next HELLO RESUMEs; false clears them so it IDENTIFYs fresh.
     let reconnecting = false;
-    let immediateStreak = 0;   // consecutive no-backoff reconnects without an intervening READY/RESUMED
+    let immediateStreak = 0;   // consecutive 0ms (op 7/zombie) reconnects without an intervening READY/RESUMED
+    let guidedStreak = 0;      // consecutive fixed-delay (op 9) reconnects without an intervening READY/RESUMED
     function reconnect(canResume, immediate, fixedDelayMs) {
       if (closed || reconnecting) return;
       reconnecting = true;
@@ -217,7 +218,11 @@
       // `immediate` skips backoff for the FIRST couple of attempts only: op 7 / a zombie heartbeat wants a
       // fast resume, but if the server keeps bouncing us before READY ever lands, an unconditional 0ms was
       // a reconnect storm with no ceiling (backoffAttempt was neither read nor bumped on this path).
-      const delay = fixedDelayMs != null ? fixedDelayMs
+      // A fixed delay (op 9's guided 1-5s wait) gets the same escalation: without it a persistently
+      // invalid session was a flat 1-5s IDENTIFY loop forever — a slower ban, not no ban. After a few
+      // consecutive no-READY attempts the exponential backoff takes over (floored at the guided wait).
+      const delay = fixedDelayMs != null
+        ? (guidedStreak++ < 3 ? fixedDelayMs : Math.max(fixedDelayMs, backoffDelay()))
         : immediate ? (immediateStreak++ < 2 ? 0 : backoffDelay())
         : backoffDelay();
       if (delay > 0) setState('reconnecting', 'retry in ' + Math.round(delay / 1000) + 's');
