@@ -407,6 +407,7 @@
         await fsp.mkdir(P.dirname(abs), { recursive: true });
         const expected = Buffer.from(combined, 'utf8');
         const receipt = await verifiedMutation({ operation: 'append', path: args.path, abs, expected, initial: existingBytes, mutate: () => fsp.writeFile(abs, expected) });
+        await stampSeen(aid, abs);   // our own append is the new baseline — a later fs.write must not read as a third-party race
         emitDeliverable(ctx, aid, args.path);
         const added = Buffer.byteLength(String(args.content), 'utf8');
         return finishEditDiagnostics(diagnosticTicket,
@@ -435,6 +436,7 @@
         const diagnosticTicket = await beginEditDiagnostics(aid, [{ abs, base, rel: String(args.path), text: txt }], ctx);
         const expected = Buffer.from(next, 'utf8');
         const receipt = await verifiedMutation({ operation: 'edit', path: args.path, abs, expected, initial: initialBytes, mutate: () => fsp.writeFile(abs, expected) });
+        await stampSeen(aid, abs);   // our own edit is the new baseline: read -> edit -> write used to refuse with a FABRICATED "someone else edited it" story
         emitDeliverable(ctx, aid, args.path);
         return finishEditDiagnostics(diagnosticTicket,
           { content: 'Edited ' + args.path + ' (' + count + ' replacement' + (count === 1 ? '' : 's') + ').\n' + receiptLine(receipt), summary: 'edited ' + args.path + ' (' + count + 'x)', mutationReceipt: receipt, receipt }, ctx);
@@ -556,6 +558,7 @@
               operation: expected ? 'patch-write' : 'patch-delete', path: plan.rel, abs: plan.abs,
               expected, initial, mutate: () => expected ? fsp.writeFile(plan.abs, expected) : fsp.rm(plan.abs, { force: true })
             });
+            await stampSeen(aid, plan.abs);   // our own patch is the new baseline for the stale-write guard (deletes drop the stamp)
             patchReceipt.files.push(fileReceipt);
           }
           patchReceipt.state = 'read-back-verified';
