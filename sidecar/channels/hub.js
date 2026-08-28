@@ -28,7 +28,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
   // failopen.note — the tagged SYNC swallow (per-tag count + throttled warn): a fail-open catch must never be invisible.
-  const { note: failNote } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
+  const { note: failNote, swallow } = (typeof require === 'function') ? require('../failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); }, swallow: function (tag) { return function (e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); }; } };
 
   const TASK_SUFFIX = ' The Commander has just messaged you a task — carry it out as best you can and report the result clearly.';
   const DEFAULT_PERSONA = 'You are the Commander\'s AI agent, reachable over a messaging app. Address the user as "Commander", '
@@ -1273,7 +1273,7 @@
       if (!rec) {
         rec = { msg: Object.assign({}, msg), intake: intake, seq: 0, resolve: null, reject: null, done: null };
         rec.done = new Promise((res, rej) => { rec.resolve = res; rec.reject = rej; });
-        rec.done.catch(() => {});   // the winner never awaits rec.done — keep a loserless rejection handled
+        rec.done.catch(swallow('channels.hub.textBatch.done'));   // the winner never awaits rec.done — keep a loserless rejection handled
         textBatches.set(key, rec);
       } else {
         const prior = String(rec.msg.text || '').trim();
@@ -1298,7 +1298,7 @@
       if (!rec) {
         rec = { msg: Object.assign({}, msg, { media: Array.isArray(msg.media) ? msg.media.slice() : [] }), intake: intake, seq: 0, resolve: null, reject: null, done: null };
         rec.done = new Promise((res, rej) => { rec.resolve = res; rec.reject = rej; });
-        rec.done.catch(() => {});   // same handled-rejection guard as the text batch
+        rec.done.catch(swallow('channels.hub.albumBatch.done'));   // same handled-rejection guard as the text batch
         albums.set(gid, rec);
       } else {
         if (Array.isArray(msg.media) && msg.media.length) rec.msg.media = rec.msg.media.concat(msg.media);
