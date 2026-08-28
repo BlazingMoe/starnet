@@ -205,7 +205,11 @@
         const { code, desc } = await readErr(resp);
         let relogin = false;
         let ecode = code || 'oauth_refresh_failed';
-        if (code === 'invalid_grant' || code === 'invalid_token' || code === 'invalid_request') relogin = true;
+        // RFC 6749 §5.2: invalid_grant/invalid_token are CREDENTIAL verdicts (re-login helps).
+        // invalid_request is a malformed-REQUEST verdict (a provider tightened a field, or our encoder
+        // dropped one) — re-login mints a new token that fails the same way, so marking the sign-in dead
+        // put the user in an unbreakable reconnect loop over a credential that was never invalid.
+        if (code === 'invalid_grant' || code === 'invalid_token') relogin = true;
         if ((resp.status === 401 || resp.status === 403) && !relogin) relogin = true;   // a 401/403 (non-allowlist) means the refresh token is dead
         const message = desc ? 'Token refresh failed: ' + desc : ('Token refresh failed with status ' + resp.status + '.');
         throw authError(providerId, message, ecode, relogin);

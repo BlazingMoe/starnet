@@ -130,6 +130,15 @@ const KIMI = {
       try { await grok.refreshTokens({ fetch: un, refresh_token: 'rt' }); } catch (e) { relogin = e.reloginRequired; }
       A.eq(relogin, true, '401 always forces relogin');
 
+      // RFC 6749 §5.2: invalid_request is a malformed-REQUEST verdict (a provider tightened a field, or our
+      // encoder dropped one), never a credential verdict — marking the sign-in dead put the user in an
+      // unbreakable reconnect loop (new token, same malformed request, dead again).
+      const malformed = recordingFetch(() => json({ error: 'invalid_request', error_description: 'missing parameter' }, 400));
+      relogin = null; code = '';
+      try { await grok.refreshTokens({ fetch: malformed, refresh_token: 'rt' }); } catch (e) { relogin = e.reloginRequired; code = e.code; }
+      A.eq(code, 'invalid_request', 'surfaces invalid_request as its own code');
+      A.eq(relogin, false, 'invalid_request never kills the sign-in (the credential was not judged)');
+
       const rl = recordingFetch(() => json({ error: 'rate' }, 429));
       relogin = null; code = '';
       try { await grok.refreshTokens({ fetch: rl, refresh_token: 'rt' }); } catch (e) { relogin = e.reloginRequired; code = e.code; }
