@@ -324,6 +324,11 @@
           try { emit('cron.result', { jobId: job.id, runId: blockedRunId, outcome: 'failed', reason: 'blocked: ' + scan.patternId }); } catch (_) {}
           return false;
         }
+        // USE THE SANITIZED TEXT (bug-sweep 2026-08-28): scanAssembled's whole design is that invisible
+        // unicode is STRIPPED rather than blocked — but every caller discarded `cleaned` and handed the model
+        // the raw string, so a tag-block payload the scanner could no longer see still reached the model. The
+        // sanitization was inert until this line.
+        if (typeof scan.cleaned === 'string' && scan.cleaned) assembledPrompt = scan.cleaned;
       }
       const ident = identityForAgent(job.agentId, job) || {};
       const model = (job.model && String(job.model).trim()) || (ident.model && String(ident.model).trim()) || defaultModel;
@@ -568,6 +573,20 @@
         if (beatAge > heartbeatStaleMs) {
           try { lease.ac.abort(); } catch (_) {}
           leases.delete(jobId);
+          /* A RECLAIM IS A REAL OUTCOME (bug-sweep 2026-08-28): the aborted run's late finishFire is UNOWNED
+             (generation fence) and never writes markRun — so before this, a reclaimed ONE-SHOT kept its
+             persisted fireClaim + null lastRunAt and re-executed the work every ~maxRunMs FOREVER (real spend
+             per cycle), and a reliably-hanging recurring routine never advanced consecutiveFailures toward
+             the auto-disable ceiling built for exactly that case. Record the reclaim as a TRANSIENT failure:
+             markRun clears the claim/heartbeat, re-arms via the bounded backoff, and the retry ceiling turns
+             a permanent hang into a terminal, visible failure. The unowned settle still emits its honest
+             cron.result{(stale-lease)} when the aborted run winds down — no double event here. */
+          try {
+            setJobs(cronStore.markRun(getJobs(), jobId, {
+              runId: lease.runId, status: 'error', reason: 'stale-lock-reclaimed',
+              error: 'run reclaimed: no progress for ' + Math.round(heartbeatStaleMs / 1000) + 's', transient: true
+            }, { now: nowMs, defaultTz: defaultTz, maxConsecutiveFailures: maxConsecutiveFailures }));
+          } catch (e) { failNote('cron.markRun', e); }
           try { emit('cron.skipped', { jobId: jobId, reason: 'stale-lock-reclaimed' }); } catch (_) {}
           skips++;
         }
@@ -631,7 +650,12 @@
       //     when a slot frees. NS-0: the at-capacity deferral is now EMITTED as cron.skipped{at-capacity} (the
       //     reason value was added to the governed enum in shared/events.js) AND surfaced on the return value +
       //     the cron.tick.deferred count, so a night of quietly-deferred routines is finally observable.
-      let slotsLeft = maxParallel > 0 ? maxParallel - leases.size : Infinity;
+      // Only LIVE runs occupy a slot: a settlement receipt is a FINISHED run awaiting a durable write, not
+      // in-flight spend — counting it starved every routine behind a stuck persist (maxParallel=1 froze the
+      // whole station on one read-only-disk settlement).
+      let liveLeases = 0;
+      for (const l of leases.values()) if (!l.settlement) liveLeases++;
+      let slotsLeft = maxParallel > 0 ? maxParallel - liveLeases : Infinity;
       const deferred = [];
       const deferredSet = new Set();
       for (const f of plan.fire) {
@@ -702,7 +726,29 @@
         if (!job) continue;
         if (leases.has(job.id)) { try { emit('cron.skipped', { jobId: job.id, reason: 'already-running' }); } catch (_) {} skips++; continue; }
         if (deferredSet.has(job.id)) continue;             // over the cap: held back (counted in `deferred`), skip already emitted in step 2b
-        if (fireJob(job, f.scheduledFor, nowMs)) fires++; else skips++;   // false = no-capability (already emitted)
+        try {
+          if (fireJob(job, f.scheduledFor, nowMs)) fires++; else skips++;   // false = no-capability (already emitted)
+        } catch (e) {
+          /* ONE JOB'S THROW MUST NOT ABORT THE TICK (bug-sweep 2026-08-28): step 3 already persisted EVERY
+             planned job's advance, so a throw here (an unguarded injected dep — identity/persona/provider —
+             hitting a corrupt record) silently ATE the remaining jobs' occurrences; a deterministic throw
+             starved them forever while the panel showed them merrily advancing. Contain it to THIS job:
+             release the lease this fire may have taken (its settlement path was never attached, so it would
+             sit orphaned until the sweep), record an honest TRANSIENT failure (bounded backoff + retry,
+             terminal after maxRetries → counts toward auto-disable), and keep firing the rest. */
+          failNote('cron.fireJob', e);
+          const orphan = leases.get(job.id);
+          const failRunId = orphan ? orphan.runId : newId();
+          if (orphan) { try { orphan.ac.abort(); } catch (_) {} leases.delete(job.id); }
+          try {
+            setJobs(cronStore.markRun(getJobs(), job.id, {
+              runId: failRunId, status: 'error', reason: 'fire-error',
+              error: 'fire failed: ' + ((e && e.message) || e), transient: true
+            }, { now: nowMs, defaultTz: defaultTz, maxConsecutiveFailures: maxConsecutiveFailures }));
+          } catch (e2) { failNote('cron.markRun', e2); }
+          try { emit('cron.result', { jobId: job.id, runId: failRunId, outcome: 'failed', reason: 'fire-error' }); } catch (_) {}
+          skips++;
+        }
       }
 
       // 6. the war-room pulse — emitted ONLY when something happened, so an idle/empty-store tick stays silent
