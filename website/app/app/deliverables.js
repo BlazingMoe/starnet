@@ -319,6 +319,11 @@
     function wireDiscards() {
       if (typeof ArmConfirm === 'undefined' || !ArmConfirm.wire) return;
       list.querySelectorAll('button[data-act="discard"]').forEach(b => {
+        // ONCE per node: toggleCard() re-calls this without a re-render, and ArmConfirm.wire ADDS a fresh
+        // click listener with its own private `armed` flag each time — double-wired, one confirm click ran
+        // onConfirm TWICE (two irreversible workshop deletes; N open drawers = N+1). The wired stamp was
+        // written but never read; it is the guard now.
+        if (b.dataset.wired === '1') return;
         const r = rows[Number(b.closest('[data-i]').dataset.i)];
         if (!r) return;
         b.dataset.wired = '1';
@@ -354,6 +359,7 @@
     // terminal"). The permanence sentence the dialog used to carry moves into the live message line on arm,
     // so nothing is claimed less loudly than before — it is just said in the station's voice.
     async function decide(r, act, b) {
+      if (b.disabled) return;   // belt to the once-wiring: a second confirm on an in-flight decide is never a second POST
       b.disabled = true;
       try { const j = await post('/api/workshop/decide', { agentId: r.agentId, runId: r.runId, decision: act }); say(j.decision === 'keep' ? ('Kept ' + r.title + (j.destPath ? ' in ' + j.destPath : '')) : ('Discarded ' + r.title)); await load(); }
       catch (e) { b.disabled = false; say(e.message, true); }
