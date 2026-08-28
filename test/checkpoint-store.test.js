@@ -188,6 +188,27 @@ function runGit(args, opts) {
     const big = makeCheckpointStore({ fs, pathMod: path, root, runGit, clock, keep: 5, maxRepoBytes: 1 << 30 });
     const rep2 = await big.enforceSizeCeiling(aid2);
     A.eq(rep2.swept, false, 'a repo under the ceiling is left untouched (no sweep)');
+    // ---- TRANSIENT-UNREADABLE INDEX: an EBUSY read must NEVER trigger the lossy git rebuild ----
+    // The rebuild reconstructs from `git log`, where runId/turn are unrecoverable (come back ''/0), and it
+    // RE-PERSISTS over the index. Conflating a transient errno (AV/backup lock, EMFILE) with "absent"
+    // therefore permanently killed rollback-by-run the moment one read hiccuped. An unreadable index now
+    // serves .bak/empty for the pass and leaves the good file alone.
+    {
+      const indexFile = path.join(root, '.checkpoints', aid, 'index.json');
+      const goodBytes = fs.readFileSync(indexFile, 'utf8');
+      A.ok(goodBytes.length > 2, 'fixture: a real non-empty index exists on disk');
+      const busyFs = Object.assign({}, fs, {
+        readFileSync(p, enc) {
+          if (String(p) === indexFile || String(p) === indexFile + '.bak') { const e = new Error('EBUSY: locked'); e.code = 'EBUSY'; throw e; }
+          return fs.readFileSync(p, enc);
+        }
+      });
+      const busyStore = makeCheckpointStore({ fs: busyFs, pathMod: path, root, runGit, clock, keep: 5 });
+      const listed = await busyStore.listResilient(aid);
+      A.eq((listed.snapshots || []).length, 0, 'an unreadable index serves EMPTY for the pass (fail-closed), not a rebuild');
+      const after = fs.readFileSync(indexFile, 'utf8');
+      A.eq(after, goodBytes, 'the good index file was NOT overwritten by the lossy git rebuild');
+    }
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
     try { fs.rmSync(project, { recursive: true, force: true }); } catch (_) {}
