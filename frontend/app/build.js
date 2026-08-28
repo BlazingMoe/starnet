@@ -2359,6 +2359,11 @@ const Build = (() => {
           .then(r => r.json()).then(r => {
             btn.disabled = false;
             if (r && r.error) { sfx('bad'); say('✕ ' + r.error, true); return; }
+            // mint-gate refusals are 200s with no error key (declined / near-duplicate name — the auto-named
+            // "<LINE> — <prompt…>" form collides easily): claiming "✓ routine scheduled" over them discarded
+            // the new trigger silently. Same fix as AUTOMATION / MAKE ROUTINE.
+            if (r && r.declined) { sfx('bad'); say('✕ ' + (r.message || 'this routine name was deleted before — reword the brief'), true); return; }
+            if (r && r.duplicate) { sfx('bad'); say('✕ a similar routine already exists' + (r.job && r.job.name ? (' ("' + r.job.name + '")') : '') + ' — reword the brief; nothing new was created', true); return; }
             sfx('chime');
             // honest confirm: never claim "scheduled" over a disarmed scheduler (same law as AUTOMATION)
             say(schedulerArmed ? '✓ routine scheduled — fires at ' + agentLabelFor(trgDock) : '✓ saved — but the scheduler is OFF; enable it in AUTOMATION', !schedulerArmed);
