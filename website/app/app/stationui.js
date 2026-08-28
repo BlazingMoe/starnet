@@ -4946,6 +4946,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const statusEl = host.querySelector('#credits-link-status');
     const tick = () => {
       if (generation !== _creditsLinkGeneration || _creditsLinkPollBusy) return;
+      // SETTINGS closed -> stop. Nothing else ends this interval when the window closes: with no
+      // expiresAt from the backend it POSTed /api/credits/link/poll every 2s for the life of the
+      // page, and every terminal render below writes into a detached host nobody can read.
+      if (!document.body.contains(host)) { stopLinkPoll(); return; }
       if (expiresAt && Date.now() > expiresAt) { stopLinkPoll(); renderCreditsLinkCard(body, host, 'That code expired — start again.'); return; }
       _creditsLinkPollBusy = true;
       Harness.api.post('/api/credits/link/poll', { code: j.code })

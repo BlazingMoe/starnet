@@ -349,11 +349,19 @@
     }
     else if (name === 'agent.tool_result' && p.ok && !p.isError) {
       if (s.run.id !== p.runId) s.run = freshRun(p.runId);
-      bump(s.run, 'toolsOk');
-      bump(s.counters, 'toolsOk');
+      // DEDUPE BY callId: the hero page re-emits the harness's authoritative tool_result with the resolved
+      // tool NAME attached (chat.js onToolResult — the frozen shape carries no name), so an interactive run
+      // delivers each result TWICE on the bus. Both copies share the callId; count each real call once.
+      const cid = p.callId ? String(p.callId) : '';
+      const dup = !!(cid && s.run.seenCalls && s.run.seenCalls[cid]);
+      if (!dup) {
+        if (cid) { if (!s.run.seenCalls) s.run.seenCalls = {}; s.run.seenCalls[cid] = 1; }
+        bump(s.run, 'toolsOk');
+        bump(s.counters, 'toolsOk');
+      }
     }
     else if (name === 'memory.write') bump(s.counters, 'memWrites');
-    else if (name === 'workitem.delivered') bump(s.counters, 'delivered');
+    else if (name === 'workitem.delivered') { if (!p.sample) bump(s.counters, 'delivered'); }   // a routing-sample PROOF dispatch marks itself sample:true — never durable dossier credit
     else if (name === 'memory.feedback') {
       const quality = turnInFeedbackQuality(feedbackReason(p));
       if (quality === 1) bump(s.counters, 'positiveFeedback');
