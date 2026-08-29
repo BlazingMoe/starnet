@@ -1045,6 +1045,9 @@ const Build = (() => {
     swarm_synthesis: 'three agents on the same job, one writes the answer',
     second_opinion: 'two independent takes on the same job, shipped as one',
     ship_out: 'one agent, straight to the outbox — the minimal line',
+    assembly_line: 'four agents deep — each stage builds on the last',
+    code_foundry: 'code is built and review-looped; the rest takes a side lane',
+    gauntlet: 'two takes, one synthesis, and a reviewer holding the door',
   };
   /* schematic v2 — the card draws a MINIATURE of what will stamp, in the floor's own colour
      economy (hex families lifted from propsprites.js RAMP.steel/ACC and conveyor.js's belt bed)

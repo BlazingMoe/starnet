@@ -19,7 +19,8 @@ const P = require('../frontend/app/pipeline.js');
 A.ok(Array.isArray(WM.BLUEPRINTS) && WM.BLUEPRINTS.length >= 9, 'the starter-line shelf ships (9+ blueprints)');
 const IDS = WM.BLUEPRINTS.map(b => b.id);
 for (const want of ['front_desk', 'research_line', 'revision_loop', 'sorting_office', 'triage_desk',
-                    'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out'])
+                    'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out',
+                    'assembly_line', 'code_foundry', 'gauntlet'])
   A.ok(IDS.indexOf(want) >= 0, 'blueprint catalog carries ' + want);
 A.eq(IDS.length, new Set(IDS).size, 'blueprint ids are unique');
 /* THE DECLARED BOX IS THE OFFER. w/h drive the shelf chip, the NO ROOM copy and the candidate-field
@@ -49,7 +50,7 @@ function freshFloor() {
   A.ok(r.ok, 'test deck placed');
   return s;
 }
-const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 20×8)
+const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 25×8)
 
 for (const bp of WM.BLUEPRINTS) {
   const s = freshFloor();
@@ -190,6 +191,40 @@ function crewed(id) {
   A.eq(Object.keys(f.routes).sort().join(','), 'code,research', 'the two routed lanes are the two non-default tags');
   A.ok(Object.keys(plan.junctions).map(k => plan.junctions[k]).some(j => j.kind === 'merge'),
     'and the three lanes funnel back through a MERGER to one outbox');
+}
+
+/* ---- the power tier's mechanics compile as the cards promise ---- */
+{
+  const plan = crewed('code_foundry');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  const f = js.find(j => j.kind === 'filter'), g = js.find(j => j.kind === 'loop');
+  A.ok(f && f.routes.code && f.def, 'CODE FOUNDRY sorts code onto the reviewed lane, the rest to the default');
+  A.ok(g && g.when === 'approved' && g.max === 3, 'and its gate stamps verdict-gated');
+  A.eq(g.backTo, 'crew0', 'the back lane re-enters at the ENGINEER (rebuild, not re-review)');
+  A.eq(plan.chains.crew0.next.join(','), 'crew1', 'engineer hands off to the reviewer');
+}
+{
+  const plan = crewed('gauntlet');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  A.ok(js.some(j => j.kind === 'split' && j.fanout === true), 'THE GAUNTLET fans out (both crews run)');
+  A.ok(js.some(j => j.kind === 'join' && j.expect === 2), 'the joiner waits for both takes');
+  const g = js.find(j => j.kind === 'loop');
+  A.ok(g && g.when === 'approved' && g.backTo === 'crew2',
+    'the gate re-enters at the ANALYST — a failed review redoes the synthesis, never the crews');
+  A.eq(plan.chains.crew2.next.join(','), 'crew3', 'analyst hands off to the reviewer');
+}
+{
+  const plan = crewed('assembly_line');
+  A.eq(['crew0', 'crew1', 'crew2', 'crew3'].map(a => plan.chains[a].next.join(',')).join('|'),
+    'crew1|crew2|crew3|', 'ASSEMBLY LINE chains all four stages in order to the outbox');
+  A.ok(plan.chains.crew3.outbox, 'and the last stage ships out');
+}
+/* the REVISION LOOP's back-lane column reaches the lane row — the gap Andrew circled (2026-08-29):
+   the column stopped at (3,2), one tile short of the lane, and read as a broken line. */
+{
+  const bp = WM.BLUEPRINTS.find(b => b.id === 'revision_loop');
+  A.ok(bp.belts.some(b => b.x === 3 && b.y === 3 && b.d === 'S'),
+    'the back lane column runs all the way down to the lane row (no visual gap)');
 }
 
 A.report('blueprints');

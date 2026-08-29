@@ -442,12 +442,14 @@ const WorldModel = (() => {
         { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' }, { x: 8, y: 4, d: 'E' },
         { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
         { x: 14, y: 4, d: 'E' }, { x: 15, y: 4, d: 'E' },
-        // the BACK lane: up out of the gate, west over the top of the line, down into the drafter's ring
+        // the BACK lane: up out of the gate, west over the top of the line, down into the drafter's ring.
+        // The column runs ALL the way to the lane row (3,3) — it already delivered from (3,2), but a
+        // column that stops a tile short READS broken, and a line that looks broken is one nobody trusts.
         { x: 13, y: 3, d: 'N' }, { x: 13, y: 2, d: 'N' }, { x: 13, y: 1, d: 'N' }, { x: 13, y: 0, d: 'W' },
         { x: 12, y: 0, d: 'W' }, { x: 11, y: 0, d: 'W' }, { x: 10, y: 0, d: 'W' }, { x: 9, y: 0, d: 'W' },
         { x: 8, y: 0, d: 'W' }, { x: 7, y: 0, d: 'W' }, { x: 6, y: 0, d: 'W' }, { x: 5, y: 0, d: 'W' },
         { x: 4, y: 0, d: 'W' },
-        { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' },
+        { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' }, { x: 3, y: 3, d: 'S' },
       ] },
     { id: 'sorting_office', label: 'SORTING OFFICE', w: 9, h: 5,
       desc: 'INBOX ▸ FILTER ▸ two BAYs — the filter reads each job and sends code one way, everything else the other.',
@@ -557,6 +559,86 @@ const WorldModel = (() => {
       ],
       belts: [
         { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
+      ] },
+    /* ---- THE POWER TIER (2026-08-29): multi-mechanic lines for Commanders past the onramp. Same
+       contract as every card above (zero-error crewed compile, one undo), they just chain the
+       machines the shelf has already taught. */
+    { id: 'assembly_line', label: 'ASSEMBLY LINE', w: 22, h: 2,
+      desc: 'INBOX ▸ four BAYs ▸ OUTBOX — the deep hand-off chain: dig, make sense of it, write it, ship it, each stage building on the last.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
+        { t: 'bay', x: 4, y: 0, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'ANALYST' },
+        { t: 'bay', x: 12, y: 0, w: 2, h: 2, role: 'WRITER' },
+        { t: 'bay', x: 16, y: 0, w: 2, h: 2, role: 'SHIPPER' },
+        { t: 'outbox', x: 20, y: 0, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' },
+        { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'E' },
+        { x: 14, y: 1, d: 'E' }, { x: 15, y: 1, d: 'E' },
+        { x: 18, y: 1, d: 'E' }, { x: 19, y: 1, d: 'E' },
+      ] },
+    /* FILTER + LOOP on one line: code takes the reviewed lane (engineer's work must pass the
+       reviewer's verdict to ship), everything else lands on the generalist. */
+    { id: 'code_foundry', label: 'CODE FOUNDRY', w: 19, h: 7,
+      desc: 'INBOX ▸ FILTER ▸ ENGINEER ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — code work is built, reviewed, and sent back round until the verdict is APPROVED; everything else takes the generalist lane.',
+      props: [
+        { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
+        { t: 'filter', x: 4, y: 3, w: 1, h: 1, block: false, routes: { code: 'E' }, def: 'S' },
+        { t: 'bay', x: 7, y: 2, w: 2, h: 2, role: 'ENGINEER' },
+        { t: 'bay', x: 11, y: 2, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 14, y: 3, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 17, y: 2, w: 2, h: 2 },
+        { t: 'bay', x: 7, y: 5, w: 2, h: 2, role: 'GENERALIST' },
+      ],
+      belts: [
+        { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' },
+        { x: 5, y: 3, d: 'E' }, { x: 6, y: 3, d: 'E' },
+        { x: 9, y: 3, d: 'E' }, { x: 10, y: 3, d: 'E' },
+        { x: 13, y: 3, d: 'E' }, { x: 14, y: 3, d: 'E' },
+        { x: 15, y: 3, d: 'E' }, { x: 16, y: 3, d: 'E' },
+        // the LOOP's back lane: over the reviewer, down into the engineer's ring (full column to the bay)
+        { x: 14, y: 2, d: 'N' }, { x: 14, y: 1, d: 'N' }, { x: 14, y: 0, d: 'W' },
+        { x: 13, y: 0, d: 'W' }, { x: 12, y: 0, d: 'W' }, { x: 11, y: 0, d: 'W' },
+        { x: 10, y: 0, d: 'W' }, { x: 9, y: 0, d: 'W' }, { x: 8, y: 0, d: 'S' },
+        { x: 8, y: 1, d: 'S' },
+        // the default (everything-else) lane south to the generalist
+        { x: 4, y: 4, d: 'S' }, { x: 4, y: 5, d: 'S' }, { x: 4, y: 6, d: 'E' },
+        { x: 5, y: 6, d: 'E' }, { x: 6, y: 6, d: 'E' },
+      ] },
+    /* EVERY MECHANIC ON ONE FLOOR: fan-out ▸ barrier ▸ synthesis ▸ review ▸ verdict-gated loop.
+       The gate's back lane re-enters at the ANALYST — a failed review redoes the synthesis from
+       the same two takes, never re-runs the crews. */
+    { id: 'gauntlet', label: 'THE GAUNTLET', w: 25, h: 6,
+      desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ JOINER ▸ ANALYST ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — two takes, one synthesis, and a reviewer who sends it back until the verdict is APPROVED.',
+      props: [
+        { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'CREW' },
+        { t: 'bay', x: 7, y: 4, w: 2, h: 2, role: 'CREW' },
+        { t: 'joiner', x: 10, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 13, y: 2, w: 2, h: 2, role: 'ANALYST' },
+        { t: 'bay', x: 17, y: 2, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 20, y: 3, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 23, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'N' },
+        { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
+        { x: 5, y: 4, d: 'S' }, { x: 5, y: 5, d: 'E' }, { x: 6, y: 5, d: 'E' },
+        { x: 9, y: 1, d: 'E' }, { x: 10, y: 1, d: 'S' }, { x: 10, y: 2, d: 'S' },
+        { x: 9, y: 5, d: 'E' }, { x: 10, y: 5, d: 'N' }, { x: 10, y: 4, d: 'N' },
+        { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' }, { x: 12, y: 3, d: 'E' },
+        { x: 15, y: 3, d: 'E' }, { x: 16, y: 3, d: 'E' },
+        { x: 19, y: 3, d: 'E' }, { x: 20, y: 3, d: 'E' },
+        { x: 21, y: 3, d: 'E' }, { x: 22, y: 3, d: 'E' },
+        // the LOOP's back lane: over the reviewer, down into the analyst (full column to the bay)
+        { x: 20, y: 2, d: 'N' }, { x: 20, y: 1, d: 'N' }, { x: 20, y: 0, d: 'W' },
+        { x: 19, y: 0, d: 'W' }, { x: 18, y: 0, d: 'W' }, { x: 17, y: 0, d: 'W' },
+        { x: 16, y: 0, d: 'W' }, { x: 15, y: 0, d: 'W' },
+        { x: 14, y: 0, d: 'S' }, { x: 14, y: 1, d: 'S' },
       ] },
   ];
 
