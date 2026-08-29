@@ -1036,9 +1036,14 @@ const Build = (() => {
   const lineOrigin = (bp, tx, ty) => ({ x: tx - (bp.w >> 1), y: ty - (bp.h >> 1) });
   // one-line purposes for the shelf cards — what each line DOES, in station voice
   const LINE_PURPOSE = {
+    front_desk: 'one agent, door to door — work in, answer out',
     research_line: 'two agents in a row — one digs, the next writes it up',
+    revision_loop: 'a reviewer sends the draft back round until it passes',
     sorting_office: 'sorts arriving work by content to the right specialist',
+    triage_desk: 'code, research and the rest each get their own specialist',
     parallel_crew: 'splits one stream across three agents working at once',
+    swarm_synthesis: 'three agents on the same job, one writes the answer',
+    second_opinion: 'two independent takes on the same job, shipped as one',
     ship_out: 'one agent, straight to the outbox — the minimal line',
   };
   /* schematic v2 — the card draws a MINIATURE of what will stamp, in the floor's own colour
@@ -1209,7 +1214,7 @@ const Build = (() => {
     return (lineFields[bpId] = { set, list, runs, edges });
   }
   /* does this blueprint fit ANYWHERE on the current deck? (shelf honesty — see renderPalette)
-     The shelf asks this for ALL FOUR blueprints on every palette render, and building a full field
+     The shelf asks this for EVERY blueprint on every palette render, and building a full field
      is thousands of checkBlueprint calls each — arming LINES on a large deck visibly froze. Existence
      needs only the FIRST legal anchor, so probe in the SAME scan order and stop at it. The two paths
      cannot disagree: both ask "does canPlaceBlueprint accept any anchor in the deck neighbourhood",

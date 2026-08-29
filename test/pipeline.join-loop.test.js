@@ -131,6 +131,37 @@ function loopFloor(gateCfg) {
   A.ok(P.compileRoutingPlan(loopFloor({ done: 'W' })).errors.some(e => e.code === 'LOOP_NO_DONE' && e.warn), 'a configured done that is not an exit warns LOOP_NO_DONE');
 }
 
+/* THE BACK LANE IS LIVE (2026-08-29). Static flow cuts the back edge on purpose, so flooding only the
+   static graph left every tile of a working back lane COLD — the energized-tile promise lying in the
+   other direction, and two-thirds of a stamped REVISION LOOP drawn frozen. */
+{
+  const plan = P.compileRoutingPlan(loopFloor());
+  const live = P.liveTiles(plan);
+  A.ok(live['12,3'], 'the tile the back lane leaves the gate on is energized');
+  A.ok(live['8,1'] && live['5,1'], 'the whole run home is energized');
+  A.ok(live['5,2'], 'right up to the drafter it re-enters at');
+  // a gate NOTHING feeds lights nothing: cut the reviewer's lane into it and the back lane goes dark
+  const g = loopFloor(); g.belts = g.belts.filter(b => !(b.y === 4 && (b.x === 10 || b.x === 11)));
+  const cold = P.liveTiles(P.compileRoutingPlan(g));
+  A.ok(!cold['12,3'], 'an unfed gate does not energize its own back lane');
+}
+
+/* AN UNCREWED DOCK ON THE BACK LANE IS NOT A WIRING FAULT (2026-08-29). LOOP_NO_BACK means "the back
+   lane reaches no dock"; a lane that lands on a bay nobody has crewed yet is already named by
+   UNBOUND_BAY, and a freshly stamped REVISION LOOP must never nag twice for one next step. */
+{
+  const g = loopFloor();
+  delete g.props[1].agentId;   // the drafter the back lane re-enters, uncrewed
+  const plan = P.compileRoutingPlan(g);
+  A.ok(plan.errors.some(e => e.code === 'UNBOUND_BAY'), 'the uncrewed drafter still nags UNBOUND_BAY');
+  A.ok(!plan.errors.some(e => e.code === 'LOOP_NO_BACK'), 'and the gate does NOT also nag LOOP_NO_BACK');
+  A.eq(plan.junctions['12,4'].backTo, null, 'backTo stays null — there is no agent to name yet');
+  // a back lane that reaches NOTHING still warns
+  const g2 = loopFloor(); g2.props.splice(1, 1);   // no drafter at all
+  A.ok(P.compileRoutingPlan(g2).errors.some(e => e.code === 'LOOP_NO_BACK' && e.warn),
+    'a back lane reaching no dock at all still warns LOOP_NO_BACK');
+}
+
 /* THE STRANDED-USER FLOOR (2026-08-22): writer -> reviewer -> LOOP{done: E -> OUTBOX, back: N -> writer}.
    The reviewer's static chain is TERMINAL (its done lane ships out, `next: []`) so chainStep returned null and
    the runner never met the gate: the line never looped once. */

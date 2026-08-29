@@ -390,8 +390,27 @@ const WorldModel = (() => {
     GENERALIST: { desc: 'handles everything else',         cls: 'chief' },
     CREW:       { desc: 'works its share of the stream',   cls: 'chief' },
     SHIPPER:    { desc: 'finishes the job & ships it',     cls: 'chief' },
+    REVIEWER:   { desc: 'judges the draft & calls the verdict', cls: 'reviewer' },
+    ANALYST:    { desc: 'turns the branches into one answer',   cls: 'analyst' },
   };
+  /* THE SHELF (expanded 2026-08-29). Array order IS shelf order: the simplest working line first,
+     then one line per MACHINE the floor owns — FILTER, SPLITTER, LOOP gate, JOINER, MERGER — so a
+     Commander meets a mechanic by stamping a line that already uses it correctly instead of wiring
+     one from parts. Every entry is held to the same contract by test/blueprints.test.js: stamped
+     and crewed it compiles with ZERO errors, so no shelf line can introduce a warn the Commander
+     did not cause. Keep footprints tight — a blueprint is only useful if it FITS on a real deck. */
   const BLUEPRINTS = [
+    { id: 'front_desk', label: 'FRONT DESK', w: 12, h: 2,
+      desc: 'INBOX ▸ BAY ▸ OUTBOX — the whole round trip in one row: work arrives, one agent does it, the result ships.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
+        { t: 'bay', x: 5, y: 0, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 10, y: 0, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
+        { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
+      ] },
     { id: 'research_line', label: 'RESEARCH LINE', w: 17, h: 2,
       desc: 'INBOX ▸ BAY ▸ BAY ▸ OUTBOX — work rides in, two agents work it in turn (a hand-off chain), the result ships out.',
       props: [
@@ -404,6 +423,31 @@ const WorldModel = (() => {
         { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
         { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
         { x: 12, y: 1, d: 'E' }, { x: 13, y: 1, d: 'E' }, { x: 14, y: 1, d: 'E' },
+      ] },
+    /* THE LOOP GATE, pre-wired (2026-08-29). The one legal way round: the reviewer's verdict decides,
+       the crate re-enters at the DRAFTER on the back lane, and the pass count ends it either way.
+       `when: 'approved'` stamps configured because a gate with no verdict word sends EVERY pass back
+       until the cap — a line that quietly spends three runs on work the reviewer already passed. */
+    { id: 'revision_loop', label: 'REVISION LOOP', w: 18, h: 5,
+      desc: 'INBOX ▸ DRAFTER ▸ REVIEWER ▸ LOOP GATE — the reviewer sends the draft back round for another pass until the verdict is APPROVED (3 passes max), then it ships.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'bay', x: 4, y: 3, w: 2, h: 2, role: 'WRITER' },
+        { t: 'bay', x: 9, y: 3, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 13, y: 4, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 16, y: 3, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' }, { x: 8, y: 4, d: 'E' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+        { x: 14, y: 4, d: 'E' }, { x: 15, y: 4, d: 'E' },
+        // the BACK lane: up out of the gate, west over the top of the line, down into the drafter's ring
+        { x: 13, y: 3, d: 'N' }, { x: 13, y: 2, d: 'N' }, { x: 13, y: 1, d: 'N' }, { x: 13, y: 0, d: 'W' },
+        { x: 12, y: 0, d: 'W' }, { x: 11, y: 0, d: 'W' }, { x: 10, y: 0, d: 'W' }, { x: 9, y: 0, d: 'W' },
+        { x: 8, y: 0, d: 'W' }, { x: 7, y: 0, d: 'W' }, { x: 6, y: 0, d: 'W' }, { x: 5, y: 0, d: 'W' },
+        { x: 4, y: 0, d: 'W' },
+        { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' },
       ] },
     { id: 'sorting_office', label: 'SORTING OFFICE', w: 9, h: 5,
       desc: 'INBOX ▸ FILTER ▸ two BAYs — the filter reads each job and sends code one way, everything else the other.',
@@ -419,6 +463,31 @@ const WorldModel = (() => {
         { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
         { x: 4, y: 2, d: 'S' }, { x: 4, y: 3, d: 'S' }, { x: 4, y: 4, d: 'E' }, { x: 5, y: 4, d: 'E' }, { x: 6, y: 4, d: 'E' },
       ] },
+    /* FULL TRIAGE. The filter's THREE lanes are exactly Classify.getTag's three tags (code /
+       research / general) — a routes map naming a tag the classifier never emits would leave a dock
+       dark forever. The MERGER funnels the three lanes back into one exit: every crate rides
+       straight through (it combines nothing), so ONE outbox serves all three specialists. */
+    { id: 'triage_desk', label: 'TRIAGE DESK', w: 16, h: 8,
+      desc: 'INBOX ▸ FILTER ▸ three BAYs ▸ MERGER ▸ OUTBOX — code, research and everything else each get their own specialist, and every result leaves by the same door.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'filter', x: 5, y: 4, w: 1, h: 1, block: false, routes: { code: 'N', research: 'S' }, def: 'E' },
+        { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'ENGINEER' },       // the code lane (N)
+        { t: 'bay', x: 8, y: 3, w: 2, h: 2, role: 'GENERALIST' },     // the default lane (E)
+        { t: 'bay', x: 8, y: 6, w: 2, h: 2, role: 'RESEARCHER' },     // the research lane (S)
+        { t: 'merger', x: 11, y: 4, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 14, y: 3, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' }, { x: 4, y: 4, d: 'E' }, { x: 5, y: 4, d: 'E' },
+        { x: 5, y: 3, d: 'N' }, { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' },
+        { x: 5, y: 5, d: 'S' }, { x: 5, y: 6, d: 'S' }, { x: 5, y: 7, d: 'E' }, { x: 6, y: 7, d: 'E' }, { x: 7, y: 7, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'S' }, { x: 11, y: 2, d: 'S' }, { x: 11, y: 3, d: 'S' },
+        { x: 10, y: 4, d: 'E' },
+        { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'N' }, { x: 11, y: 6, d: 'N' }, { x: 11, y: 5, d: 'N' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+      ] },
     { id: 'parallel_crew', label: 'PARALLEL CREW', w: 10, h: 8,
       desc: 'INBOX ▸ SPLITTER ▸ three BAYs — one stream of work spread across three agents working in parallel.',
       props: [
@@ -433,6 +502,52 @@ const WorldModel = (() => {
         { x: 4, y: 3, d: 'N' }, { x: 4, y: 2, d: 'N' }, { x: 4, y: 1, d: 'E' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
         { x: 5, y: 4, d: 'E' }, { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' },
         { x: 4, y: 5, d: 'S' }, { x: 4, y: 6, d: 'S' }, { x: 4, y: 7, d: 'E' }, { x: 5, y: 7, d: 'E' }, { x: 6, y: 7, d: 'E' }, { x: 7, y: 7, d: 'E' },
+      ] },
+    /* FAN-OUT ▸ FAN-IN. A SPLITTER whose lanes reach a JOINER compiles as a FAN-OUT (`fanout: true`):
+       every branch runs the SAME job, and the joiner is a real barrier — it holds one crate per
+       in-lane and releases ONE merged crate. That is the difference from PARALLEL CREW, whose
+       joiner-less splitter round-robins one job to one dock. The ANALYST dock past the barrier is
+       the stage that turns three partial answers into the one that ships. */
+    { id: 'swarm_synthesis', label: 'RESEARCH SWARM', w: 20, h: 8,
+      desc: 'INBOX ▸ SPLITTER ▸ three BAYs ▸ JOINER ▸ ANALYST ▸ OUTBOX — three agents attack the same job at once, the joiner waits for all three, and one agent writes the answer from what they found.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 4, w: 1, h: 1, block: false },
+        { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 8, y: 3, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 8, y: 6, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'joiner', x: 11, y: 4, w: 1, h: 1, block: false },
+        { t: 'bay', x: 14, y: 3, w: 2, h: 2, role: 'ANALYST' },
+        { t: 'outbox', x: 18, y: 3, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' }, { x: 4, y: 4, d: 'E' }, { x: 5, y: 4, d: 'E' },
+        { x: 5, y: 3, d: 'N' }, { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' },
+        { x: 5, y: 5, d: 'S' }, { x: 5, y: 6, d: 'S' }, { x: 5, y: 7, d: 'E' }, { x: 6, y: 7, d: 'E' }, { x: 7, y: 7, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'S' }, { x: 11, y: 2, d: 'S' }, { x: 11, y: 3, d: 'S' },
+        { x: 10, y: 4, d: 'E' },
+        { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'N' }, { x: 11, y: 6, d: 'N' }, { x: 11, y: 5, d: 'N' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+        { x: 16, y: 4, d: 'E' }, { x: 17, y: 4, d: 'E' },
+      ] },
+    { id: 'second_opinion', label: 'SECOND OPINION', w: 15, h: 6,
+      desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ JOINER ▸ OUTBOX — two agents answer the same job independently and the joiner ships both takes as one crate.',
+      props: [
+        { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'CREW' },
+        { t: 'bay', x: 7, y: 4, w: 2, h: 2, role: 'CREW' },
+        { t: 'joiner', x: 10, y: 3, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 13, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'N' },
+        { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
+        { x: 5, y: 4, d: 'S' }, { x: 5, y: 5, d: 'E' }, { x: 6, y: 5, d: 'E' },
+        { x: 9, y: 1, d: 'E' }, { x: 10, y: 1, d: 'S' }, { x: 10, y: 2, d: 'S' },
+        { x: 9, y: 5, d: 'E' }, { x: 10, y: 5, d: 'N' }, { x: 10, y: 4, d: 'N' },
+        { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' }, { x: 12, y: 3, d: 'E' },
       ] },
     { id: 'ship_out', label: 'SHIP-OUT LOOP', w: 7, h: 2,
       desc: 'BAY ▸ OUTBOX — the smallest line: one agent, and every finished job ships a crate to the pallet.',

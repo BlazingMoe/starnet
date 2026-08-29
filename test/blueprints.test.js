@@ -16,10 +16,31 @@ const A = require('./_assert.js');
 const WM = require('../frontend/app/worldmodel.js');
 const P = require('../frontend/app/pipeline.js');
 
-A.ok(Array.isArray(WM.BLUEPRINTS) && WM.BLUEPRINTS.length === 4, 'exactly four starter-line blueprints ship');
+A.ok(Array.isArray(WM.BLUEPRINTS) && WM.BLUEPRINTS.length >= 9, 'the starter-line shelf ships (9+ blueprints)');
 const IDS = WM.BLUEPRINTS.map(b => b.id);
-for (const want of ['research_line', 'sorting_office', 'parallel_crew', 'ship_out'])
+for (const want of ['front_desk', 'research_line', 'revision_loop', 'sorting_office', 'triage_desk',
+                    'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out'])
   A.ok(IDS.indexOf(want) >= 0, 'blueprint catalog carries ' + want);
+A.eq(IDS.length, new Set(IDS).size, 'blueprint ids are unique');
+/* THE DECLARED BOX IS THE OFFER. w/h drive the shelf chip, the NO ROOM copy and the candidate-field
+   scan; a blueprint whose parts hang outside its box would be offered a spot it cannot take. */
+for (const bp of WM.BLUEPRINTS) {
+  for (const p of bp.props)
+    A.ok(p.x >= 0 && p.y >= 0 && p.x + p.w <= bp.w && p.y + p.h <= bp.h,
+      bp.id + ': machine ' + p.t + ' sits inside the declared ' + bp.w + '×' + bp.h + ' box');
+  const at = {};
+  for (const b of bp.belts) {
+    A.ok(b.x >= 0 && b.y >= 0 && b.x < bp.w && b.y < bp.h, bp.id + ': belt inside the declared box');
+    A.ok(!at[b.x + ',' + b.y], bp.id + ': no two belts on tile ' + b.x + ',' + b.y);
+    at[b.x + ',' + b.y] = b.d;
+  }
+  // a MULTI-TILE machine may never sit on its own line (only a 1×1 junction rides the belt it routes)
+  for (const p of bp.props) {
+    if (p.w === 1 && p.h === 1) continue;
+    for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++)
+      A.ok(!at[x + ',' + y], bp.id + ': ' + p.t + ' does not bury its own belt at ' + x + ',' + y);
+  }
+}
 
 // a fresh station with one big empty deck to stamp on (beside the seed room)
 function freshFloor() {
@@ -28,7 +49,7 @@ function freshFloor() {
   A.ok(r.ok, 'test deck placed');
   return s;
 }
-const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 17×8)
+const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 20×8)
 
 for (const bp of WM.BLUEPRINTS) {
   const s = freshFloor();
@@ -119,6 +140,56 @@ for (const bp of WM.BLUEPRINTS) {
   A.ok(s.addProp({ t: 'crate', x: 34, y: 3, w: 1, h: 1, block: true }).ok, 'obstacle placed');
   const v = s.canPlaceBlueprint('research_line', AT.x, AT.y);
   A.ok(!v.ok, 'a stamp over a blocking prop refuses (' + v.error + ')');
+}
+
+/* ---- the machine each line EXISTS to teach actually compiles as that machine ----
+   "zero errors" only proves the line is legal; these prove it is the line the card promises. */
+function crewed(id) {
+  const s = freshFloor();
+  A.ok(s.stampBlueprint(id, AT.x, AT.y).ok, id + ': stamps for the mechanic check');
+  s.props().filter(p => p.t === 'bay').forEach((b, i) => s.assignPropAgent(b.id, 'crew' + i));
+  return P.compileRoutingPlan(s.projectGeometry());
+}
+{
+  const plan = crewed('revision_loop');
+  const g = Object.keys(plan.junctions).map(k => plan.junctions[k]).find(j => j.kind === 'loop');
+  A.ok(g, 'revision_loop compiles a LOOP gate');
+  A.eq(g.when, 'approved', 'the gate stamps verdict-gated (else every pass loops to the cap)');
+  A.eq(g.max, 3, 'the gate stamps a 3-pass cap');
+  A.ok(g.done && g.back && g.done !== g.back, 'the gate has BOTH a done lane and a back lane');
+  A.eq(g.backTo, 'crew0', 'the back lane re-enters at the DRAFTER (the first dock)');
+  // and the back lane RENDERS live: a working lane the floor draws frozen is the cold lie
+  const live = P.liveTiles(plan);
+  const p = Object.keys(plan.junctions).find(k => plan.junctions[k].kind === 'loop').split(',');
+  const bx = +p[0] + (g.back === 'E' ? 1 : g.back === 'W' ? -1 : 0), by = +p[1] + (g.back === 'S' ? 1 : g.back === 'N' ? -1 : 0);
+  A.ok(live[bx + ',' + by], 'the gate\'s back lane is energized, not frozen');
+}
+{
+  const plan = crewed('swarm_synthesis');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  const split = js.find(j => j.kind === 'split'), join = js.find(j => j.kind === 'join');
+  A.ok(split && split.fanout === true, 'RESEARCH SWARM splits as a FAN-OUT (every branch runs), not round-robin');
+  A.ok(join && join.expect === 3, 'and its joiner waits for all three branches');
+  A.eq(P.fanSiblings(plan, 'crew0').sort().join(','), 'crew1,crew2', 'each branch knows its siblings');
+}
+{
+  const plan = crewed('second_opinion');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  A.ok(js.some(j => j.kind === 'split' && j.fanout === true), 'SECOND OPINION fans out to both docks');
+  A.ok(js.some(j => j.kind === 'join' && j.expect === 2), 'and joins both takes into one crate');
+}
+{
+  const plan = crewed('triage_desk');
+  const f = Object.keys(plan.junctions).map(k => plan.junctions[k]).find(j => j.kind === 'filter');
+  A.ok(f && f.def, 'TRIAGE DESK stamps a default lane');
+  const Classify = require('../frontend/app/classify.js');
+  const lanes = Object.assign({}, f.routes); lanes[Classify.getTag('')] = f.def;
+  // every tag the classifier can EMIT must have a lane — a routed tag the classifier never emits is a dark dock
+  for (const probe of ['refactor this .ts file', 'research the market for me', 'hello there'])
+    A.ok(f.routes[Classify.getTag(probe)] || f.def, 'tag ' + Classify.getTag(probe) + ' has a lane');
+  A.eq(Object.keys(f.routes).sort().join(','), 'code,research', 'the two routed lanes are the two non-default tags');
+  A.ok(Object.keys(plan.junctions).map(k => plan.junctions[k]).some(j => j.kind === 'merge'),
+    'and the three lanes funnel back through a MERGER to one outbox');
 }
 
 A.report('blueprints');

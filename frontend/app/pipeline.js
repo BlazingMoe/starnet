@@ -235,7 +235,7 @@
       if (hit) errors.push({ code: 'BELT_BURIED', propId: p.id, tile: hit, warn: true });
     }
 
-    const seenAgent = {}, unboundBays = [], dockBays = [];
+    const seenAgent = {}, unboundBays = [], dockBays = [], unboundBayTile = {};
     const hasLine = sources.length > 0;   // an INTAKE line exists — only then can "not fed by it" be a finding
     for (const p of props) {
       if (p.t !== 'bay') continue;
@@ -245,6 +245,13 @@
         // a belt runs past it — record its connection tile additively (never enters bayTileToAgent/hash).
         const ut = beltTileNear(map, p.x, p.y, p.w || 1, p.h || 1);
         if (ut) unboundBays.push({ propId: p.id, tile: ut });
+        // …and EVERY ring tile of it, for the walkers that ask "does this lane reach a dock at all?"
+        // (the LOOP gate's back lane). A wired lane that lands on an UNCREWED dock is not a wiring
+        // fault — UNBOUND_BAY already names it — so LOOP_NO_BACK must not fire a second nag for it.
+        { const uw = p.w || 1, uh = p.h || 1;
+          for (let yy = p.y - 1; yy <= p.y + uh; yy++)
+            for (let xx = p.x - 1; xx <= p.x + uw; xx++)
+              if (map[key(xx, yy)]) unboundBayTile[key(xx, yy)] = p.id; }
         continue;
       }
       // EVERY bound bay is a working dock (legibility list; NOT the dispatch `bays` — router semantics untouched).
@@ -290,12 +297,14 @@
       const p0 = jk.split(','), jx = +p0[0], jy = +p0[1];
       const v = DIRV[jc.back]; let t = { x: jx + v[0], y: jy + v[1] }, guard = 0; const seen = {};
       jc.backTo = null;
+      let uncrewed = false;
       while (t && map[key(t.x, t.y)] && guard++ < 4096 && !seen[key(t.x, t.y)]) {
         const k2 = key(t.x, t.y); seen[k2] = true;
         if (bayTileToAgent[k2]) { jc.backTo = bayTileToAgent[k2]; break; }
+        if (unboundBayTile[k2]) { uncrewed = true; break; }   // wired, just not crewed yet — UNBOUND_BAY has it
         const nts = nextTiles(map, junctions, t); t = nts[0] || null;
       }
-      if (!jc.backTo) errors.push({ code: 'LOOP_NO_BACK', tile: { x: jx, y: jy }, warn: true });
+      if (!jc.backTo && !uncrewed) errors.push({ code: 'LOOP_NO_BACK', tile: { x: jx, y: jy }, warn: true });
     }
     const cyc = detectCycle(map, junctions);
     if (cyc) errors.push({ code: 'CYCLE', tile: cyc });
@@ -719,6 +728,17 @@
       const ends = [];
       for (const k in bayAt) if (c.next.indexOf(bayAt[k]) >= 0) { const p = k.split(','); ends.push({ x: +p[0], y: +p[1] }); }
       if (ends.length) segment([c.tile], false, ends);
+    }
+    /* THE LOOP GATE'S BACK LANE IS LIVE (2026-08-29). Static flow deliberately cuts the back edge
+       (nextTiles follows `done` only) so a gated cycle can't loop the compiler — but the crate really
+       does ride that lane, so flooding only the static graph left a stamped REVISION LOOP two-thirds
+       frozen: the honest-telemetry promise lying in the COLD direction. Lit only when the gate itself
+       is already live (a stranded gate's back lane stays dark) and only as far as a bound dock. */
+    for (const jk in junctions) {
+      const j = junctions[jk];
+      if (!j || j.kind !== 'loop' || !j.back || !out[jk]) continue;
+      const p = jk.split(','), v = DIRV[j.back];
+      segment([{ x: +p[0] + v[0], y: +p[1] + v[1] }], true, bayTiles);
     }
     return out;
   }
