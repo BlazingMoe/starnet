@@ -9851,10 +9851,14 @@ async function handleConfigImport(req, res) {
     // UNION with existing grants (import never silently REVOKES a live grant); stamp provenance for new keys.
     const next = new Set([...grantsPermanent]);
     for (const k of sec.permissions.allow) next.add(k);
-    grantsPermanent.clear(); for (const k of next) grantsPermanent.add(k);
+    const nextAllow = Array.from(next);
     const meta = Object.assign({}, grantMeta);
-    for (const k of grantsPermanent) { if (!meta[k]) meta[k] = { grantedAt: Date.now() }; }
-    try { persistAllowlist(grantsPermanent, meta); Object.assign(grantMeta, meta); } catch (_) {}
+    for (const k of nextAllow) { if (!meta[k]) meta[k] = { grantedAt: Date.now() }; }
+    try { persistAllowlist(nextAllow, meta); }
+    catch (e) { return json(500, { ok: false, error: 'permissions import could not be persisted', applied }); }
+    // Commit live authority only after the durable array is written. Passing the Set itself serialized `allow`
+    // as `{}`, so the import appeared live but every imported grant vanished on the next sidecar restart.
+    grantsPermanent.clear(); for (const k of nextAllow) grantsPermanent.add(k);
     applied.push('permissions');
   }
   if (want('connectors') && Array.isArray(sec.connectors)) {
