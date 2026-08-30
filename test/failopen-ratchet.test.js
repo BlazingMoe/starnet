@@ -178,7 +178,6 @@ const SYNC_BASELINE = {
   'output-artifacts.js': 2,
   'pathtrust.js': 2,
   'plugins.js': 1,
-  'procledger.js': 1,
   'providers/anthropic.js': 1,
   'providers/codex-auth.js': 2,
   'providers/codex-token-store.js': 1,

@@ -125,12 +125,18 @@
     } catch (_) { stale = []; }
 
     function save() {
-      try {
-        fs.mkdirSync(P.dirname(file), { recursive: true });
-        const tmp = file + '.' + (typeof process !== 'undefined' ? process.pid : 'p') + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify({ procs: stale.concat(live) }));
-        fs.renameSync(tmp, file);
-      } catch (_) {}
+      let lastError;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          fs.mkdirSync(P.dirname(file), { recursive: true });
+          const tmp = file + '.' + (typeof process !== 'undefined' ? process.pid : 'p') + '.tmp';
+          fs.writeFileSync(tmp, JSON.stringify({ procs: stale.concat(live) }));
+          fs.renameSync(tmp, file);
+          return true;
+        } catch (e) { lastError = e; }
+      }
+      log('[proc-ledger] persist failed after retry: ' + ((lastError && lastError.message) || lastError || 'unknown error'));
+      return false;
     }
 
     function record(o) {

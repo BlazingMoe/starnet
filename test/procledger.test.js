@@ -34,6 +34,34 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   A.eq(onDisk.procs.length, 2, 'released pid left the file; recorded pids persist');
   A.ok(onDisk.procs.some(p => p.pid === 101) && onDisk.procs.some(p => p.pid === 102), 'both live pids on disk');
 
+  // A terminal/background child is already alive when record() writes its restart-cleanup receipt. One transient
+  // Windows rename race must not be swallowed: without a retry the next boot sees an empty ledger and leaves the
+  // owned process orphaned even though the immediately repeated atomic replace would succeed.
+  {
+    const fileTransient = path.join(dir, 'transient-record.json');
+    let renameCalls = 0;
+    const flakyFs = Object.create(fs);
+    flakyFs.renameSync = (from, to) => {
+      renameCalls++;
+      if (renameCalls === 1) throw Object.assign(new Error('transient EBUSY'), { code: 'EBUSY' });
+      return fs.renameSync(from, to);
+    };
+    const first = makeProcLedger({ fs: flakyFs, pathMod: path, file: fileTransient, clock, probe: async () => new Map(), killTree: async () => {} });
+    first.record({ pid: 4242, cmd: 'cmd.exe /c terminal-child', kind: 'terminal.pty' });
+    A.eq(renameCalls, 2, 'a transient cleanup-receipt rename is retried exactly once');
+    A.eq(JSON.parse(fs.readFileSync(fileTransient, 'utf8')).procs.map(p => p.pid), [4242],
+      'the retry leaves the terminal cleanup receipt durable');
+    const killedTransient = [];
+    const afterRestart = makeProcLedger({
+      fs, pathMod: path, file: fileTransient, clock,
+      probe: async () => new Map([[4242, 'cmd.exe /c terminal-child']]),
+      killTree: async pid => killedTransient.push(pid)
+    });
+    const swept = await afterRestart.sweep();
+    A.eq(swept.examined, 1, 'the next boot sees the retried terminal receipt');
+    A.eq(killedTransient, [4242], 'the next boot reaps the owned terminal child');
+  }
+
   // ---- 3. next boot sweeps: kills the match, skips the recycled pid, drops the dead one ----
   const killed = [];
   const l2 = makeProcLedger({
