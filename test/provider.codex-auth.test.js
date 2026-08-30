@@ -3,6 +3,8 @@
    client_id, PKCE code_verifier) plus the refresh classification (rate-limit vs relogin) and the JWT-exp
    freshness check. Zero network. */
 'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
 const A = require('./_assert.js');
 const auth = require('../sidecar/providers/codex-auth.js');
 const tokenStore = require('../sidecar/providers/codex-token-store.js');
@@ -264,6 +266,23 @@ function jwt(claims) {
       load: () => disk
     });
     A.eq(r.ok, false, 'F4: read-back mismatch on the refresh_token is caught (no false durability claim)');
+  }
+
+  // Logout must prove both resilient copies credential-free before dropping the live token or returning 200.
+  // Otherwise a failed unlink looks successful until the next sidecar restart reloads the refresh token.
+  {
+    const indexSource = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+    const clearBody = A.fnBody(indexSource, 'function clearCodexTokens()');
+    const logoutBody = A.fnBody(indexSource, 'function handleCodexLogout(req, res)');
+    A.ok(/saveCredentialRemovalVerified\([\s\S]*CODEX_TOKENS_FILE[\s\S]*null/.test(clearBody),
+      'codex logout sanitizes both resilient token copies with verified credential removal');
+    A.ok(clearBody.indexOf('saveCredentialRemovalVerified') >= 0
+      && clearBody.indexOf('saveCredentialRemovalVerified') < clearBody.indexOf('unlinkSync'),
+      'codex logout sanitizes credential-bearing copies before best-effort file removal');
+    A.ok(/if\s*\(!clearCodexTokens\(\)\)[\s\S]*json\(500/.test(logoutBody),
+      'codex logout reports a durable removal failure instead of false success');
+    A.ok(logoutBody.indexOf('clearCodexTokens()') < logoutBody.indexOf('codexTokens = null'),
+      'codex logout keeps the live credential until durable removal succeeds');
   }
 
   A.report('provider.codex-auth.test');

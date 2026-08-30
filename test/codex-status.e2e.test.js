@@ -10,8 +10,8 @@
      · a booted sidecar reads the marker back → status = { connected:false, expired:true, reason } —
        RESTART STAYS HONEST, and connected NEVER reads true while known-dead.
      · the payload carries no token material.
-     · POST /api/auth/codex/logout clears everything → { connected:false, expired:false } and the token
-       file is gone (the Settings ✕ DISCONNECT action).
+     · POST /api/auth/codex/logout clears everything → { connected:false, expired:false }, and a cold
+       restart cannot recover the old refresh token from the resilient backup.
      · a healthy envelope (no marker) still reads connected:true — the fix never breaks the good path.
    Zero network beyond localhost; no model spend. */
 'use strict';
@@ -62,7 +62,16 @@ function seedTokens(ws, envelope) {
     A.eq(s.expired, false, 'after logout: no longer "expired" — the dead state was cleared with the credentials');
     A.eq(fs.existsSync(path.join(ws, 'codex', 'tokens.json')), false, 'logout removed the token file');
 
-    // ===== boot 2: a HEALTHY envelope (no marker) still reads connected — the good path is untouched =====
+    // ===== boot 2: logout survives a REAL sidecar restart — the recovery copy cannot resurrect it =====
+    await fixture.restart();
+    B = fixture.baseUrl;
+    token = fixture.token;
+    headers = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
+    s = await status();
+    A.eq(s.connected, false, 'logout remains disconnected after a real sidecar restart');
+    A.eq(s.expired, false, 'restart cannot recover the old dead credential from .bak');
+
+    // ===== boot 3: a HEALTHY envelope (no marker) still reads connected — the good path is untouched =====
     await fixture.stop();
     seedTokens(ws, { access_token: ACCESS, refresh_token: REFRESH, last_refresh: '2026-07-08T01:00:00.000Z', auth_mode: 'device' });
     await fixture.start();

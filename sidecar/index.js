@@ -3383,8 +3383,20 @@ function saveCodexTokens(obj) {
   console.error('[codex] token persist UNVERIFIED after retry (' + codexPersistError + ') — tokens kept in memory for this session; a restart may require re-signing in to ChatGPT.');
   return false;
 }
-// clear must also drop the .bak so a signed-out session can't be "recovered" from the last-known-good on reload.
-function clearCodexTokens() { try { fs.unlinkSync(CODEX_TOKENS_FILE); } catch (e) {} try { fs.unlinkSync(CODEX_TOKENS_FILE + '.bak'); } catch (e) {} codexPersistError = ''; codexAuthDead = null; }
+// Logout must sanitize BOTH resilient copies before live state is cleared; otherwise a failed unlink can return
+// success now and resurrect the refresh token on restart. Once both copies read back credential-free, removing
+// the null files is only cleanup — a failed unlink cannot recover a secret.
+function clearCodexTokens() {
+  const ok = saveCredentialRemovalVerified(CODEX_TOKENS_FILE, null, raw => raw === null, 'codex');
+  if (!ok) {
+    codexPersistError = 'logout could not be persisted to disk';
+    return false;
+  }
+  try { fs.unlinkSync(CODEX_TOKENS_FILE); } catch (_) {}
+  try { fs.unlinkSync(CODEX_TOKENS_FILE + '.bak'); } catch (_) {}
+  codexPersistError = ''; codexAuthDead = null;
+  return true;
+}
 let codexTokens = loadCodexTokens();
 // Honest DEAD-TOKEN state (the 2026-07-08 escape: a refresh token consumed by another client errored the run,
 // yet Settings kept saying "SIGNED IN"). When a refresh fails with a relogin-class error we record it here AND
@@ -18365,8 +18377,10 @@ async function handleCodexModels(req, res) {
 
 // POST /api/auth/codex/logout — forget the stored ChatGPT credentials.
 function handleCodexLogout(req, res) {
-  codexTokens = null; clearCodexTokens();
-  res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ connected: false }));
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  if (!clearCodexTokens()) return json(500, { error: 'logout could not be persisted; credentials remain connected', code: 'codex_logout_persist_failed' });
+  codexTokens = null;
+  json(200, { connected: false });
 }
 
 /* -------------------- Grok / Kimi (subscription) device-OAuth — RFC 8628 --------------------
