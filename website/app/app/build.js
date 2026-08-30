@@ -795,18 +795,39 @@ const Build = (() => {
       intro.textContent = LINE_SENTENCE;
       pal.appendChild(intro);
     } else if (tool === 'line') {
-      /* STARTER LINES v2 — one-click whole layouts (the beginner onramp). Uniform full-width
-         cards, every card the same anatomy: a schematic MINIATURE of what will stamp (drawn in
-         the floor's own colour economy), the NAME + a footprint/dock chip, and a one-line
-         purpose — so the shelf teaches what each line DOES before the first click. */
-      paletteLabel = 'BLUEPRINTS';
+      /* THE LINE LIBRARY (v3, 2026-08-30) — one-click whole layouts, now a browsable library.
+         Cards keep the v2 anatomy (schematic MINIATURE in the floor's own colour economy, NAME +
+         footprint/dock chip, one-line purpose); with 15 systems on the shelf they group into
+         SECTIONS by what the line is FOR (chains ▸ sorters ▸ crews ▸ gates ▸ flagships), simplest
+         family first, so the shelf reads as a curriculum — each section teaches one idea and the
+         flagships assemble them. Grouping comes from the catalog's own `grp` field (worldmodel),
+         never hand-kept here; an ungrouped blueprint falls into the last section rather than
+         vanishing (a card the catalog ships must always be stampable). */
+      paletteLabel = 'THE LINE LIBRARY';
       const intro = document.createElement('div');
       intro.className = 'refit-lineintro';
       intro.textContent = LINE_SENTENCE + ' Stamp a working line, then make it yours.';
       pal.appendChild(intro);
       const grid = document.createElement('div'); grid.className = 'refit-linegrid';
-      grid.setAttribute('aria-label', 'Starter lines');
-      for (const bp of blueprints()) {
+      grid.setAttribute('aria-label', 'Line library');
+      const groups = {};
+      for (const bp of blueprints()) { const k = LINE_GROUPS.some(g => g.id === bp.grp) ? bp.grp : 'flagship'; (groups[k] = groups[k] || []).push(bp); }
+      const ordered = [];
+      for (const g of LINE_GROUPS) {
+        if (!groups[g.id] || !groups[g.id].length) continue;
+        ordered.push({ hd: g });
+        for (const bp of groups[g.id]) ordered.push({ bp });
+      }
+      for (const row of ordered) {
+        if (row.hd) {
+          const hd = document.createElement('div'); hd.className = 'refit-linegroup';
+          const nm = document.createElement('span'); nm.className = 'refit-linegroup-nm'; nm.textContent = row.hd.label;
+          const why = document.createElement('span'); why.className = 'refit-linegroup-why'; why.textContent = row.hd.blurb;
+          hd.appendChild(nm); hd.appendChild(why);
+          grid.appendChild(hd);
+          continue;
+        }
+        const bp = row.bp;
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'refit-linetile' + (bp.id === lineType ? ' active' : '');
@@ -1048,7 +1069,23 @@ const Build = (() => {
     assembly_line: 'four agents deep — each stage builds on the last',
     code_foundry: 'code is built and review-looped; the rest takes a side lane',
     gauntlet: 'two takes, one synthesis, and a reviewer holding the door',
+    crucible: 'two review gates in series — approved, then approved again',
+    mission_control: 'sorted three ways, worked in two stages, shipped by one door',
+    deep_dive: 'a research swarm, one write-up, and a reviewer holding the door',
+    allowance_desk: 'a front desk that can never spend more than $5 a day',
+    two_doors: 'two entrances, one desk — each door keeps its own name & budget',
+    load_balancer: 'jobs alternate between two desks; one door ships it all',
   };
+  /* the LIBRARY's sections — what a line is FOR, simplest family first. `id` matches the catalog's
+     `grp` field on each blueprint (worldmodel.js); the render falls an unknown grp into the last
+     section so a catalog entry can never vanish from the shelf. */
+  const LINE_GROUPS = [
+    { id: 'chain', label: 'THE BASICS', blurb: 'door to door — one desk, a budgeted desk, or a hand-off chain' },
+    { id: 'sort', label: 'SORTERS', blurb: 'the right work to the right desk, read from the job itself' },
+    { id: 'crew', label: 'CREWS', blurb: 'many agents on one stream — split the load, or run every take' },
+    { id: 'gate', label: 'QUALITY GATES', blurb: 'a reviewer holds the door — nothing ships unapproved' },
+    { id: 'flagship', label: 'FLAGSHIPS', blurb: 'the whole machine — sorters, crews and gates on one floor' },
+  ];
   /* schematic v2 — the card draws a MINIATURE of what will stamp, in the floor's own colour
      economy (hex families lifted from propsprites.js RAMP.steel/ACC and conveyor.js's belt bed)
      so the schematic teaches the real floor: the INBOX feeds amber, a BAY is a steel berth with

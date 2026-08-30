@@ -20,9 +20,16 @@ A.ok(Array.isArray(WM.BLUEPRINTS) && WM.BLUEPRINTS.length >= 9, 'the starter-lin
 const IDS = WM.BLUEPRINTS.map(b => b.id);
 for (const want of ['front_desk', 'research_line', 'revision_loop', 'sorting_office', 'triage_desk',
                     'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out',
-                    'assembly_line', 'code_foundry', 'gauntlet'])
+                    'assembly_line', 'code_foundry', 'gauntlet',
+                    'crucible', 'mission_control', 'deep_dive',
+                    'allowance_desk', 'two_doors', 'load_balancer'])
   A.ok(IDS.indexOf(want) >= 0, 'blueprint catalog carries ' + want);
 A.eq(IDS.length, new Set(IDS).size, 'blueprint ids are unique');
+// THE LIBRARY: every blueprint names its section (build.js groups the shelf by grp — an unknown
+// grp falls into the last section rather than vanishing, but the catalog itself must be complete)
+for (const bp of WM.BLUEPRINTS)
+  A.ok(['chain', 'sort', 'crew', 'gate', 'flagship'].indexOf(bp.grp) >= 0,
+    bp.id + ': carries a known library group (got ' + bp.grp + ')');
 /* THE DECLARED BOX IS THE OFFER. w/h drive the shelf chip, the NO ROOM copy and the candidate-field
    scan; a blueprint whose parts hang outside its box would be offered a spot it cannot take. */
 for (const bp of WM.BLUEPRINTS) {
@@ -46,11 +53,11 @@ for (const bp of WM.BLUEPRINTS) {
 // a fresh station with one big empty deck to stamp on (beside the seed room)
 function freshFloor() {
   const s = WM.create();
-  const r = s.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 59, y2: 14 } });
+  const r = s.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 69, y2: 14 } });   // 40 wide - THE DEEP DIVE is 31
   A.ok(r.ok, 'test deck placed');
   return s;
 }
-const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 25×8)
+const AT = { x: 32, y: 2 };   // stamp origin — fully inside the test deck for every blueprint (max 31×10)
 
 for (const bp of WM.BLUEPRINTS) {
   const s = freshFloor();
@@ -225,6 +232,84 @@ function crewed(id) {
   const bp = WM.BLUEPRINTS.find(b => b.id === 'revision_loop');
   A.ok(bp.belts.some(b => b.x === 3 && b.y === 3 && b.d === 'S'),
     'the back lane column runs all the way down to the lane row (no visual gap)');
+}
+
+/* ---- the flagships compile as the cards promise ---- */
+{
+  const plan = crewed('crucible');
+  const gates = Object.keys(plan.junctions).map(k => plan.junctions[k]).filter(j => j.kind === 'loop');
+  A.eq(gates.length, 2, 'THE CRUCIBLE compiles TWO loop gates');
+  A.ok(gates.every(g => g.when === 'approved' && g.max === 3), 'both gates stamp verdict-gated');
+  A.eq(gates.map(g => g.backTo).sort().join(','), 'crew0,crew2',
+    'each gate re-enters its OWN stage — gate 1 the drafter, gate 2 the polisher');
+  A.eq(['crew0', 'crew1', 'crew2', 'crew3'].map(a => plan.chains[a].next.join(',')).join('|'),
+    'crew1|crew2|crew3|', 'the four stages chain in order to the outbox');
+}
+{
+  const plan = crewed('mission_control');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  const f = js.find(j => j.kind === 'filter');
+  A.ok(f && f.routes.code && f.routes.research && f.def, 'MISSION CONTROL routes all three classifier tags');
+  A.ok(js.some(j => j.kind === 'merge'), 'and funnels every lane through one MERGER');
+  A.eq(plan.chains.crew0.next.join(','), 'crew1', 'the code lane is two stages: engineer then reviewer');
+  A.eq(plan.chains.crew3.next.join(','), 'crew4', 'the research lane is two stages: researcher then writer');
+  A.ok(plan.chains.crew1.outbox && plan.chains.crew2.outbox && plan.chains.crew4.outbox,
+    'every lane ships out by the one door');
+}
+{
+  const plan = crewed('deep_dive');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  A.ok(js.some(j => j.kind === 'split' && j.fanout === true), 'THE DEEP DIVE fans out (all three researchers run)');
+  A.ok(js.some(j => j.kind === 'join' && j.expect === 3), 'the joiner waits for all three');
+  const g = js.find(j => j.kind === 'loop');
+  A.ok(g && g.when === 'approved' && g.backTo === 'crew4',
+    'the gate re-enters at the WRITER — a failed review rewrites, never re-runs the swarm');
+  A.eq(plan.chains.crew3.next.join(','), 'crew4', 'analyst hands to the writer');
+  A.eq(plan.chains.crew4.next.join(','), 'crew5', 'writer hands to the reviewer');
+}
+/* ---- the useful trio (2026-08-30) compiles as the cards promise ---- */
+{
+  // ALLOWANCE DESK: the INBOX stamps pre-labeled and pre-budgeted, through the shared normalizer,
+  // and both survive the save round-trip (migrate whitelist)
+  const s = freshFloor();
+  A.ok(s.stampBlueprint('allowance_desk', AT.x, AT.y).ok, 'allowance_desk stamps');
+  const it = s.props().find(p => p.t === 'intake');
+  A.eq(it.label, 'ALLOWANCE', 'the door stamps named');
+  A.ok(it.limits && it.limits.maxUsdPerDay === 5 && it.limits.maxUsdPerMessage === 1,
+    'the door stamps with the $5/day + $1/message budget (got ' + JSON.stringify(it.limits) + ')');
+  A.eq(it.limits.maxHops, 6, 'unset budget fields take the executor defaults via the ONE normalizer');
+  const back = WM.deserialize(s.serialize()).props().find(p => p.t === 'intake');
+  A.ok(back.label === 'ALLOWANCE' && back.limits && back.limits.maxUsdPerDay === 5,
+    'name + budget survive the save round-trip');
+}
+{
+  // TWO DOORS: two intakes = two sources, funneled by a merger to one desk
+  const plan = crewed('two_doors');
+  A.eq(plan.sources.length, 2, 'TWO DOORS compiles two intake sources');
+  A.ok(Object.keys(plan.junctions).map(k => plan.junctions[k]).some(j => j.kind === 'merge'),
+    'and funnels them through a MERGER');
+  A.ok(plan.reach.crew0, 'both doors reach the one desk');
+}
+{
+  // LOAD BALANCER: a joiner-less split stays ROUND-ROBIN (each job runs on ONE desk), and both
+  // desks ship by the same door
+  const plan = crewed('load_balancer');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  const sp = js.find(j => j.kind === 'split');
+  A.ok(sp && !sp.fanout, 'the split is round-robin, NOT a fan-out (halved queue, not doubled spend)');
+  A.ok(js.some(j => j.kind === 'merge'), 'both desks funnel through the MERGER');
+  A.ok(plan.chains.crew0.outbox && plan.chains.crew1.outbox, 'both desks ship out by the one door');
+}
+
+/* every crewed line is FULLY energized — no belt on a working line may render frozen (the
+   back-lane merge tile sat cold until liveTiles rode through the re-entry hookup, 2026-08-30) */
+for (const bp of WM.BLUEPRINTS) {
+  const plan = crewed(bp.id);
+  const live = P.liveTiles(plan);
+  // compare inside the plan's OWN frame (plan.belts is the compiled key->dir map, projectGeometry's
+  // local frame — never world tiles); the station holds ONLY the stamped line, so every key is ours
+  const cold = Object.keys(plan.belts).filter(k => !live[k]);
+  A.eq(cold.length, 0, bp.id + ': every belt tile energizes when crewed (cold: ' + cold.join(' ') + ')');
 }
 
 A.report('blueprints');

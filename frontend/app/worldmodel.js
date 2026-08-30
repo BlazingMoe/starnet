@@ -400,7 +400,7 @@ const WorldModel = (() => {
      and crewed it compiles with ZERO errors, so no shelf line can introduce a warn the Commander
      did not cause. Keep footprints tight — a blueprint is only useful if it FITS on a real deck. */
   const BLUEPRINTS = [
-    { id: 'front_desk', label: 'FRONT DESK', w: 12, h: 2,
+    { id: 'front_desk', grp: 'chain', label: 'FRONT DESK', w: 12, h: 2,
       desc: 'INBOX ▸ BAY ▸ OUTBOX — the whole round trip in one row: work arrives, one agent does it, the result ships.',
       props: [
         { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
@@ -411,7 +411,38 @@ const WorldModel = (() => {
         { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
         { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
       ] },
-    { id: 'research_line', label: 'RESEARCH LINE', w: 17, h: 2,
+    /* the FRONT DESK with a hard ceiling: the INBOX stamps carrying a line budget ($5/day, $1/message)
+       so the line can NEVER spend more than it says on the card — the worry-free first line. */
+    { id: 'allowance_desk', grp: 'chain', label: 'ALLOWANCE DESK', w: 12, h: 2,
+      desc: 'INBOX ▸ BAY ▸ OUTBOX with a hard budget on the door — this line can never spend more than $5 a day or $1 a message; raise it on the INBOX when you trust it.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2, label: 'ALLOWANCE', limits: { maxUsdPerDay: 5, maxUsdPerMessage: 1 } },
+        { t: 'bay', x: 5, y: 0, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 10, y: 0, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
+        { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
+      ] },
+    /* TWO ENTRIES, ONE DESK: every INBOX is its own named line with its own budget — two doors
+       funneled through a MERGER means channel work and routine work share a crew but keep separate
+       names, budgets and logbooks. */
+    { id: 'two_doors', grp: 'chain', label: 'TWO DOORS', w: 14, h: 6,
+      desc: 'two INBOXes ▸ MERGER ▸ BAY ▸ OUTBOX — two entrances share one desk; each door is its own line with its own name and budget.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
+        { t: 'intake', x: 0, y: 4, w: 2, h: 2 },
+        { t: 'merger', x: 4, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 2, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 12, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'S' }, { x: 4, y: 2, d: 'S' },
+        { x: 2, y: 5, d: 'E' }, { x: 3, y: 5, d: 'E' }, { x: 4, y: 5, d: 'N' }, { x: 4, y: 4, d: 'N' },
+        { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'E' }, { x: 6, y: 3, d: 'E' },
+        { x: 9, y: 3, d: 'E' }, { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' },
+      ] },
+    { id: 'research_line', grp: 'chain', label: 'RESEARCH LINE', w: 17, h: 2,
       desc: 'INBOX ▸ BAY ▸ BAY ▸ OUTBOX — work rides in, two agents work it in turn (a hand-off chain), the result ships out.',
       props: [
         { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
@@ -428,7 +459,7 @@ const WorldModel = (() => {
        the crate re-enters at the DRAFTER on the back lane, and the pass count ends it either way.
        `when: 'approved'` stamps configured because a gate with no verdict word sends EVERY pass back
        until the cap — a line that quietly spends three runs on work the reviewer already passed. */
-    { id: 'revision_loop', label: 'REVISION LOOP', w: 18, h: 5,
+    { id: 'revision_loop', grp: 'gate', label: 'REVISION LOOP', w: 18, h: 5,
       desc: 'INBOX ▸ DRAFTER ▸ REVIEWER ▸ LOOP GATE — the reviewer sends the draft back round for another pass until the verdict is APPROVED (3 passes max), then it ships.',
       props: [
         { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
@@ -451,7 +482,7 @@ const WorldModel = (() => {
         { x: 4, y: 0, d: 'W' },
         { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' }, { x: 3, y: 3, d: 'S' },
       ] },
-    { id: 'sorting_office', label: 'SORTING OFFICE', w: 9, h: 5,
+    { id: 'sorting_office', grp: 'sort', label: 'SORTING OFFICE', w: 9, h: 5,
       desc: 'INBOX ▸ FILTER ▸ two BAYs — the filter reads each job and sends code one way, everything else the other.',
       props: [
         { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
@@ -469,7 +500,7 @@ const WorldModel = (() => {
        research / general) — a routes map naming a tag the classifier never emits would leave a dock
        dark forever. The MERGER funnels the three lanes back into one exit: every crate rides
        straight through (it combines nothing), so ONE outbox serves all three specialists. */
-    { id: 'triage_desk', label: 'TRIAGE DESK', w: 16, h: 8,
+    { id: 'triage_desk', grp: 'sort', label: 'TRIAGE DESK', w: 16, h: 8,
       desc: 'INBOX ▸ FILTER ▸ three BAYs ▸ MERGER ▸ OUTBOX — code, research and everything else each get their own specialist, and every result leaves by the same door.',
       props: [
         { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
@@ -490,7 +521,7 @@ const WorldModel = (() => {
         { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'N' }, { x: 11, y: 6, d: 'N' }, { x: 11, y: 5, d: 'N' },
         { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
       ] },
-    { id: 'parallel_crew', label: 'PARALLEL CREW', w: 10, h: 8,
+    { id: 'parallel_crew', grp: 'crew', label: 'PARALLEL CREW', w: 10, h: 8,
       desc: 'INBOX ▸ SPLITTER ▸ three BAYs — one stream of work spread across three agents working in parallel.',
       props: [
         { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
@@ -510,7 +541,7 @@ const WorldModel = (() => {
        in-lane and releases ONE merged crate. That is the difference from PARALLEL CREW, whose
        joiner-less splitter round-robins one job to one dock. The ANALYST dock past the barrier is
        the stage that turns three partial answers into the one that ships. */
-    { id: 'swarm_synthesis', label: 'RESEARCH SWARM', w: 20, h: 8,
+    { id: 'swarm_synthesis', grp: 'crew', label: 'RESEARCH SWARM', w: 20, h: 8,
       desc: 'INBOX ▸ SPLITTER ▸ three BAYs ▸ JOINER ▸ ANALYST ▸ OUTBOX — three agents attack the same job at once, the joiner waits for all three, and one agent writes the answer from what they found.',
       props: [
         { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
@@ -533,7 +564,7 @@ const WorldModel = (() => {
         { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
         { x: 16, y: 4, d: 'E' }, { x: 17, y: 4, d: 'E' },
       ] },
-    { id: 'second_opinion', label: 'SECOND OPINION', w: 15, h: 6,
+    { id: 'second_opinion', grp: 'crew', label: 'SECOND OPINION', w: 15, h: 6,
       desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ JOINER ▸ OUTBOX — two agents answer the same job independently and the joiner ships both takes as one crate.',
       props: [
         { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
@@ -551,7 +582,28 @@ const WorldModel = (() => {
         { x: 9, y: 5, d: 'E' }, { x: 10, y: 5, d: 'N' }, { x: 10, y: 4, d: 'N' },
         { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' }, { x: 12, y: 3, d: 'E' },
       ] },
-    { id: 'ship_out', label: 'SHIP-OUT LOOP', w: 7, h: 2,
+    /* ROUND-ROBIN WITH A SHIPPING DOOR: no joiner downstream, so the split alternates — each job
+       runs on ONE of the two docks (halved queue, not doubled spend) — and both docks' results
+       funnel through the MERGER to the same pallet. The high-volume inbox line. */
+    { id: 'load_balancer', grp: 'crew', label: 'LOAD BALANCER', w: 15, h: 6,
+      desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ MERGER ▸ OUTBOX — each job runs on whichever desk is next (turn about, not both), and every result ships by the same door.',
+      props: [
+        { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'CREW' },
+        { t: 'bay', x: 7, y: 4, w: 2, h: 2, role: 'CREW' },
+        { t: 'merger', x: 10, y: 3, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 13, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'N' },
+        { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
+        { x: 5, y: 4, d: 'S' }, { x: 5, y: 5, d: 'E' }, { x: 6, y: 5, d: 'E' },
+        { x: 9, y: 1, d: 'E' }, { x: 10, y: 1, d: 'S' }, { x: 10, y: 2, d: 'S' },
+        { x: 9, y: 5, d: 'E' }, { x: 10, y: 5, d: 'N' }, { x: 10, y: 4, d: 'N' },
+        { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' }, { x: 12, y: 3, d: 'E' },
+      ] },
+    { id: 'ship_out', grp: 'chain', label: 'SHIP-OUT LOOP', w: 7, h: 2,
       desc: 'BAY ▸ OUTBOX — the smallest line: one agent, and every finished job ships a crate to the pallet.',
       props: [
         { t: 'bay', x: 0, y: 0, w: 2, h: 2, role: 'SHIPPER' },
@@ -563,7 +615,7 @@ const WorldModel = (() => {
     /* ---- THE POWER TIER (2026-08-29): multi-mechanic lines for Commanders past the onramp. Same
        contract as every card above (zero-error crewed compile, one undo), they just chain the
        machines the shelf has already taught. */
-    { id: 'assembly_line', label: 'ASSEMBLY LINE', w: 22, h: 2,
+    { id: 'assembly_line', grp: 'chain', label: 'ASSEMBLY LINE', w: 22, h: 2,
       desc: 'INBOX ▸ four BAYs ▸ OUTBOX — the deep hand-off chain: dig, make sense of it, write it, ship it, each stage building on the last.',
       props: [
         { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
@@ -582,7 +634,7 @@ const WorldModel = (() => {
       ] },
     /* FILTER + LOOP on one line: code takes the reviewed lane (engineer's work must pass the
        reviewer's verdict to ship), everything else lands on the generalist. */
-    { id: 'code_foundry', label: 'CODE FOUNDRY', w: 19, h: 7,
+    { id: 'code_foundry', grp: 'gate', label: 'CODE FOUNDRY', w: 19, h: 7,
       desc: 'INBOX ▸ FILTER ▸ ENGINEER ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — code work is built, reviewed, and sent back round until the verdict is APPROVED; everything else takes the generalist lane.',
       props: [
         { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
@@ -611,7 +663,7 @@ const WorldModel = (() => {
     /* EVERY MECHANIC ON ONE FLOOR: fan-out ▸ barrier ▸ synthesis ▸ review ▸ verdict-gated loop.
        The gate's back lane re-enters at the ANALYST — a failed review redoes the synthesis from
        the same two takes, never re-runs the crews. */
-    { id: 'gauntlet', label: 'THE GAUNTLET', w: 25, h: 6,
+    { id: 'gauntlet', grp: 'flagship', label: 'THE GAUNTLET', w: 25, h: 6,
       desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ JOINER ▸ ANALYST ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — two takes, one synthesis, and a reviewer who sends it back until the verdict is APPROVED.',
       props: [
         { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
@@ -639,6 +691,113 @@ const WorldModel = (() => {
         { x: 19, y: 0, d: 'W' }, { x: 18, y: 0, d: 'W' }, { x: 17, y: 0, d: 'W' },
         { x: 16, y: 0, d: 'W' }, { x: 15, y: 0, d: 'W' },
         { x: 14, y: 0, d: 'S' }, { x: 14, y: 1, d: 'S' },
+      ] },
+    /* TWO GATES IN SERIES: the draft is reviewed to approval, then the approved draft is POLISHED
+       and reviewed again by a second gate. Each gate's back lane re-enters its OWN stage — gate 1
+       redrafts, gate 2 re-polishes; a crate never rides backwards past an approval it earned. */
+    { id: 'crucible', grp: 'flagship', label: 'THE CRUCIBLE', w: 29, h: 5,
+      desc: 'INBOX ▸ DRAFTER ▸ REVIEWER ▸ LOOP ▸ POLISHER ▸ EDITOR ▸ LOOP ▸ OUTBOX — two verdict gates in series: drafted until approved, then polished until approved again.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'bay', x: 4, y: 3, w: 2, h: 2, role: 'WRITER' },
+        { t: 'bay', x: 9, y: 3, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 13, y: 4, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'bay', x: 16, y: 3, w: 2, h: 2, role: 'SHIPPER' },
+        { t: 'bay', x: 20, y: 3, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 24, y: 4, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 27, y: 3, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' }, { x: 8, y: 4, d: 'E' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+        { x: 14, y: 4, d: 'E' }, { x: 15, y: 4, d: 'E' },
+        // gate 1's back lane: over the top, down into the drafter (full column to the lane row)
+        { x: 13, y: 3, d: 'N' }, { x: 13, y: 2, d: 'N' }, { x: 13, y: 1, d: 'N' }, { x: 13, y: 0, d: 'W' },
+        { x: 12, y: 0, d: 'W' }, { x: 11, y: 0, d: 'W' }, { x: 10, y: 0, d: 'W' }, { x: 9, y: 0, d: 'W' },
+        { x: 8, y: 0, d: 'W' }, { x: 7, y: 0, d: 'W' }, { x: 6, y: 0, d: 'W' }, { x: 5, y: 0, d: 'W' },
+        { x: 4, y: 0, d: 'W' },
+        { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' }, { x: 3, y: 3, d: 'S' },
+        // the approved draft rides on: polisher, editor, gate 2, out
+        { x: 18, y: 4, d: 'E' }, { x: 19, y: 4, d: 'E' },
+        { x: 22, y: 4, d: 'E' }, { x: 23, y: 4, d: 'E' }, { x: 24, y: 4, d: 'E' },
+        { x: 25, y: 4, d: 'E' }, { x: 26, y: 4, d: 'E' },
+        // gate 2's back lane: down into the polisher
+        { x: 24, y: 3, d: 'N' }, { x: 24, y: 2, d: 'N' }, { x: 24, y: 1, d: 'N' }, { x: 24, y: 0, d: 'W' },
+        { x: 23, y: 0, d: 'W' }, { x: 22, y: 0, d: 'W' }, { x: 21, y: 0, d: 'W' }, { x: 20, y: 0, d: 'W' },
+        { x: 19, y: 0, d: 'W' }, { x: 18, y: 0, d: 'W' }, { x: 17, y: 0, d: 'W' }, { x: 16, y: 0, d: 'W' },
+        { x: 15, y: 0, d: 'S' }, { x: 15, y: 1, d: 'S' }, { x: 15, y: 2, d: 'S' }, { x: 15, y: 3, d: 'S' },
+      ] },
+    /* TRIAGE WITH DEPTH: each of the filter's three lanes is its own little line — code gets built
+       THEN reviewed, research gets dug THEN written up, everything else takes the chief — and every
+       lane funnels through one MERGER to one door. */
+    { id: 'mission_control', grp: 'flagship', label: 'MISSION CONTROL', w: 20, h: 10,
+      desc: 'INBOX ▸ FILTER ▸ three two-stage lanes ▸ MERGER ▸ OUTBOX — code is built then reviewed, research is dug then written, the rest takes the chief; one door ships it all.',
+      props: [
+        { t: 'intake', x: 0, y: 4, w: 2, h: 2 },
+        { t: 'filter', x: 5, y: 5, w: 1, h: 1, block: false, routes: { code: 'N', research: 'S' }, def: 'E' },
+        { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'ENGINEER' },
+        { t: 'bay', x: 12, y: 0, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'bay', x: 8, y: 4, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'bay', x: 8, y: 8, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 12, y: 8, w: 2, h: 2, role: 'WRITER' },
+        { t: 'merger', x: 15, y: 5, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 18, y: 4, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 5, d: 'E' }, { x: 3, y: 5, d: 'E' }, { x: 4, y: 5, d: 'E' }, { x: 5, y: 5, d: 'E' },
+        // the code lane: up, east, build then review, then down into the merger
+        { x: 5, y: 4, d: 'N' }, { x: 5, y: 3, d: 'N' }, { x: 5, y: 2, d: 'N' },
+        { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'E' },
+        { x: 14, y: 1, d: 'E' }, { x: 15, y: 1, d: 'S' }, { x: 15, y: 2, d: 'S' }, { x: 15, y: 3, d: 'S' }, { x: 15, y: 4, d: 'S' },
+        // the default lane straight through the chief
+        { x: 6, y: 5, d: 'E' }, { x: 7, y: 5, d: 'E' },
+        { x: 10, y: 5, d: 'E' }, { x: 11, y: 5, d: 'E' }, { x: 12, y: 5, d: 'E' }, { x: 13, y: 5, d: 'E' }, { x: 14, y: 5, d: 'E' },
+        // the research lane: down, east, dig then write, then up into the merger
+        { x: 5, y: 6, d: 'S' }, { x: 5, y: 7, d: 'S' }, { x: 5, y: 8, d: 'S' },
+        { x: 5, y: 9, d: 'E' }, { x: 6, y: 9, d: 'E' }, { x: 7, y: 9, d: 'E' },
+        { x: 10, y: 9, d: 'E' }, { x: 11, y: 9, d: 'E' },
+        { x: 14, y: 9, d: 'E' }, { x: 15, y: 9, d: 'N' }, { x: 15, y: 8, d: 'N' }, { x: 15, y: 7, d: 'N' }, { x: 15, y: 6, d: 'N' },
+        // one funnel, one door
+        { x: 15, y: 5, d: 'E' }, { x: 16, y: 5, d: 'E' }, { x: 17, y: 5, d: 'E' },
+      ] },
+    /* THE WHOLE MACHINE: a three-researcher swarm feeds one analyst, the analyst's synthesis is
+       written up, and a verdict gate holds the door — its back lane re-enters at the WRITER, so a
+       failed review rewrites the piece from the same research, never re-runs the swarm. */
+    { id: 'deep_dive', grp: 'flagship', label: 'THE DEEP DIVE', w: 31, h: 8,
+      desc: 'INBOX ▸ SPLITTER ▸ three RESEARCHERs ▸ JOINER ▸ ANALYST ▸ WRITER ▸ REVIEWER ▸ LOOP ▸ OUTBOX — a research swarm, one synthesis, one write-up, and a reviewer holding the door.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 4, w: 1, h: 1, block: false },
+        { t: 'bay', x: 8, y: 0, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 8, y: 3, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'bay', x: 8, y: 6, w: 2, h: 2, role: 'RESEARCHER' },
+        { t: 'joiner', x: 11, y: 4, w: 1, h: 1, block: false },
+        { t: 'bay', x: 14, y: 3, w: 2, h: 2, role: 'ANALYST' },
+        { t: 'bay', x: 18, y: 3, w: 2, h: 2, role: 'WRITER' },
+        { t: 'bay', x: 22, y: 3, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 26, y: 4, w: 1, h: 1, block: false, done: 'E', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 29, y: 3, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' }, { x: 4, y: 4, d: 'E' }, { x: 5, y: 4, d: 'E' },
+        { x: 5, y: 3, d: 'N' }, { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' }, { x: 7, y: 1, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' },
+        { x: 5, y: 5, d: 'S' }, { x: 5, y: 6, d: 'S' }, { x: 5, y: 7, d: 'E' }, { x: 6, y: 7, d: 'E' }, { x: 7, y: 7, d: 'E' },
+        { x: 10, y: 1, d: 'E' }, { x: 11, y: 1, d: 'S' }, { x: 11, y: 2, d: 'S' }, { x: 11, y: 3, d: 'S' },
+        { x: 10, y: 4, d: 'E' },
+        { x: 10, y: 7, d: 'E' }, { x: 11, y: 7, d: 'N' }, { x: 11, y: 6, d: 'N' }, { x: 11, y: 5, d: 'N' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+        { x: 16, y: 4, d: 'E' }, { x: 17, y: 4, d: 'E' },
+        { x: 20, y: 4, d: 'E' }, { x: 21, y: 4, d: 'E' },
+        { x: 24, y: 4, d: 'E' }, { x: 25, y: 4, d: 'E' }, { x: 26, y: 4, d: 'E' },
+        { x: 27, y: 4, d: 'E' }, { x: 28, y: 4, d: 'E' },
+        // the gate's back lane: over the reviewer, down into the writer (full column to the lane row)
+        { x: 26, y: 3, d: 'N' }, { x: 26, y: 2, d: 'N' }, { x: 26, y: 1, d: 'N' }, { x: 26, y: 0, d: 'W' },
+        { x: 25, y: 0, d: 'W' }, { x: 24, y: 0, d: 'W' }, { x: 23, y: 0, d: 'W' }, { x: 22, y: 0, d: 'W' },
+        { x: 21, y: 0, d: 'W' }, { x: 20, y: 0, d: 'W' }, { x: 19, y: 0, d: 'W' }, { x: 18, y: 0, d: 'W' },
+        { x: 17, y: 0, d: 'S' }, { x: 17, y: 1, d: 'S' }, { x: 17, y: 2, d: 'S' }, { x: 17, y: 3, d: 'S' },
       ] },
   ];
 
@@ -1495,6 +1654,14 @@ const WorldModel = (() => {
         const prop = { id: 'p' + (doc._nid++), t: s.t, x: tx + s.x, y: ty + s.y, w: s.w, h: s.h };
         if (s.block === false) prop.block = false;
         if (s.role && BAY_ROLES[s.role]) prop.role = s.role;   // guided workflows: the dock stamps carrying its ROLE (see BAY_ROLES)
+        /* an INBOX may stamp pre-labeled and pre-budgeted (ALLOWANCE DESK, 2026-08-30) — through the
+           SAME normalizer setPropLimits uses, so a blueprint can never write a number the executor
+           would read differently. Both fields already round-trip via migrate()'s prop whitelist. */
+        if (s.t === 'intake' && typeof s.label === 'string' && s.label.trim()) prop.label = s.label.trim().slice(0, 48);
+        if (s.t === 'intake' && s.limits) {
+          const nl = normalizeLimits(s.limits);
+          if (nl) prop.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
+        }
         applyJunctionCfg(prop, s);   // the FILTER's routes/def ride in pre-configured
         doc.props.push(prop);
         ids.push(prop.id);
