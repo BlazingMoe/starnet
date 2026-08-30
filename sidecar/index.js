@@ -14241,7 +14241,13 @@ async function runOnce(o) {
   const runMaxIters = (o.maxIters > 0 && isFinite(o.maxIters))
     ? Math.max(1, Math.min(Math.floor(o.maxIters), stationMaxIters))
     : stationMaxIters;
-  const managedRun = credits.configured() && !providerUnmetered;
+  // WHO IS MANAGED (issue #6, 2026-08-30): only a run whose spend actually lands on the managed account.
+  // On a device-LINKED station that is solely the 'starnet' relay provider — a BYOK run (own Gemini/OpenAI/…
+  // key) pays its own vendor directly, so gating it on StarNet balance stranded linked-but-unfunded users at
+  // WAKE ("Out of managed credit" with a valid key in hand) and double-billed funded ones at settle. An env
+  // STARNET_CREDITS_URL deployment is operator-metered: there the operator fronts every metered run's keys,
+  // so ALL metered runs still reserve/settle against the managed account (original P2 semantics, unchanged).
+  const managedRun = credits.configured() && !providerUnmetered && (providerId === 'starnet' || !!CREDITS_URL);
   if (managedRun) {
     await credits.refresh().catch(swallow('credits.refresh'));   // adapter owns the active bearer+account identity
     // A managed reservation needs a FINITE cap to hold. With no opt-in cap the wallet itself is the run's
