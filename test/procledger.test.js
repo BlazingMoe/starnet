@@ -154,6 +154,36 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   A.eq(killedRetry, [555], 'the retained receipt is reaped on the next successful boot');
   A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).procs.length, 0, 'only the successful retry consumes the receipt');
 
+  // A transient tree-kill failure is equally inconclusive: retain the receipt so the NEXT boot retries.
+  const fileK = path.join(dir, 'kill-retry.json');
+  makeProcLedger({ fs, pathMod: path, file: fileK, clock, probe: async () => new Map(), killTree: async () => {} })
+    .record({ pid: 556, cmd: 'node owned-server.js', kind: 'shell.bg' });
+  const k1 = makeProcLedger({
+    fs, pathMod: path, file: fileK, clock,
+    probe: async () => new Map([[556, 'cmd.exe /c node owned-server.js']]),
+    killTree: async () => { throw new Error('transient access denied'); }
+  });
+  const ks1 = await k1.sweep();
+  A.eq(ks1.killFailed, 1, 'tree-kill failure is reported distinctly');
+  A.eq(JSON.parse(fs.readFileSync(fileK, 'utf8')).procs.map(p => p.pid), [556], 'tree-kill failure RETAINS the ownership receipt on disk');
+  const killedK = [];
+  const k2 = makeProcLedger({
+    fs, pathMod: path, file: fileK, clock,
+    probe: async () => new Map([[556, 'cmd.exe /c node owned-server.js']]),
+    killTree: async (pid) => killedK.push(pid)
+  });
+  const ks2 = await k2.sweep();
+  A.eq(ks2.killed, 1, 'the next boot retries and reaps the retained orphan');
+  A.eq(killedK, [556], 'the retry targets the original owned pid');
+  A.eq(JSON.parse(fs.readFileSync(fileK, 'utf8')).procs.length, 0, 'only a successful tree kill consumes the receipt');
+
+  // The real Windows adapter must surface taskkill rejection to sweep(); swallowing it would still erase the
+  // receipt while claiming a kill. This stays injected so the fast gate never kills a host process.
+  const winKill = _internals.makeKillTree((exe, args, opts, cb) => cb(new Error('taskkill denied')), true);
+  let winKillRejected = false;
+  try { await winKill(556); } catch (_) { winKillRejected = true; }
+  A.ok(winKillRejected, 'Windows taskkill rejection reaches the durable retry path');
+
   // ---- 5b. managed Windows fallback: CIM denial still pins/reaps exact identities; unpinned stays retained ----
   {
     const calls = [];

@@ -90,12 +90,15 @@
     });
   }
   function makeKillTree(execFile, isWin) {
-    return (pid) => new Promise((resolve) => {
+    return (pid) => new Promise((resolve, reject) => {
       if (isWin) {
-        execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, timeout: 15000 }, () => resolve());
+        execFile('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, timeout: 15000 }, (err) => err ? reject(err) : resolve());
       } else {
-        try { process.kill(-Number(pid), 'SIGKILL'); } catch (_) { try { process.kill(Number(pid), 'SIGKILL'); } catch (_) {} }
-        resolve();
+        try { process.kill(-Number(pid), 'SIGKILL'); resolve(); }
+        catch (_) {
+          try { process.kill(Number(pid), 'SIGKILL'); resolve(); }
+          catch (e) { reject(e); }
+        }
       }
     });
   }
@@ -215,7 +218,7 @@
     // force-killed. Only kills a PID whose live command line still matches the recorded command.
     async function sweep() {
       const entries = stale.slice();
-      const summary = { examined: entries.length, killed: 0, reused: 0, gone: 0, uncertain: 0, probeFailed: false };
+      const summary = { examined: entries.length, killed: 0, reused: 0, gone: 0, uncertain: 0, killFailed: 0, probeFailed: false };
       if (!entries.length) { save(); return summary; }
       let alive;
       try { alive = await probe(entries.map(r => r.pid)); }
@@ -244,7 +247,13 @@
           // record() happens after spawn, so even 1ms newer than startedAt is not our original child.
           if (created != null && Number(r.startedAt) > 0 && Number(created) > Number(r.startedAt)) { summary.reused++; continue; }
         }
-        try { await killTree(r.pid); summary.killed++; log('[proc-ledger] reaped orphan ' + r.kind + ' pid=' + r.pid + ' (' + String(r.cmd).slice(0, 80) + ')'); } catch (_) {}
+        try { await killTree(r.pid); summary.killed++; log('[proc-ledger] reaped orphan ' + r.kind + ' pid=' + r.pid + ' (' + String(r.cmd).slice(0, 80) + ')'); }
+        catch (e) {
+          // A failed kill proves the orphan was not reaped. Retain its ownership receipt so a later boot can
+          // retry instead of permanently forgetting the process after one transient taskkill/permission error.
+          summary.killFailed++; stale.push(r);
+          log('[proc-ledger] orphan reap failed — retained ' + r.kind + ' pid=' + r.pid + ' for retry (' + ((e && e.message) || e) + ')');
+        }
       }
       save();
       return summary;
