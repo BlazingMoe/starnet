@@ -7,7 +7,7 @@
      · a persisted DEAD marker -> GET /api/auth/<id>/status = { connected:false, expired:true, reason } —
        RESTART STAYS HONEST, connected NEVER reads true while known-dead.
      · no token material rides the status payload.
-     · POST /api/auth/<id>/logout clears everything -> { connected:false, expired:false } and the file is gone.
+     · POST /api/auth/<id>/logout clears everything -> { connected:false, expired:false } and restart stays disconnected.
      · a healthy envelope (no marker) still reads connected:true — the good path is untouched.
    Zero network beyond localhost; no model spend. */
 'use strict';
@@ -84,14 +84,26 @@ function seedTokens(ws, id, envelope) {
       A.eq(fs.existsSync(path.join(ws, id, 'tokens.json')), false, id + ': logout removed the token file');
     }
 
-    // ===== boot 2: a HEALTHY envelope (no marker) still reads connected — the good path is untouched =====
+    // ===== boot 2: logout survives a REAL sidecar restart — neither resilient copy can resurrect it =====
+    await kill(child);
+    ({ child, port } = await boot(port, env, 20));
+    B = 'http://' + HOST + ':' + port;
+    token = await bootToken(B, B);
+    let headers2 = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
+    for (const id of ['grok', 'kimi']) {
+      const s = await (await fetch(B + '/api/auth/' + id + '/status', { headers: headers2 })).json();
+      A.eq(s.connected, false, id + ': logout remains disconnected after a real sidecar restart');
+      A.eq(s.expired, false, id + ': restart cannot recover the old dead credential from .bak');
+    }
+
+    // ===== boot 3: a HEALTHY envelope (no marker) still reads connected — the good path is untouched =====
     await kill(child);
     seedTokens(ws, 'grok', { access_token: ACCESS, refresh_token: REFRESH, expires_at: 1900000000000, last_refresh: '2026-07-16T01:00:00.000Z' });
     seedTokens(ws, 'kimi', { access_token: ACCESS, refresh_token: REFRESH, expires_at: 1900000000000, last_refresh: '2026-07-16T01:00:00.000Z', device_id: 'kimi-dev-e2e' });
     ({ child, port } = await boot(port, env, 20));
     B = 'http://' + HOST + ':' + port;
     token = await bootToken(B, B);
-    const headers2 = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
+    headers2 = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
     for (const id of ['grok', 'kimi']) {
       const s = await (await fetch(B + '/api/auth/' + id + '/status', { headers: headers2 })).json();
       A.eq(s.connected, true, id + ': a healthy persisted sign-in still reads connected:true');

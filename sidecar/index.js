@@ -3550,10 +3550,18 @@ function saveOAuthTokens(id, obj) {
 }
 function clearOAuthTokens(id) {
   const entry = oauthProviders[id];
-  if (!entry) return;
-  try { fs.unlinkSync(entry.file); } catch (e) {}
-  try { fs.unlinkSync(entry.file + '.bak'); } catch (e) {}
+  if (!entry) return false;
+  const ok = saveCredentialRemovalVerified(entry.file, null, raw => raw === null, id);
+  if (!ok) {
+    entry.persistError = 'logout could not be persisted to disk';
+    return false;
+  }
+  // The durable copies are already credential-free. Removing them keeps the traditional absent-file shape;
+  // a failed unlink is safe because a restart can recover only the verified null value.
+  try { fs.unlinkSync(entry.file); } catch (_) {}
+  try { fs.unlinkSync(entry.file + '.bak'); } catch (_) {}
   entry.persistError = ''; entry.authDead = null;
+  return true;
 }
 // Hand a Grok/Kimi run a FRESH access token: refresh when the persisted expiry (or JWT exp) is inside the skew
 // window, persisting the rotated tokens. Mirrors ensureCodexAccessToken — a relogin-class refresh failure marks
@@ -18443,9 +18451,12 @@ async function handleOAuthModels(req, res, id) {
 
 // POST /api/auth/<id>/logout — forget the stored subscription credentials.
 function handleOAuthLogout(req, res, id) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const entry = oauthProviders[id];
-  if (entry) { entry.tokens = null; clearOAuthTokens(id); }
-  res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ connected: false }));
+  if (!entry) return json(404, { error: 'unknown provider' });
+  if (!clearOAuthTokens(id)) return json(500, { error: 'logout could not be persisted; credentials remain connected', code: 'oauth_logout_persist_failed' });
+  entry.tokens = null;
+  json(200, { connected: false });
 }
 
 /* ------------------------------- helpers ------------------------------- */
