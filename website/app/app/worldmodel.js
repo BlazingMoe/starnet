@@ -411,6 +411,37 @@ const WorldModel = (() => {
         { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
         { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
       ] },
+    /* the FRONT DESK with a hard ceiling: the INBOX stamps carrying a line budget ($5/day, $1/message)
+       so the line can NEVER spend more than it says on the card — the worry-free first line. */
+    { id: 'allowance_desk', grp: 'chain', label: 'ALLOWANCE DESK', w: 12, h: 2,
+      desc: 'INBOX ▸ BAY ▸ OUTBOX with a hard budget on the door — this line can never spend more than $5 a day or $1 a message; raise it on the INBOX when you trust it.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2, label: 'ALLOWANCE', limits: { maxUsdPerDay: 5, maxUsdPerMessage: 1 } },
+        { t: 'bay', x: 5, y: 0, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 10, y: 0, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'E' },
+        { x: 7, y: 1, d: 'E' }, { x: 8, y: 1, d: 'E' }, { x: 9, y: 1, d: 'E' },
+      ] },
+    /* TWO ENTRIES, ONE DESK: every INBOX is its own named line with its own budget — two doors
+       funneled through a MERGER means channel work and routine work share a crew but keep separate
+       names, budgets and logbooks. */
+    { id: 'two_doors', grp: 'chain', label: 'TWO DOORS', w: 14, h: 6,
+      desc: 'two INBOXes ▸ MERGER ▸ BAY ▸ OUTBOX — two entrances share one desk; each door is its own line with its own name and budget.',
+      props: [
+        { t: 'intake', x: 0, y: 0, w: 2, h: 2 },
+        { t: 'intake', x: 0, y: 4, w: 2, h: 2 },
+        { t: 'merger', x: 4, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 2, w: 2, h: 2, role: 'GENERALIST' },
+        { t: 'outbox', x: 12, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 1, d: 'E' }, { x: 3, y: 1, d: 'E' }, { x: 4, y: 1, d: 'S' }, { x: 4, y: 2, d: 'S' },
+        { x: 2, y: 5, d: 'E' }, { x: 3, y: 5, d: 'E' }, { x: 4, y: 5, d: 'N' }, { x: 4, y: 4, d: 'N' },
+        { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'E' }, { x: 6, y: 3, d: 'E' },
+        { x: 9, y: 3, d: 'E' }, { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' },
+      ] },
     { id: 'research_line', grp: 'chain', label: 'RESEARCH LINE', w: 17, h: 2,
       desc: 'INBOX ▸ BAY ▸ BAY ▸ OUTBOX — work rides in, two agents work it in turn (a hand-off chain), the result ships out.',
       props: [
@@ -541,6 +572,27 @@ const WorldModel = (() => {
         { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'CREW' },
         { t: 'bay', x: 7, y: 4, w: 2, h: 2, role: 'CREW' },
         { t: 'joiner', x: 10, y: 3, w: 1, h: 1, block: false },
+        { t: 'outbox', x: 13, y: 2, w: 2, h: 2 },
+      ],
+      belts: [
+        { x: 2, y: 3, d: 'E' }, { x: 3, y: 3, d: 'E' }, { x: 4, y: 3, d: 'E' }, { x: 5, y: 3, d: 'N' },
+        { x: 5, y: 2, d: 'N' }, { x: 5, y: 1, d: 'E' }, { x: 6, y: 1, d: 'E' },
+        { x: 5, y: 4, d: 'S' }, { x: 5, y: 5, d: 'E' }, { x: 6, y: 5, d: 'E' },
+        { x: 9, y: 1, d: 'E' }, { x: 10, y: 1, d: 'S' }, { x: 10, y: 2, d: 'S' },
+        { x: 9, y: 5, d: 'E' }, { x: 10, y: 5, d: 'N' }, { x: 10, y: 4, d: 'N' },
+        { x: 10, y: 3, d: 'E' }, { x: 11, y: 3, d: 'E' }, { x: 12, y: 3, d: 'E' },
+      ] },
+    /* ROUND-ROBIN WITH A SHIPPING DOOR: no joiner downstream, so the split alternates — each job
+       runs on ONE of the two docks (halved queue, not doubled spend) — and both docks' results
+       funnel through the MERGER to the same pallet. The high-volume inbox line. */
+    { id: 'load_balancer', grp: 'crew', label: 'LOAD BALANCER', w: 15, h: 6,
+      desc: 'INBOX ▸ SPLITTER ▸ two BAYs ▸ MERGER ▸ OUTBOX — each job runs on whichever desk is next (turn about, not both), and every result ships by the same door.',
+      props: [
+        { t: 'intake', x: 0, y: 2, w: 2, h: 2 },
+        { t: 'splitter', x: 5, y: 3, w: 1, h: 1, block: false },
+        { t: 'bay', x: 7, y: 0, w: 2, h: 2, role: 'CREW' },
+        { t: 'bay', x: 7, y: 4, w: 2, h: 2, role: 'CREW' },
+        { t: 'merger', x: 10, y: 3, w: 1, h: 1, block: false },
         { t: 'outbox', x: 13, y: 2, w: 2, h: 2 },
       ],
       belts: [
@@ -1602,6 +1654,14 @@ const WorldModel = (() => {
         const prop = { id: 'p' + (doc._nid++), t: s.t, x: tx + s.x, y: ty + s.y, w: s.w, h: s.h };
         if (s.block === false) prop.block = false;
         if (s.role && BAY_ROLES[s.role]) prop.role = s.role;   // guided workflows: the dock stamps carrying its ROLE (see BAY_ROLES)
+        /* an INBOX may stamp pre-labeled and pre-budgeted (ALLOWANCE DESK, 2026-08-30) — through the
+           SAME normalizer setPropLimits uses, so a blueprint can never write a number the executor
+           would read differently. Both fields already round-trip via migrate()'s prop whitelist. */
+        if (s.t === 'intake' && typeof s.label === 'string' && s.label.trim()) prop.label = s.label.trim().slice(0, 48);
+        if (s.t === 'intake' && s.limits) {
+          const nl = normalizeLimits(s.limits);
+          if (nl) prop.limits = { maxHops: nl.maxHops, maxUsdPerMessage: nl.maxUsdPerMessage, maxUsdPerDay: nl.maxUsdPerDay };
+        }
         applyJunctionCfg(prop, s);   // the FILTER's routes/def ride in pre-configured
         doc.props.push(prop);
         ids.push(prop.id);

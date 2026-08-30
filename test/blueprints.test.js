@@ -21,7 +21,8 @@ const IDS = WM.BLUEPRINTS.map(b => b.id);
 for (const want of ['front_desk', 'research_line', 'revision_loop', 'sorting_office', 'triage_desk',
                     'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out',
                     'assembly_line', 'code_foundry', 'gauntlet',
-                    'crucible', 'mission_control', 'deep_dive'])
+                    'crucible', 'mission_control', 'deep_dive',
+                    'allowance_desk', 'two_doors', 'load_balancer'])
   A.ok(IDS.indexOf(want) >= 0, 'blueprint catalog carries ' + want);
 A.eq(IDS.length, new Set(IDS).size, 'blueprint ids are unique');
 // THE LIBRARY: every blueprint names its section (build.js groups the shelf by grp — an unknown
@@ -266,6 +267,40 @@ function crewed(id) {
   A.eq(plan.chains.crew3.next.join(','), 'crew4', 'analyst hands to the writer');
   A.eq(plan.chains.crew4.next.join(','), 'crew5', 'writer hands to the reviewer');
 }
+/* ---- the useful trio (2026-08-30) compiles as the cards promise ---- */
+{
+  // ALLOWANCE DESK: the INBOX stamps pre-labeled and pre-budgeted, through the shared normalizer,
+  // and both survive the save round-trip (migrate whitelist)
+  const s = freshFloor();
+  A.ok(s.stampBlueprint('allowance_desk', AT.x, AT.y).ok, 'allowance_desk stamps');
+  const it = s.props().find(p => p.t === 'intake');
+  A.eq(it.label, 'ALLOWANCE', 'the door stamps named');
+  A.ok(it.limits && it.limits.maxUsdPerDay === 5 && it.limits.maxUsdPerMessage === 1,
+    'the door stamps with the $5/day + $1/message budget (got ' + JSON.stringify(it.limits) + ')');
+  A.eq(it.limits.maxHops, 6, 'unset budget fields take the executor defaults via the ONE normalizer');
+  const back = WM.deserialize(s.serialize()).props().find(p => p.t === 'intake');
+  A.ok(back.label === 'ALLOWANCE' && back.limits && back.limits.maxUsdPerDay === 5,
+    'name + budget survive the save round-trip');
+}
+{
+  // TWO DOORS: two intakes = two sources, funneled by a merger to one desk
+  const plan = crewed('two_doors');
+  A.eq(plan.sources.length, 2, 'TWO DOORS compiles two intake sources');
+  A.ok(Object.keys(plan.junctions).map(k => plan.junctions[k]).some(j => j.kind === 'merge'),
+    'and funnels them through a MERGER');
+  A.ok(plan.reach.crew0, 'both doors reach the one desk');
+}
+{
+  // LOAD BALANCER: a joiner-less split stays ROUND-ROBIN (each job runs on ONE desk), and both
+  // desks ship by the same door
+  const plan = crewed('load_balancer');
+  const js = Object.keys(plan.junctions).map(k => plan.junctions[k]);
+  const sp = js.find(j => j.kind === 'split');
+  A.ok(sp && !sp.fanout, 'the split is round-robin, NOT a fan-out (halved queue, not doubled spend)');
+  A.ok(js.some(j => j.kind === 'merge'), 'both desks funnel through the MERGER');
+  A.ok(plan.chains.crew0.outbox && plan.chains.crew1.outbox, 'both desks ship out by the one door');
+}
+
 /* every crewed line is FULLY energized — no belt on a working line may render frozen (the
    back-lane merge tile sat cold until liveTiles rode through the re-entry hookup, 2026-08-30) */
 for (const bp of WM.BLUEPRINTS) {

@@ -1072,12 +1072,15 @@ const Build = (() => {
     crucible: 'two review gates in series — approved, then approved again',
     mission_control: 'sorted three ways, worked in two stages, shipped by one door',
     deep_dive: 'a research swarm, one write-up, and a reviewer holding the door',
+    allowance_desk: 'a front desk that can never spend more than $5 a day',
+    two_doors: 'two entrances, one desk — each door keeps its own name & budget',
+    load_balancer: 'jobs alternate between two desks; one door ships it all',
   };
   /* the LIBRARY's sections — what a line is FOR, simplest family first. `id` matches the catalog's
      `grp` field on each blueprint (worldmodel.js); the render falls an unknown grp into the last
      section so a catalog entry can never vanish from the shelf. */
   const LINE_GROUPS = [
-    { id: 'chain', label: 'CHAINS', blurb: 'one agent after another — each stage builds on the last' },
+    { id: 'chain', label: 'THE BASICS', blurb: 'door to door — one desk, a budgeted desk, or a hand-off chain' },
     { id: 'sort', label: 'SORTERS', blurb: 'the right work to the right desk, read from the job itself' },
     { id: 'crew', label: 'CREWS', blurb: 'many agents on one stream — split the load, or run every take' },
     { id: 'gate', label: 'QUALITY GATES', blurb: 'a reviewer holds the door — nothing ships unapproved' },
