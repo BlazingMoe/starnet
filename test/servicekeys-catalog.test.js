@@ -112,4 +112,25 @@ for (const p of C.PLATFORMS) {
     'DuckDuckGo is not duplicated in KEYS because web_search already owns it');
 }
 
+// ---- F. wave-2 (2026-08-30): the unique-business directory — every apiBase live-probed that day ----
+{
+  const WAVE2 = ['supliful', 'fourthwall', 'shineon', 'spod', 'teemill', 'zazzle', 'gumroad',
+    'lemon-squeezy', 'cj-dropshipping', 'keepa', 'discogs', 'lob', 'lulu', 'duffel', 'porkbun',
+    'elevenlabs', 'heygen', 'bannerbear', 'shotstack', 'bland', 'vapi', 'deepl', 'transistor'];
+  for (const id of WAVE2) A.ok(!!C.byId(id), 'wave-2 row present [' + id + ']');
+  // quirky-auth rows must explain the shape in `note` INSTEAD of carrying a header hint they can't honor
+  for (const id of ['keepa', 'porkbun', 'lob', 'lulu', 'zazzle', 'gumroad', 'cj-dropshipping', 'bland']) {
+    const p = C.byId(id);
+    A.ok(!p.authHint, id + ' has no header hint (its auth is not a simple header)');
+    A.ok(!!p.note, id + ' explains its auth shape in note');
+  }
+  // DeepL's header shape came verbatim from the API's own 403 error — lock it
+  A.ok(/^Authorization: DeepL-Auth-Key /.test(C.byId('deepl').authHint || ''), 'DeepL carries its API-verified auth header');
+  // real-world-consequence rows must warn (mail prints, phones dial, flights book)
+  for (const id of ['lob', 'duffel', 'bland', 'vapi']) {
+    A.ok(/test|sandbox|own number/i.test(C.byId(id).note || ''), id + ' warns about real-world side effects / points at test mode');
+  }
+  A.ok(C.CATEGORY_ORDER.indexOf('Physical World') >= 0, 'Physical World category is declared in the order');
+}
+
 A.report('servicekeys-catalog.test.js');
