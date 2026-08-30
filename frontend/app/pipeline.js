@@ -35,15 +35,21 @@
     for (const d of LANE_ORDER) { const v = DIRV[d], nb = map[key(x + v[0], y + v[1])]; if (nb && nb === OPP[d]) lanes.push(d); }
     return lanes;
   }
-  /* a LOOP gate's two exits (2026-08-21): `done` = the lane the crate leaves on when its iteration count is
-     spent (configured, else the FIRST out-lane), `back` = the other lane, which re-enters the line upstream.
-     Static analysis (cycle detection, reachability, chains) follows ONLY `done` — the back edge is the one
-     legal way round, and it is bounded at run time by the iteration cap, never by the belt graph. */
+  /* a LOOP gate's exits (2026-08-21; esc 2026-08-30): `done` = the lane the crate leaves on when the verdict
+     passes or the cap is reached (configured, else the FIRST out-lane), `back` = the lane that re-enters the
+     line upstream, and `esc` = the ESCALATION lane — where a crate goes when its passes are EXHAUSTED while
+     the verdict still says revise. esc is the gate's THIRD out-lane (wire one and it IS the fire escape; a
+     two-lane gate has none) or a configured `esc` dir; back stays the first non-done lane so every existing
+     two-lane floor reads exactly as before. Static analysis (cycle detection, reachability, chains) follows
+     `done` and `esc` — both head downstream; only the back edge is the one legal way round. */
   function loopLanes(map, x, y, cfg) {
     const lanes = outLanes(map, x, y);
     const done = (cfg && cfg.done && lanes.indexOf(cfg.done) >= 0) ? cfg.done : (lanes[0] || null);
-    const back = lanes.find(d => d !== done) || null;
-    return { done, back, lanes };
+    const rest = lanes.filter(d => d !== done);
+    let esc = (cfg && cfg.esc && rest.indexOf(cfg.esc) >= 0) ? cfg.esc : null;
+    const back = rest.find(d => d !== esc) || null;
+    if (!esc) esc = rest.find(d => d !== back) || null;   // unconfigured: the third wired lane is the escape
+    return { done, back, esc, lanes };
   }
   // the first belt tile on/adjacent to a footprint (its tiles + a 1-tile ring) — a prop's connection point
   function beltTileNear(map, tx, ty, tw, th) {
@@ -95,7 +101,8 @@
     if (!map[key(t.x, t.y)]) return [];
     const jc = junctions[key(t.x, t.y)];
     // a LOOP gate's back lane is NOT a static edge (see loopLanes) — only the done lane counts here
-    const dirs = (jc && jc.kind === 'loop') ? [loopLanes(map, t.x, t.y, jc).done].filter(Boolean) : jc ? outLanes(map, t.x, t.y) : [map[key(t.x, t.y)]];
+    const ll0 = (jc && jc.kind === 'loop') ? loopLanes(map, t.x, t.y, jc) : null;
+    const dirs = ll0 ? [ll0.done, ll0.esc].filter(Boolean) : jc ? outLanes(map, t.x, t.y) : [map[key(t.x, t.y)]];
     const out = [];
     for (const d of dirs) { const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1]; if (map[key(nx, ny)]) out.push({ x: nx, y: ny }); }
     return out;
@@ -129,7 +136,7 @@
   function compileRoutingPlan(geo) {
     const props = (geo && geo.props) || [];
     const map = buildBeltMap(geo && geo.belts);
-    const errors = [], sources = [], bays = [], junctions = {}, bayTileToAgent = {};
+    const errors = [], sources = [], bays = [], junctions = {}, bayTileToAgent = {}, escExplicit = {};
 
     for (const p of props) {
       if (p.t === 'intake') {
@@ -172,8 +179,10 @@
         if (kind === 'loop') {
           const mx = +p.maxIter;
           cfg.max = (isFinite(mx) && mx >= 1) ? Math.min(LOOP_MAX_CEILING, Math.floor(mx)) : LOOP_MAX_DEFAULT;
-          const ll = loopLanes(map, t.x, t.y, { done: p.done || null });
+          const ll = loopLanes(map, t.x, t.y, { done: p.done || null, esc: p.esc || null });
           cfg.done = ll.done; cfg.back = ll.back;
+          if (ll.esc) cfg.esc = ll.esc;   // the ESCALATION lane (2026-08-30): exhausted crates leave here
+          if (p.esc && ll.esc === p.esc) escExplicit[key(t.x, t.y)] = true;   // configured: never re-guessed
           // optional verdict tag: re-enter ONLY when the output's tag matches (else every pass loops until max)
           if (typeof p.when === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(p.when)) cfg.when = p.when;
           // LOOP_NO_DONE (rule fixed 2026-08-22): an UNSET `done` takes the compiler's own default — the first
@@ -289,6 +298,48 @@
       for (const ht of tiles) bayTileToAgent[key(ht.x, ht.y)] = p.agentId;
     }
 
+    /* BACK vs ESC on a THREE-LANE gate (2026-08-30): lane order can't tell them apart — S sorts before N,
+       so a gate whose escape happened to point south would have claimed the escape as its BACK lane and
+       turned the real back wire into a static edge (instant CHAIN_CYCLE). Physics decides instead: THE
+       BACK LANE IS THE ONE THAT COMES BACK — walk each candidate to its first dock, then ask whether that
+       dock's outbound flow returns to this gate. Exactly one candidate should; when the guess has it
+       backwards, swap. A configured `esc` is never re-guessed; ties keep the deterministic guess. */
+    {
+      const bayByAgent = {}; for (const b of bays) bayByAgent[b.agentId] = b;
+      const laneDock = (jk, dir) => {
+        const p0 = jk.split(','), v = DIRV[dir]; let t = { x: +p0[0] + v[0], y: +p0[1] + v[1] };
+        const seen = {}; let guard = 0;
+        while (t && map[key(t.x, t.y)] && guard++ < 4096 && !seen[key(t.x, t.y)]) {
+          const k2 = key(t.x, t.y); seen[k2] = true;
+          if (bayTileToAgent[k2]) return bayTileToAgent[k2];
+          const nts = nextTiles(map, junctions, t); t = nts[0] || null;
+        }
+        return null;
+      };
+      const dockReaches = (agentId, gateK) => {
+        /* BFS along flow, HOPPING THROUGH DOCKS: a lane physically sinks at the dock it feeds and the
+           work re-emerges on that dock's other hookups — so hitting any dock's hookup enqueues all of
+           that dock's ring tiles. Without the hop, drafter→reviewer→gate read as "never returns". */
+        const b = bayByAgent[agentId]; if (!b) return false;
+        const seen = {}, q = (b.tiles || []).slice(); let guard = 0;
+        while (q.length && guard++ < 8192) {
+          const t = q.shift(), k2 = t && key(t.x, t.y);
+          if (!t || !map[k2] || seen[k2]) continue; seen[k2] = true;
+          if (k2 === gateK) return true;
+          const owner = bayTileToAgent[k2];
+          if (owner && owner !== agentId) { const ob = bayByAgent[owner]; if (ob) for (const ot of (ob.tiles || [])) q.push(ot); }
+          for (const nt of nextTiles(map, junctions, t)) { q.push(nt); break; }   // single-path forward, first lane
+        }
+        return false;
+      };
+      for (const jk in junctions) {
+        const jc = junctions[jk];
+        if (jc.kind !== 'loop' || !jc.esc || escExplicit[jk]) continue;
+        const bD = laneDock(jk, jc.back), eD = laneDock(jk, jc.esc);
+        const bR = bD ? dockReaches(bD, jk) : false, eR = eD ? dockReaches(eD, jk) : false;
+        if (!bR && eR) { const tmp = jc.back; jc.back = jc.esc; jc.esc = tmp; }
+      }
+    }
     // LOOP backTo: the first DOCK the back lane reaches (the stage the crate re-enters at). Pre-cycle so the
     // back edge is resolved on the same pass that cuts it from static flow (nextTiles).
     for (const jk in junctions) {
@@ -305,6 +356,21 @@
         const nts = nextTiles(map, junctions, t); t = nts[0] || null;
       }
       if (!jc.backTo && !uncrewed) errors.push({ code: 'LOOP_NO_BACK', tile: { x: jx, y: jy }, warn: true });
+    }
+    /* LOOP escTo (2026-08-30) — the first dock the ESCALATION lane reaches, resolved exactly like backTo
+       so the runner escalates by name instead of walking at run time. An esc lane to an OUTBOX resolves
+       null: exhausted work then ships out on the esc lane (still honest — the crate leaves marked). */
+    for (const jk in junctions) {
+      const jc = junctions[jk];
+      if (jc.kind !== 'loop' || !jc.esc) continue;
+      const p0 = jk.split(','), jx = +p0[0], jy = +p0[1];
+      const v = DIRV[jc.esc]; let t = { x: jx + v[0], y: jy + v[1] }, guard = 0; const seen = {};
+      jc.escTo = null;
+      while (t && map[key(t.x, t.y)] && guard++ < 4096 && !seen[key(t.x, t.y)]) {
+        const k2 = key(t.x, t.y); seen[k2] = true;
+        if (bayTileToAgent[k2]) { jc.escTo = bayTileToAgent[k2]; break; }
+        const nts = nextTiles(map, junctions, t); t = nts[0] || null;
+      }
     }
     const cyc = detectCycle(map, junctions);
     if (cyc) errors.push({ code: 'CYCLE', tile: cyc });
@@ -363,6 +429,8 @@
     }
     const chainFed = {};
     for (const a in plan.chains) for (const n of plan.chains[a].next) chainFed[n] = true;
+    // an ESCALATION dock is fed by its gate, not by a door — it must never be shamed BAY_NOT_FED
+    for (const jk in junctions) { const jc = junctions[jk]; if (jc.kind === 'loop' && jc.escTo) chainFed[jc.escTo] = true; }
 
     // a HOOKED bay whose belt serves NO direction — no intake feeds it, no UPSTREAM DOCK hands off to it, and
     // no outbox receives from it — is a belt to nowhere. A warning, never a blocker (dispatch can't route to it
@@ -644,7 +712,9 @@
         } else if (j && j.kind === 'loop') {
           const ll = loopLanes(map, t.x, t.y, j), vd = ll.done ? DIRV[ll.done] : null;
           const nt = vd ? { x: t.x + vd[0], y: t.y + vd[1] } : null;
-          return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: j.backTo || null, when: j.when || null, next: (nt && map[key(nt.x, nt.y)]) ? walkAgent(walk(nt)) : null };
+          // esc (2026-08-30): the dock the ESCALATION lane reaches (pre-resolved at compile like backTo) —
+          // the runner sends a verdict-exhausted crate THERE instead of annotating it onto the done lane
+          return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: j.backTo || null, when: j.when || null, esc: j.escTo || null, next: (nt && map[key(nt.x, nt.y)]) ? walkAgent(walk(nt)) : null };
         } else if (j && j.kind === 'split' && j.fanout) {
           /* a lane may lead to an INNER fan-out split (a cascade — how a floor goes wider than 3
              branches): its walk returns { branches }, and dropping that on the floor lost every dock
@@ -752,6 +822,14 @@
       if (!j || j.kind !== 'loop' || !j.back || !out[jk]) continue;
       const p = jk.split(','), v = DIRV[j.back];
       segment([{ x: +p[0] + v[0], y: +p[1] + v[1] }], false, bayTiles);
+    }
+    /* …and its ESCALATION lane (2026-08-30): a live gate's esc lane carries real exhausted crates to a
+       dock (or the outbox), so it energizes on the same condition as the back lane. */
+    for (const jk in junctions) {
+      const j = junctions[jk];
+      if (!j || j.kind !== 'loop' || !j.esc || !out[jk]) continue;
+      const p = jk.split(','), v = DIRV[j.esc];
+      segment([{ x: +p[0] + v[0], y: +p[1] + v[1] }], false, bayTiles.concat(outTiles));
     }
     return out;
   }

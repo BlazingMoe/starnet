@@ -1075,6 +1075,7 @@ const Build = (() => {
     allowance_desk: 'a front desk that can never spend more than $5 a day',
     two_doors: 'two entrances, one desk — each door keeps its own name & budget',
     load_balancer: 'jobs alternate between two desks; one door ships it all',
+    fire_escape: 'a third lane on the gate — out-of-passes work drops to a fixer',
   };
   /* the LIBRARY's sections — what a line is FOR, simplest family first. `id` matches the catalog's
      `grp` field on each blueprint (worldmodel.js); the render falls an unknown grp into the last

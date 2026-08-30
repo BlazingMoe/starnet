@@ -22,7 +22,7 @@ for (const want of ['front_desk', 'research_line', 'revision_loop', 'sorting_off
                     'parallel_crew', 'swarm_synthesis', 'second_opinion', 'ship_out',
                     'assembly_line', 'code_foundry', 'gauntlet',
                     'crucible', 'mission_control', 'deep_dive',
-                    'allowance_desk', 'two_doors', 'load_balancer'])
+                    'allowance_desk', 'two_doors', 'load_balancer', 'fire_escape'])
   A.ok(IDS.indexOf(want) >= 0, 'blueprint catalog carries ' + want);
 A.eq(IDS.length, new Set(IDS).size, 'blueprint ids are unique');
 // THE LIBRARY: every blueprint names its section (build.js groups the shelf by grp — an unknown
@@ -299,6 +299,18 @@ function crewed(id) {
   A.ok(sp && !sp.fanout, 'the split is round-robin, NOT a fan-out (halved queue, not doubled spend)');
   A.ok(js.some(j => j.kind === 'merge'), 'both desks funnel through the MERGER');
   A.ok(plan.chains.crew0.outbox && plan.chains.crew1.outbox, 'both desks ship out by the one door');
+}
+
+{
+  // FIRE ESCAPE: the gate compiles all THREE lanes, the fixer is fed by its gate (never BAY_NOT_FED),
+  // and the escalation dock ships out on its own lane
+  const plan = crewed('fire_escape');
+  const g = Object.keys(plan.junctions).map(k => plan.junctions[k]).find(j => j.kind === 'loop');
+  A.ok(g && g.done === 'E' && g.back === 'N' && g.esc === 'S', 'the gate carries done + back + escalation lanes');
+  A.eq(g.when, 'approved', 'verdict-gated'); A.eq(g.backTo, 'crew0', 'back re-enters the drafter');
+  A.eq(g.escTo, 'crew2', 'the escalation lane resolves to the FIXER');
+  A.ok(!plan.errors.length, 'the crewed FIRE ESCAPE has zero errors (got: ' + plan.errors.map(e => e.code).join(',') + ')');
+  A.ok(plan.chains.crew2.outbox, 'the fixer ships out by the same door');
 }
 
 /* every crewed line is FULLY energized — no belt on a working line may render frozen (the
