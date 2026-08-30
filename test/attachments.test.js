@@ -30,6 +30,17 @@ const PNG_URL = 'data:image/png;base64,' + PNG_B64;
     const onDisk = await fsp.readFile(abs);
     A.eq(onDisk.toString('base64'), PNG_B64, 'the exact image bytes landed on disk');
 
+    const lostRenameFsp = new Proxy(fsp, { get(target, prop) {
+      if (prop === 'rename') return async from => { await target.rm(from, { force: true }); };
+      const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const lostRename = require('../sidecar/attachments.js')({
+      fsp: lostRenameFsp, path, crypto,
+      resolveInside: (aid, rel) => fsJail.resolveInside(aid, rel)
+    });
+    const missingAfterReplace = await lostRename.saveAttachment('agent', 'lost.png', PNG_URL);
+    A.eq(missingAfterReplace.ok, false, 'an attachment is not reported saved until the renamed bytes read back exactly');
+
     // B. save a text file -> kind:file, extension preserved from the name.
     const txt = await attachments.saveAttachment('agent', 'notes.md', 'data:text/markdown;base64,' + Buffer.from('# hi\nbody', 'utf8').toString('base64'));
     A.ok(txt.ok && txt.kind === 'file', 'markdown -> kind file');
