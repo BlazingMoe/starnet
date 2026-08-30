@@ -264,12 +264,18 @@ function makeLspManager(deps) {
     async start() {
       if (this.started) return this.started;
       this.started = (async () => {
-        const child = spawn(this.command, this.descriptor.args, {
-          cwd: this.projectRoot,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          windowsHide: true,
-          env: safeChildEnv(env)
-        });
+        let child;
+        try {
+          child = spawn(this.command, this.descriptor.args, {
+            cwd: this.projectRoot,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+            env: safeChildEnv(env)
+          });
+        } catch (e) {
+          this.fail(e);
+          throw e;
+        }
         this.child = child;
         if (ledger && child && Number(child.pid) > 0) {
           try {
