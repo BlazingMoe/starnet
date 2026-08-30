@@ -254,7 +254,7 @@ const CommanderContext = require('./commander-context.js');    // bounded proven
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
 const AuxGovernor = require('./auxgovernor.js');              // aux-budget lane: PURE joint ceiling over the post-run aux passes (priority + budget)
 const DeclinedIndex = require('./declinedindex.js');         // flagship cross-wire (NS-8 lite): read-side shared declined index — a decline ANYWHERE suppresses a re-propose EVERYWHERE
-const { tailLines, loadBounded, rotateIfLarge } = require('./logbound.js'); // P3: bounded boot-load + size rotation for the append-only JSONL logs
+const { tailLines, loadBounded, rotateIfLarge, appendJsonlDurable } = require('./logbound.js'); // P3: bounded boot-load + size rotation for the append-only JSONL logs
 const { makeCronLock } = require('./cron-lock.js');         // G4.3: cross-process exactly-once advisory lock (O_EXCL+pid:nonce+stale-break)
 const { withDossier } = require('./dossierinject.js');     // Phase C: fold the Commander dossier into server-composed (cron) personas
 const skillsCatalog = require('./skills/catalog.js');      // bundled capability-gated recipe library (parse/load/gate/compose)
@@ -823,11 +823,8 @@ const ledgerIo = {
   append(entry) {
     // open(O_APPEND) -> write -> fsync -> close, all fail-open: a persistence error must never crash the run
     // (the in-memory ledger mirror still answers for this process's lifetime).
-    let fd = null;
     try {
-      fd = fs.openSync(LEDGER_FILE, 'a');
-      fs.writeSync(fd, JSON.stringify(entry) + '\n');
-      fs.fsyncSync(fd);
+      appendJsonlDurable({ fs: fs, note: failNote }, LEDGER_FILE, entry);
       ledgerAppendFails = 0;   // a successful append clears the streak (transient blips don't accumulate)
     } catch (e) {
       console.warn('[ledger] append failed:', (e && e.message) || e);
@@ -839,7 +836,6 @@ const ledgerIo = {
         try { recordDiagError('ledger append failing (' + ledgerAppendFails + ' consecutive): spend is recorded in memory but not persisting to disk — restart would lose it. ' + ((e && e.message) || e)); } catch (_) {}
       }
     }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(LEDGER_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -994,10 +990,8 @@ const runsIo = {
     try { return readBoundedJsonl(RUNS_FILE); } catch (e) { return []; }   // P3: bounded boot-load
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(RUNS_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
+    try { appendJsonlDurable({ fs: fs, note: failNote }, RUNS_FILE, entry); }
     catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(RUNS_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -1036,10 +1030,8 @@ const autonomyLedgerIo = {
     try { return readBoundedJsonl(AUTONOMY_LEDGER_FILE); } catch (e) { return []; }   // bounded boot-load
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(AUTONOMY_LEDGER_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
+    try { appendJsonlDurable({ fs: fs, note: failNote }, AUTONOMY_LEDGER_FILE, entry); }
     catch (e) { console.warn('[autonomy-ledger] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(AUTONOMY_LEDGER_FILE);   // roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
