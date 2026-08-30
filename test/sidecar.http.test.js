@@ -419,6 +419,97 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
       }
     }
 
+    // ---- managed credits: LINKED-BUT-UNFUNDED STATION STILL WAKES ON ITS OWN KEY (issue #6) ------
+    // A station device-linked to a $0 StarNet account picks a BYOK provider (own Gemini/OpenAI/custom
+    // key). That run spends the user's vendor money, not managed credit — admission must pass it
+    // through byok (no reservation, no debit/credit against the wallet) while a 'starnet' relay run
+    // on the same $0 wallet is still honestly refused. Before the fix, the BYOK wake looped forever
+    // on "Out of managed credit" with a valid key in hand.
+    {
+      const cloudCalls = [];
+      const readReq = rq => new Promise(resolve => { let s = ''; rq.on('data', c => { s += c; }); rq.on('end', () => resolve(s)); });
+      const cloud = http.createServer(async (rq, rs) => {
+        const raw = await readReq(rq);
+        let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (_) {}
+        const u = new URL(String(rq.url || '/'), 'http://cloud.local');
+        cloudCalls.push({ path: u.pathname, account: u.searchParams.get('account') || body.account || '' });
+        const json = (code, value) => { rs.writeHead(code, { 'Content-Type': 'application/json' }); rs.end(JSON.stringify(value)); };
+        if (u.pathname === '/v1/balance') return json(200, { balanceUsd: 0 });
+        if (u.pathname === '/v1/history') return json(200, { entries: [] });
+        if (u.pathname === '/v1/debit' || u.pathname === '/v1/credit') return json(200, { ok: true, balanceUsd: 0 });
+        return json(404, {});
+      });
+      await new Promise(r => cloud.listen(0, HOST, r));
+      const cloudUrl = 'http://' + HOST + ':' + cloud.address().port;
+      // the user's OWN model endpoint (BYOK 'custom' provider): OpenAI-compatible SSE stream
+      const vendorCalls = [];
+      const vendor = http.createServer(async (rq, rs) => {
+        await readReq(rq);
+        const u = new URL(String(rq.url || '/'), 'http://vendor.local');
+        vendorCalls.push({ path: u.pathname, auth: String(rq.headers.authorization || '') });
+        if (u.pathname === '/v1/chat/completions') {
+          rs.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          rs.write('data: ' + JSON.stringify({ choices: [{ delta: { content: 'OK' } }] }) + '\n\n');
+          rs.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) + '\n\n');
+          rs.end('data: [DONE]\n\n');
+          return;
+        }
+        rs.writeHead(404, { 'Content-Type': 'application/json' }); rs.end('{}');
+      });
+      await new Promise(r => vendor.listen(0, HOST, r));
+      const vendorUrl = 'http://' + HOST + ':' + vendor.address().port;
+      const zeroWs = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-credits-byok-zero-'));
+      fs.mkdirSync(path.join(zeroWs, '.secrets'), { recursive: true });
+      fs.writeFileSync(path.join(zeroWs, '.secrets', 'credits.json'), JSON.stringify({
+        url: cloudUrl, accountId: 'acct_zero', linkedAt: now - 1000
+      }));
+      const zb = await boot(port + 122, zeroWs, 20, {
+        STARNET_CLOUD_URL: cloudUrl,
+        STARNET_CREDITS_TOKEN: 'snd_zero',
+        STARNET_FULL_ACCESS: '1'
+      });
+      const ZB = 'http://' + HOST + ':' + zb.port;
+      try {
+        const ztok = await bootToken(ZB, ZB);
+        const zh = { 'Content-Type': 'application/json', 'X-StarNet-Token': ztok, Origin: ZB };
+        const request = async (method, p, value) => {
+          const rr = await fetch(ZB + p, { method, headers: zh, body: value == null ? undefined : JSON.stringify(value) });
+          const text = await rr.text(); let parsed = null; try { parsed = JSON.parse(text); } catch (_) {}
+          return { status: rr.status, body: parsed, text };
+        };
+        const broke = await request('GET', '/api/credits?history=0');
+        A.eq(broke.body.balanceUsd, 0, 'precondition: the station is linked and the wallet is authoritatively $0');
+
+        const byok = await request('POST', '/api/run', {
+          provider: 'custom', baseUrl: vendorUrl + '/v1', key: 'byok-own-key',
+          model: 'local/proven-model', agentId: 'byok-wake', internal: true,
+          messages: [{ role: 'user', content: 'Reply with exactly: OK' }]
+        });
+        A.eq(byok.status, 200, 'BYOK WAKE on a linked $0 station enters the real streaming run route');
+        A.ok(byok.text.indexOf('Out of managed credit') < 0, 'BYOK run is never refused for an empty StarNet wallet (issue #6)');
+        A.ok(byok.text.indexOf('agent.token') >= 0, 'BYOK run reaches the user\'s own model endpoint and streams its reply');
+        A.ok(vendorCalls.some(c => c.path === '/v1/chat/completions' && c.auth === 'Bearer byok-own-key'),
+          'the BYOK run authenticated to the USER\'s endpoint with the user\'s key');
+        A.ok(!cloudCalls.some(c => c.path === '/v1/debit' || c.path === '/v1/credit'),
+          'a BYOK run never reserves or settles against the managed wallet (no debit/credit)');
+
+        const relay = await request('POST', '/api/run', {
+          provider: 'starnet', model: 'test/model', agentId: 'relay-wake', internal: true,
+          messages: [{ role: 'user', content: 'Reply with exactly: OK' }]
+        });
+        A.ok(relay.text.indexOf('Out of managed credit') >= 0,
+          'a starnet-relay run on the same $0 wallet is still honestly refused before any model call');
+      } finally {
+        try { zb.child.kill(); } catch (_) {}
+        for (const srv of [cloud, vendor]) {
+          try { if (srv.closeAllConnections) srv.closeAllConnections(); } catch (_) {}
+          await new Promise(r => { let done = false; const fin = () => { if (!done) { done = true; r(); } }; try { srv.close(fin); } catch (_) { fin(); } setTimeout(fin, 1000); });
+        }
+        await sleep(150);
+        try { fs.rmSync(zeroWs, { recursive: true, force: true }); } catch (_) {}
+      }
+    }
+
     // ---- provider registry/catalog routes: dynamic provider surface boots and remains token-gated ----
     const providersNoTok = await fetch(B + '/api/providers');
     A.eq(providersNoTok.status, 403, 'GET /api/providers WITHOUT a token -> 403');
