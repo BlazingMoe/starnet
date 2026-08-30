@@ -646,8 +646,17 @@
           const nt = vd ? { x: t.x + vd[0], y: t.y + vd[1] } : null;
           return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: j.backTo || null, when: j.when || null, next: (nt && map[key(nt.x, nt.y)]) ? walkAgent(walk(nt)) : null };
         } else if (j && j.kind === 'split' && j.fanout) {
+          /* a lane may lead to an INNER fan-out split (a cascade — how a floor goes wider than 3
+             branches): its walk returns { branches }, and dropping that on the floor lost every dock
+             behind it (the joiner then waited on branches nobody launched, 2026-08-30). Splice the
+             inner split's branches in — recursion handles any depth. */
           const lanes = outLanes(map, t.x, t.y), branches = [];
-          for (const ld of lanes) { const v = DIRV[ld], nt = { x: t.x + v[0], y: t.y + v[1] }; if (!map[key(nt.x, nt.y)]) continue; const r = walk(nt); if (r && r.agentId && branches.indexOf(r.agentId) < 0) branches.push(r.agentId); }
+          for (const ld of lanes) {
+            const v = DIRV[ld], nt = { x: t.x + v[0], y: t.y + v[1] }; if (!map[key(nt.x, nt.y)]) continue;
+            const r = walk(nt);
+            if (r && r.branches) { for (const a of r.branches) if (branches.indexOf(a) < 0) branches.push(a); }
+            else if (r && r.agentId && branches.indexOf(r.agentId) < 0) branches.push(r.agentId);
+          }
           return { branches, split: k };
         } else if (j && j.kind === 'filter') {
           const lanes = outLanes(map, t.x, t.y), want = j.routes && j.routes[tag];
@@ -928,23 +937,35 @@
   function fanSiblings(plan, agentId) {
     if (!plan || !plan.belts || !plan.junctions || !agentId) return [];
     const map = plan.belts, junctions = plan.junctions, bayAt = plan.bayTileToAgent || {};
-    function firstDock(start) {
-      const seen = {}; let t = start, guard = 0;
-      while (t && map[key(t.x, t.y)] && guard++ < 4096) {
-        const k = key(t.x, t.y); if (seen[k]) return null; seen[k] = true;
-        if (bayAt[k]) return bayAt[k];
-        const nts = nextTiles(map, junctions, t); if (nts.length !== 1 && !(junctions[k] && junctions[k].kind === 'split')) { if (!nts.length) return null; }
-        t = nts[0] || null;
+    /* every first dock this split's crates are PROMISED to reach. Fans through nested FAN-OUT splits
+       (a cascaded split is how a floor goes wider than 3 branches — the old single-path walk saw one
+       dock per lane and the runner silently never launched the rest, so the joiner sat on a partial
+       until timeout, 2026-08-30). A plain split or filter mid-lane keeps the old first-lane reading:
+       a load-balancer's pick is a run-time decision, not a promise of extra branches. */
+    function fanDocks(start) {
+      const out = [], seen = {}, q = [start]; let guard = 0;
+      while (q.length && guard++ < 4096) {
+        const t = q.shift(), k = t && key(t.x, t.y);
+        if (!t || !map[k] || seen[k]) continue; seen[k] = true;
+        if (bayAt[k]) { if (out.indexOf(bayAt[k]) < 0) out.push(bayAt[k]); continue; }   // each path ends at its FIRST dock
+        const j = junctions[k], nts = nextTiles(map, junctions, t);
+        if (j && j.kind === 'split' && j.fanout) { for (const nt of nts) q.push(nt); continue; }
+        if (nts.length) q.push(nts[0]);
       }
-      return null;
+      return out;
     }
+    /* a dock inside a CASCADE belongs to every fan-out group that reaches it (the inner split's group
+       and the outer's); its siblings are the UNION minus itself, so whichever dock the entry dispatcher
+       picked, every other promised branch still runs. */
+    const res = [];
     for (const jk in junctions) {
       const j = junctions[jk]; if (j.kind !== 'split' || !j.fanout) continue;
-      const p = jk.split(','), x = +p[0], y = +p[1], docks = [];
-      for (const d of outLanes(map, x, y)) { const v = DIRV[d], a = firstDock({ x: x + v[0], y: y + v[1] }); if (a && docks.indexOf(a) < 0) docks.push(a); }
-      if (docks.indexOf(agentId) >= 0) return docks.filter(a => a !== agentId).sort();
+      const p = jk.split(',');
+      const docks = fanDocks({ x: +p[0], y: +p[1] });
+      if (docks.indexOf(agentId) < 0) continue;
+      for (const a of docks) if (a !== agentId && res.indexOf(a) < 0) res.push(a);
     }
-    return [];
+    return res.sort();
   }
 
   /* joinPayload(parts, missing) -> the ONE merged crate a JOINER releases. `parts` = [{ agentId, text }] in
