@@ -66,8 +66,13 @@ function makeOutputArtifacts(deps) {
       let readFd = null;
       try {
         readFd = fs.openSync(chosen.abs, 'r');
-        const read = fs.readSync(readFd, verify, 0, verify.length, total - bytes.length);
-        if (read !== bytes.length || !verify.equals(bytes)) throw new Error('output append read-back mismatch');
+        let offset = 0;
+        while (offset < verify.length) {
+          const read = fs.readSync(readFd, verify, offset, verify.length - offset, total - bytes.length + offset);
+          if (!Number.isInteger(read) || read <= 0 || read > verify.length - offset) throw new Error('output append read-back mismatch');
+          offset += read;
+        }
+        if (!verify.equals(bytes)) throw new Error('output append read-back mismatch');
       } finally { if (readFd != null) try { fs.closeSync(readFd); } catch (_) {} }
     }
     return { path: chosen.rel, bytes: total };

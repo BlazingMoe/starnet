@@ -43,6 +43,15 @@ const { makeOutputArtifacts } = require('../sidecar/output-artifacts.js');
     } });
     const shortStore = makeOutputArtifacts({ fsp, fs: shortFs, pathMod: path, root, crypto });
     A.throws(() => shortStore.append({ agentId: 'a1', kind: 'terminal', id: 'short', text: 'lost' }), 'zero-progress output append fails instead of claiming durable bytes');
+
+    const shortReadFs = new Proxy(fs, { get(target, prop) {
+      if (prop === 'readSync') return (fd, buffer, offset, length, position) => target.readSync(fd, buffer, offset, Math.min(2, length), position);
+      const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const shortReadStore = makeOutputArtifacts({ fsp, fs: shortReadFs, pathMod: path, root, crypto });
+    const shortRead = shortReadStore.append({ agentId: 'a1', kind: 'terminal', id: 'short-read', text: 'durable-bytes' });
+    A.eq(await fsp.readFile(path.join(root, 'a1', shortRead.path), 'utf8'), 'durable-bytes', 'short read-back calls are completed before durable append is claimed');
+
     A.throws(() => store.append({ agentId: '../escape', kind: 'x', id: 'y', text: 'z' }), 'artifact paths cannot escape the agent workspace');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
   A.report('output-artifacts.test');
