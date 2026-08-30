@@ -206,6 +206,7 @@ const Autonomy = require('../frontend/app/autonomy.js');   // NS-1: the pure pos
 const Interests = require('./interests.js');               // SCOUT lane 1: pure topic-interest engine (EWMA histogram + evidence-grounded extraction)
 const Scout = require('./scout.js');                        // SCOUT lane 2: pure drafting gates + recipe parse + the honest mint ledger
 const Discovery = require('./discovery.js');                // ENVIRONMENT DISCOVERY: blessed-root scan findings with verbatim citations (pure half)
+const Outcomes = require('./outcomes.js');                  // OUTCOME LEARNING: the run history folded into a support-gated track record (pure)
 const ProspectGen = require('../frontend/app/prospect.js'); // SCOUT: the pure prospect generator — REUSED server-side (same directive + hard validation)
 const SharedSpecialties = require('../shared/specialties.js');           // SCOUT: builtin class catalog (prospect dedup + context)
 const RecipeCatalogAll = require('../frontend/app/recipe-catalog/index.js'); // SCOUT: builtin recipe catalog (draft dedup + context)
@@ -5756,7 +5757,10 @@ function nightshiftContextPack() {
   } catch (_) { landed = []; }
   const beliefs = nightshiftBeliefMap();
   const learn = Recommendation.preferenceTallies(nightshiftPreferenceWeights());
-  const pack = contextpack.assemble({ runs, briefs, chats, goal, landed, beliefs, learn, redact }, { now });
+  // TRACK RECORD (outcome learning): what this station's runs actually produce — the night shift builds with
+  // the shapes that finish. Same pause authority as the preference tallies (a paused station learns nothing).
+  const trackRecord = stationTrackRecordLines();
+  const pack = contextpack.assemble({ runs, briefs, chats, goal, landed, beliefs, learn, trackRecord, redact }, { now });
   // the count of recent USER-INITIATED runs the pack recognized — the ACTIVITY-as-grounding evidence for readiness.
   pack.userRunCount = (pack.counts && pack.counts.runs) || 0;
   // NS-6: the top OPEN threads (durable ideas the Commander raised but never acted on), recency-ranked. The propose
@@ -5767,6 +5771,19 @@ function nightshiftContextPack() {
 
 // The one server-side evidence read used by interactive tasks, channels, cron, scout-adjacent runs and autonomy.
 // Consumers may add task-specific facts, but they no longer maintain private versions of "what we know".
+/* ── OUTCOME LEARNING (2026-08-30): the shared track-record read. One fold over the recent run history
+   (outcomes.js — literal window counts, support-gated), consulted by the evidence composer, the night-shift
+   context pack, the quest ranker and the insights route, so every surface reads the SAME record. Gated by the
+   personalization pause like every other learned-about-you signal; fail-open to nothing. */
+function stationTrackRecord() {
+  try {
+    if (!personalizationStore.read().enabled) return null;
+    return Outcomes.fold(runStore.list(null, { limit: 400 }), { now: Date.now() });
+  } catch (_) { return null; }
+}
+function stationTrackRecordLines() {
+  try { const rec = stationTrackRecord(); return rec ? Outcomes.lines(rec) : []; } catch (_) { return []; }
+}
 function commanderEvidenceInputs() {
   let topics = [], threads = [], activity = [], worksignal = '';
   const learning = personalizationStore.read().enabled;
@@ -5776,7 +5793,8 @@ function commanderEvidenceInputs() {
   try { worksignal = learning ? String((scoutState.context && scoutState.context.worksignalSummary) || '') : ''; } catch (_) {}
   let goal = null; try { goal = commanderGoals.get() || null; } catch (_) {}
   let verdicts = null; try { verdicts = learning ? recommendationLedger.summary() : null; } catch (_) {}
-  return { dossier: commanderDossier.get(), goal, topics, threads, activity, worksignal, verdicts };
+  const trackRecord = stationTrackRecordLines();
+  return { dossier: commanderDossier.get(), goal, topics, threads, activity, worksignal, verdicts, trackRecord };
 }
 function commanderEvidenceContext(existingSystem, extra) {
   return CommanderContext.compose(Object.assign({}, commanderEvidenceInputs(), extra || {}, { existingSystem: existingSystem || '' }));
@@ -7250,9 +7268,22 @@ function questRefreshOpenCount() { try { return questStore.list().filter(q => q.
 async function mintQuestRecommendations(quests, why) {
   const declinedIdx = buildDeclinedIndex(null); let minted = 0;
   const activeGoal = commanderGoals.get();
+  /* OUTCOME LEARNING (2026-08-30): the `success` feature was a hardcoded guess (0.8 / 0.55) since the ranker
+     shipped. Run/artifact-contract quests are advanced by the station's autonomous lanes, so where the track
+     record has real support for those lanes, the measured rate REPLACES the guess; under support the prior is
+     null and the guess stands untouched (outcomes.js law — an absent prior never re-ranks). Attest quests keep
+     their own default: they are settled by a human word, not a run. The used value rides scoreComponents onto
+     the ledger row, so which number ranked each quest stays inspectable. */
+  const trackRec = stationTrackRecord();
+  const autoPrior = trackRec
+    ? (Outcomes.successPrior(trackRec, 'lane:night shift') != null
+        ? Outcomes.successPrior(trackRec, 'lane:night shift')
+        : Outcomes.successPrior(trackRec, 'lane:workshop'))
+    : null;
   const ranked = Recommendation.rankCandidates((quests || []).map(q => ({
     candidate: q, kind: 'quest', traits: ['quest', 'contract:' + ((q.contract && q.contract.type) || 'unknown')],
-    features: { relevance: 1, impact: 0.8, success: q.contract && q.contract.type === 'attest' ? 0.55 : 0.8,
+    features: { relevance: 1, impact: 0.8,
+      success: q.contract && q.contract.type === 'attest' ? 0.55 : (autoPrior != null ? autoPrior : 0.8),
       timeliness: 0.75, novelty: 0.8, cost: q.contract && q.contract.type === 'artifact' ? 0.45 : 0.2,
       risk: 0.1, interruption: q.contract && q.contract.type === 'attest' ? 0.35 : 0, duplicate: 0 }
   })), personalizationStore.read().enabled ? recommendationLedger.summary() : null);
@@ -19092,7 +19123,12 @@ function serveInsights(req, res) {
     const agent = u.searchParams.get('agent');
     if (agent && !isAgentId(agent)) return json(403, { error: 'forbidden' });
     const rows = agent ? runStore.list(agent, { limit: 1000 }) : runStore.all();   // agent-scoped or whole station
-    json(200, foldInsights(rows, { nowMs: Date.now(), bucketMs: 3600000, buckets: 24 }));
+    /* OUTCOME LEARNING (2026-08-30): the same support-gated track record the evidence composer and the quest
+       ranker consult, served alongside the usage fold — the insights surface stops being a dead end, and the
+       record the prompts cite becomes inspectable over HTTP (truthful telemetry: one fold, every reader). */
+    let trackRecord = null;
+    try { const rec = Outcomes.fold(rows, { now: Date.now() }); trackRecord = { decided: rec.decided, windowMs: rec.windowMs, patterns: Outcomes.summary(rec), lines: Outcomes.lines(rec) }; } catch (_) { trackRecord = null; }
+    json(200, Object.assign(foldInsights(rows, { nowMs: Date.now(), bucketMs: 3600000, buckets: 24 }), { trackRecord }));
   } catch (e) { json(200, { totalRuns: 0, totalUsd: 0, byModel: [], byReason: {}, byAgent: [], overTime: [] }); }
 }
 

@@ -101,6 +101,7 @@
        inputs.landed   : [{ title, verdict, ts }]            (verdict ∈ 'kept'|'discarded'; recent decided deliverables)
        inputs.beliefs  : { goals:[t], pain:[t], ... }        (nightshiftBeliefMap(): the stable dossier base layer)
        inputs.learn    : { archetype:{up,down} }             (the LEARN store; summarized to one line)
+       inputs.trackRecord : [string]                         (outcomes.js lines(); pre-composed literal-count lines)
        inputs.redact   : fn(string)->string                  (secret scrubber; applied to chat first-lines as a backstop)
      opts: { now, windowDays, maxChars } */
   function assemble(inputs, opts) {
@@ -231,6 +232,17 @@
         if (down.length) parts.push('away from: ' + down.slice(0, 4).join(', '));
         sections.push({ label: 'What they tend to keep', lines: [oneLine(parts.join('; '), LINE_MAX)] });
       }
+    }
+
+    // ── TRACK RECORD (outcome learning, 2026-08-30) — what this station's runs actually PRODUCE, folded by
+    //    outcomes.js from the run history (literal window counts, support-gated). The night shift should build
+    //    with the shapes that finish and treat the ones that keep failing as evidence AGAINST proposing more of
+    //    the same. Lines arrive pre-composed (every number in them is a countable run) — this section only
+    //    bounds and labels them. NOT added to the activity pool: a statistic is context, never grounding a
+    //    candidate may cite as the Commander's own activity.
+    {
+      const track = (Array.isArray(inputs.trackRecord) ? inputs.trackRecord : []).map(l => oneLine(l, LINE_MAX)).filter(Boolean).slice(0, 4);
+      if (track.length) sections.push({ label: 'What keeps working vs failing here', lines: track });
     }
 
     // bound the evidence pool (defense in depth — the section caps already bound it, but the pool is consumed by the

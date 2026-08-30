@@ -56,6 +56,11 @@ function compose(input) {
     if (w) prefs.push(k + '=' + (w > 0 ? '+' : '') + Math.round(w * 100) / 100 + ' (' + (Number(v.positive) || 0) + ' kept/' + (Number(v.negative) || 0) + ' declined)');
   }
   if (prefs.length) evidence.push('VERDICT PATTERNS: ' + prefs.join(', '));
+  // TRACK RECORD (outcome learning, 2026-08-30): what this station's runs actually produce — pre-composed by
+  // outcomes.js, every number a literal count of recent runs. Rides the same weak-evidence fence: it may steer
+  // what to propose and how to shape work, never override the current request.
+  const track = Array.isArray(input.trackRecord) ? input.trackRecord.slice(0, 4) : [];
+  for (const t of track) if (t) evidence.push('TRACK RECORD: ' + clip(t, 200));
   const activity = Array.isArray(input.activity) ? input.activity.slice(0, 6) : [];
   for (const a of activity) if (a) evidence.push('RECENT ACTIVITY: ' + clip(a, 180));
   if (evidence.length) {
