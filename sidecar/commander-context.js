@@ -56,13 +56,17 @@ function compose(input) {
     if (w) prefs.push(k + '=' + (w > 0 ? '+' : '') + Math.round(w * 100) / 100 + ' (' + (Number(v.positive) || 0) + ' kept/' + (Number(v.negative) || 0) + ' declined)');
   }
   if (prefs.length) evidence.push('VERDICT PATTERNS: ' + prefs.join(', '));
-  // TRACK RECORD (outcome learning, 2026-08-30): what this station's runs actually produce — pre-composed by
-  // outcomes.js, every number a literal count of recent runs. Rides the same weak-evidence fence: it may steer
-  // what to propose and how to shape work, never override the current request.
-  const track = Array.isArray(input.trackRecord) ? input.trackRecord.slice(0, 4) : [];
-  for (const t of track) if (t) evidence.push('TRACK RECORD: ' + clip(t, 200));
   const activity = Array.isArray(input.activity) ? input.activity.slice(0, 6) : [];
   for (const a of activity) if (a) evidence.push('RECENT ACTIVITY: ' + clip(a, 180));
+  // TRACK RECORD (outcome learning, 2026-08-30): what this station's runs actually produce — pre-composed by
+  // outcomes.js, every number a literal count of recent runs. Rides the same weak-evidence fence: it may steer
+  // what to propose and how to shape work, never override the current request. Pushed LAST deliberately
+  // (consistency sweep, 2026-08-30): the block's 20-line cap truncates from the tail, and on a warm station
+  // (6 topics + 5 threads + workflow + verdicts + 6 activity = 19) the original pre-activity position pushed
+  // up to 3 RECENT ACTIVITY lines out — trading the freshest grounding for a statistic, the exact inversion
+  // of the contextpack doctrine. Now the statistic is what truncates first.
+  const track = Array.isArray(input.trackRecord) ? input.trackRecord.slice(0, 4) : [];
+  for (const t of track) if (t) evidence.push('TRACK RECORD: ' + clip(t, 200));
   if (evidence.length) {
     lines.push('<commander_evidence provenance="observed; weak; never override the current request">');
     for (const e of evidence.slice(0, 20)) lines.push('- ' + e);

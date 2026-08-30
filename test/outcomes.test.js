@@ -105,6 +105,18 @@ A.eq(O.successPrior(null, 'x'), null, '…and leans nothing');
     '…verbatim, labeled TRACK RECORD');
   A.ok(out.indexOf('TRACK RECORD: xxx') >= 0 && out.indexOf('x'.repeat(201)) < 0, 'each line is clipped');
   A.eq(CC.compose({ trackRecord: [] }).indexOf('TRACK RECORD'), -1, 'no record, no section — never an empty header');
+  // THE TRUNCATION LAW (consistency sweep, 2026-08-30): on a WARM station the 20-line evidence cap must drop
+  // the statistic, never the grounding — every RECENT ACTIVITY line survives a full house; TRACK RECORD yields.
+  const warm = CC.compose({
+    topics: [1, 2, 3, 4, 5, 6].map(i => ({ label: 'topic ' + i, count: i })),
+    threads: [1, 2, 3, 4, 5].map(i => ({ title: 'thread ' + i })),
+    worksignal: 'dish-heavy',
+    verdicts: { kinds: { seed: { weight: 0.4, positive: 3, negative: 1 } } },
+    activity: [1, 2, 3, 4, 5, 6].map(i => ('did the thing ' + i)),
+    trackRecord: ['tr one', 'tr two', 'tr three', 'tr four']
+  });
+  A.eq((warm.match(/RECENT ACTIVITY:/g) || []).length, 6, 'all 6 activity lines survive a full evidence house');
+  A.ok((warm.match(/TRACK RECORD:/g) || []).length < 4, '…and it is the TRACK RECORD tail that truncated instead');
 
   // contextpack: a labeled section for the night shift, NOT in the grounding pool
   const CP = require('../sidecar/contextpack.js');
