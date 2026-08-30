@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "37becca5efe6708df87c8c6a5dbfc533e19e2583",
+    "sourceCommit": "96f90726156207fc5fbe0b2c8472dc089ac7229f",
     "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
     "files": [
       {
@@ -178,8 +178,8 @@
       },
       {
         "path": "frontend/app/conveyor.js",
-        "bytes": 45151,
-        "sha256": "d60f36f4015982e9544588f133ee2f4e51a592be05cd4824e77647a970e70c5c"
+        "bytes": 46072,
+        "sha256": "c52e56c77c3909a66f33b670ad2b9b4bddd62269c73d0742c9c2d6d1c6fc68fc"
       },
       {
         "path": "frontend/app/cronhuman.js",
