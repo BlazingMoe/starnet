@@ -228,9 +228,19 @@
       }
       if (!file) return { ok: true, removed: false };
       // Tombstone FIRST (durable "the Commander unlinked" marker for the boot self-heal), then the record.
-      if (tombstone) { try { await fsp.writeFile(tombstone, JSON.stringify({ unlinkedAt: now() }), { encoding: 'utf8', mode: 0o600 }); } catch (e) { note('credits.link.tombstone.write', e); } }
-      try { await fsp.unlink(file); return { ok: true, removed: true }; }
-      catch (e) { if (e && e.code === 'ENOENT') return { ok: true, removed: false }; return { ok: false, error: (e && e.message) || String(e) }; }
+      let tombstoneError = null;
+      if (tombstone) {
+        try { await fsp.writeFile(tombstone, JSON.stringify({ unlinkedAt: now() }), { encoding: 'utf8', mode: 0o600 }); }
+        catch (e) { tombstoneError = e; note('credits.link.tombstone.write', e); }
+      }
+      let removed = false, unlinkError = null;
+      try { await fsp.unlink(file); removed = true; }
+      catch (e) { if (!e || e.code !== 'ENOENT') unlinkError = e; }
+      // Keep the live unlink latch either way, but never claim durable success unless BOTH protections landed.
+      // A caller can retry: the next successful attempt writes the missing tombstone even when the record is gone.
+      const failure = tombstoneError || unlinkError;
+      if (failure) return { ok: false, removed, error: (failure && failure.message) || String(failure) };
+      return { ok: true, removed };
     }
 
     /* BOOT SELF-HEAL (2026-08-25 stranded-user incident). A reinstall (or workspace reset) deletes

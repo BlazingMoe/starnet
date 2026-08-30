@@ -113,6 +113,42 @@ function fakeCloud(opts) {
     A.eq(u2.ok, true, 'unlink is idempotent (ENOENT is a success)');
   }
 
+  // ---- UNLINK DURABILITY FAILURE: the tombstone is what stops a surviving injected token from silently
+  //      self-healing on restart. If that write fails, deleting credits.json is useful but NOT a completed
+  //      unlink, so the caller must receive failure and be able to retry the tombstone write. ----
+  {
+    const fDir = path.join(tmp, 'unlink-write-fail'); const fFile = path.join(fDir, 'credits.json');
+    fs.mkdirSync(fDir, { recursive: true });
+    fs.writeFileSync(fFile, JSON.stringify({ url: 'https://cloud.example', accountId: 'acct_f', linkedAt: 1 }));
+    let failTombstone = true;
+    const failingFsp = Object.assign({}, fsp, {
+      writeFile: async (target, ...args) => {
+        if (failTombstone && String(target).endsWith('credits.unlinked.json')) throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+        return fsp.writeFile(target, ...args);
+      }
+    });
+    const link = makeCreditsLink({
+      cloudUrl: 'https://cloud.example', fetch: () => Promise.reject(new Error('offline')), fsp: failingFsp,
+      fs, pathMod: path, dir: fDir, now: () => 3500, envToken: 'snd_survived'
+    });
+    const failed = await link.clearSaved();
+    A.eq(failed.ok, false, 'a missing durable unlink tombstone is never reported as success');
+    A.eq(failed.removed, true, 'the bearer file is still removed when the tombstone write fails');
+    A.eq(link.hasSaved(), false, 'the live process honours the unlink immediately');
+    failTombstone = false;
+    const retry = await link.clearSaved();
+    A.eq(retry.ok, true, 'a later retry can finish the durable unlink after the record is already gone');
+    const fresh = makeCreditsLink({
+      cloudUrl: 'https://cloud.example', fetch: () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ accountId: 'acct_f' }) }),
+      fsp, fs, pathMod: path, dir: fDir, now: () => 3600, envToken: 'snd_survived'
+    });
+    A.eq((await fresh.healFromEnv()).reason, 'unlink_tombstone', 'a restart cannot resurrect the link after the successful retry');
+  }
+
+  const hostSource = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  A.ok(/handleCreditsUnlink[\s\S]*?creditsJson\(res, ok \? 200 : 500, \{ ok, unlinked: ok/.test(hostSource),
+    'the HTTP route fails truthfully instead of returning 200/unlinked:true for a rejected durable unlink');
+
   // ---- UNKNOWN CODE: polling a code we never started here yields 'unknown' (frontend restarts the flow) ----
   {
     const cloud = fakeCloud();

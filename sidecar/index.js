@@ -9648,7 +9648,8 @@ async function handleCreditsUnlink(req, res) {
   let r = { ok: true, removed: false };
   try { r = await creditsLink.clearSaved(); } catch (e) { r = { ok: false, error: (e && e.message) || String(e) }; }
   try { await rebuildCredits(); } catch (_) {}
-  return creditsJson(res, 200, { ok: r.ok !== false, unlinked: true, configured: credits.configured() });
+  const ok = r.ok !== false;
+  return creditsJson(res, ok ? 200 : 500, { ok, unlinked: ok, configured: credits.configured(), error: ok ? undefined : r.error });
 }
 /* ---- POST /api/budget/caps { perRun?, perAgent?, perDay?, global? } — set one or more USD caps. Each value:
    a positive number = a real cap; 0 (or "0") = NO CAP (ungoverned) — an explicit saved choice; null / "" = CLEAR
