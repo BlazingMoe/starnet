@@ -2606,11 +2606,9 @@ fn harness_provider_key_status() -> Vec<ProviderKeyStatus> {
 /// Remove the BYOK key from the keychain and clear it on the running sidecar.
 #[tauri::command]
 fn harness_clear_key(state: State<AppState>) -> Result<(), String> {
-    if let Ok(entry) = keychain_entry() {
-        let _ = entry.delete_credential();
-    }
-    push_key(&state, "")?;
-    Ok(())
+    // Keep FORGET on the same transactional path as an empty save: keychain failures must surface, and a
+    // rejected live-sidecar update must restore both copies instead of returning with split restart state.
+    harness_store_key(String::new(), state)
 }
 
 /// Adopt a freshly linked station's device token into the OS keychain and strip it from
