@@ -299,7 +299,17 @@ function makeSegmentedTranscriptIo(opts) {
     // Never trust a persisted index for the append-active tail: it may predate rows that were fsync'd just
     // before a crash. Rebuilding this one bounded segment prevents stale term hits, byte counts, or row ranges.
     activeIndex = buildIndex(manifest.activeSegment);
-    upsertMeta(activeIndex);
+    const activeFileExists = fs.existsSync(segFile(manifest.activeSegment));
+    if (activeFileExists) upsertMeta(activeIndex);
+    else {
+      // A new store and a crash immediately after persisting a roll pointer both legitimately have no active
+      // JSONL yet. Do not advertise an empty segment until its first durable row creates the file: readers
+      // would otherwise try to open the phantom path and report ordinary first boot as transcript corruption.
+      const prior = manifest.segments.find(s => s.number === manifest.activeSegment);
+      if (!prior || (!num(prior.rows) && !num(prior.bytes))) {
+        manifest.segments = manifest.segments.filter(s => s.number !== manifest.activeSegment);
+      }
+    }
     migrateLegacy();
     saveManifest();
   }
