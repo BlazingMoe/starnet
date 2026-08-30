@@ -99,6 +99,7 @@ function checkpointWithPairedResults(state, options) {
     const result = completed.result;
     const content = String(result.content == null ? '' : result.content);
     messages.push({ role: 'tool', tool_call_id: callId, content: result.isError ? ('ERROR: ' + content) : content });
+    pending.delete(callId);
   }
   return { messages, pending, blockedFingerprints, contextLines };
 }
