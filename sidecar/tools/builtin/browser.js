@@ -2049,9 +2049,9 @@
     // Tear down the current driver and relaunch with explicit overrides on the SAME persistent profile
     // (cookies survive the swap). Injected test drivers never mode-switch — the flow still runs so the
     // consent contract is testable, but the driver object stays the same.
-    function relaunch(overrides) {
+    async function relaunch(overrides) {
       if (injected) return driver;
-      if (driver) { try { driver.close(); } catch (_) {} driver = null; }
+      if (driver) { try { await driver.close(); } catch (_) {} driver = null; }
       driver = makeDriver(Object.assign({}, deps, profileDeps(), overrides));
       driverHeaded = !!overrides.headed;
       version++;   // any element refs belong to the torn-down browser
@@ -2272,7 +2272,7 @@
          the very lease just released — pinning the station profile for a run that is not even using it. */
       attachedToUserBrowser = true;
       attachedUserPort = p;
-      relaunch({ attachPort: p, headed: true });
+      await relaunch({ attachPort: p, headed: true });
       version++; navEpoch++;               // a different browser entirely: every ref is dead
       return probe;
     }
@@ -2428,7 +2428,7 @@
       // Headed + real input: forceHeadless is HOST authority for model-driven navigation; this relaunch is
       // human-consented (the prompt above), so it may override it. syntheticInputOnly:false drops the popup
       // block and input shims — SSO login flows need real popups and the human's real pointer.
-      const d = relaunch({ headed: true, forceHeadless: false, headless: false, syntheticInputOnly: false });
+      const d = await relaunch({ headed: true, forceHeadless: false, headless: false, syntheticInputOnly: false });
       localMode = false; localOrigin = null;
       let finalUrl = null;
       try {
@@ -2438,13 +2438,13 @@
         if (!vis) throw new Error('no full Chrome found — only a headless-shell binary, so a visible login window is impossible; install Chrome or set STARNET_CHROME');
       } catch (e) {
         // restore the shimmed headless posture before surfacing the failure
-        relaunch({ headed: false });
+        await relaunch({ headed: false });
         throw e;
       }
       const done = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host }));
       // Done or cancelled, the window closes and research mode resumes on the SAME profile — any cookies the
       // site set during the attempt are already durable.
-      relaunch({ headed: false });
+      await relaunch({ headed: false });
       return { status: done ? 'done' : 'unconfirmed', host, url: finalUrl || u.href };
     }
     async function close() {

@@ -1185,7 +1185,35 @@ function fakeDriver() {
       A.ok(lease.released >= 1, 'session close releases the profile lease');
     }
 
-    // 6. LEASE CONTENTION: another run holds the profile -> honest error, no window.
+    // 6. SAME-PROFILE RELAUNCH: wait for asynchronous teardown before constructing the replacement.
+    {
+      let closeSettled = true;
+      const made = [];
+      const B2 = makeBrowserTools({
+        persistentProfile: mkLease().profile,
+        attendedLogin: { prompt: async () => 'once' },
+        makeDriver: (d) => {
+          const drv = fakeDriver();
+          drv.headed = !!d.headed;
+          drv.visible = () => !!d.headed;
+          drv.createdBeforePriorClose = !closeSettled;
+          drv.close = async () => {
+            closeSettled = false;
+            await new Promise(resolve => setTimeout(resolve, 20));
+            closeSettled = true;
+          };
+          made.push(drv);
+          return drv;
+        }
+      });
+      await B2.tools.find(t => t.name === 'browser.login').run({ url: 'https://erank.com/login' }, {});
+      A.eq(made.length, 2, 'login still relaunches headed then headless');
+      A.eq(made[1].createdBeforePriorClose, false,
+        'the replacement browser is not constructed until the prior same-profile driver closes');
+      await B2.session.close();
+    }
+
+    // 7. LEASE CONTENTION: another run holds the profile -> honest error, no window.
     {
       const seam = mkSeam();
       const lease = mkLease(); lease.ok = false;
@@ -1195,7 +1223,7 @@ function fakeDriver() {
       A.eq(seam.made.length, 0, 'lease contention never opens a window');
     }
 
-    // 7. HEADLESS-ONLY BINARY: window impossible -> restore headless posture, honest error.
+    // 8. HEADLESS-ONLY BINARY: window impossible -> restore headless posture, honest error.
     {
       const made = [];
       const B2 = makeBrowserTools({
@@ -1208,7 +1236,7 @@ function fakeDriver() {
       A.eq(made[1].headed, false, 'restore after headless-only failure is headless');
     }
 
-    // 8. DONE-WAIT CANCELLED: window closes, honest "unconfirmed" content (cookies may exist).
+    // 9. DONE-WAIT CANCELLED: window closes, honest "unconfirmed" content (cookies may exist).
     {
       const seam = mkSeam();
       let n = 0;
@@ -1218,7 +1246,7 @@ function fakeDriver() {
       A.eq(seam.made[seam.made.length - 1].headed, false, 'cancelled login still restores headless mode');
     }
 
-    // 9. ORDINARY RESEARCH RUNS reuse the persistent profile when free (signed-in browsing), and
+    // 10. ORDINARY RESEARCH RUNS reuse the persistent profile when free (signed-in browsing), and
     //    fall back to the ephemeral per-run profile when another run holds the lease.
     {
       const seam = mkSeam();
@@ -1236,7 +1264,7 @@ function fakeDriver() {
       A.eq(seam2.made[0].profileDir, '/ephemeral', 'a held lease falls back to the ephemeral per-run profile');
     }
 
-    // 10. browser.login carries a long tool timeout (it wraps two human-paced consent waits).
+    // 11. browser.login carries a long tool timeout (it wraps two human-paced consent waits).
     {
       const B2 = makeBrowserTools({ driver: fakeDriver() });
       const t = B2.tools.find(x => x.name === 'browser.login');
