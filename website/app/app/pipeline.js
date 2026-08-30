@@ -733,12 +733,16 @@
        (nextTiles follows `done` only) so a gated cycle can't loop the compiler — but the crate really
        does ride that lane, so flooding only the static graph left a stamped REVISION LOOP two-thirds
        frozen: the honest-telemetry promise lying in the COLD direction. Lit only when the gate itself
-       is already live (a stranded gate's back lane stays dark) and only as far as a bound dock. */
+       is already live (a stranded gate's back lane stays dark) and only as far as a bound dock.
+       stopAtBay=false (2026-08-30): the flood must ride THROUGH the re-entry dock's first ring tile —
+       a back column's final merge tile sat one tile past the hookup and rendered frozen mid-column,
+       which reads exactly like the missing-belt gap the column exists to avoid. The reverse flood
+       from bayTiles still bounds the wash to tiles that actually reach a dock. */
     for (const jk in junctions) {
       const j = junctions[jk];
       if (!j || j.kind !== 'loop' || !j.back || !out[jk]) continue;
       const p = jk.split(','), v = DIRV[j.back];
-      segment([{ x: +p[0] + v[0], y: +p[1] + v[1] }], true, bayTiles);
+      segment([{ x: +p[0] + v[0], y: +p[1] + v[1] }], false, bayTiles);
     }
     return out;
   }
