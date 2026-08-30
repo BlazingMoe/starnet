@@ -1,5 +1,6 @@
 /* Durable, workspace-local recovery artifacts for model-visible tool/process output. */
 'use strict';
+const { note: failNote } = require('./failopen.js');
 
 function makeOutputArtifacts(deps) {
   deps = deps || {};
@@ -49,7 +50,10 @@ function makeOutputArtifacts(deps) {
     const chosen = paths(entry.agentId, name);
     fs.mkdirSync(chosen.dir, { recursive: true });
     const bytes = Buffer.from(String(entry.text == null ? '' : entry.text), 'utf8');
-    let fd = null;
+    let originalSize = 0;
+    try { originalSize = fs.statSync(chosen.abs).size; }
+    catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+    let fd = null, readFd = null;
     try {
       fd = fs.openSync(chosen.abs, 'a');
       let offset = 0;
@@ -59,12 +63,9 @@ function makeOutputArtifacts(deps) {
         offset += wrote;
       }
       fs.fsyncSync(fd);
-    } finally { if (fd != null) try { fs.closeSync(fd); } catch (_) {} }
-    const total = fs.statSync(chosen.abs).size;
-    if (bytes.length) {
-      const verify = Buffer.alloc(bytes.length);
-      let readFd = null;
-      try {
+      const total = fs.statSync(chosen.abs).size;
+      if (bytes.length) {
+        const verify = Buffer.alloc(bytes.length);
         readFd = fs.openSync(chosen.abs, 'r');
         let offset = 0;
         while (offset < verify.length) {
@@ -73,9 +74,26 @@ function makeOutputArtifacts(deps) {
           offset += read;
         }
         if (!verify.equals(bytes)) throw new Error('output append read-back mismatch');
-      } finally { if (readFd != null) try { fs.closeSync(readFd); } catch (_) {} }
+      }
+      return { path: chosen.rel, bytes: total };
+    } catch (e) {
+      // A failed verification must not poison the stable process artifact and let a later successful append
+      // bless corrupt history. Roll the file back to the last verified byte boundary before surfacing failure.
+      if (readFd != null) { try { fs.closeSync(readFd); } catch (closeErr) { failNote('output.rollback.read-close', closeErr); } readFd = null; }
+      if (fd != null) { try { fs.closeSync(fd); } catch (closeErr) { failNote('output.rollback.write-close', closeErr); } fd = null; }
+      let rollbackFd = null;
+      try {
+        // Windows refuses ftruncate on an append-open handle, so close it first and truncate by path.
+        fs.truncateSync(chosen.abs, originalSize);
+        rollbackFd = fs.openSync(chosen.abs, 'r+');
+        fs.fsyncSync(rollbackFd);
+      } catch (rollbackErr) { failNote('output.rollback.truncate', rollbackErr); }
+      finally { if (rollbackFd != null) try { fs.closeSync(rollbackFd); } catch (closeErr) { failNote('output.rollback.sync-close', closeErr); } }
+      throw e;
+    } finally {
+      if (readFd != null) try { fs.closeSync(readFd); } catch (_) {}
+      if (fd != null) try { fs.closeSync(fd); } catch (_) {}
     }
-    return { path: chosen.rel, bytes: total };
   }
 
   return { park, append, _internals: { paths, safe, agent } };
