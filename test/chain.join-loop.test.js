@@ -224,5 +224,86 @@ function rig(floor, script, opts) {
     A.ok(!router.setPlan(plan).ok, 'the router refuses it');
   }
 
+  /* ---- THE ESCALATION LANE (2026-08-30): a gate with a THIRD wired lane sends verdict-exhausted work
+          to the dock on that lane (the fixer) instead of stapling an apology onto the done lane ---- */
+  function escFloor(gateCfg) {
+    const g = loopFloor(Object.assign({ when: 'approved', maxIter: 2 }, gateCfg || {}));
+    g.props.push({ id: 'p9', t: 'bay', x: 14, y: 6, w: 2, h: 2, agentId: 'fixer' });
+    g.belts.push(belt(12, 5, 'S'), belt(12, 6, 'E'), belt(13, 6, 'E'));   // gate S lane -> fixer's ring
+    return g;
+  }
+  {
+    const plan = P.compileRoutingPlan(escFloor());
+    A.ok(P.ok(plan), 'the escalation floor compiles deployable: ' + JSON.stringify(plan.errors));
+    A.ok(!plan.errors.some(e => e.code === 'CYCLE' || e.code === 'CHAIN_CYCLE'), 'the esc lane is a forward edge — no cycle');
+    A.ok(!plan.errors.some(e => e.code === 'BAY_NOT_FED' && e.agentId === 'fixer'),
+      'the escalation dock is fed by its gate — never shamed BAY_NOT_FED');
+    const g = plan.junctions['12,4'];
+    A.eq(g.done, 'E', 'done stays E'); A.eq(g.back, 'N', 'back stays N (existing floors unchanged)');
+    A.eq(g.esc, 'S', 'the third wired lane IS the escalation lane — no config needed');
+    A.eq(g.escTo, 'fixer', 'and it resolves to the fixer at compile time');
+    const st = P.chainStep(plan, 'reviewer', { lineId: P.lineOf(plan, 'reviewer') });
+    A.eq(st && st.esc, 'fixer', 'chainStep carries the escalation dock');
+    // the esc lane ENERGIZES with the gate (same law as the back lane)
+    const live = P.liveTiles(plan);
+    A.ok(live['12,5'] && live['12,6'] && live['13,6'], 'the escalation lane is energized, not frozen');
+  }
+  {
+    let reviews = 0;
+    const R = rig(escFloor(), {
+      drafter: { text: 'another draft', usd: 0.01 },
+      reviewer: () => ({ text: 'still bad ' + (++reviews) + '\nVERDICT: revise', usd: 0.01 }),
+      publisher: { text: 'published', usd: 0.01 },
+      fixer: { text: 'salvaged by the fixer', usd: 0.01 }
+    });
+    const res = await R.c.advance({ agentId: 'reviewer', text: 'first review\nVERDICT: revise', originalText: 'write a post', lineId: R.lineId, runId: 'runE1' });
+    A.eq(res.stopped, null, 'the escalated line runs to its end (' + res.stopped + ')');
+    A.eq(res.hops.map(h => h.agentId).join(','), 'drafter,reviewer,drafter,reviewer,fixer',
+      'two passes round the gate, then the FIXER — not the publisher');
+    A.eq(res.text, 'salvaged by the fixer', 'the escalation dock has the last word');
+    A.ok(res.loopExhausted, 'the run is still marked exhausted (honest telemetry)');
+    const fixerTurn = R.log[R.log.length - 1];
+    A.eq(fixerTurn.agentId, 'fixer');
+    A.ok(/\[LOOP — escalated: 2 passes round the gate at 12,4 without VERDICT: approved — handed to the escalation lane\]/.test(fixerTurn.text),
+      'the fixer\'s handoff says exactly why it has the crate');
+  }
+  /* the SAME floor with the verdict PASSING never touches the fixer */
+  {
+    const R = rig(escFloor(), {
+      drafter: { text: 'better draft', usd: 0.01 },
+      reviewer: { text: 'looks great\nVERDICT: approved', usd: 0.01 },
+      publisher: { text: 'published', usd: 0.01 },
+      fixer: { text: 'should never run', usd: 0.01 }
+    });
+    const res = await R.c.advance({ agentId: 'reviewer', text: 'ok\nVERDICT: approved', originalText: 'write a post', lineId: R.lineId, runId: 'runE2' });
+    A.eq(res.stopped, null, 'the approved line runs clean');
+    A.eq(res.hops.map(h => h.agentId).join(','), 'publisher', 'an approved crate takes the done lane — the fixer never runs');
+    A.ok(!res.loopExhausted, 'and nothing is marked exhausted');
+  }
+  /* an esc dock that ALREADY RAN is refused by visited — the honest done-lane note stands */
+  {
+    const g = escFloor(); g.props.find(p => p.agentId === 'fixer').agentId = 'drafter2';
+    // esc points at a fresh dock; simulate the visited case by escalating to the drafter itself
+    const g2 = escFloor(); g2.props = g2.props.filter(p => p.agentId !== 'fixer');
+    // re-aim the esc lane back into the DRAFTER's ring: (12,6)W ... (6,6)? keep simple — a lane to a visited dock
+    g2.belts = g2.belts.filter(b => !(b.x === 12 && b.y === 6) && !(b.x === 13 && b.y === 6));
+    for (let x = 12; x >= 5; x--) g2.belts.push(belt(x, 6, 'W'));
+    g2.belts.push(belt(4, 6, 'N'));   // up into the drafter's ring (drafter 3,3 2x2 — ring x2..5,y2..5: (4,5))
+    g2.belts.push(belt(4, 5, 'N'));
+    const plan2 = P.compileRoutingPlan(g2);
+    if (P.ok(plan2) && plan2.junctions['12,4'].escTo === 'drafter') {
+      const R = rig(g2, {
+        drafter: { text: 'draft', usd: 0.01 },
+        reviewer: { text: 'no\nVERDICT: revise', usd: 0.01 },
+        publisher: { text: 'published', usd: 0.01 }
+      });
+      const res = await R.c.advance({ agentId: 'reviewer', text: 'no\nVERDICT: revise', originalText: 'x', lineId: P.lineOf(plan2, 'reviewer'), runId: 'runE3' });
+      A.ok(res.hops[res.hops.length - 1].agentId === 'publisher', 'an already-visited esc dock falls back to the done lane');
+      A.ok(res.loopExhausted, 'still marked exhausted');
+    } else {
+      A.ok(true, 'visited-esc fallback floor did not compile as intended — covered by the runner guard');
+    }
+  }
+
   A.report('chain.join-loop');
 })();

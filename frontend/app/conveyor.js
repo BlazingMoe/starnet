@@ -366,15 +366,24 @@ const Conveyor = (() => {
         return null;
       }
       if (jt.kind === 'loop') {
-        // the gate: an addressed crate already took the owner's lane above (the runner's re-entry crate is
-        // addressed to the upstream dock, its done crate to the downstream one). An unowned crate counts its
-        // own passes: back lane while under the cap, done lane after.
+        /* the gate: an addressed crate already took the owner's lane above (the runner's re-entry crate is
+           addressed to the upstream dock, its done crate to the downstream one). An unowned crate counts
+           its own passes: back lane under the cap, then the ESCALATION lane if the gate has one, else done.
+
+           THE LANES COME FROM THE COMPILED CFG (2026-08-30 sweep). This branch used to re-derive `back` as
+           "first lane that isn't done" — on a THREE-lane gate (a FIRE ESCAPE) LANE_ORDER put the escape
+           first, so the crate you watched rode the escalation wire while the dispatcher looped it upstream:
+           visual ≠ dispatch, the one law this file exists to keep. jt IS plan.junctions[tile] on both
+           surfaces (world.js and REFIT both merge the compiled cfg in), so jt.back/jt.esc are the same
+           lanes the runner routes by; the local derivation stays only as a fallback for a caller that
+           hands a bare {kind:'loop'} with no cfg. */
         const n = (bx.payload && bx.payload.iteration) | 0, max = jt.max || 5;
         const done = (jt.done && lanes.indexOf(jt.done) >= 0) ? jt.done : lanes[0];
-        const back = lanes.find(d => d !== done) || null;
-        const dir = (back && n < max) ? back : done;
+        const back = (jt.back && lanes.indexOf(jt.back) >= 0) ? jt.back : (lanes.find(d => d !== done) || null);
+        const esc = (jt.esc && jt.esc !== back && lanes.indexOf(jt.esc) >= 0) ? jt.esc : null;
+        const dir = (back && n < max) ? back : (esc || done);
         if (dir === back && bx.payload) bx.payload.iteration = n + 1;
-        if (onAdvance) onAdvance(bx, { kind: 'loop', tile: { x, y }, lane: dir, iteration: n });
+        if (onAdvance) onAdvance(bx, { kind: 'loop', tile: { x, y }, lane: dir, iteration: n, escalated: dir === esc || undefined });
         return dir;
       }
       if (jt.kind === 'merge') {

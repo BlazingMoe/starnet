@@ -131,6 +131,64 @@ function loopFloor(gateCfg) {
   A.ok(P.compileRoutingPlan(loopFloor({ done: 'W' })).errors.some(e => e.code === 'LOOP_NO_DONE' && e.warn), 'a configured done that is not an exit warns LOOP_NO_DONE');
 }
 
+/* THE CASCADE (2026-08-30): a floor goes wider than 3 branches by CHAINING splitters — and every
+   promised branch must be visible to the runner. The single-path sibling walk saw ONE dock per lane
+   of the outer split, so on a cascaded floor the runner silently never launched the inner split's
+   other dock and the joiner sat on a partial until timeout.
+     intake(0,6) -> splitA(3,6): N lane -> A(10,0); S lane -> splitB(6,12): N -> B(10,7), S -> C(10,14);
+     all three ship into the joiner(16,8) -> D(19,7). */
+function cascadeFloor() {
+  return geo(
+    [{ id: 'i', t: 'intake', x: 0, y: 6, w: 1, h: 1 },
+     { id: 'sA', t: 'splitter', x: 3, y: 6, w: 1, h: 1 },
+     { id: 'sB', t: 'splitter', x: 6, y: 12, w: 1, h: 1 },
+     { id: 'b1', t: 'bay', x: 10, y: 0, w: 2, h: 2, agentId: 'A' },
+     { id: 'b2', t: 'bay', x: 10, y: 7, w: 2, h: 2, agentId: 'B' },
+     { id: 'b3', t: 'bay', x: 10, y: 14, w: 2, h: 2, agentId: 'C' },
+     { id: 'j', t: 'joiner', x: 16, y: 8, w: 1, h: 1 },
+     { id: 'd', t: 'bay', x: 19, y: 7, w: 2, h: 2, agentId: 'D' }],
+    [belt(1, 6, 'E'), belt(2, 6, 'E'), belt(3, 6, 'E'),
+     belt(3, 5, 'N'), belt(3, 4, 'N'), belt(3, 3, 'N'), belt(3, 2, 'N'), belt(3, 1, 'E'), belt(4, 1, 'E'), belt(5, 1, 'E'), belt(6, 1, 'E'), belt(7, 1, 'E'), belt(8, 1, 'E'), belt(9, 1, 'E'),
+     belt(3, 7, 'S'), belt(3, 8, 'S'), belt(3, 9, 'S'), belt(3, 10, 'S'), belt(3, 11, 'S'), belt(3, 12, 'E'), belt(4, 12, 'E'), belt(5, 12, 'E'), belt(6, 12, 'E'),
+     belt(6, 11, 'N'), belt(6, 10, 'N'), belt(6, 9, 'N'), belt(6, 8, 'E'), belt(7, 8, 'E'), belt(8, 8, 'E'), belt(9, 8, 'E'),
+     belt(6, 13, 'S'), belt(6, 14, 'S'), belt(6, 15, 'E'), belt(7, 15, 'E'), belt(8, 15, 'E'), belt(9, 15, 'E'),
+     belt(12, 1, 'E'), belt(13, 1, 'E'), belt(14, 1, 'E'), belt(15, 1, 'E'), belt(16, 1, 'S'), belt(16, 2, 'S'), belt(16, 3, 'S'), belt(16, 4, 'S'), belt(16, 5, 'S'), belt(16, 6, 'S'), belt(16, 7, 'S'),
+     belt(12, 8, 'E'), belt(13, 8, 'E'), belt(14, 8, 'E'), belt(15, 8, 'E'),
+     belt(12, 15, 'E'), belt(13, 15, 'E'), belt(14, 15, 'E'), belt(15, 15, 'E'), belt(16, 15, 'N'), belt(16, 14, 'N'), belt(16, 13, 'N'), belt(16, 12, 'N'), belt(16, 11, 'N'), belt(16, 10, 'N'), belt(16, 9, 'N'),
+     belt(16, 8, 'E'), belt(17, 8, 'E'), belt(18, 8, 'E')]
+  );
+}
+{
+  const plan = P.compileRoutingPlan(cascadeFloor());
+  A.ok(P.ok(plan), 'the cascade compiles deployable: ' + JSON.stringify(plan.errors));
+  A.eq(plan.errors.length, 0, 'and with zero warns');
+  A.eq(plan.junctions['3,6'].fanout, true, 'the outer split fans out');
+  A.eq(plan.junctions['6,12'].fanout, true, 'the inner split fans out');
+  A.eq(plan.junctions['16,8'].expect, 3, 'the joiner counts all three in-lanes');
+  // EVERY dock's siblings are the whole promised set, whichever dock the dispatcher picked
+  A.eq(P.fanSiblings(plan, 'A').join(','), 'B,C', 'A sees both inner-branch siblings');
+  A.eq(P.fanSiblings(plan, 'B').join(','), 'A,C', 'B (inner) sees the outer branch too');
+  A.eq(P.fanSiblings(plan, 'C').join(','), 'A,B', 'C (inner) sees the outer branch too');
+  A.eq(P.fanSiblings(plan, 'D').length, 0, 'D is past the barrier — no siblings');
+  ['A', 'B', 'C'].forEach(a => {
+    const st = P.chainStep(plan, a, onLine(plan, a));
+    A.ok(st && st.join === '16,8' && st.expect === 3, a + ' meets the 3-way barrier (' + JSON.stringify(st) + ')');
+  });
+}
+/* mid-chain cascade: a DOCK ships into the fan-out — its chainStep must name EVERY promised branch,
+   including the docks behind the inner split (the old walk dropped the inner {branches} result) */
+{
+  const g = cascadeFloor();
+  // replace the intake with a dock X shipping into the same entry lane
+  g.props[0] = { id: 'x', t: 'bay', x: 0, y: 5, w: 2, h: 2, agentId: 'X' };
+  const plan = P.compileRoutingPlan(g);
+  A.ok(P.ok(plan), 'dock-fed cascade compiles: ' + JSON.stringify(plan.errors));
+  const st = P.chainStep(plan, 'X', onLine(plan, 'X'));
+  A.ok(st && st.branches, 'chainStep from X returns fan-out branches (' + JSON.stringify(st) + ')');
+  A.eq((st.branches || []).slice().sort().join(','), 'A,B,C',
+    'the branch set spans the WHOLE cascade — inner split docks included');
+}
+
 /* THE BACK LANE IS LIVE (2026-08-29). Static flow cuts the back edge on purpose, so flooding only the
    static graph left every tile of a working back lane COLD — the energized-tile promise lying in the
    other direction, and two-thirds of a stamped REVISION LOOP drawn frozen. */

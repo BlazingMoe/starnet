@@ -324,9 +324,21 @@ function makeChainRunner(o) {
             target = step.next; looping = false;   // spent (or the verdict passed): leave on the done lane
             if (step.when && wants && n >= step.max) {
               out.loopExhausted = true;
-              out.text = '[LOOP — exhausted: ' + n + ' pass' + (n === 1 ? '' : 'es') + ' round the gate at ' + step.loop
-                + (byVerdict ? ' without VERDICT: ' + String(step.when).toLowerCase() : ' while the output still read as ' + step.when)
-                + ' — leaving on DONE unapproved]\n' + out.text;
+              /* THE ESCALATION LANE (2026-08-30): a gate with a third wired lane sends verdict-exhausted
+                 work THERE — a fresh dock (the fixer, the human-facing summarizer) instead of an apology
+                 stapled to the done lane. The escalated dock is a real stage: its output continues down
+                 ITS chain. `visited` still refuses a dock that already ran — then the honest done-lane
+                 note stands, never a silent second run. */
+              if (step.esc && !visited[step.esc]) {
+                target = step.esc;
+                out.text = '[LOOP — escalated: ' + n + ' pass' + (n === 1 ? '' : 'es') + ' round the gate at ' + step.loop
+                  + (byVerdict ? ' without VERDICT: ' + String(step.when).toLowerCase() : ' while the output still read as ' + step.when)
+                  + ' — handed to the escalation lane]\n' + out.text;
+              } else {
+                out.text = '[LOOP — exhausted: ' + n + ' pass' + (n === 1 ? '' : 'es') + ' round the gate at ' + step.loop
+                  + (byVerdict ? ' without VERDICT: ' + String(step.when).toLowerCase() : ' while the output still read as ' + step.when)
+                  + ' — leaving on DONE unapproved]\n' + out.text;
+              }
             }
           }
         } else if (step && step.agentId) {

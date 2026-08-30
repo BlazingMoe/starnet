@@ -188,6 +188,13 @@ const RecLedger = (() => {
   }
 
   /* ── THE OUTCOME WIRE (dead-wires lane, 2026-08-28) ──────────────────────────────────────────────────────
+     STATED HONESTLY (adversarial review, 2026-08-30): this wire is MECHANISM, currently DORMANT in production.
+     settle() needs an `awaiting` row (a channel note() minted, then accepted) AND a forwarded run outcome
+     (an accept armed with spawnsWork:true) — and today no spine channel does both: `suggest` spawns runs but
+     mints its OWN ledger rows (OWN_LEDGER refuses it here), while every channel note() serves (arc/trust/
+     thread/curiosity/recruit/seed/routine) accepts with spawnsWork:false, because their accepts ARE their
+     outcomes. The wire goes live the day any row-minting channel starts launching work from its accept — do
+     NOT delete it as dead, and do not claim it carries traffic until such a channel exists.
      The browser quality EWMA (recqualitystore.js) has known for weeks whether an accepted spine offer's run
      really finished and how the Commander rated it — and none of that ever reached the durable ledger, so for
      surface `spine` the server's replay() quality term was structurally zero and every channel's earned record

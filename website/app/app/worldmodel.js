@@ -88,6 +88,7 @@ const WorldModel = (() => {
     const tm = Math.floor(+src.timeoutMin); if (isFinite(tm) && tm >= 1 && tm <= 120) dst.timeoutMin = tm;
     const mx = Math.floor(+src.maxIter); if (isFinite(mx) && mx >= 1 && mx <= 20) dst.maxIter = mx;
     const done = cleanDir(src.done); if (done) dst.done = done;
+    const esc = cleanDir(src.esc); if (esc) dst.esc = esc;   // LOOP escalation lane (2026-08-30)
     if (typeof src.when === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(src.when)) dst.when = src.when;
     return dst;
   }
@@ -392,6 +393,7 @@ const WorldModel = (() => {
     SHIPPER:    { desc: 'finishes the job & ships it',     cls: 'chief' },
     REVIEWER:   { desc: 'judges the draft & calls the verdict', cls: 'reviewer' },
     ANALYST:    { desc: 'turns the branches into one answer',   cls: 'analyst' },
+    FIXER:      { desc: 'takes over when the loop gives up',    cls: 'chief' },
   };
   /* THE SHELF (expanded 2026-08-29). Array order IS shelf order: the simplest working line first,
      then one line per MACHINE the floor owns — FILTER, SPLITTER, LOOP gate, JOINER, MERGER — so a
@@ -634,6 +636,34 @@ const WorldModel = (() => {
       ] },
     /* FILTER + LOOP on one line: code takes the reviewed lane (engineer's work must pass the
        reviewer's verdict to ship), everything else lands on the generalist. */
+    /* the ESCALATION LANE, pre-wired (2026-08-30): the gate's THIRD lane. Approved work ships, a
+       failed pass goes back round — and work that runs OUT of passes drops to the FIXER, who does
+       what they can with it and ships THAT. Nothing ever leaves the line as a bare apology. */
+    { id: 'fire_escape', grp: 'gate', label: 'FIRE ESCAPE', w: 19, h: 8,
+      desc: 'INBOX ▸ DRAFTER ▸ REVIEWER ▸ LOOP GATE with THREE lanes — approved ships, revise goes back round, and out-of-passes drops to the FIXER, who salvages it and ships that.',
+      props: [
+        { t: 'intake', x: 0, y: 3, w: 2, h: 2 },
+        { t: 'bay', x: 4, y: 3, w: 2, h: 2, role: 'WRITER' },
+        { t: 'bay', x: 9, y: 3, w: 2, h: 2, role: 'REVIEWER' },
+        { t: 'loop', x: 13, y: 4, w: 1, h: 1, block: false, done: 'E', esc: 'S', when: 'approved', maxIter: 3 },
+        { t: 'outbox', x: 16, y: 3, w: 2, h: 2 },
+        { t: 'bay', x: 15, y: 6, w: 2, h: 2, role: 'FIXER' },
+      ],
+      belts: [
+        { x: 2, y: 4, d: 'E' }, { x: 3, y: 4, d: 'E' },
+        { x: 6, y: 4, d: 'E' }, { x: 7, y: 4, d: 'E' }, { x: 8, y: 4, d: 'E' },
+        { x: 11, y: 4, d: 'E' }, { x: 12, y: 4, d: 'E' }, { x: 13, y: 4, d: 'E' },
+        { x: 14, y: 4, d: 'E' }, { x: 15, y: 4, d: 'E' },
+        // the BACK lane (full column to the lane row, as always)
+        { x: 13, y: 3, d: 'N' }, { x: 13, y: 2, d: 'N' }, { x: 13, y: 1, d: 'N' }, { x: 13, y: 0, d: 'W' },
+        { x: 12, y: 0, d: 'W' }, { x: 11, y: 0, d: 'W' }, { x: 10, y: 0, d: 'W' }, { x: 9, y: 0, d: 'W' },
+        { x: 8, y: 0, d: 'W' }, { x: 7, y: 0, d: 'W' }, { x: 6, y: 0, d: 'W' }, { x: 5, y: 0, d: 'W' },
+        { x: 4, y: 0, d: 'W' },
+        { x: 3, y: 0, d: 'S' }, { x: 3, y: 1, d: 'S' }, { x: 3, y: 2, d: 'S' }, { x: 3, y: 3, d: 'S' },
+        // the ESCALATION lane: down out of the gate, into the fixer — then the fixer ships too
+        { x: 13, y: 5, d: 'S' }, { x: 13, y: 6, d: 'E' }, { x: 14, y: 6, d: 'E' },
+        { x: 17, y: 6, d: 'E' }, { x: 18, y: 6, d: 'N' }, { x: 18, y: 5, d: 'N' },
+      ] },
     { id: 'code_foundry', grp: 'gate', label: 'CODE FOUNDRY', w: 19, h: 7,
       desc: 'INBOX ▸ FILTER ▸ ENGINEER ▸ REVIEWER ▸ LOOP GATE ▸ OUTBOX — code work is built, reviewed, and sent back round until the verdict is APPROVED; everything else takes the generalist lane.',
       props: [
