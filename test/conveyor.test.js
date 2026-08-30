@@ -447,4 +447,34 @@ A.eq(Conveyor.weightForUsd(0.004), 0.004, 'a sub-cent run reads as a near-weight
   A.ok(true, 'shiftFrame(0,0) is a no-op');
 }
 
+/* ---- LOOP GATE lanes come from the COMPILED cfg (2026-08-30 sweep) ----
+   The sim used to re-derive `back` as "first non-done lane"; on a THREE-lane gate LANE_ORDER put the
+   escalation wire first, so the crate you watched rode the escape while the dispatcher looped it
+   upstream — visual ≠ dispatch. jt is plan.junctions[tile] on both surfaces; the sim must obey it. */
+{
+  const B = (x, y, d) => ({ x, y, dir: d });
+  const gateBelts = [B(0, 2, 'E'), B(1, 2, 'E'), B(2, 2, 'E'),
+    B(2, 1, 'N'), B(2, 0, 'N'),          // back lane (compiled: N)
+    B(2, 3, 'S'), B(2, 4, 'S'),          // escalation lane (compiled: S)
+    B(3, 2, 'E'), B(4, 2, 'E')];         // done lane (E); the gate sits on 2,2
+  const cfg = { kind: 'loop', max: 3, done: 'E', back: 'N', esc: 'S' };
+  const ride = (iteration) => {
+    const c = Conveyor.create({});
+    c.enqueueAt(0, 2, { workitemId: 'g' + iteration, iteration });
+    let t = 0; const j = new Map([['2,2', cfg]]);
+    for (let i = 0; i < 40; i++) c.tick(64, (t += 64), gateBelts, j, null);
+    const b = c.peekBoxes()[0];
+    return b ? b.x + ',' + b.y : 'gone';
+  };
+  A.eq(ride(0), '2,0', 'an under-cap crate rides the COMPILED back lane (N), never the escalation wire');
+  A.eq(ride(3), '2,4', 'an exhausted crate rides the ESCALATION lane (S), not the done lane');
+  // a cfg-less legacy caller keeps the old first-non-done fallback (two-lane gate: unambiguous)
+  const c2 = Conveyor.create({});
+  const twoLane = [B(0, 2, 'E'), B(1, 2, 'E'), B(2, 2, 'E'), B(2, 1, 'N'), B(2, 0, 'N'), B(3, 2, 'E'), B(4, 2, 'E')];
+  c2.enqueueAt(0, 2, { workitemId: 'legacy', iteration: 0 });
+  let t2 = 0; const j2 = new Map([['2,2', { kind: 'loop', max: 3, done: 'E' }]]);
+  for (let i = 0; i < 40; i++) c2.tick(64, (t2 += 64), twoLane, j2, null);
+  A.eq(c2.peekBoxes()[0].x + ',' + c2.peekBoxes()[0].y, '2,0', 'a bare {kind:loop} cfg still loops a two-lane gate');
+}
+
 A.report('conveyor');
