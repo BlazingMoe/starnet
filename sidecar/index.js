@@ -5516,12 +5516,17 @@ async function runDiscoveryCycle(opts) {
       if (!Discovery.eligible(discoveryState, f)) continue;   // staged/denylisted/resolved/full — the reducer's one predicate
       discoveryState = Discovery.stage(discoveryState, f, { now: now });
       staged++;
-      // the impression on the ONE ledger — the finding's citation is the repo's own line, typed as the quote it is
+      // the impression on the ONE ledger — the finding's citation is the repo's own line, typed as the quote it
+      // is. expiresAt matches the engine's own TTL (consistency sweep, 2026-08-30): without it an ignored
+      // finding's row sat `shown` forever depressing acceptanceRate, AND — because the id is the fingerprint —
+      // a legitimately re-staged finding could never mint a fresh impression (record() short-circuits on an
+      // existing id). The server sweep now drops the lapsed unanswered row, which also frees the id.
       recommendationLedger.record({
         id: 'discovery:' + f.fingerprint.slice(0, 100),
         surface: 'discovery', kind: f.kind, title: f.title, target: f.root,
         evidence: [{ id: 'scan', type: 'quote', quote: f.quote }],
-        readiness: { ready: true, reasons: [] }, projectId: f.root, modelVersion: 'discovery-v1'
+        readiness: { ready: true, reasons: [] }, projectId: f.root, modelVersion: 'discovery-v1',
+        expiresAt: now + Discovery.FINDING_TTL_MS
       }, Date.now()).catch(swallow('recledger.record'));
     }
   }
@@ -5549,7 +5554,11 @@ function armDiscovery() {
 }
 // GET /api/discovery — the honest status read: staged findings, the attempt trail, and WHY the engine is quiet.
 function handleDiscoveryGet(req, res) {
+  // persist iff the sweep actually expired something (consistency sweep, 2026-08-30): the GET-path sweep used
+  // to mutate in memory only, so expired findings + their ledger notes resurrected on the next restart.
+  const _preSweepStaged = discoveryState.staged.length;
   discoveryState = Discovery.sweep(discoveryState, Date.now());
+  if (discoveryState.staged.length !== _preSweepStaged) persistDiscovery();
   const roots = (() => { try { return blessedRoots(); } catch (_) { return []; } })();
   const d = Discovery.decide(discoveryState, { now: Date.now(), roots: roots });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -5775,10 +5784,19 @@ function nightshiftContextPack() {
    (outcomes.js — literal window counts, support-gated), consulted by the evidence composer, the night-shift
    context pack, the quest ranker and the insights route, so every surface reads the SAME record. Gated by the
    personalization pause like every other learned-about-you signal; fail-open to nothing. */
+let _trackRecordMemo = { at: 0, rec: null };
 function stationTrackRecord() {
   try {
     if (!personalizationStore.read().enabled) return null;
-    return Outcomes.fold(runStore.list(null, { limit: 400 }), { now: Date.now() });
+    /* 30s memo (consistency sweep, 2026-08-30): commanderEvidenceInputs folds via nightshiftContextPack AND
+       directly, and a night beat reads the pack plus the evidence composer — three folds of the same 400 rows
+       per call chain. Runs only append at run end, so a 30-second-stale record is byte-identical in practice;
+       the memo is cleared by nothing and needs to be: it re-folds on its own within the window. */
+    const now = Date.now();
+    if (_trackRecordMemo.rec && (now - _trackRecordMemo.at) < 30000) return _trackRecordMemo.rec;
+    const rec = Outcomes.fold(runStore.list(null, { limit: 400 }), { now: now });
+    _trackRecordMemo = { at: now, rec: rec };
+    return rec;
   } catch (_) { return null; }
 }
 function stationTrackRecordLines() {
@@ -19123,9 +19141,11 @@ function serveInsights(req, res) {
     const agent = u.searchParams.get('agent');
     if (agent && !isAgentId(agent)) return json(403, { error: 'forbidden' });
     const rows = agent ? runStore.list(agent, { limit: 1000 }) : runStore.all();   // agent-scoped or whole station
-    /* OUTCOME LEARNING (2026-08-30): the same support-gated track record the evidence composer and the quest
-       ranker consult, served alongside the usage fold — the insights surface stops being a dead end, and the
-       record the prompts cite becomes inspectable over HTTP (truthful telemetry: one fold, every reader). */
+    /* OUTCOME LEARNING (2026-08-30): the track record served alongside the usage fold, applied to THIS route's
+       row scope (whole station, or ?agent=). Stated honestly (consistency sweep): this is the same PURE fold
+       the prompt readers use, but deliberately NOT the same gate — insights is a telemetry display of the
+       Commander's own run history (none of it is pause-gated), so the record stays visible while personalization
+       is paused even though the prompts stop citing it. What a prompt may cite ≠ what the Commander may see. */
     let trackRecord = null;
     try { const rec = Outcomes.fold(rows, { now: Date.now() }); trackRecord = { decided: rec.decided, windowMs: rec.windowMs, patterns: Outcomes.summary(rec), lines: Outcomes.lines(rec) }; } catch (_) { trackRecord = null; }
     json(200, Object.assign(foldInsights(rows, { nowMs: Date.now(), bucketMs: 3600000, buckets: 24 }), { trackRecord }));

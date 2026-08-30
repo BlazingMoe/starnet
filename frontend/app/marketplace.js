@@ -231,6 +231,10 @@ const Marketplace = (() => {
     invalidateFit();          // …and so does a folder granted or a channel connected in another panel since
     // SCOUT: re-read server truth on open (fresh drafts/interests land) and push the browser-only dedup context.
     try { if (typeof ProspectStore !== 'undefined' && ProspectStore.refresh) { ProspectStore.pushContext(); ProspectStore.refresh(); } } catch (_) {}
+    // DISCOVERY: same discipline (consistency sweep, 2026-08-30) — the store's only other refreshes were init
+    // and decide, so findings the sidecar staged AFTER page load never reached the shelf until a reload. The
+    // read is coalesced (REFRESH_MIN_MS) and fail-open like its sibling above.
+    try { if (typeof DiscoveryStore !== 'undefined' && DiscoveryStore.refresh) DiscoveryStore.refresh(); } catch (_) {}
     tab = (ctx.mode !== 'pick' && ctx.tab === 'recipes' && hasRecipes()) ? 'recipes' : 'agents';
     // count the VISIT, not the render — forYouShelfHTML re-runs on every filter and search keystroke, and
     // seeding the rotation from that would reshuffle the shelf under the Commander's cursor as they type.
