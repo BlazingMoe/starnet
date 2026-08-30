@@ -189,7 +189,12 @@
         try { if (ledger && child.pid) ledger.release(child.pid); } catch (_) {}
         try { onExit({ agentId, bgId, exitCode: rec.exitCode, ms: Math.max(0, rec.endedAt - rec.startedAt), killed: rec.killed }); } catch (_) {}
       };
-      if (child.on) { child.on('close', settle); child.on('error', () => settle(-1)); }
+      if (child.on) {
+        child.on('close', settle);
+        // Node emits `error` for failures other than spawn (for example a failed kill/send) while a child with
+        // a real PID may still be alive. `close` is the process-lifecycle truth and releases the durable receipt.
+        child.on('error', () => { if (!(Number(child.pid) > 0)) settle(-1); });
+      }
       procs.set(bgId, rec);
       return { ok: true, bgId, max: MAX };
     }
