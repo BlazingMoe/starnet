@@ -57,6 +57,36 @@ function jsonResp(obj, status) { return { ok: (status || 200) < 300, status: sta
   const s4 = makeSpotifyStore({ fsp, pathMod: path, dir: DIR, fetchImpl: noFetch, now });
   A.eq(await s4.getAccessToken(), 'AT2', 'the refreshed token is persisted to disk');
 
+  // ---- C2. a transient write failure during refresh-token rotation retries before losing the only live token ----
+  // The issuer has invalidated RT-old by the time it returns RT-new. If the one atomic rename gets EBUSY and the
+  // store gives up, memory carries RT-new while restart reloads dead RT-old even though an immediate retry works.
+  {
+    const dir = DIR + '-c2';
+    try { await fsp.rm(dir, { recursive: true, force: true }); } catch (_) {}
+    const seed = makeSpotifyStore({ fsp, pathMod: path, dir, fetchImpl: noFetch, now });
+    await seed.setClientId('CID');
+    await seed.setTokens({ accessToken: 'AT-old', refreshToken: 'RT-old', expiresAt: 1, scope: 'sc' });
+    let renameCalls = 0;
+    const flakyFsp = Object.assign({}, fsp, {
+      rename: async (...args) => {
+        renameCalls++;
+        if (renameCalls === 1) throw Object.assign(new Error('transient EBUSY'), { code: 'EBUSY' });
+        return fsp.rename(...args);
+      }
+    });
+    const rotated = fetchOnce(() => jsonResp({ access_token: 'AT-new', refresh_token: 'RT-new', expires_in: 3600 }));
+    const live = makeSpotifyStore({ fsp: flakyFsp, pathMod: path, dir, fetchImpl: rotated, now });
+    let refreshed = '', refreshError = '';
+    try { refreshed = await live.getAccessToken(); } catch (e) { refreshError = e && e.message; }
+    A.eq(refreshError, '', 'C2: one transient token-write failure is recovered instead of failing the refresh');
+    A.eq(refreshed, 'AT-new', 'C2: the rotated access token is returned after the retry');
+    A.eq(renameCalls, 2, 'C2: persistence retries exactly once after the transient rename failure');
+    const restarted = makeSpotifyStore({ fsp, pathMod: path, dir, fetchImpl: noFetch, now });
+    A.eq(await restarted.getAccessToken(), 'AT-new', 'C2: restart loads the rotated token, never invalidated RT-old');
+    A.eq(restarted._internals.raw().refreshToken, 'RT-new', 'C2: the rotated refresh token survived restart');
+    try { await fsp.rm(dir, { recursive: true, force: true }); } catch (_) {}
+  }
+
   // ---- D. invalid_grant (dead refresh token) clears the session ----
   T = T + 4000000;
   const deadFetch = fetchOnce(() => jsonResp({ error: 'invalid_grant' }, 400));
