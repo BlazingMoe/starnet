@@ -28,6 +28,7 @@ const CloudSave = (() => {
   let timer = null;                    // debounce timer for a fresh push
   let retryTimer = null;               // backoff timer scheduling the next attempt after a failure
   let pending = null;                  // newest doc awaiting a flush (older queued docs are superseded)
+  const activeFlushes = new Set();      // confirmable writes currently waiting on the sidecar
   let health = Core ? Core.freshHealth() : { lastPushOkAt: 0, lastPushFailAt: 0, consecutiveFailures: 0, nextRetryAt: 0 };
   let warnedStale = false;             // ONE console warn per failing↔healthy transition, never per attempt
   // EL-11 FIX 1: the sidecar REFUSES writes when the workspace was stamped by a NEWER StarNet — as an HTTP 200
@@ -115,7 +116,7 @@ const CloudSave = (() => {
     if (!force && Core && isSave(pending) && !Core.retryDue(health, now())) { scheduleRetry(); return Promise.resolve(false); }
     const doc = pending; pending = null;
     if (!isSave(doc)) return Promise.resolve(false);
-    return postNow(doc)
+    const attempt = postNow(doc)
       .then(async r => {
         // a non-ok HTTP status (e.g. 409 stale, 500) is a FAILURE, not a success — fetch only rejects on
         // network error, so we must inspect r.ok ourselves or we'd stamp health OK on a rejected write.
@@ -141,13 +142,24 @@ const CloudSave = (() => {
         scheduleRetry();
         return false;
       });
+    activeFlushes.add(attempt);
+    attempt.then(() => { activeFlushes.delete(attempt); });
+    return attempt;
   }
 
   // flush() returns false both when there was nothing pending (safe) and when a real pending write failed
   // (unsafe). Update installation needs that distinction so it can fail closed on an unproved newest save.
-  function flushForUpdate() {
-    const hadPending = isSave(pending);
-    return flush({ force: true }).then(ok => ({ ok: !hadPending || ok === true, hadPending, flushed: ok === true }));
+  async function flushForUpdate() {
+    const hadPending = isSave(pending) || activeFlushes.size > 0;
+    let confirmed = false;
+    if (activeFlushes.size) {
+      const outcomes = await Promise.all(Array.from(activeFlushes));
+      confirmed = outcomes.every(ok => ok === true);
+    }
+    // A rejected active write re-queues its document, and a newer push may also have arrived while it was in
+    // flight. Force one final, confirmable write of that newest pending state before the installer advances.
+    if (isSave(pending)) confirmed = await flush({ force: true }) === true;
+    return { ok: !hadPending || confirmed, hadPending, flushed: hadPending && confirmed };
   }
 
   // queue a write-through; coalesces a burst of persists into one POST after the debounce settles.

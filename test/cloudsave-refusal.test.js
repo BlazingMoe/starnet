@@ -69,5 +69,25 @@ const doc = (updatedAt) => ({ schema: 'starnet.save', version: 3, updatedAt, age
   A.eq(landed5, false, 'a non-2xx status is still a failed push');
   A.ok(CloudSave.health().consecutiveFailures >= 1, 'the HTTP failure is recorded');
 
+  // ---- 6. update drain must wait for an ordinary flush already in flight ----
+  // pending is cleared while fetch runs. Treating that as "nothing pending" lets the installer advance before
+  // the only attempted durable write has even settled, and a later rejection re-queues the newest save too late.
+  let releaseFirst = null, fetchCalls = 0;
+  global.fetch = () => {
+    fetchCalls++;
+    if (fetchCalls === 1) return new Promise(resolve => { releaseFirst = resolve; });
+    return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: 'still unavailable' }) });
+  };
+  CloudSave.push(doc(60));
+  const ordinaryFlush = CloudSave.flush({ force: true });
+  let drainSettled = false;
+  const updateDrain = CloudSave.flushForUpdate().then(value => { drainSettled = true; return value; });
+  await Promise.resolve();
+  A.eq(drainSettled, false, 'update drain waits for the already in-flight durable write');
+  releaseFirst({ ok: false, status: 500, json: () => Promise.resolve({ error: 'first write failed' }) });
+  await ordinaryFlush;
+  const drained = await updateDrain;
+  A.eq(drained.ok, false, 'a failed in-flight write cannot be reported safe for update installation');
+
   A.report('cloudsave-refusal');
 })().catch(e => { console.log('FAIL: unhandled — ' + (e && e.stack || e)); process.exit(1); });
