@@ -280,6 +280,18 @@ function makeFakeSpawn() {
       A.eq(restartedCwd.getCwd('a4'), '/srv/starnet/a4/src', 'SSH cwd survives sidecar restart through read-back-verified host state');
       A.eq(restartedCwd.supports.persistentSession, true, 'SSH advertises restart continuity only after cwd and remote jobs are persistent');
 
+      const rejectedFs = Object.create(fs);
+      rejectedFs.renameSync = function (from, to) {
+        if (/a5\.json$/.test(String(to))) throw new Error('simulated SSH cwd replace failure');
+        return fs.renameSync(from, to);
+      };
+      const rejectedCwd = makeEnvironmentManager({ spawn: makeFakeSpawn(), fs: rejectedFs, pathMod: path, root, clock,
+        sshConfig: () => target, config: { backend: 'ssh', sshBin: 'sshx', scpBin: 'scpx' } });
+      let cwdWriteRejected = false;
+      try { rejectedCwd.rememberCwd('a5', '/srv/starnet/a4/rejected'); } catch (e) { cwdWriteRejected = /replace failure/.test(String(e && e.message)); }
+      A.ok(cwdWriteRejected, 'SSH cwd update reports a rejected durable replace');
+      A.eq(rejectedCwd.getCwd('a5'), '/srv/starnet/a4', 'a rejected SSH cwd update does not survive in memory');
+
       spawn.setNext('push-ok', 0);
       spawn.setNext('STARNET_JOB\tsshbg_aaaaaaaa\t700\trunning\t\n', 0);
       const bg = await env.startBackground({ agentId: 'a4', cmd: 'node server.js', cwd: '/srv/starnet/a4/src' });

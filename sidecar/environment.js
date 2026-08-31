@@ -837,7 +837,7 @@
     }
     function rememberCwd(agentId, cwd) {
       const aid = safeAgentId(agentId || 'agent'), row = target(aid);
-      if (cwd && posixInside(cwd, row.remoteRoot)) { sessions.set(aid, String(cwd)); saveSession(aid, String(cwd)); }
+      if (cwd && posixInside(cwd, row.remoteRoot)) { saveSession(aid, String(cwd)); sessions.set(aid, String(cwd)); }
       return getCwd(aid);
     }
     function destination(row) { return (row.user ? row.user + '@' : '') + row.host; }
