@@ -224,8 +224,20 @@ const Updates = (() => {
     return body.receipt;
   }
 
-  function cancelPreparation() {
-    return fetch('/api/update/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null);
+  async function cancelPreparation() {
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const r = await fetch('/api/update/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        let body = null;
+        try { body = await r.json(); } catch (_) {}
+        if (r.ok && body && body.ok === true && body.frozen === false) return body;
+        lastError = new Error((body && (body.error || body.code)) || ('update cancellation HTTP ' + r.status));
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError || new Error('update cancellation failed');
   }
 
   // Count of sidecar-CONFIRMED live runs (Channels.busy flips on real agent.run.start/end,
@@ -299,10 +311,12 @@ const Updates = (() => {
       notify('StarNet update installed - restarting', 'good');
     } catch (e) {
       installing = false;   // install failed; the app lives on, so the quit guard resumes normally
-      await cancelPreparation();
-      state.preparationReceipt = null;
+      let thawError = null;
+      try { await cancelPreparation(); }
+      catch (cancelError) { thawError = cleanError(cancelError); }
+      if (!thawError) state.preparationReceipt = null;
       state.phase = 'available';
-      state.error = cleanError(e);
+      state.error = cleanError(e) + (thawError ? '; writes may still be paused - ' + thawError : '');
       notify('Update install failed - ' + state.error, 'warn');
     } finally {
       busy = false;

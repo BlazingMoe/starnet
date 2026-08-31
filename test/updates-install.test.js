@@ -13,6 +13,8 @@ function makeCase(opts) {
   const calls = [];
   const store = new Map([['starnet.save', '{"version":5,"updatedAt":99}']]);
   let installCalls = 0;
+  let cancelCalls = 0;
+  let preparedFrozen = false;
   class Channel { constructor(fn) { this.fn = fn; } }
   const invoke = async cmd => {
     calls.push(cmd);
@@ -27,9 +29,17 @@ function makeCase(opts) {
       const sent = JSON.parse(init.body);
       A.eq(sent.browserStore['starnet.save'], store.get('starnet.save'), 'prepare carries browser-owned save bytes');
       if (o.prepareFails) return { ok: false, status: 409, json: async () => ({ ok: false, code: 'UPDATE_SNAPSHOT_FAILED' }) };
+      preparedFrozen = true;
       return { ok: true, status: 200, json: async () => ({ ok: true, receipt: { id: 'receipt-1' } }) };
     }
-    if (url === '/api/update/cancel') return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    if (url === '/api/update/cancel') {
+      cancelCalls++;
+      if (o.cancelFailsAlways || (o.cancelFailsOnce && cancelCalls === 1)) {
+        return { ok: false, status: 503, json: async () => ({ ok: false }) };
+      }
+      preparedFrozen = false;
+      return { ok: true, status: 200, json: async () => ({ ok: true, frozen: false }) };
+    }
     throw new Error('unexpected fetch ' + url);
   };
   const context = {
@@ -48,7 +58,12 @@ function makeCase(opts) {
   };
   vm.createContext(context);
   vm.runInContext(source, context, { filename: 'updates.js' });
-  return { updates: context.__Updates, calls, installCalls: () => installCalls };
+  return {
+    updates: context.__Updates, calls,
+    installCalls: () => installCalls,
+    cancelCalls: () => cancelCalls,
+    isPreparedFrozen: () => preparedFrozen
+  };
 }
 
 async function ready(c) { await c.updates.init(); await c.updates.check(true, 'test'); }
@@ -77,6 +92,18 @@ async function ready(c) { await c.updates.init(); await c.updates.check(true, 't
     await ready(c); await c.updates.install();
     A.eq(c.calls.includes('/api/update/cancel'), true, 'native install failure explicitly unfreezes the sidecar');
     A.eq(c.updates.isInstalling(), false, 'quit guard is restored after native failure');
+  }
+  {
+    const c = makeCase({ installFails: true, cancelFailsOnce: true });
+    await ready(c); await c.updates.install();
+    A.eq(c.cancelCalls(), 2, 'a rejected thaw response is retried instead of being treated as success');
+    A.eq(c.isPreparedFrozen(), false, 'native failure leaves the sidecar writable after a transient thaw failure');
+  }
+  {
+    const c = makeCase({ installFails: true, cancelFailsAlways: true });
+    await ready(c); const state = await c.updates.install();
+    A.ok(/writes may still be paused/i.test(state.error), 'persistent thaw failure is disclosed instead of reporting only the installer error');
+    A.eq(c.isPreparedFrozen(), true, 'persistent thaw failure remains truthfully represented by the frozen fixture');
   }
   A.report('updates-install.test');
 })().catch(e => { console.error(e); process.exit(1); });
