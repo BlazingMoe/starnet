@@ -98,6 +98,41 @@ try {
   A.eq(afterFailedWrite.acquire(root).ok, true, 'the next sidecar can acquire without waiting for a reboot');
   afterFailedWrite.release();
 
+  // Read-back is part of claim creation too. If it rejects after O_EXCL + fsync, this process still owns the
+  // unaccepted file and must remove it; otherwise the malformed/unverifiable same-boot claim wedges the root.
+  const unreadableFs = Object.create(fs);
+  let rejectOwnerRead = true;
+  unreadableFs.readFileSync = function (file, encoding) {
+    if (rejectOwnerRead && path.resolve(String(file)) === path.resolve(lockfile)) {
+      rejectOwnerRead = false;
+      const error = new Error('simulated owner stamp read-back failure'); error.code = 'EIO'; throw error;
+    }
+    return fs.readFileSync(file, encoding);
+  };
+  const unreadableClaim = makeWorkspaceOwner({ fs: unreadableFs, path, pid: 41017, now: () => BOOT + 42_000,
+    nonce: () => 'failed-readback', pidAlive: () => true, bootedAt: () => BOOT });
+  A.eq(unreadableClaim.acquire(root).code, 'WORKSPACE_OWNER_UNAVAILABLE', 'owner stamp read-back failure is reported');
+  A.eq(fs.existsSync(lockfile), false, 'a rejected owner stamp read-back removes its unaccepted claim');
+  const afterFailedRead = makeWorkspaceOwner({ fs, path, pid: 41018, now: () => BOOT + 43_000,
+    nonce: () => 'after-failed-readback', pidAlive: () => true, bootedAt: () => BOOT });
+  A.eq(afterFailedRead.acquire(root).ok, true, 'the next sidecar can acquire after a read-back failure');
+  afterFailedRead.release();
+
+  const mismatchedFs = Object.create(fs);
+  let mismatchOwnerRead = true;
+  mismatchedFs.readFileSync = function (file, encoding) {
+    const raw = fs.readFileSync(file, encoding);
+    if (mismatchOwnerRead && path.resolve(String(file)) === path.resolve(lockfile)) {
+      mismatchOwnerRead = false;
+      return String(raw) + ' ';
+    }
+    return raw;
+  };
+  const mismatchedClaim = makeWorkspaceOwner({ fs: mismatchedFs, path, pid: 41019, now: () => BOOT + 44_000,
+    nonce: () => 'mismatched-readback', pidAlive: () => true, bootedAt: () => BOOT });
+  A.eq(mismatchedClaim.acquire(root).code, 'WORKSPACE_OWNER_UNAVAILABLE', 'owner stamp read-back mismatch is reported');
+  A.eq(fs.existsSync(lockfile), false, 'a mismatched owner stamp removes its unaccepted claim');
+
   A.report('workspace-owner.test');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

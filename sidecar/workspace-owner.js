@@ -124,9 +124,15 @@ function makeWorkspaceOwner(deps) {
     try { fs.closeSync(fd); } catch (_) {}
     let back = '';
     try { back = String(fs.readFileSync(lockfile, 'utf8')); } catch (e) {
-      return { ok: false, exists: false, error: e };
+      let cleanupError = null;
+      try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      return { ok: false, exists: false, error: e, cleanupError };
     }
-    if (back !== raw) return { ok: false, exists: false, error: new Error('workspace owner read-back mismatch') };
+    if (back !== raw) {
+      let cleanupError = null;
+      try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      return { ok: false, exists: false, error: new Error('workspace owner read-back mismatch'), cleanupError };
+    }
     held = { root: root, lockfile: lockfile, raw: raw, claim: claim };
     return { ok: true, root: root, lockfile: lockfile, holder: claim, release: release };
   }
