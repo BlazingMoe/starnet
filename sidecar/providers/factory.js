@@ -101,6 +101,9 @@
         staticModels: profile.staticModels,
         // prices.js family for endpoints whose /models carries no pricing (null = stays honestly unpriced)
         priceFamily: (typeof profile.priceFamily === 'string') ? profile.priceFamily : null,
+        // Local runtimes may need to load a model before returning headers. Hosted providers retain the
+        // shared 30s connect ceiling; only profiles that prove a different need override it.
+        connectTimeoutMs: profile.connectTimeoutMs,
         defaultContext: opts.defaultContext,
         headers: mergedHeaders
       });

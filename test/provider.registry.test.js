@@ -72,6 +72,41 @@ module.exports = (async () => {
   });
   A.ok(!factory.getProviderProfile('custom').wireReasoningEffort, 'custom endpoints never assume reasoning_effort support');
 
+  // Ollama can spend well over 30s loading a local model before it returns response headers. Its profile gets
+  // a local-only ceiling; hosted endpoints retain the shared SKYNET_PROVIDER_CONNECT_MS/default policy.
+  A.eq(factory.getProviderProfile('ollama').connectTimeoutMs, 300000, 'Ollama allows a five-minute cold model load');
+  A.eq(factory.getProviderProfile('openai').connectTimeoutMs, undefined, 'hosted providers keep the shared connect ceiling');
+  {
+    const previousConnectMs = process.env.SKYNET_PROVIDER_CONNECT_MS;
+    process.env.SKYNET_PROVIDER_CONNECT_MS = '10';
+    let postAttempts = 0;
+    try {
+      const fetchImpl = async (url, init) => {
+        if (!init || init.method !== 'POST') return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        postAttempts++;
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve(new Response('data: [DONE]\n\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' }
+          })), 40);
+          const signal = init.signal;
+          const abort = () => {
+            clearTimeout(timer);
+            reject((signal && signal.reason) || new Error('aborted'));
+          };
+          if (signal && signal.aborted) abort();
+          else if (signal && typeof signal.addEventListener === 'function') signal.addEventListener('abort', abort, { once: true });
+        });
+      };
+      const local = factory.selectProvider({ provider: 'ollama', fetch: fetchImpl });
+      for await (const _ of local.stream({ model: 'llama3.1', messages: [{ role: 'user', content: 'hi' }] })) { /* drain */ }
+      A.eq(postAttempts, 1, 'Ollama profile override reaches the adapter and prevents the global 10ms guard from retrying');
+    } finally {
+      if (previousConnectMs == null) delete process.env.SKYNET_PROVIDER_CONNECT_MS;
+      else process.env.SKYNET_PROVIDER_CONNECT_MS = previousConnectMs;
+    }
+  }
+
   // profile hints reach the adapter: Perplexity refuses tools up front and sends no stream_options
   {
     const calls = [];

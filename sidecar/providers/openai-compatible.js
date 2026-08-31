@@ -78,6 +78,10 @@
     // context compaction work. Callers may opt out with an explicit includeUsage: false.
     const includeUsage = opts.includeUsage !== false;
     const defaultContext = Number(opts.defaultContext || 0) || 0;
+    const configuredConnectMs = Number(opts.connectTimeoutMs);
+    const connectTimeoutMs = Number.isFinite(configuredConnectMs) && configuredConnectMs > 0
+      ? Math.floor(configuredConnectMs)
+      : undefined;
     const clock = (opts.clock && typeof opts.clock.now === 'function') ? opts.clock : null;
     // Provider-profile hints (registry): whether this endpoint documents the `reasoning_effort` chat
     // param, and a tool-capability fallback for catalogs that carry no capability metadata (most raw
@@ -279,7 +283,7 @@
         let res;
         // Fresh connect guard per attempt; disarmed the instant the fetch settles so the ceiling can't abort
         // the streaming body (a connect expiry rejects as a `timeout`, a user-cancel as AbortError).
-        const guard = timeouts.connectGuard(signal);
+        const guard = timeouts.connectGuard(signal, connectTimeoutMs);
         try {
           res = await doFetch(baseUrl + chatPath, {
             method: 'POST',
