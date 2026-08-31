@@ -380,6 +380,7 @@ function restore(opts) {
   if (fs.existsSync(rollback)) throw new Error('rollback generation already exists: ' + rollback);
   const restored = [];
   let targetMoved = false;
+  let activated = false;
   try {
     fs.mkdirSync(stage, { recursive: false });
     for (const row of o.bundle.files) {
@@ -396,6 +397,7 @@ function restore(opts) {
     if (typeof o.beforeActivate === 'function') o.beforeActivate({ stage, target, rollback });
     if (fs.existsSync(target)) { fs.renameSync(target, rollback); targetMoved = true; }
     fs.renameSync(stage, target);
+    activated = true;
     if (isObj(o.browserSink)) {
       for (const row of o.bundle.browser) o.browserSink[row.key] = row.value;
     } else if (typeof o.browserSink === 'function') {
@@ -412,9 +414,16 @@ function restore(opts) {
     };
   } catch (e) {
     try { if (fs.existsSync(stage)) fs.rmSync(stage, { recursive: true, force: true }); } catch (_) {}
-    if (targetMoved && !fs.existsSync(target) && fs.existsSync(rollback)) {
-      try { fs.renameSync(rollback, target); } catch (_) {}
+    let rollbackError = null;
+    if (activated && fs.existsSync(target)) {
+      try { fs.rmSync(target, { recursive: true, force: true }); }
+      catch (restoreError) { rollbackError = restoreError; }
     }
+    if (targetMoved && !fs.existsSync(target) && fs.existsSync(rollback)) {
+      try { fs.renameSync(rollback, target); }
+      catch (restoreError) { rollbackError = rollbackError || restoreError; }
+    }
+    if (rollbackError && e && typeof e === 'object') e.rollbackError = rollbackError;
     throw e;
   }
 }

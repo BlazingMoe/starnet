@@ -114,15 +114,25 @@ function makeWorkspaceOwner(deps) {
       fs.writeSync(fd, raw);
       if (typeof fs.fsyncSync === 'function') fs.fsyncSync(fd);
     } catch (e) {
-      if (fd != null) { try { fs.closeSync(fd); } catch (_) {} }
-      return { ok: false, exists: !!(e && e.code === 'EEXIST'), error: e };
+      let cleanupError = null;
+      if (fd != null) {
+        try { fs.closeSync(fd); } catch (_) {}
+        try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      }
+      return { ok: false, exists: !!(e && e.code === 'EEXIST'), error: e, cleanupError };
     }
     try { fs.closeSync(fd); } catch (_) {}
     let back = '';
     try { back = String(fs.readFileSync(lockfile, 'utf8')); } catch (e) {
-      return { ok: false, exists: false, error: e };
+      let cleanupError = null;
+      try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      return { ok: false, exists: false, error: e, cleanupError };
     }
-    if (back !== raw) return { ok: false, exists: false, error: new Error('workspace owner read-back mismatch') };
+    if (back !== raw) {
+      let cleanupError = null;
+      try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      return { ok: false, exists: false, error: new Error('workspace owner read-back mismatch'), cleanupError };
+    }
     held = { root: root, lockfile: lockfile, raw: raw, claim: claim };
     return { ok: true, root: root, lockfile: lockfile, holder: claim, release: release };
   }

@@ -1442,8 +1442,11 @@ function saveAgentRoster(updatedAt) {
     // stamp (already proven fresh by the gate) is recorded verbatim; otherwise advance monotonically off the host
     // clock so the envelope only ever moves forward. Legacy readers ignore the extra key harmlessly.
     const stamp = Number(updatedAt);
-    agentRosterUpdatedAt = (Number.isFinite(stamp) && stamp > 0) ? stamp : Math.max(agentRosterUpdatedAt + 1, Date.now());
-    saveResilient(AGENT_ROSTER_FILE, { version: 1, updatedAt: agentRosterUpdatedAt, agents });   // fsync-durable + .bak last-known-good
+    const nextUpdatedAt = (Number.isFinite(stamp) && stamp > 0) ? stamp : Math.max(agentRosterUpdatedAt + 1, Date.now());
+    saveResilient(AGENT_ROSTER_FILE, { version: 1, updatedAt: nextUpdatedAt, agents });   // fsync-durable + .bak last-known-good
+    // The freshness baseline is committed state, not attempted state. Advancing it before the durable replace
+    // succeeds would make a failed write reject a later retry as stale even though disk never received the value.
+    agentRosterUpdatedAt = nextUpdatedAt;
     return true;
   } catch (e) { console.warn('[roster] persist failed:', (e && e.message) || e); return false; }
 }
@@ -1526,7 +1529,10 @@ function setAgentModelFromChannel(agentId, model) {
   const cur = agentRoster.get(id);
   if (!cur) return { ok: false, agentId: id, error: 'agent not in roster' };
   agentRoster.set(id, Object.assign({}, cur, { model: m }));   // same shape replaceAgentRoster produces
-  saveAgentRoster();                                           // fsync-durable + .bak, survives restart
+  if (!saveAgentRoster()) {                                    // fsync-durable + .bak, survives restart
+    agentRoster.set(id, cur);
+    return { ok: false, agentId: id, error: 'could not persist roster' };
+  }
   return { ok: true, agentId: id, model: m, name: cur.name || id };
 }
 // A live snapshot of the OpenRouter model catalog, warmed at boot (see the server.listen warmup) AND on demand
@@ -13099,8 +13105,18 @@ async function handleRoster(req, res) {
   // P2.1: DEGRADED — this workspace was stamped by a NEWER StarNet. Refuse a destructive roster overwrite (the
   // route replaces the whole store) rather than corrupt data this code doesn't understand. Reads/runs are untouched.
   if (workspaceDegraded) return json(200, { ok: false, error: 'workspace written by newer StarNet', degraded: true });
+  const previousRoster = new Map(agentRoster);
+  const previousRaw = new Map(agentRosterRaw);
+  const previousUpdatedAt = agentRosterUpdatedAt;
   replaceAgentRoster(body.agents);
-  saveAgentRoster(hasStamp ? incomingUpdatedAt : undefined);
+  if (!saveAgentRoster(hasStamp ? incomingUpdatedAt : undefined)) {
+    // POST /api/roster replaces the whole live roster, so a rejected durable replace must also roll RAM back.
+    // Otherwise the route lies with a session-only roster that disappears on restart.
+    agentRoster.clear(); for (const [id, agent] of previousRoster) agentRoster.set(id, agent);
+    agentRosterRaw.clear(); for (const [id, raw] of previousRaw) agentRosterRaw.set(id, raw);
+    agentRosterUpdatedAt = previousUpdatedAt;
+    return json(500, { ok: false, error: 'could not persist roster' });
+  }
   json(200, { ok: true, count: agentRoster.size, updatedAt: agentRosterUpdatedAt });
 }
 
@@ -13124,6 +13140,21 @@ async function handleAgentDelete(req, res) {
     return json(409, { error: deletion.active ? 'agent is active; stop its runs before deleting' : 'agent lifecycle is busy' });
   }
   try {
+  // Commit the roster removal before moving any recoverable state. If this durable write is rejected, restoring
+  // the live entry is lossless; after files have been archived there is no equally safe rollback.
+  let removed = false;
+  const previousRosterEntry = agentRoster.get(agentId);
+  try {
+    removed = agentRoster.delete(agentId);
+    if (removed && !saveAgentRoster()) {
+      agentRoster.set(agentId, previousRosterEntry);
+      return json(500, { ok: false, error: 'could not persist roster removal' });
+    }
+  } catch (e) {
+    if (removed) agentRoster.set(agentId, previousRosterEntry);
+    console.warn('[agent.delete] roster drop failed:', (e && e.message) || e);
+    return json(500, { ok: false, error: 'could not persist roster removal' });
+  }
   const archived = [];
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -13149,9 +13180,6 @@ async function handleAgentDelete(req, res) {
     console.warn('[agent.delete] archive failed:', (e && e.message) || e);
     // fall through — still drop the roster entry so the delete is honoured; the stores stay put (safe: retained).
   }
-  // drop the in-memory + on-disk roster entry (the browser also re-pushes the surviving set right after).
-  let removed = false;
-  try { removed = agentRoster.delete(agentId); if (removed) saveAgentRoster(); } catch (e) { console.warn('[agent.delete] roster drop failed:', (e && e.message) || e); }
   // ORPHANED-AUTOMATION CLEANUP (2026-07-16 resurrect audit): a deleted agent's cron routines — including its
   // away-workshop shift (meta.workshop) — kept firing forever: real spend, ghost rail sessions, and floor
   // crates under the dead agentId, surviving restarts. Drop every job bound to this agent under the cron
