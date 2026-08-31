@@ -13140,6 +13140,21 @@ async function handleAgentDelete(req, res) {
     return json(409, { error: deletion.active ? 'agent is active; stop its runs before deleting' : 'agent lifecycle is busy' });
   }
   try {
+  // Commit the roster removal before moving any recoverable state. If this durable write is rejected, restoring
+  // the live entry is lossless; after files have been archived there is no equally safe rollback.
+  let removed = false;
+  const previousRosterEntry = agentRoster.get(agentId);
+  try {
+    removed = agentRoster.delete(agentId);
+    if (removed && !saveAgentRoster()) {
+      agentRoster.set(agentId, previousRosterEntry);
+      return json(500, { ok: false, error: 'could not persist roster removal' });
+    }
+  } catch (e) {
+    if (removed) agentRoster.set(agentId, previousRosterEntry);
+    console.warn('[agent.delete] roster drop failed:', (e && e.message) || e);
+    return json(500, { ok: false, error: 'could not persist roster removal' });
+  }
   const archived = [];
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -13165,9 +13180,6 @@ async function handleAgentDelete(req, res) {
     console.warn('[agent.delete] archive failed:', (e && e.message) || e);
     // fall through — still drop the roster entry so the delete is honoured; the stores stay put (safe: retained).
   }
-  // drop the in-memory + on-disk roster entry (the browser also re-pushes the surviving set right after).
-  let removed = false;
-  try { removed = agentRoster.delete(agentId); if (removed) saveAgentRoster(); } catch (e) { console.warn('[agent.delete] roster drop failed:', (e && e.message) || e); }
   // ORPHANED-AUTOMATION CLEANUP (2026-07-16 resurrect audit): a deleted agent's cron routines — including its
   // away-workshop shift (meta.workshop) — kept firing forever: real spend, ghost rail sessions, and floor
   // crates under the dead agentId, surviving restarts. Drop every job bound to this agent under the cron

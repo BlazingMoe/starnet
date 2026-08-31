@@ -176,5 +176,46 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
     await fault.dispose();
   }
 
+  // Agent deletion must not archive the agent's state or report success until the roster removal is durable.
+  // Block the roster replace and prove the route leaves both the live agent and its recoverable files untouched.
+  const deleteFault = SidecarFixture.create({
+    prefix: 'sk-agent-delete-write-fault-',
+    env: { OPENROUTER_KEY: '', STARNET_OPENROUTER_KEY: '', SKYNET_OPENROUTER_KEY: '' }
+  });
+  await deleteFault.start();
+  try {
+    const BD = deleteFault.baseUrl;
+    const tokD = deleteFault.token;
+    const jd = async (m, p, body) => {
+      const headers = { 'Content-Type': 'application/json' }; if (tokD) headers['X-StarNet-Token'] = tokD;
+      const r = await fetch(BD + p, { method: m, headers, body: body ? JSON.stringify(body) : undefined });
+      const t = await r.text(); let v; try { v = JSON.parse(t); } catch (_) { v = t; }
+      return { status: r.status, body: v };
+    };
+    const deleteRosterFile = path.join(deleteFault.workspace, 'agent.roster.json');
+    const savedRosterFile = path.join(deleteFault.workspace, 'agent.roster.saved.json');
+    const notebookFile = path.join(deleteFault.workspace, 'doomed.notebook.json');
+    const seeded = await jd('POST', '/api/roster', { agents: [
+      { agentId: 'agent', system: 'hero', name: 'Ultron', provider: 'openrouter' },
+      { agentId: 'doomed', system: 'worker', name: 'Doomed', provider: 'openrouter' }
+    ], updatedAt: 100 });
+    A.eq(seeded.body.ok, true, 'delete fault fixture establishes a durable two-agent roster');
+    fs.writeFileSync(notebookFile, JSON.stringify({ version: 1, notes: ['keep me'] }));
+    fs.renameSync(deleteRosterFile, savedRosterFile);
+    fs.mkdirSync(deleteRosterFile);
+
+    const rejectedDelete = await jd('POST', '/api/agent/delete', { agentId: 'doomed' });
+    A.eq(rejectedDelete.status, 500, 'agent deletion fails when its roster removal is not durable');
+    A.eq(rejectedDelete.body.ok, false, 'agent deletion never reports success after a rejected roster write');
+    A.ok(fs.existsSync(notebookFile), 'rejected deletion does not archive the agent notebook');
+    const stillLive = await jd('GET', '/api/execution-profiles');
+    A.ok((stillLive.body.agents || []).some(a => a.agentId === 'doomed'), 'rejected deletion restores the live roster entry');
+
+    fs.rmdirSync(deleteRosterFile);
+    fs.renameSync(savedRosterFile, deleteRosterFile);
+  } finally {
+    await deleteFault.dispose();
+  }
+
   A.report('roster-envelope.http.test');
 })().catch(e => { console.log('FAIL: roster-envelope.http.test threw — ' + (e && e.stack || e)); process.exit(1); });
