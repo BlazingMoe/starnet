@@ -176,6 +176,21 @@ function store(io) { return makeSkillStore({ io, clock: { now: () => 9000 }, gua
   // Consume the otherwise-unused safe preview to pin that a second inspection is independent.
   A.ok(caution.inspectionId, 'each inspection receives its own frozen stage');
 
+  // Installation is a durability claim, not a RAM claim. A rejected JSONL append must not return
+  // success or leave a ghost skill that disappears when the sidecar restarts.
+  const rejectedIo = { readAll() { return []; }, append() { throw new Error('injected skills disk full'); } };
+  const rejectedStore = store(rejectedIo);
+  const rejectedExchange = makeSkillExchange({
+    fetchDocument: async url => ({ url, text: doc('Rejected Install', 'Do the reviewed work.') }),
+    skillStore: rejectedStore, guard, hash, now: () => 4500, makeId: () => 'rejected-install'
+  });
+  const rejectedPreview = await rejectedExchange.inspect({ url: 'https://skills.example/rejected/SKILL.md' });
+  let rejectedError = '';
+  try { rejectedExchange.install({ agentId: 'a', inspectionId: rejectedPreview.inspectionId }); }
+  catch (e) { rejectedError = e.message; }
+  A.ok(/disk full/.test(rejectedError), 'rejected durable append makes installation fail truthfully');
+  A.eq(rejectedStore.list('a').length, 0, 'rejected durable append leaves no restart-unsafe in-memory ghost');
+
   // Distribution provenance cannot outlive the bytes it names: a realistic long SKILL.md must not be
   // silently clipped at the runtime store's historical 20k limit.
   const longBody = 'Follow this detailed step.\n'.repeat(1200);

@@ -266,8 +266,11 @@
           if (dir) entry.packagePath = dir;
         }
       } catch (e) { failNote('skillstore.package.write', e); }
+      try { io.append(clone(entry)); }
+      catch (e) { failNote('skillstore.append', e); throw e; }
+      // Publish to RAM only after the durable event was accepted. Otherwise manage() reports
+      // success for a skill that vanishes on the next sidecar restart.
       latest.set(keyOf(entry.agentId, entry.name), clone(entry));
-      try { io.append(clone(entry)); } catch (e) { failNote('skillstore.append', e); }
       return entry;
     }
     function mine(agentId, opts2) {
