@@ -82,6 +82,22 @@ try {
   A.eq(inertB.acquire(root).code, 'WORKSPACE_BUSY', 'with no boot time a live PID is busy (no guessing)');
   inertA.release();
 
+  // A handled write error is not a crash. Leaving the O_EXCL file behind would create a malformed same-boot
+  // claim that no later sidecar can prove stale, permanently wedging the workspace until the next OS reboot.
+  const failingFs = Object.create(fs);
+  failingFs.writeSync = function (fd, raw) {
+    fs.writeSync(fd, String(raw).slice(0, 1));
+    const error = new Error('simulated owner stamp write failure'); error.code = 'EIO'; throw error;
+  };
+  const failedClaim = makeWorkspaceOwner({ fs: failingFs, path, pid: 41015, now: () => BOOT + 40_000,
+    nonce: () => 'failed-write', pidAlive: () => true, bootedAt: () => BOOT });
+  A.eq(failedClaim.acquire(root).code, 'WORKSPACE_OWNER_UNAVAILABLE', 'owner stamp write failure is reported');
+  A.eq(fs.existsSync(lockfile), false, 'a handled owner stamp write failure removes its partial claim');
+  const afterFailedWrite = makeWorkspaceOwner({ fs, path, pid: 41016, now: () => BOOT + 41_000,
+    nonce: () => 'after-failed-write', pidAlive: () => true, bootedAt: () => BOOT });
+  A.eq(afterFailedWrite.acquire(root).ok, true, 'the next sidecar can acquire without waiting for a reboot');
+  afterFailedWrite.release();
+
   A.report('workspace-owner.test');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });

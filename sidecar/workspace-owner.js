@@ -114,8 +114,12 @@ function makeWorkspaceOwner(deps) {
       fs.writeSync(fd, raw);
       if (typeof fs.fsyncSync === 'function') fs.fsyncSync(fd);
     } catch (e) {
-      if (fd != null) { try { fs.closeSync(fd); } catch (_) {} }
-      return { ok: false, exists: !!(e && e.code === 'EEXIST'), error: e };
+      let cleanupError = null;
+      if (fd != null) {
+        try { fs.closeSync(fd); } catch (_) {}
+        try { fs.unlinkSync(lockfile); } catch (cleanup) { cleanupError = cleanup; }
+      }
+      return { ok: false, exists: !!(e && e.code === 'EEXIST'), error: e, cleanupError };
     }
     try { fs.closeSync(fd); } catch (_) {}
     let back = '';
