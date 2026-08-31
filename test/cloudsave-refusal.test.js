@@ -89,5 +89,30 @@ const doc = (updatedAt) => ({ schema: 'starnet.save', version: 3, updatedAt, age
   const drained = await updateDrain;
   A.eq(drained.ok, false, 'a failed in-flight write cannot be reported safe for update installation');
 
+  // ---- 7. update drain must include flushes that start while it is already waiting ----
+  // A newer save can reach its debounce/explicit flush while the first request is still in flight. Snapshotting
+  // activeFlushes only once lets the drain return after the older request and race the installer against the newer.
+  let releaseOld = null, releaseNew = null, raceCalls = 0;
+  // Clear the failed save re-queued by section 6 before constructing the two-request race.
+  global.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+  await CloudSave.flush({ force: true });
+  global.fetch = () => {
+    raceCalls++;
+    return new Promise(resolve => { if (raceCalls === 1) releaseOld = resolve; else releaseNew = resolve; });
+  };
+  CloudSave.push(doc(70));
+  const oldFlush = CloudSave.flush({ force: true });
+  let raceDrainSettled = false;
+  const raceDrain = CloudSave.flushForUpdate().then(value => { raceDrainSettled = true; return value; });
+  CloudSave.push(doc(80));
+  const newFlush = CloudSave.flush({ force: true });
+  releaseOld({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+  await oldFlush;
+  await new Promise(resolve => setImmediate(resolve));
+  A.eq(raceDrainSettled, false, 'update drain waits for a newer flush that starts during the drain');
+  releaseNew({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+  await newFlush;
+  A.eq((await raceDrain).ok, true, 'update drain succeeds after every overlapping flush is durable');
+
   A.report('cloudsave-refusal');
 })().catch(e => { console.log('FAIL: unhandled — ' + (e && e.stack || e)); process.exit(1); });

@@ -151,14 +151,23 @@ const CloudSave = (() => {
   // (unsafe). Update installation needs that distinction so it can fail closed on an unproved newest save.
   async function flushForUpdate() {
     const hadPending = isSave(pending) || activeFlushes.size > 0;
-    let confirmed = false;
-    if (activeFlushes.size) {
+    let confirmed = true;
+    // Drain dynamically, not from one snapshot: another debounced/explicit flush can start while an older
+    // request is settling. Update preparation must not race any write that was already in flight.
+    while (activeFlushes.size) {
       const outcomes = await Promise.all(Array.from(activeFlushes));
       confirmed = outcomes.every(ok => ok === true);
     }
     // A rejected active write re-queues its document, and a newer push may also have arrived while it was in
     // flight. Force one final, confirmable write of that newest pending state before the installer advances.
     if (isSave(pending)) confirmed = await flush({ force: true }) === true;
+    // A flush may have started while the forced write was awaited. Settle it too, and fail closed if any caller
+    // queued an even newer document that has not begun its durable write yet.
+    while (activeFlushes.size) {
+      const outcomes = await Promise.all(Array.from(activeFlushes));
+      confirmed = confirmed && outcomes.every(ok => ok === true);
+    }
+    confirmed = confirmed && !isSave(pending);
     return { ok: !hadPending || confirmed, hadPending, flushed: hadPending && confirmed };
   }
 
