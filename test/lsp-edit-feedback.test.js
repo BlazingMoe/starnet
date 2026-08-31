@@ -86,6 +86,27 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
     A.ok(absentResult.reason.includes('not installed on PATH'), 'the unavailable reason names detection truth');
     await missing.closeAll();
 
+    const retrySource = path.join(workspace, 'retry.fake');
+    fs.writeFileSync(retrySource, 'clean\n', 'utf8');
+    let spawnAttempts = 0;
+    const retrying = makeLspManager({
+      spawn: (...args) => {
+        spawnAttempts++;
+        if (spawnAttempts === 1) throw new Error('transient spawn failure');
+        return spawn(...args);
+      },
+      fs, fsp, pathMod: path, env,
+      servers: [{ id: 'fake-retry', command: process.execPath, args: [fixture], extensions: ['.fake'], languageIds: { '.fake': 'fake' } }],
+      limits: { requestTimeoutMs: 2000, diagnosticTimeoutMs: 1000, idleMs: 500 }
+    });
+    const retryInput = { files: [{ abs: retrySource, base: workspace, rel: 'retry.fake', text: 'clean\n' }] };
+    const failedStart = await retrying.beginEdit(retryInput);
+    A.eq((await retrying.finishEdit(failedStart)).status, 'unavailable', 'a transient LSP spawn failure is reported honestly');
+    const recoveredStart = await retrying.beginEdit(retryInput);
+    A.eq(spawnAttempts, 2, 'the next edit retries a client whose first spawn threw');
+    A.eq(recoveredStart.items.length, 1, 'the retried LSP client confirms a diagnostic baseline');
+    await retrying.closeAll();
+
     const cancelFile = path.join(workspace, 'cancel.fake');
     fs.writeFileSync(cancelFile, 'clean before cancel\n', 'utf8');
     const ac = new AbortController(); ac.abort();

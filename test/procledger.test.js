@@ -34,6 +34,34 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   A.eq(onDisk.procs.length, 2, 'released pid left the file; recorded pids persist');
   A.ok(onDisk.procs.some(p => p.pid === 101) && onDisk.procs.some(p => p.pid === 102), 'both live pids on disk');
 
+  // A terminal/background child is already alive when record() writes its restart-cleanup receipt. One transient
+  // Windows rename race must not be swallowed: without a retry the next boot sees an empty ledger and leaves the
+  // owned process orphaned even though the immediately repeated atomic replace would succeed.
+  {
+    const fileTransient = path.join(dir, 'transient-record.json');
+    let renameCalls = 0;
+    const flakyFs = Object.create(fs);
+    flakyFs.renameSync = (from, to) => {
+      renameCalls++;
+      if (renameCalls === 1) throw Object.assign(new Error('transient EBUSY'), { code: 'EBUSY' });
+      return fs.renameSync(from, to);
+    };
+    const first = makeProcLedger({ fs: flakyFs, pathMod: path, file: fileTransient, clock, probe: async () => new Map(), killTree: async () => {} });
+    first.record({ pid: 4242, cmd: 'cmd.exe /c terminal-child', kind: 'terminal.pty' });
+    A.eq(renameCalls, 2, 'a transient cleanup-receipt rename is retried exactly once');
+    A.eq(JSON.parse(fs.readFileSync(fileTransient, 'utf8')).procs.map(p => p.pid), [4242],
+      'the retry leaves the terminal cleanup receipt durable');
+    const killedTransient = [];
+    const afterRestart = makeProcLedger({
+      fs, pathMod: path, file: fileTransient, clock,
+      probe: async () => new Map([[4242, 'cmd.exe /c terminal-child']]),
+      killTree: async pid => killedTransient.push(pid)
+    });
+    const swept = await afterRestart.sweep();
+    A.eq(swept.examined, 1, 'the next boot sees the retried terminal receipt');
+    A.eq(killedTransient, [4242], 'the next boot reaps the owned terminal child');
+  }
+
   // ---- 3. next boot sweeps: kills the match, skips the recycled pid, drops the dead one ----
   const killed = [];
   const l2 = makeProcLedger({
@@ -153,6 +181,36 @@ const { makeProcLedger, _internals } = require('../sidecar/procledger.js');
   A.eq(s5retry.probeFailed, false, 'a later successful probe resumes ordinary sweep semantics');
   A.eq(killedRetry, [555], 'the retained receipt is reaped on the next successful boot');
   A.eq(JSON.parse(fs.readFileSync(file, 'utf8')).procs.length, 0, 'only the successful retry consumes the receipt');
+
+  // A transient tree-kill failure is equally inconclusive: retain the receipt so the NEXT boot retries.
+  const fileK = path.join(dir, 'kill-retry.json');
+  makeProcLedger({ fs, pathMod: path, file: fileK, clock, probe: async () => new Map(), killTree: async () => {} })
+    .record({ pid: 556, cmd: 'node owned-server.js', kind: 'shell.bg' });
+  const k1 = makeProcLedger({
+    fs, pathMod: path, file: fileK, clock,
+    probe: async () => new Map([[556, 'cmd.exe /c node owned-server.js']]),
+    killTree: async () => { throw new Error('transient access denied'); }
+  });
+  const ks1 = await k1.sweep();
+  A.eq(ks1.killFailed, 1, 'tree-kill failure is reported distinctly');
+  A.eq(JSON.parse(fs.readFileSync(fileK, 'utf8')).procs.map(p => p.pid), [556], 'tree-kill failure RETAINS the ownership receipt on disk');
+  const killedK = [];
+  const k2 = makeProcLedger({
+    fs, pathMod: path, file: fileK, clock,
+    probe: async () => new Map([[556, 'cmd.exe /c node owned-server.js']]),
+    killTree: async (pid) => killedK.push(pid)
+  });
+  const ks2 = await k2.sweep();
+  A.eq(ks2.killed, 1, 'the next boot retries and reaps the retained orphan');
+  A.eq(killedK, [556], 'the retry targets the original owned pid');
+  A.eq(JSON.parse(fs.readFileSync(fileK, 'utf8')).procs.length, 0, 'only a successful tree kill consumes the receipt');
+
+  // The real Windows adapter must surface taskkill rejection to sweep(); swallowing it would still erase the
+  // receipt while claiming a kill. This stays injected so the fast gate never kills a host process.
+  const winKill = _internals.makeKillTree((exe, args, opts, cb) => cb(new Error('taskkill denied')), true);
+  let winKillRejected = false;
+  try { await winKill(556); } catch (_) { winKillRejected = true; }
+  A.ok(winKillRejected, 'Windows taskkill rejection reaches the durable retry path');
 
   // ---- 5b. managed Windows fallback: CIM denial still pins/reaps exact identities; unpinned stays retained ----
   {

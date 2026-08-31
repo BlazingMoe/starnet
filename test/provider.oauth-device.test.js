@@ -6,6 +6,8 @@
    classification, refresh rotation + relogin classification, the freshness check, and that NO token material
    ever appears in an error message. Zero network. */
 'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
 const A = require('./_assert.js');
 const { makeDeviceOAuth } = require('../sidecar/providers/oauth-device.js');
 
@@ -242,6 +244,28 @@ const KIMI = {
       A.eq(kimi.accessTokenIsExpiring({ access_token: 'opaque-no-exp' }, 5_000_000), true, 'kimi opaque token with no expiry hint fails safe (refresh)');
       A.eq(kimi.accessTokenIsExpiring({ access_token: 'x' }, 'not-a-number'), true, 'absent now => fail safe (refresh)');
     }
+  }
+
+  // Logout is credential deletion, not a best-effort cache clear. Both resilient copies must be sanitized
+  // before live state is dropped or the route reports success; otherwise a failed unlink returns 200 and the
+  // refresh token comes back from tokens.json (or its .bak) on the next sidecar boot.
+  {
+    const indexSource = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+    const removalBody = A.fnBody(indexSource, 'function saveCredentialRemovalVerified(file, value, proof, tag)');
+    const clearBody = A.fnBody(indexSource, 'function clearOAuthTokens(id)');
+    const logoutBody = A.fnBody(indexSource, 'function handleOAuthLogout(req, res, id)');
+    const mainWrite = removalBody.indexOf("writeFileDurable({ fs: fs, path: path }, file, data)");
+    const backupWrite = removalBody.indexOf("writeFileDurable({ fs: fs, path: path }, file + '.bak', data)");
+    A.ok(mainWrite >= 0 && backupWrite >= 0 && mainWrite < backupWrite,
+      'credential removal commits the authoritative main copy before its recovery copy, so a crash cannot resurrect the secret');
+    A.ok(/saveCredentialRemovalVerified\([\s\S]*entry\.file[\s\S]*null/.test(clearBody),
+      'oauth logout sanitizes both resilient token copies with verified credential removal');
+    A.ok(clearBody.indexOf('saveCredentialRemovalVerified') < clearBody.indexOf('unlinkSync'),
+      'oauth logout sanitizes credential-bearing copies before any best-effort file removal');
+    A.ok(/if\s*\(!clearOAuthTokens\(id\)\)[\s\S]*json\(500/.test(logoutBody),
+      'oauth logout reports a durable removal failure instead of false success');
+    A.ok(logoutBody.indexOf('clearOAuthTokens(id)') < logoutBody.indexOf('entry.tokens = null'),
+      'oauth logout keeps the live credential until durable removal succeeds');
   }
 
   A.report('provider.oauth-device.test');

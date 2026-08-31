@@ -11,7 +11,7 @@ const A = require('./_assert.js');
 const realFs = require('fs');
 const os = require('os');
 const pathMod = require('path');
-const { tailLines, loadBounded, rotateIfLarge } = require('../sidecar/logbound.js');
+const { tailLines, loadBounded, rotateIfLarge, appendJsonlDurable } = require('../sidecar/logbound.js');
 const { makeRunStore } = require('../sidecar/runstore.js');
 
 const DIR = pathMod.join(os.tmpdir(), 'starnet-logbound-' + process.pid);
@@ -91,6 +91,35 @@ try {
     const top = store.list('hero', { limit: 3 });
     A.eq(top[0].runId, 'r' + (N - 1), 'newest run present after bounded boot');
     A.eq(top[1].runId, 'r' + (N - 2), 'list() is newest-first and contiguous at the tail');
+  }
+
+  // ---- E. durable append completes short writes and rejects without carrying a partial row forward ----
+  {
+    const file = pathMod.join(DIR, 'short-write.jsonl');
+    let calls = 0;
+    const shortFs = new Proxy(realFs, { get(target, prop) {
+      if (prop === 'writeSync') return (fd, buffer, offset, length) => {
+        calls++;
+        return target.writeSync(fd, buffer, offset, Math.min(length, 3));
+      };
+      return target[prop];
+    } });
+    appendJsonlDurable({ fs: shortFs }, file, { id: 'complete', ok: true });
+    A.ok(calls > 1, 'a short write is completed with subsequent writes');
+    A.eq(JSON.parse(realFs.readFileSync(file, 'utf8')).id, 'complete', 'the completed row remains valid JSON');
+
+    let first = true;
+    const stalledFs = new Proxy(realFs, { get(target, prop) {
+      if (prop === 'writeSync') return (fd, buffer, offset, length) => {
+        if (!first) return 0;
+        first = false;
+        return target.writeSync(fd, buffer, offset, Math.min(length, 4));
+      };
+      return target[prop];
+    } });
+    const before = realFs.readFileSync(file);
+    A.throws(() => appendJsonlDurable({ fs: stalledFs }, file, { id: 'rejected' }), 'a zero-progress short write is rejected');
+    A.eq(realFs.readFileSync(file).toString('hex'), before.toString('hex'), 'a rejected partial append rolls back to the prior byte boundary');
   }
 
   cleanup();

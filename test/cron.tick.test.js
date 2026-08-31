@@ -61,6 +61,7 @@ function setup(jobs, runOnceFake, opts) {
     resolveStation: opts.resolveStation  // B5 parity: absent -> station undefined (default office), like the host
   });
   return { driver, clock, events, runs, placed, deliveries, getJobs: () => store, getJob: (id) => cronStore.getJob(store, id),
+    getWrites: () => writes,
     replaceJob: (id, patch) => { store = store.map(j => j && j.id === id ? Object.assign({}, j, patch) : j); } };
 }
 
@@ -617,6 +618,27 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.ok(!s.events.some(e => e.name === 'cron.skipped' && e.payload.reason === 'stale-lock-reclaimed'), 'a live heartbeating run is NEVER stale-lock-reclaimed');
     // every re-tick while it was in flight skipped it as already-running (never a second launch).
     A.ok(countOf(s.events, 'cron.skipped') >= 1 && s.events.filter(e => e.name === 'cron.skipped').every(e => e.payload.reason === 'already-running'), 'each due re-tick skipped the still-running job (already-running), never re-fired');
+  }
+
+  // ---- NS-0 DURABLE HEARTBEAT: a failed persistence receipt retries on the next progress event. ----
+  {
+    let emitProgress = null;
+    const liveOneShot = (o) => {
+      o.emit('agent.run.start', { agentId: 'a', runId: o.runId, trigger: o.trigger, model: o.model });
+      emitProgress = () => o.emit('agent.token', { delta: '.' });
+      return new Promise(() => {});
+    };
+    const s = setup([onceJob('heartbeat-retry', 'in 1m')], liveOneShot, { maxRunMs: 100000, failWriteAt: 3 });
+    s.clock.set(T0 + 60000);
+    s.driver.applyTick(s.clock.now());                         // claim + initial durable heartbeat succeed
+    const firstDurable = s.getJob('heartbeat-retry').heartbeatAt;
+    s.clock.advance(26000);                                    // past the 25s durable-heartbeat throttle
+    emitProgress();                                            // write #3 fails and must NOT consume the throttle window
+    A.eq(s.getJob('heartbeat-retry').heartbeatAt, firstDurable, 'failed receipt leaves the durable heartbeat unchanged');
+    s.clock.advance(1);
+    emitProgress();                                            // the next proof of life retries immediately
+    A.eq(s.getWrites(), 4, 'the next progress event retries the failed durable write');
+    A.eq(s.getJob('heartbeat-retry').heartbeatAt, T0 + 86001, 'the retry persists the fresh liveness timestamp');
   }
 
   // ---- NS-0 HEARTBEAT: a run whose heartbeat STOPS (a crash mid-run) IS reclaimed after staleMs and refires. ----

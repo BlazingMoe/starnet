@@ -161,6 +161,19 @@ async function main() {
     A.ok(corruptWrite && corruptWrite.code === 'ESTORE_CORRUPT', 'update() refuses an unrecoverable corrupt record');
     A.eq(fs.files.get(fileFor('busted')), corruptBytes, 'refused corrupt update preserves the original bytes exactly');
 
+    // A missing main does not make a present backup disposable. This is the crash shape after main removal but
+    // before replacement: if the surviving backup is corrupt, initialization must preserve it for recovery.
+    const backupOnlyFile = fileFor('backup-only');
+    fs.files.set(backupOnlyFile + '.bak', '{ corrupt surviving backup');
+    const backupOnly = store.readKey('backup-only');
+    A.eq(backupOnly.status, 'corrupt', 'missing main plus corrupt backup is CORRUPT, never genuinely absent');
+    let backupOnlyWrite = null;
+    try { await store.update('backup-only', () => ({ replacement: true })); }
+    catch (e) { backupOnlyWrite = e; }
+    A.ok(backupOnlyWrite && backupOnlyWrite.code === 'ESTORE_CORRUPT', 'update() refuses to initialize over a corrupt surviving backup');
+    A.eq(fs.files.get(backupOnlyFile + '.bak'), '{ corrupt surviving backup', 'refused update preserves the surviving backup bytes exactly');
+    A.ok(!fs.files.has(backupOnlyFile), 'refused update does not mint an amnesiac replacement main');
+
     // Preserve the valid initialization path: a genuinely absent key still starts from undefined and commits.
     await store.update('brandnew', cur => ({ initializedFrom: cur === undefined ? 'absent' : 'unexpected' }));
     A.eq(store.get('brandnew'), { initializedFrom: 'absent' }, 'update() still initializes a genuinely absent record');

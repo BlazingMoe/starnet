@@ -56,6 +56,19 @@ function mkHub(store, sendImpl, events) {
     A.eq(s.removeOutbox('nope'), false, 'removing a missing id is a safe no-op');
   }
 
+  // ---- A2. durable ids remain unique when a restarted process sees the same clock tick ----
+  {
+    const fs = memFs();
+    clk = 2100;
+    const firstStore = mkStore(fs);
+    const first = firstStore.pushOutbox({ channel: 'telegram', chatId: 'one', text: 'first reply' });
+    const restartedStore = mkStore(fs);
+    const second = restartedStore.pushOutbox({ channel: 'telegram', chatId: 'two', text: 'second reply' });
+    A.ok(first.id !== second.id, 'restart cannot reuse an existing durable outbox id at the same clock tick');
+    A.eq(restartedStore.removeOutbox(first.id), true, 'acknowledging the first reply succeeds');
+    A.eq(restartedStore.loadOutbox().map(x => x.chatId), ['two'], 'acknowledging one id preserves the other reply');
+  }
+
   // ---- B. bounds: saturation refuses new work instead of evicting old replies; text stays bounded ----
   {
     const s = mkStore(memFs(), { maxOutbox: 3, maxOutboxChars: 20 });

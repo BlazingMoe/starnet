@@ -100,7 +100,8 @@ function readJsonResilient(deps, file) {
   if (m.kind === 'unreadable') return { value: undefined, status: 'unreadable', err: m.err };
   const b = readOne(fs, file + '.bak');
   if (b.kind === 'ok') return { value: b.value, status: 'recovered' };
-  if (m.kind === 'absent' && b.kind !== 'ok') return { value: undefined, status: 'absent' };
+  if (m.kind === 'absent' && b.kind === 'absent') return { value: undefined, status: 'absent' };
+  if (m.kind === 'absent' && b.kind === 'unreadable') return { value: undefined, status: 'unreadable', err: b.err };
   // main present-but-bad (empty/corrupt) and no usable .bak -> unrecoverable; do NOT silently empty.
   return { value: undefined, status: 'corrupt' };
 }

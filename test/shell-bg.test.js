@@ -108,6 +108,23 @@ let T = 1000; const clock = { now: () => T };
   A.ok(!bg.kill('a', 'nope').ok, 'killing an unknown id -> not ok');
 }
 
+// ---- a post-spawn error is not process-exit truth; only close releases the cleanup receipt ----
+{
+  const spawn = makeFakeSpawn();
+  const released = [];
+  const bg = makeShellBg({
+    spawn, clock, maxPerAgent: 5, isWin: true,
+    ledger: { record() {}, pinIdentity: async () => {}, release: pid => released.push(pid) }
+  });
+  bg.start({ agentId: 'a', cmd: 'sleep 99' });
+  spawn.children[0]._err();
+  A.eq(bg.status('a', 'bg_1').running, true, 'a post-spawn child error does not pretend the process exited');
+  A.eq(released.length, 0, 'a post-spawn child error retains the durable cleanup receipt');
+  spawn.children[0]._close(1);
+  A.eq(bg.status('a', 'bg_1').running, false, 'the close event settles the process lifecycle');
+  A.eq(released, [spawn.children[0].pid], 'close releases the cleanup receipt exactly once');
+}
+
 // ---- Windows reaper launch failure falls back to the direct child ----
 {
   const baseSpawn = makeFakeSpawn();

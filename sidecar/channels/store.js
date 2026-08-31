@@ -190,13 +190,19 @@
         const e = entry || {};
         let text = String(e.text == null ? '' : e.text);
         if (text.length > outboxLimits.maxOutboxChars) text = text.slice(0, outboxLimits.maxOutboxChars) + '\n… (reply truncated for redelivery)';
+        const items = this.loadOutbox();
+        let id;
+        // The queue survives process restarts, but outboxSeq does not. A restart in the same clock tick (or
+        // after a clock rollback) must not reuse a durable item's id: remove/bump operate by id and would
+        // otherwise affect multiple replies. Walk the tiny bounded queue until this process owns a free id.
+        do { id = String(clock.now()) + '-' + (++outboxSeq); }
+        while (items.some(it => it.id === id));
         const item = {
-          id: String(clock.now()) + '-' + (++outboxSeq),
+          id: id,
           channel: String(e.channel || ''), chatId: String(e.chatId || ''), text: text,
           runId: String(e.runId || ''), agentId: String(e.agentId || ''), reason: String(e.reason || ''),
           ts: clock.now(), tries: 0
         };
-        const items = this.loadOutbox();
         // Never evict somebody else's undelivered answer to make room. The hub leaves the corresponding durable
         // inbox receipt pending when this throws, so intake backpressures and retries after the outbox drains.
         if (items.length >= outboxLimits.maxOutbox) throw new Error('channel outbox is full; refusing to discard an undelivered reply');

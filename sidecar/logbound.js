@@ -16,6 +16,9 @@
    • loadBounded({fs}, file, maxBytes) — the boot read: the tail of the archived <file>.1 segment
      followed by the tail of the live file, together bounded to ~maxBytes of the most-recent lines.
 
+   • appendJsonlDurable({fs}, file, entry) — append one complete JSON line, handling short writes,
+     fsyncing it, and rolling a rejected partial append back to the prior byte boundary.
+
    The byte-tail read uses a positional fd read (open/fstat/read/close) so it never materializes the
    whole file. An fs without fstatSync/readSync (an in-memory test fs) degrades to a full readFileSync
    and an in-memory tail — still correct, just not I/O-bounded (only the real Node fs needs the bound).
@@ -91,4 +94,42 @@ function rotateIfLarge(deps, file, maxBytes) {
   } catch (e) { return false; }
 }
 
-module.exports = { tailLines, loadBounded, rotateIfLarge };
+// Append exactly one JSONL row. writeSync may write fewer bytes than requested; treating any positive return
+// as complete silently truncates a row while still fsyncing and reporting success. Keep writing until the
+// Buffer is complete and restore the original boundary if progress stops.
+function appendJsonlDurable(deps, file, entry) {
+  const fs = deps.fs;
+  const note = typeof deps.note === 'function' ? deps.note : () => {};
+  let fd = null, start = 0, startKnown = false;
+  try {
+    fd = fs.openSync(file, 'a+');
+    start = fs.fstatSync(fd).size;
+    startKnown = true;
+    const row = Buffer.from(JSON.stringify(entry) + '\n', 'utf8');
+    let offset = 0;
+    while (offset < row.length) {
+      const wrote = fs.writeSync(fd, row, offset, row.length - offset);
+      if (!Number.isInteger(wrote) || wrote <= 0 || wrote > row.length - offset) throw new Error('incomplete JSONL append');
+      offset += wrote;
+    }
+    fs.fsyncSync(fd);
+  } catch (e) {
+    // Windows refuses truncation through an append-open handle. Close it, restore by path, then fsync the
+    // restored file before surfacing the failed append.
+    if (fd != null) { try { fs.closeSync(fd); } catch (closeError) { note('jsonl.append.write-close', closeError); } fd = null; }
+    if (startKnown) {
+      let rollbackFd = null;
+      try {
+        fs.truncateSync(file, start);
+        rollbackFd = fs.openSync(file, 'r+');
+        fs.fsyncSync(rollbackFd);
+      } catch (rollbackError) { e.rollbackError = rollbackError; }
+      finally { if (rollbackFd != null) { try { fs.closeSync(rollbackFd); } catch (closeError) { note('jsonl.append.rollback-close', closeError); } } }
+    }
+    throw e;
+  } finally {
+    if (fd != null) { try { fs.closeSync(fd); } catch (closeError) { note('jsonl.append.write-close', closeError); } }
+  }
+}
+
+module.exports = { tailLines, loadBounded, rotateIfLarge, appendJsonlDurable };

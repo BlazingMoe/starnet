@@ -71,8 +71,12 @@ module.exports = function makeAttachments(deps) {
     try {
       await fsp.mkdir(path.dirname(abs), { recursive: true });
       const tmp = abs + '.' + crypto.randomUUID() + '.tmp';   // atomic tmp+rename (crash-safe; collision-resistant)
-      await fsp.writeFile(tmp, parsed.buffer);
+      const handle = await fsp.open(tmp, 'wx');
+      try { await handle.writeFile(parsed.buffer); await handle.sync(); }
+      finally { await handle.close(); }
       await fsp.rename(tmp, abs);
+      const actual = await fsp.readFile(abs);
+      if (!Buffer.isBuffer(actual) || !actual.equals(parsed.buffer)) throw new Error('attachment read-back mismatch');
     } catch (e) { return { ok: false, code: 500, error: 'write failed' }; }
     return { ok: true, id, name, path: rel, mediaType: parsed.mime, kind, size: parsed.buffer.length };
   }

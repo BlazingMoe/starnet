@@ -208,8 +208,11 @@
       if (!lease.isOnce) return;                               // recurring jobs need no durable heartbeat (advance-before-run covers restart)
       // throttle the durable write: only persist once the last durable stamp is older than durableHeartbeatMs.
       if (lease.durableAt != null && (at - lease.durableAt) < durableHeartbeatMs) return;
-      lease.durableAt = at;
-      try { setJobs(cronStore.renewOnceHeartbeat(getJobs(), jobId, { now: at })); } catch (e) { failNote('cron.heartbeat.persist', e); }
+      try {
+        // A false receipt means the heartbeat never reached disk. Do not advance the throttle in that case:
+        // the next progress event must retry instead of leaving restart recovery with a stale liveness stamp.
+        if (setJobs(cronStore.renewOnceHeartbeat(getJobs(), jobId, { now: at })) !== false) lease.durableAt = at;
+      } catch (e) { failNote('cron.heartbeat.persist', e); }
     }
 
     /* finishFire — record a fired run's outcome once it settles: markRun (the reducer owns the transient-backoff

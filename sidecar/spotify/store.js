@@ -40,8 +40,19 @@
     async function persist() {
       await fsp.mkdir(DIR, { recursive: true });
       const tmp = file + '.tmp';
-      await fsp.writeFile(tmp, JSON.stringify(state), 'utf8');
-      await fsp.rename(tmp, file);
+      let lastError;
+      // A refresh response may rotate and immediately invalidate the old refresh token. One transient EBUSY /
+      // antivirus race on the atomic replace must not strand that only-live token in memory while restart keeps
+      // the dead predecessor. Match the other credential stores' bounded durability posture: retry once, then
+      // reject honestly so clear()/refresh() callers never claim a write that still did not land.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          await fsp.writeFile(tmp, JSON.stringify(state), 'utf8');
+          await fsp.rename(tmp, file);
+          return;
+        } catch (e) { lastError = e; }
+      }
+      throw lastError || new Error('Spotify state could not be persisted');
     }
 
     async function setClientId(id) {

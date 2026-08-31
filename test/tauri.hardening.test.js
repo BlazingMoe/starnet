@@ -42,6 +42,8 @@ for (const suffix of ['PORT', 'IPC_TOKEN', 'API_TOKEN', 'WORKSPACES', 'OPENROUTE
 A.ok(/for \(provider, env_name\) in SIDECAR_PROVIDER_KEY_ENVS[\s\S]*?set_sidecar_branded_env\(&mut cmd, env_name, key\)/.test(mainRs), 'provider keychain values cannot be shadowed by inherited canonical aliases');
 A.ok(/for \(channel, env_name\) in SIDECAR_CHANNEL_TOKEN_ENVS[\s\S]*?set_sidecar_branded_env\(&mut cmd, env_name, token\)/.test(mainRs), 'channel keychain values cannot be shadowed by inherited canonical aliases');
 A.ok(/fn desktop_owned_env_replaces_poisoned_brand_aliases[\s\S]*?poisoned-parent-value[\s\S]*?fresh-launch-token/.test(mainRs), 'Rust regression test poisons both alias directions before applying desktop-owned values');
+A.ok(/fn harness_clear_key\(state: State<AppState>\)[\s\S]*?harness_store_key\(String::new\(\), state\)/.test(mainRs),
+  'OpenRouter FORGET uses the transactional provider-key path instead of swallowing keychain deletion failure');
 A.ok(!/starnet_open_workshop_file/.test(mainRs), 'webview IPC exposes no workshop file launcher');
 A.ok(!/starnet_open_user_directory/.test(mainRs), 'webview IPC exposes no directory launcher');
 

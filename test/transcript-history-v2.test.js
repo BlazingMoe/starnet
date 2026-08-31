@@ -16,6 +16,26 @@ function ioAt(base, extra) {
   }, extra || {}));
 }
 
+// A pristine transcript has no JSONL yet. Its manifest must not advertise a phantom active segment that
+// readRecent() then misreports as an unreadable/corrupt file during ordinary first boot.
+{
+  const dir = temp('history-pristine');
+  const warnings = [];
+  try {
+    let io = ioAt(dir, { onWarning: m => warnings.push(m) });
+    let store = makeTranscriptStore({ io, clock: { now: () => 1 } });
+    A.eq(store.count(), 0, 'pristine transcript starts empty');
+    A.eq(io.status().segments.length, 0, 'pristine manifest advertises no segment before the first row exists');
+    io = ioAt(dir, { onWarning: m => warnings.push(m) });
+    store = makeTranscriptStore({ io, clock: { now: () => 2 } });
+    A.eq(store.count(), 0, 'pristine transcript remains empty after restart');
+    A.eq(warnings.length, 0, 'pristine startup never reports its not-yet-created active segment as unreadable');
+    store.append({ streamId: 'first', role: 'user', content: 'hello' });
+    A.ok(fs.existsSync(path.join(dir, 'history', 'segment-000001.jsonl')), 'first durable row creates the active segment');
+    A.eq(io.status().segments.length, 1, 'first durable row publishes the now-real segment');
+  } finally { remove(dir); }
+}
+
 // User-controlled terms and stream ids must never collide with Object.prototype.
 {
   const dir = temp('history-prototype-keys');

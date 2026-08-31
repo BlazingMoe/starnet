@@ -254,7 +254,7 @@ const CommanderContext = require('./commander-context.js');    // bounded proven
 const threadmine = require('./threadmine.js');                // NS-6: pure post-run thread-mining producer (reflect/study mold)
 const AuxGovernor = require('./auxgovernor.js');              // aux-budget lane: PURE joint ceiling over the post-run aux passes (priority + budget)
 const DeclinedIndex = require('./declinedindex.js');         // flagship cross-wire (NS-8 lite): read-side shared declined index — a decline ANYWHERE suppresses a re-propose EVERYWHERE
-const { tailLines, loadBounded, rotateIfLarge } = require('./logbound.js'); // P3: bounded boot-load + size rotation for the append-only JSONL logs
+const { tailLines, loadBounded, rotateIfLarge, appendJsonlDurable } = require('./logbound.js'); // P3: bounded boot-load + size rotation for the append-only JSONL logs
 const { makeCronLock } = require('./cron-lock.js');         // G4.3: cross-process exactly-once advisory lock (O_EXCL+pid:nonce+stale-break)
 const { withDossier } = require('./dossierinject.js');     // Phase C: fold the Commander dossier into server-composed (cron) personas
 const skillsCatalog = require('./skills/catalog.js');      // bundled capability-gated recipe library (parse/load/gate/compose)
@@ -763,8 +763,9 @@ function saveResilient(file, value) { writeJsonResilient({ fs: fs, path: path, w
 // Explicit credential deletion has a stricter contract than an ordinary resilient update. The normal writer
 // intentionally snapshots the old main into .bak; during remove/reset that old value is exactly the credential
 // the user asked us to forget. Write the sanitized envelope to BOTH copies directly and read both back before
-// callers adopt the deletion in memory. A crash between the two durable replaces can only recover the sanitized
-// copy (deletion is conservative); it can never resurrect the removed secret from the recovery file.
+// callers adopt the deletion in memory. Main is authoritative on startup, so sanitize it FIRST: a crash before
+// the backup replace leaves a sanitized main plus stale backup, and startup must keep the sanitized main rather
+// than resurrecting the removed secret. Once main is safe, sanitize the recovery copy and verify both.
 function saveCredentialRemovalVerified(file, value, proof, tag) {
   const check = (typeof proof === 'function') ? proof : raw => JSON.stringify(raw) === JSON.stringify(value);
   const loadOne = target => JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -772,8 +773,8 @@ function saveCredentialRemovalVerified(file, value, proof, tag) {
     mkdir: () => fs.mkdirSync(path.dirname(file), { recursive: true }),
     save: () => {
       const data = JSON.stringify(value);
-      writeFileDurable({ fs: fs, path: path }, file + '.bak', data);
       writeFileDurable({ fs: fs, path: path }, file, data);
+      writeFileDurable({ fs: fs, path: path }, file + '.bak', data);
     },
     load: () => ({ main: loadOne(file), bak: loadOne(file + '.bak') }),
     proof: copies => !!copies && check(copies.main) && check(copies.bak)
@@ -823,11 +824,8 @@ const ledgerIo = {
   append(entry) {
     // open(O_APPEND) -> write -> fsync -> close, all fail-open: a persistence error must never crash the run
     // (the in-memory ledger mirror still answers for this process's lifetime).
-    let fd = null;
     try {
-      fd = fs.openSync(LEDGER_FILE, 'a');
-      fs.writeSync(fd, JSON.stringify(entry) + '\n');
-      fs.fsyncSync(fd);
+      appendJsonlDurable({ fs: fs, note: failNote }, LEDGER_FILE, entry);
       ledgerAppendFails = 0;   // a successful append clears the streak (transient blips don't accumulate)
     } catch (e) {
       console.warn('[ledger] append failed:', (e && e.message) || e);
@@ -839,7 +837,6 @@ const ledgerIo = {
         try { recordDiagError('ledger append failing (' + ledgerAppendFails + ' consecutive): spend is recorded in memory but not persisting to disk — restart would lose it. ' + ((e && e.message) || e)); } catch (_) {}
       }
     }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(LEDGER_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -994,10 +991,8 @@ const runsIo = {
     try { return readBoundedJsonl(RUNS_FILE); } catch (e) { return []; }   // P3: bounded boot-load
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(RUNS_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
+    try { appendJsonlDurable({ fs: fs, note: failNote }, RUNS_FILE, entry); }
     catch (e) { console.warn('[runs] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(RUNS_FILE);   // P3: roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -1036,10 +1031,8 @@ const autonomyLedgerIo = {
     try { return readBoundedJsonl(AUTONOMY_LEDGER_FILE); } catch (e) { return []; }   // bounded boot-load
   },
   append(entry) {
-    let fd = null;
-    try { fd = fs.openSync(AUTONOMY_LEDGER_FILE, 'a'); fs.writeSync(fd, JSON.stringify(entry) + '\n'); fs.fsyncSync(fd); }
+    try { appendJsonlDurable({ fs: fs, note: failNote }, AUTONOMY_LEDGER_FILE, entry); }
     catch (e) { console.warn('[autonomy-ledger] append failed:', (e && e.message) || e); }
-    finally { if (fd != null) { try { fs.closeSync(fd); } catch (_) {} } }
     rotateJsonl(AUTONOMY_LEDGER_FILE);   // roll to <file>.1 once the live segment passes the cap (bounds disk)
   }
 };
@@ -3383,8 +3376,20 @@ function saveCodexTokens(obj) {
   console.error('[codex] token persist UNVERIFIED after retry (' + codexPersistError + ') — tokens kept in memory for this session; a restart may require re-signing in to ChatGPT.');
   return false;
 }
-// clear must also drop the .bak so a signed-out session can't be "recovered" from the last-known-good on reload.
-function clearCodexTokens() { try { fs.unlinkSync(CODEX_TOKENS_FILE); } catch (e) {} try { fs.unlinkSync(CODEX_TOKENS_FILE + '.bak'); } catch (e) {} codexPersistError = ''; codexAuthDead = null; }
+// Logout must sanitize BOTH resilient copies before live state is cleared; otherwise a failed unlink can return
+// success now and resurrect the refresh token on restart. Once both copies read back credential-free, removing
+// the null files is only cleanup — a failed unlink cannot recover a secret.
+function clearCodexTokens() {
+  const ok = saveCredentialRemovalVerified(CODEX_TOKENS_FILE, null, raw => raw === null, 'codex');
+  if (!ok) {
+    codexPersistError = 'logout could not be persisted to disk';
+    return false;
+  }
+  try { fs.unlinkSync(CODEX_TOKENS_FILE); } catch (_) {}
+  try { fs.unlinkSync(CODEX_TOKENS_FILE + '.bak'); } catch (_) {}
+  codexPersistError = ''; codexAuthDead = null;
+  return true;
+}
 let codexTokens = loadCodexTokens();
 // Honest DEAD-TOKEN state (the 2026-07-08 escape: a refresh token consumed by another client errored the run,
 // yet Settings kept saying "SIGNED IN"). When a refresh fails with a relogin-class error we record it here AND
@@ -3550,10 +3555,18 @@ function saveOAuthTokens(id, obj) {
 }
 function clearOAuthTokens(id) {
   const entry = oauthProviders[id];
-  if (!entry) return;
-  try { fs.unlinkSync(entry.file); } catch (e) {}
-  try { fs.unlinkSync(entry.file + '.bak'); } catch (e) {}
+  if (!entry) return false;
+  const ok = saveCredentialRemovalVerified(entry.file, null, raw => raw === null, id);
+  if (!ok) {
+    entry.persistError = 'logout could not be persisted to disk';
+    return false;
+  }
+  // The durable copies are already credential-free. Removing them keeps the traditional absent-file shape;
+  // a failed unlink is safe because a restart can recover only the verified null value.
+  try { fs.unlinkSync(entry.file); } catch (_) {}
+  try { fs.unlinkSync(entry.file + '.bak'); } catch (_) {}
   entry.persistError = ''; entry.authDead = null;
+  return true;
 }
 // Hand a Grok/Kimi run a FRESH access token: refresh when the persisted expiry (or JWT exp) is inside the skew
 // window, persisting the rotated tokens. Mirrors ensureCodexAccessToken — a relogin-class refresh failure marks
@@ -9648,7 +9661,8 @@ async function handleCreditsUnlink(req, res) {
   let r = { ok: true, removed: false };
   try { r = await creditsLink.clearSaved(); } catch (e) { r = { ok: false, error: (e && e.message) || String(e) }; }
   try { await rebuildCredits(); } catch (_) {}
-  return creditsJson(res, 200, { ok: r.ok !== false, unlinked: true, configured: credits.configured() });
+  const ok = r.ok !== false;
+  return creditsJson(res, ok ? 200 : 500, { ok, unlinked: ok, configured: credits.configured(), error: ok ? undefined : r.error });
 }
 /* ---- POST /api/budget/caps { perRun?, perAgent?, perDay?, global? } — set one or more USD caps. Each value:
    a positive number = a real cap; 0 (or "0") = NO CAP (ungoverned) — an explicit saved choice; null / "" = CLEAR
@@ -9851,10 +9865,14 @@ async function handleConfigImport(req, res) {
     // UNION with existing grants (import never silently REVOKES a live grant); stamp provenance for new keys.
     const next = new Set([...grantsPermanent]);
     for (const k of sec.permissions.allow) next.add(k);
-    grantsPermanent.clear(); for (const k of next) grantsPermanent.add(k);
+    const nextAllow = Array.from(next);
     const meta = Object.assign({}, grantMeta);
-    for (const k of grantsPermanent) { if (!meta[k]) meta[k] = { grantedAt: Date.now() }; }
-    try { persistAllowlist(grantsPermanent, meta); Object.assign(grantMeta, meta); } catch (_) {}
+    for (const k of nextAllow) { if (!meta[k]) meta[k] = { grantedAt: Date.now() }; }
+    try { persistAllowlist(nextAllow, meta); }
+    catch (e) { return json(500, { ok: false, error: 'permissions import could not be persisted', applied }); }
+    // Commit live authority only after the durable array is written. Passing the Set itself serialized `allow`
+    // as `{}`, so the import appeared live but every imported grant vanished on the next sidecar restart.
+    grantsPermanent.clear(); for (const k of nextAllow) grantsPermanent.add(k);
     applied.push('permissions');
   }
   if (want('connectors') && Array.isArray(sec.connectors)) {
@@ -18352,8 +18370,10 @@ async function handleCodexModels(req, res) {
 
 // POST /api/auth/codex/logout — forget the stored ChatGPT credentials.
 function handleCodexLogout(req, res) {
-  codexTokens = null; clearCodexTokens();
-  res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ connected: false }));
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  if (!clearCodexTokens()) return json(500, { error: 'logout could not be persisted; credentials remain connected', code: 'codex_logout_persist_failed' });
+  codexTokens = null;
+  json(200, { connected: false });
 }
 
 /* -------------------- Grok / Kimi (subscription) device-OAuth — RFC 8628 --------------------
@@ -18438,9 +18458,12 @@ async function handleOAuthModels(req, res, id) {
 
 // POST /api/auth/<id>/logout — forget the stored subscription credentials.
 function handleOAuthLogout(req, res, id) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const entry = oauthProviders[id];
-  if (entry) { entry.tokens = null; clearOAuthTokens(id); }
-  res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ connected: false }));
+  if (!entry) return json(404, { error: 'unknown provider' });
+  if (!clearOAuthTokens(id)) return json(500, { error: 'logout could not be persisted; credentials remain connected', code: 'oauth_logout_persist_failed' });
+  entry.tokens = null;
+  json(200, { connected: false });
 }
 
 /* ------------------------------- helpers ------------------------------- */

@@ -2028,10 +2028,13 @@
          false/true -> if the running driver's mode differs, RELAUNCH in the requested mode on the same
                        profile dir (cookies/logins survive the swap). Headless is the default; a visible
                        window exists only while the Commander asked for one. */
-    function ensureDriver(wantVisible) {
-      const headed = deps.forceHeadless === true ? false
+    function wantedHeaded(wantVisible) {
+      return deps.forceHeadless === true ? false
         : (wantVisible === undefined ? (driverHeaded === null ? false : driverHeaded)
           : (!!wantVisible && !headlessRequested(deps.env) && deps.headless !== true));
+    }
+    function ensureDriver(wantVisible) {
+      const headed = wantedHeaded(wantVisible);
       if (driver) {
         /* An ATTACHED session never mode-switches. The relaunch below rebuilds the driver WITHOUT
            attachPort, so honouring a headless request here would silently drop the Commander's browser and
@@ -2039,8 +2042,9 @@
            nothing, and nothing in the transcript would say so. Detaching is explicit or not at all. */
         if (attachedToUserBrowser) return driver;
         if (injected || wantVisible === undefined || driverHeaded === headed) return driver;
-        try { driver.close(); } catch (_) {}   // mode change -> relaunch (SIGKILL frees the CDP port)
-        driver = null;
+        // Every real mode switch is asynchronous because close() waits for the same-profile Chrome process.
+        // Callers with an explicit mode must use ensureDriverMode(), which awaits that teardown.
+        throw new Error('browser mode switch requires awaited teardown');
       }
       driver = makeDriver(Object.assign({}, deps, profileDeps(), { headed }));
       driverHeaded = headed;
@@ -2049,13 +2053,21 @@
     // Tear down the current driver and relaunch with explicit overrides on the SAME persistent profile
     // (cookies survive the swap). Injected test drivers never mode-switch — the flow still runs so the
     // consent contract is testable, but the driver object stays the same.
-    function relaunch(overrides) {
+    async function relaunch(overrides) {
       if (injected) return driver;
-      if (driver) { try { driver.close(); } catch (_) {} driver = null; }
+      // A rejected close means the old browser may still own the persistent profile. Keep its reference and
+      // surface the failure; constructing a replacement here risks profile corruption and a false success.
+      if (driver) { await driver.close(); driver = null; driverHeaded = null; }
       driver = makeDriver(Object.assign({}, deps, profileDeps(), overrides));
       driverHeaded = !!overrides.headed;
       version++;   // any element refs belong to the torn-down browser
       return driver;
+    }
+    async function ensureDriverMode(wantVisible) {
+      const headed = wantedHeaded(wantVisible);
+      if (!driver) return ensureDriver(wantVisible);
+      if (attachedToUserBrowser || injected || driverHeaded === headed) return driver;
+      return relaunch({ headed });
     }
     function refFor(node) {
       const ref = 'b' + (++seq);
@@ -2129,7 +2141,8 @@
       const validate = local ? assertLoopbackUrl : assertSafeUrl;
       const u = validate(url);
       if (!local) await assertResolvedSafe(u, doLookup);   // refuse names that RESOLVE private (rebinding)
-      const d = ensureDriver(local ? false : ('visible' in opts ? !!opts.visible : undefined));
+      const wantedMode = local ? false : ('visible' in opts ? !!opts.visible : undefined);
+      const d = wantedMode === undefined ? ensureDriver() : await ensureDriverMode(wantedMode);
       const finalUrl = await d.navigate(u.href);
       if (finalUrl) {
         try {
@@ -2272,7 +2285,7 @@
          the very lease just released — pinning the station profile for a run that is not even using it. */
       attachedToUserBrowser = true;
       attachedUserPort = p;
-      relaunch({ attachPort: p, headed: true });
+      await relaunch({ attachPort: p, headed: true });
       version++; navEpoch++;               // a different browser entirely: every ref is dead
       return probe;
     }
@@ -2337,7 +2350,7 @@
     async function closeTab(i) { const d = ensureDriver(); const out = await driverFn(d, 'closeTab')(i); version++; return out; }
     async function requireLocalDriver() {
       if (!localMode) throw new Error('browser.test_input requires browser.test_navigate to a loopback URL first');
-      const d = ensureDriver(false);
+      const d = await ensureDriverMode(false);
       if (typeof d.testEval !== 'function') throw new Error('local browser URL verification is unavailable in this driver');
       const href = await d.testEval('location.href');
       let current;
@@ -2428,7 +2441,7 @@
       // Headed + real input: forceHeadless is HOST authority for model-driven navigation; this relaunch is
       // human-consented (the prompt above), so it may override it. syntheticInputOnly:false drops the popup
       // block and input shims — SSO login flows need real popups and the human's real pointer.
-      const d = relaunch({ headed: true, forceHeadless: false, headless: false, syntheticInputOnly: false });
+      const d = await relaunch({ headed: true, forceHeadless: false, headless: false, syntheticInputOnly: false });
       localMode = false; localOrigin = null;
       let finalUrl = null;
       try {
@@ -2438,13 +2451,13 @@
         if (!vis) throw new Error('no full Chrome found — only a headless-shell binary, so a visible login window is impossible; install Chrome or set STARNET_CHROME');
       } catch (e) {
         // restore the shimmed headless posture before surfacing the failure
-        relaunch({ headed: false });
+        await relaunch({ headed: false });
         throw e;
       }
       const done = approved(await attended.prompt({ tool: 'browser.login.done', scope: 'execute', argsSummary: host }));
       // Done or cancelled, the window closes and research mode resumes on the SAME profile — any cookies the
       // site set during the attempt are already durable.
-      relaunch({ headed: false });
+      await relaunch({ headed: false });
       return { status: done ? 'done' : 'unconfirmed', host, url: finalUrl || u.href };
     }
     async function close() {

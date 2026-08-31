@@ -98,6 +98,18 @@ prepared.checkpoint('auto-prepared', { phase: 'assistant', messages: [{ role: 'a
 prepared.toolIntent('auto-prepared', { callId: 'write-safe', name: 'fs.write', argsRaw: '{"path":"a.txt","content":"x"}', mutating: true, boundaryModel: 'prepared-dispatch-v1' });
 A.eq(Recovery.automaticContinuationPlan(prepared.inspect('auto-prepared')).mode, 'automatic', 'prepared but never dispatched mutation is automatically continuable');
 
+const resultOnlyIo = memoryIo();
+const resultOnly = makeRunJournal({ io: resultOnlyIo, clock: { now: () => ++now } });
+resultOnly.begin({ runId: 'auto-result', agentId: 'agent' });
+resultOnly.checkpoint('auto-result', { phase: 'assistant', messages: [{ role: 'assistant', content: '', tool_calls: [{ id: 'read-durable', type: 'function', function: { name: 'fs_read', arguments: '{"path":"a.txt"}' } }] }] });
+resultOnly.toolIntent('auto-result', { callId: 'read-durable', name: 'fs.read', argsRaw: '{"path":"a.txt"}', mutating: false, boundaryModel: 'prepared-dispatch-v1' });
+resultOnly.toolDispatch('auto-result', { callId: 'read-durable', name: 'fs.read', mutating: false });
+resultOnly.toolResult('auto-result', { callId: 'read-durable', ok: true, content: 'durable value' });
+const resultOnlyPlan = Recovery.automaticContinuationPlan(resultOnly.inspect('auto-result'));
+A.eq(resultOnlyPlan.messages.map(m => m.role), ['assistant', 'tool', 'system'], 'a crash after durable result but before the result checkpoint remains automatically continuable');
+A.eq(resultOnlyPlan.messages[1].content, 'durable value', 'recovery pairs the exact durable result instead of asking the provider to replay the tool');
+A.ok(!/no durable result/.test(resultOnlyPlan.messages[1].content), 'recovery does not misreport a completed tool as interrupted');
+
 const unsafeIo = memoryIo();
 const unsafe = makeRunJournal({ io: unsafeIo, clock: { now: () => ++now } });
 unsafe.begin({ runId: 'unsafe', agentId: 'agent' });
