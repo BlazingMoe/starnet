@@ -763,8 +763,9 @@ function saveResilient(file, value) { writeJsonResilient({ fs: fs, path: path, w
 // Explicit credential deletion has a stricter contract than an ordinary resilient update. The normal writer
 // intentionally snapshots the old main into .bak; during remove/reset that old value is exactly the credential
 // the user asked us to forget. Write the sanitized envelope to BOTH copies directly and read both back before
-// callers adopt the deletion in memory. A crash between the two durable replaces can only recover the sanitized
-// copy (deletion is conservative); it can never resurrect the removed secret from the recovery file.
+// callers adopt the deletion in memory. Main is authoritative on startup, so sanitize it FIRST: a crash before
+// the backup replace leaves a sanitized main plus stale backup, and startup must keep the sanitized main rather
+// than resurrecting the removed secret. Once main is safe, sanitize the recovery copy and verify both.
 function saveCredentialRemovalVerified(file, value, proof, tag) {
   const check = (typeof proof === 'function') ? proof : raw => JSON.stringify(raw) === JSON.stringify(value);
   const loadOne = target => JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -772,8 +773,8 @@ function saveCredentialRemovalVerified(file, value, proof, tag) {
     mkdir: () => fs.mkdirSync(path.dirname(file), { recursive: true }),
     save: () => {
       const data = JSON.stringify(value);
-      writeFileDurable({ fs: fs, path: path }, file + '.bak', data);
       writeFileDurable({ fs: fs, path: path }, file, data);
+      writeFileDurable({ fs: fs, path: path }, file + '.bak', data);
     },
     load: () => ({ main: loadOne(file), bak: loadOne(file + '.bak') }),
     proof: copies => !!copies && check(copies.main) && check(copies.bak)
