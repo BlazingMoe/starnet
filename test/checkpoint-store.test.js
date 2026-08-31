@@ -56,6 +56,17 @@ function runGit(args, opts) {
     A.ok(s2.id !== s1.id, 'a changed workspace yields a new snapshot id');
 
     // ---- 4. restore to the baseline: edited file reverts BYTE-EXACT + the new file is removed ----
+    write('untracked-after-snapshot.txt', 'must be removed by git clean\n');
+    const cleanFailStore = makeCheckpointStore({
+      fs, pathMod: path, root, clock, keep: 5,
+      runGit: (args, opts) => args.indexOf('clean') >= 0
+        ? Promise.resolve({ code: 1, stdout: '', stderr: 'simulated clean failure' })
+        : runGit(args, opts)
+    });
+    A.eq(await cleanFailStore.restore(aid, s1.id), false,
+      'restore reports failure when git clean cannot remove post-snapshot files');
+    A.ok(fs.existsSync(path.join(wt, 'untracked-after-snapshot.txt')),
+      'a failed clean leaves the post-snapshot file present (the restore is incomplete)');
     const ok = await store.restore(aid, s1.id);
     A.ok(ok, 'restore to baseline succeeded');
     A.eq(read('report.md'), 'line one\nline two\n', 'edited file reverted byte-exact');

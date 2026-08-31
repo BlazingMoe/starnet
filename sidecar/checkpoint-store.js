@@ -433,7 +433,8 @@
       try {
         const reset = await git(aid, scope, ['reset', '--hard', '-q', sha]);
         if (reset.code !== 0) return false;
-        await git(aid, scope, ['clean', '-fd', '-q']);                           // drop files added after the snapshot
+        const clean = await git(aid, scope, ['clean', '-fd', '-q']);             // drop files added after the snapshot
+        if (clean.code !== 0) return false;
         return true;
       } catch (e) { return false; }
     }
