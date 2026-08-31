@@ -1529,7 +1529,10 @@ function setAgentModelFromChannel(agentId, model) {
   const cur = agentRoster.get(id);
   if (!cur) return { ok: false, agentId: id, error: 'agent not in roster' };
   agentRoster.set(id, Object.assign({}, cur, { model: m }));   // same shape replaceAgentRoster produces
-  saveAgentRoster();                                           // fsync-durable + .bak, survives restart
+  if (!saveAgentRoster()) {                                    // fsync-durable + .bak, survives restart
+    agentRoster.set(id, cur);
+    return { ok: false, agentId: id, error: 'could not persist roster' };
+  }
   return { ok: true, agentId: id, model: m, name: cur.name || id };
 }
 // A live snapshot of the OpenRouter model catalog, warmed at boot (see the server.listen warmup) AND on demand

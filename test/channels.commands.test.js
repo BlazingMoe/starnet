@@ -6,7 +6,16 @@
    no network, no real loop. Mirrors channels.hub.test.js style. */
 'use strict';
 const A = require('./_assert.js');
+const fs = require('fs');
+const path = require('path');
 const { makeChannelHub, parseCommand, matchAgent } = require('../sidecar/channels/hub.js');
+
+// Execute the production sidecar's small, self-contained roster mutation against injected state so durability
+// failures can be reproduced without booting a real messaging network.
+const indexSource = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+const setModelSource = (indexSource.match(/function setAgentModelFromChannel\(agentId, model\) \{[\s\S]*?\n\}/) || [])[0];
+A.ok(setModelSource, 'production setAgentModelFromChannel function is extractable');
+const makeProductionSetModel = (roster, save) => new Function('agentRoster', 'saveAgentRoster', setModelSource + '\nreturn setAgentModelFromChannel;')(roster, save);
 
 // a fake store whose chatmap persists in a plain object so we can prove a rebind SURVIVES and is READ BACK.
 function fakeStore() {
@@ -164,6 +173,15 @@ async function run() {
     });
     await hub.onInbound(dm('/model openai/gpt-5.1'));
     A.ok(/Could not change the model/.test(sends[0]) && /disk full/.test(sends[0]), 'a failed roster write is reported honestly, not confirmed');
+  }
+
+  // ---- W2. the production roster mutation must actually produce that !ok contract on disk failure ----
+  {
+    const roster = new Map([['ultron', { name: 'Ultron', model: 'old/model', provider: 'openrouter' }]]);
+    const setModel = makeProductionSetModel(roster, () => false);
+    const result = setModel('ultron', 'new/model');
+    A.eq(result.ok, false, 'production setModel reports a rejected durable roster write');
+    A.eq(roster.get('ultron').model, 'old/model', 'production setModel rolls its live roster mutation back on write failure');
   }
 
   // ---- X. commands degrade honestly when no roster is wired to the channel ----
