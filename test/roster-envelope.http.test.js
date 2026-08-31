@@ -141,5 +141,40 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
     await fixture.dispose();
   }
 
+  // A roster replacement is only accepted when its envelope reached durable storage. Force the real durable
+  // writer to reject the replace by putting a directory at the roster-file path, then prove the route reports
+  // failure and rolls its freshness baseline back so a later, genuinely newer-than-disk push is still accepted.
+  const fault = SidecarFixture.create({
+    prefix: 'sk-roster-write-fault-',
+    env: { OPENROUTER_KEY: '', STARNET_OPENROUTER_KEY: '', SKYNET_OPENROUTER_KEY: '' }
+  });
+  await fault.start();
+  try {
+    const BF = fault.baseUrl;
+    const tokF = fault.token;
+    const jf = async (m, p, body) => {
+      const headers = { 'Content-Type': 'application/json' }; if (tokF) headers['X-StarNet-Token'] = tokF;
+      const r = await fetch(BF + p, { method: m, headers, body: body ? JSON.stringify(body) : undefined });
+      const t = await r.text(); let v; try { v = JSON.parse(t); } catch (_) { v = t; }
+      return { status: r.status, body: v };
+    };
+    const faultRosterFile = path.join(fault.workspace, 'agent.roster.json');
+    const baseline = await jf('POST', '/api/roster', { agents: [{ agentId: 'agent', system: 'baseline', name: 'Ultron', provider: 'openrouter' }], updatedAt: 100 });
+    A.eq(baseline.body.ok, true, 'fault fixture establishes a durable roster baseline');
+    fs.unlinkSync(faultRosterFile);
+    fs.mkdirSync(faultRosterFile);
+
+    const rejected = await jf('POST', '/api/roster', { agents: [{ agentId: 'agent', system: 'rejected', name: 'Ultron', provider: 'openrouter' }], updatedAt: 200 });
+    A.eq(rejected.status, 500, 'a rejected durable roster write is reported as an HTTP failure');
+    A.eq(rejected.body.ok, false, 'a rejected durable roster write is never reported as accepted');
+
+    fs.rmdirSync(faultRosterFile);
+    const retry = await jf('POST', '/api/roster', { agents: [{ agentId: 'agent', system: 'retry', name: 'Ultron', provider: 'openrouter' }], updatedAt: 150 });
+    A.eq(retry.body.ok, true, 'failed roster writes do not advance the stale-write baseline');
+    A.eq(JSON.parse(fs.readFileSync(faultRosterFile, 'utf8')).updatedAt, 150, 'the first successfully durable retry becomes the baseline');
+  } finally {
+    await fault.dispose();
+  }
+
   A.report('roster-envelope.http.test');
 })().catch(e => { console.log('FAIL: roster-envelope.http.test threw — ' + (e && e.stack || e)); process.exit(1); });
