@@ -181,6 +181,16 @@ A.throws(() => R.restore({ bundle: v2, targetRoot: rollbackTarget, replaceExisti
 A.eq(hashFile(path.join(rollbackTarget, 'agent.todo.json')), beforeActivationHash, 'activation failure leaves current generation unchanged');
 A.eq(fs.existsSync(rollbackTarget + '.rollback-should-not-exist'), false, 'activation failure creates no false rollback generation');
 
+// H2. Browser-state application is part of activation. If that sink rejects after the workspace rename, the
+// previous healthy workspace must be restored instead of returning an error with the new generation active.
+const beforeBrowserFailureHash = hashFile(path.join(rollbackTarget, 'agent.todo.json'));
+A.throws(() => R.restore({ bundle: v2, targetRoot: rollbackTarget, replaceExisting: true, nonce: 'browser-fail', rollbackId: 'browser-fail',
+  browserSink() { throw new Error('injected browser sink failure'); } }), 'browser sink failure is reported');
+A.eq(hashFile(path.join(rollbackTarget, 'agent.todo.json')), beforeBrowserFailureHash,
+  'browser sink failure rolls the workspace back to the previous healthy generation');
+A.eq(fs.existsSync(rollbackTarget + '.rollback-browser-fail'), false,
+  'browser sink rollback does not leave the prior generation stranded under the rollback name');
+
 // I. A bundle captured AFTER a crash carries the last-known-good save, never the torn main.
 // savestore keeps agent.save.json.bak precisely for a torn main, and the bundle excludes .bak
 // generations — so a post-crash capture used to ship the zero-byte main, drop the only good copy,
