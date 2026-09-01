@@ -20,6 +20,8 @@
   //                 custom, perplexity, cerebras) — the loop's unpriced-token ceiling is the seatbelt there.
   //   wireStreamOptions: false — endpoint does not accept `stream_options` (usage still arrives:
   //     these providers report usage in the stream by default).
+  //   connectTimeoutMs — provider-specific response-header ceiling for endpoints whose cold start can
+  //     legitimately exceed the hosted-provider default (local model loading in Ollama).
   const PROFILES = [
     {
       id: 'openrouter',
@@ -502,6 +504,9 @@
       supportsTools: null,
       supportsReasoning: false,
       wireReasoningEffort: true,
+      // Ollama loads the model (and a potentially large context allocation) before response headers.
+      // A first local run can therefore be healthy but silent for well beyond the hosted 30s ceiling.
+      connectTimeoutMs: 300000,
       order: 60
     },
     {
