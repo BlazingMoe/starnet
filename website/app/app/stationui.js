@@ -3937,11 +3937,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      Refreshed from the same /api/credits + /api/credits/linkable pair the STORE reads, so the two
      panels can never disagree about whether this station has credits. */
   let creditsProv = { state: 'absent', balanceUsd: null, tier: '' };
+  // Publish a DEFINITIVE credits answer into the same cache COMMS/modeldock reads. SETTINGS used to read
+  // /api/credits directly and paint LINKED while Harness kept a failed boot-time probe as `false`, so the
+  // model dock simultaneously claimed "this station isn't linked". Temporary service trouble publishes
+  // nothing: an outage is not proof that a saved link vanished.
+  function publishCreditsConfigured(configured) {
+    const h = H();
+    if (h && h.setDesktopConfigured) h.setDesktopConfigured('starnet', !!configured);
+    if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+  }
   function refreshCreditsProvider() {
     const prior = creditsProv;
     return Harness.api.get('/api/credits?history=0').catch(e => ({ configured: false, unavailable: !/http 404\b/.test(String((e && e.message) || e)) }))
       .then(j => {
         if (j && j.configured) {
+          publishCreditsConfigured(true);
           creditsProv = {
             // Temporary cloud trouble is not proof that the device was revoked, but local token presence is
             // not proof of a live link either. Keep the provider reachable for refresh/recovery while painting
@@ -3956,6 +3966,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           creditsProv = { state: 'saved', balanceUsd: null, tier: prior.tier || '' };
           return creditsProv;
         }
+        if (!(j && j.unavailable)) publishCreditsConfigured(false);   // 404/unlinked is definitive; an outage is not
         return Harness.api.get('/api/credits/linkable').catch(() => ({ available: false }))
           .then(lk => {
             creditsProv = { state: (lk && lk.available) ? 'linkable' : 'absent', balanceUsd: null, tier: '' };
@@ -4946,7 +4957,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         // Symmetric to the link path: a station that just gave up its credential must stop reporting
         // that it can run on credits, or STARNET stays selectable and every run fails at admission.
         .then(() => (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null)
-        .then(() => { refreshCreditsProvider().catch(() => {}); wireCredits(body); })
+        .then(() => refreshCreditsProvider())
+        .then(() => { scheduleSettingsRepaint(); wireCredits(body); })
         .catch(() => wireCredits(body));
     };
     if (unlink) {
@@ -5041,7 +5053,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             // model dock gate on, and it was probed at boot when this station was NOT yet linked.
             adoptCreditsToken()
               .then(() => (H() && H().refreshCreditsConfigured) ? H().refreshCreditsConfigured() : null)
-              .then(() => { refreshCreditsProvider().catch(() => {}); wireCredits(body); });
+              .then(() => refreshCreditsProvider())
+              .then(() => { scheduleSettingsRepaint(); wireCredits(body); });
             return;
           }
           if (p && (p.status === 'expired' || p.status === 'consumed' || p.status === 'unknown' || p.status === 'invalid')) {

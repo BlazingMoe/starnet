@@ -87,6 +87,13 @@ ok(/snap\.authStatus === 'invalid'[\s\S]{0,400}link_token_rejected/.test(host),
   'a newly confirmed token rejected by balance authority is never reported or adopted as linked');
 ok(/refreshCreditsProvider\(\)[\s\S]{0,220}\/api\/credits\?history=0/.test(stationui),
   'the provider card reads the bounded summary path rather than waiting on credit history');
+ok(/function publishCreditsConfigured\(configured\)[\s\S]{0,300}setDesktopConfigured\('starnet',\s*!!configured\)[\s\S]{0,200}ModelDock\.reflect/.test(stationui),
+  'Settings publishes a definitive managed-link answer to the same cache and model dock COMMS reads');
+ok(/if \(j && j\.configured\) \{[\s\S]{0,100}publishCreditsConfigured\(true\)/.test(stationui)
+  && /if \(!\(j && j\.unavailable\)\) publishCreditsConfigured\(false\)/.test(stationui),
+  'linked and definitive-unlinked answers converge the COMMS cache while temporary outages preserve it');
+ok((stationui.match(/\.then\(\(\) => refreshCreditsProvider\(\)\)\s*\.then\(\(\) => \{ scheduleSettingsRepaint\(\); wireCredits\(body\); \}\)/g) || []).length === 2,
+  'link and unlink repaint the provider card after the Store and COMMS truth converges');
 ok(/_creditsLinkPollBusy/.test(stationui) && /generation !== _creditsLinkGeneration/.test(stationui),
   'the STORE pairing flow is also single-flight and ignores stale link responses');
 ok(/managed credit\|Managed credits/.test(app), 'a billing refusal from the wire preflight is named as billing, not as "model didn’t answer"');
