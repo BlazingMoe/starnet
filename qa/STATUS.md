@@ -1557,12 +1557,12 @@ own runner (Q1 Guardian, Q2 Beginner Run, Q4 Janitor) or the Overseer digest; th
 
 | Crew member | Question it answers | Last run | Result | Open findings |
 | --- | --- | --- | --- | --- |
-| Green Guardian | Is trunk green and does the app still boot + look right? | 2026-08-30 06:16Z @ 088ddf68 | GREEN | 0 |
-| Beginner Run | Can a brand-new user reach first value, unassisted? | 2026-08-29T17:41:15.972Z · ui-only · 108190ms | PASS | 0 |
+| Green Guardian | Is trunk green and does the app still boot + look right? | 2026-09-01 04:13Z @ 606c746c | GREEN | 0 |
+| Beginner Run | Can a brand-new user reach first value, unassisted? | 2026-08-31T13:01:44.612Z · ui-only · 102536ms | PASS | 0 |
 | Truth Auditor | Does the UI show what actually happened? | 2026-07-01 23:28Z (in Guardian cycle) | GREEN | 0 |
 | Visual Auditor | Is the rendered game coherent? (needs eyes) | — (local /loop; not headless) | — | 0 |
 | Overseer | What broke today, what needs Andrew? | 2026-07-01 (digest rendered) | 0 P0 · 106 P2 | — |
-| Janitor | What's rotting in the workshop? | 2026-08-23 | 440 findings | 106 |
+| Janitor | What's rotting in the workshop? | 2026-08-30 | 478 findings | 106 |
 | Cartographer | Is every surface element mapped and perfected? | 2026-07-18 04:18Z @ bc28c86f | PERFECTED-fresh 279 / total 1154 (24%) | 34 |
 | Dogfood | Does StarNet survive being USED like a real user uses it? | 2026-07-07 (proof shift · mock) @ e01831ab | SURVIVED — 0 anomalies (mock seam shift) | 0 |
 
