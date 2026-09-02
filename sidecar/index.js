@@ -755,7 +755,7 @@ function quarantineCorrupt(file, tag) {
 function loadResilient(file, tag) {
   const r = readJsonResilient({ fs: fs }, file);
   if (r.status === 'recovered') console.warn('[' + (tag || 'store') + '] recovered ' + file + ' from .bak last-known-good after a torn/corrupt main.');
-  else if (r.status === 'corrupt') quarantineCorrupt(file, tag);
+  else if (r.status === 'corrupt') quarantineCorrupt(r.problemFile || file, tag);
   return (r.status === 'ok' || r.status === 'recovered') ? r.value : undefined;
 }
 // durable single-file write: fsync-before-rename + snapshot the prior good value to <file>.bak.
@@ -2265,6 +2265,9 @@ async function takePending(agentId, runId, id) {
 }
 function listPending(agentId) {
   try { return MemoryStore.listPending(notebookStore, agentId); } catch (_) { return []; }
+}
+function findPending(agentId, runId, id) {
+  try { return MemoryStore.findPending(notebookStore, agentId, runId, id); } catch (_) { return null; }
 }
 /* FLAGSHIP CROSS-WIRE (NS-8 lite): assemble the read-side SHARED DECLINED INDEX from every engine's EXPLICIT-decline
    store, so an idea the Commander declined ANYWHERE is suppressed at propose-time EVERYWHERE. Per-agent stores
@@ -4276,9 +4279,14 @@ function loadCronJobs() {
     const r = readJsonResilient({ fs: fs }, CRON_FILE);
     if (r.status === 'recovered') console.warn('[cron] recovered ' + CRON_FILE + ' from .bak last-known-good after a torn/corrupt main.');
     else if (r.status === 'corrupt') {
-      const dest = quarantineCorrupt(CRON_FILE, 'cron');
-      if (!cronDegraded) cronDegraded = { quarantinePath: dest || null, since: new Date().toISOString() };
-      console.error('[cron] store DEGRADED — routines frozen until acknowledged (POST /api/cron/degraded/clear) or the quarantined file is restored.');
+      const problemFile = r.problemFile || CRON_FILE;
+      const dest = quarantineCorrupt(problemFile, 'cron');
+      // Missing main + quarantined orphan backup is a genuinely empty cron store again. A failed quarantine or
+      // corrupt main remains degraded: no scheduler action may proceed from an unproven empty snapshot.
+      if (!(dest && problemFile === CRON_FILE + '.bak')) {
+        if (!cronDegraded) cronDegraded = { quarantinePath: dest || null, since: new Date().toISOString() };
+        console.error('[cron] store DEGRADED — routines frozen until acknowledged (POST /api/cron/degraded/clear) or the quarantined file is restored.');
+      }
     } else if (r.status === 'unreadable') {
       console.error('[cron] ' + CRON_FILE + ' exists but is unreadable (' + ((r.err && r.err.code) || r.err) + ') — keeping the in-memory list, not treating as empty.');
       if (Array.isArray(cronJobs)) return cronJobs;
@@ -19440,7 +19448,9 @@ async function writeMemoryRecord(agentId, prop, opts) {
     const skillName = String(opts.skillName || skillNameFromReflection(content)).trim();
     const skillBody = String(opts.skillBody || content).trim();
     const summary = String(opts.summary || content).trim();
-    const r = skillStore.write({ agentId, name: skillName, summary, body: skillBody, createdBy: opts.source || 'reflection', sourceRunId: runId || (prop && prop.sourceRunId) });
+    let r;
+    try { r = skillStore.write({ agentId, name: skillName, summary, body: skillBody, createdBy: opts.source || 'reflection', sourceRunId: runId || (prop && prop.sourceRunId) }); }
+    catch (e) { return { ok: false, error: (e && e.message) || 'could not save skill' }; }
     if (!r.ok) return { ok: false, error: r.error || 'could not save skill' };
     chanEmit('deliverable', { id: r.skill.id, agentId, kind: 'skill', title: r.skill.name });
     return { ok: true, id: r.skill.id, kind: 'skill', skill: r.skill };
@@ -19532,19 +19542,21 @@ async function handleMemoryTurnin(req, res) {
   // the receipt batch — but they are already written. A keep/edit here would mint a DUPLICATE record; a discard
   // would denylist the text while the record silently survives. Only veto (handled above) may target them.
   if (live && live.saved) return json(409, { error: 'already saved — use verdict veto to undo it' });
-  // Clear the DURABLE queue first, and fall back to it for the proposal body: a deck raised by an unattended run
-  // and answered after a restart has no in-memory batch left, and 404-ing there would silently discard a decision
-  // the Commander did make. takePending is idempotent, so the live path clears the queue on its way through.
-  const queued = await takePending(agentId, runId, id);
+  // LOOK UP the durable proposal without consuming it. KEEP/EDIT is a two-phase operation: the destination write
+  // must succeed before the queue/card is removed, or ENOSPC turns the Commander's decision into permanent loss.
+  const queued = findPending(agentId, runId, id);
   const prop = live || queued;
   if (!prop) return json(404, { error: 'no such proposal (it may have expired)' });
-  // resolved either way — drop it from the in-memory batch too (and the batch entry when it empties)
-  if (batch && live) {
-    batch.proposals = batch.proposals.filter(p => p.id !== id);
-    if (!batch.proposals.length) { proposalsByRun.delete(runId); if (latestProposalRun.get(agentId) === runId) latestProposalRun.delete(agentId); }
-  }
+  const dropLive = () => {
+    if (batch && live) {
+      batch.proposals = batch.proposals.filter(p => p.id !== id);
+      if (!batch.proposals.length) { proposalsByRun.delete(runId); if (latestProposalRun.get(agentId) === runId) latestProposalRun.delete(agentId); }
+    }
+  };
 
   if (verdict === 'discard') {
+    await takePending(agentId, runId, id);
+    dropLive();
     // §5.6 "discard = never again": no NOTEBOOK record is written, but the rejected text IS recorded to the
     // permanent per-agent declined list so reflection's dedup suppresses it forever. Negative feedback calibrates confidence.
     await appendDeclined(agentId, prop.content);
@@ -19559,6 +19571,8 @@ async function handleMemoryTurnin(req, res) {
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });
+  await takePending(agentId, runId, id);   // consume only after the kept bytes are durably accepted
+  dropLive();
   const writtenId = w.id;
   chanEmit('memory.feedback', { agentId, id: writtenId, delta: fb.delta, reason: fb.reason });
   json(200, { ok: true, verdict, id: writtenId, kind: w.kind });

@@ -1256,6 +1256,9 @@ function fakeDriver() {
       await rejects(B2.tools.find(t => t.name === 'browser.login').run({ url: 'https://erank.com/login' }, {}),
         /profile teardown failed/i, 'a failed same-profile teardown is surfaced to the caller');
       A.eq(made.length, 1, 'a failed teardown never constructs a replacement against the still-live profile');
+      await rejects(B2.session.navigate('https://example.com'), /profile teardown failed/i,
+        'the next mode-less browser action fails closed instead of reusing the headed unshimmed driver');
+      A.eq(made.length, 1, 'the next mode-less action also cannot spawn a replacement against the uncertain profile');
     }
 
     // 7. LEASE CONTENTION: another run holds the profile -> honest error, no window.

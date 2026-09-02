@@ -2,6 +2,8 @@
 'use strict';
 const A = require('./_assert.js');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const { makeSkillExchange, normalizeSourceUrl, parseDocument } = require('../sidecar/skills/exchange.js');
 const { makeSkillDocumentFetcher, makeSkillPackageFetcher } = require('../sidecar/skills/exchange-fetch.js');
 const { makeSkillStore } = require('../sidecar/skillstore.js');
@@ -190,6 +192,17 @@ function store(io) { return makeSkillStore({ io, clock: { now: () => 9000 }, gua
   catch (e) { rejectedError = e.message; }
   A.ok(/disk full/.test(rejectedError), 'rejected durable append makes installation fail truthfully');
   A.eq(rejectedStore.list('a').length, 0, 'rejected durable append leaves no restart-unsafe in-memory ghost');
+
+  // The HTTP turn-in route must not consume a proposal before this same failure can occur. Pin the production
+  // ordering and the exception-to-honest-result boundary in the composition root.
+  const host = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+  const turnin = host.slice(host.indexOf('async function handleMemoryTurnin'), host.indexOf('// POST /api/memory/reset'));
+  A.ok(turnin.indexOf('const queued = findPending') < turnin.indexOf('await writeMemoryRecord'),
+    'skill KEEP first finds the durable proposal without consuming it');
+  A.ok(turnin.indexOf('await takePending(agentId, runId, id);   // consume only after') > turnin.indexOf('if (!w.ok)'),
+    'skill KEEP consumes the proposal only after the durable write succeeds');
+  A.ok(/try \{ r = skillStore\.write[\s\S]{0,500}catch \(e\) \{ return \{ ok: false/.test(host),
+    'skill persistence exceptions become an honest failed write result instead of escaping as a route 500');
 
   // Distribution provenance cannot outlive the bytes it names: a realistic long SKILL.md must not be
   // silently clipped at the runtime store's historical 20k limit.

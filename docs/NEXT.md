@@ -1,5 +1,25 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-02 — v0.10.13 RC.1 INVALIDATED; RELEASE-BLOCKER REPAIR
+
+`rc/0.10.13-rc.1` at `5e7ff198` is retained as forensic evidence but cannot be promoted. Its soak
+heartbeat is paused after a confirmed durable-store quarantine deadlock. The release repair lane fixes
+that deadlock, fails closed after an uncertain headed-browser teardown, retains rejected skill turn-ins,
+resets `starnet.tutorial.v1` for a genuinely new Commander, exposes screenshot-readable `SAVE-403` versus
+`SAVE-NET` recovery diagnosis, and cleans rejected attachment uploads.
+
+The two unreviewed August 31 sweep batches (`5558a707a..422e38c6f` and
+`5ab47a230..66a37410f`) received the owed commit-by-commit adversarial review. No further P0/P1 was
+found. Credential logout/FORGET deliberately keeps the live session when disk sanitization fails:
+clearing RAM would falsely report logout while a persisted secret could resurrect after restart.
+
+The repair head is green on claims (37/212), `test:fast` (691/691), `test:http` (87/87), and a real
+seeded-app restart that quarantined a corrupt orphan widget backup and then returned an empty widget
+store. Before RC.2: merge the repair lane, repeat the exact-merged-tree gates, earn fresh Beginner Run /
+installed-smoke / `qa:ready`, and perform the
+physical macOS recovery check. RC.1 time and receipts do not transfer to RC.2. No tag, push, draft, or
+publication was performed in this repair pass.
+
 ## DONE 2026-08-25 — CUSTOM HTTP MCP OAUTH (`agent/custom-mcp-oauth`)
 
 GitHub issue #1 is confirmed open on current trunk: the manual MCP form exposes HTTP bearer and

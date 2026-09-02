@@ -1983,6 +1983,7 @@
     const injected = !!deps.driver;            // a test-injected driver never mode-switches
     const makeDriver = deps.makeDriver || makeCdpDriver;   // seam so tests can observe the headed flag
     let driverHeaded = null;                    // the REAL driver's current mode (null = none yet)
+    let teardownFailure = null;                 // fail-closed latch: a possibly-live headed driver is never reusable
     let version = 0, seq = 0, localMode = false, localOrigin = null;
     /* navEpoch is deliberately NOT `version`. `version` bumps on every snapshot AND every navigation, so it
        cannot distinguish the two — and the difference decides whether a stale ref may be RECOVERED.
@@ -2034,6 +2035,7 @@
           : (!!wantVisible && !headlessRequested(deps.env) && deps.headless !== true));
     }
     function ensureDriver(wantVisible) {
+      if (teardownFailure) throw teardownFailure;
       const headed = wantedHeaded(wantVisible);
       if (driver) {
         /* An ATTACHED session never mode-switches. The relaunch below rebuilds the driver WITHOUT
@@ -2055,9 +2057,22 @@
     // consent contract is testable, but the driver object stays the same.
     async function relaunch(overrides) {
       if (injected) return driver;
+      if (teardownFailure) throw teardownFailure;
       // A rejected close means the old browser may still own the persistent profile. Keep its reference and
       // surface the failure; constructing a replacement here risks profile corruption and a false success.
-      if (driver) { await driver.close(); driver = null; driverHeaded = null; }
+      // The reference is cleared BEFORE propagating so a later mode-less call cannot reconnect that headed,
+      // unshimmed driver. The latch blocks every later action in this run rather than spawning against a profile
+      // whose ownership is now unknown.
+      if (driver) {
+        const closing = driver;
+        try { await closing.close(); }
+        catch (e) {
+          driver = null; driverHeaded = null; version++;
+          teardownFailure = e instanceof Error ? e : new Error(String(e || 'browser teardown failed'));
+          throw teardownFailure;
+        }
+        driver = null; driverHeaded = null;
+      }
       driver = makeDriver(Object.assign({}, deps, profileDeps(), overrides));
       driverHeaded = !!overrides.headed;
       version++;   // any element refs belong to the torn-down browser
