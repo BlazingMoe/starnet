@@ -12,6 +12,7 @@
 
    Pure logic + injected deps ({ fsp, path, crypto, resolveInside }) so it unit-tests without a running server. */
 'use strict';
+const { note: failNote } = require('./failopen.js');
 
 module.exports = function makeAttachments(deps) {
   const fsp = deps.fsp;
@@ -84,8 +85,8 @@ module.exports = function makeAttachments(deps) {
       // A rejected upload owns both names it created. Do not leave an unverified final file for a later
       // history reference to discover, or a pre-rename temp file to accumulate forever. Only remove `abs`
       // after our rename succeeded; a collision/failing rename must never delete somebody else's target.
-      if (tmp) { try { await fsp.rm(tmp, { force: true }); } catch (_) {} }
-      if (activated) { try { await fsp.rm(abs, { force: true }); } catch (_) {} }
+      if (tmp) { try { await fsp.rm(tmp, { force: true }); } catch (cleanupError) { failNote('attachments.reject-temp-cleanup', cleanupError); } }
+      if (activated) { try { await fsp.rm(abs, { force: true }); } catch (cleanupError) { failNote('attachments.reject-final-cleanup', cleanupError); } }
       return { ok: false, code: 500, error: 'write failed' };
     }
     return { ok: true, id, name, path: rel, mediaType: parsed.mime, kind, size: parsed.buffer.length };
