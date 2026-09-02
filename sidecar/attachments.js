@@ -68,16 +68,26 @@ module.exports = function makeAttachments(deps) {
     let abs;
     try { ({ abs } = await resolveInside(agentId, rel)); }
     catch (e) { return { ok: false, code: 403, error: 'forbidden' }; }
+    let tmp = null;
+    let activated = false;
     try {
       await fsp.mkdir(path.dirname(abs), { recursive: true });
-      const tmp = abs + '.' + crypto.randomUUID() + '.tmp';   // atomic tmp+rename (crash-safe; collision-resistant)
+      tmp = abs + '.' + crypto.randomUUID() + '.tmp';   // atomic tmp+rename (crash-safe; collision-resistant)
       const handle = await fsp.open(tmp, 'wx');
       try { await handle.writeFile(parsed.buffer); await handle.sync(); }
       finally { await handle.close(); }
       await fsp.rename(tmp, abs);
+      activated = true;
       const actual = await fsp.readFile(abs);
       if (!Buffer.isBuffer(actual) || !actual.equals(parsed.buffer)) throw new Error('attachment read-back mismatch');
-    } catch (e) { return { ok: false, code: 500, error: 'write failed' }; }
+    } catch (e) {
+      // A rejected upload owns both names it created. Do not leave an unverified final file for a later
+      // history reference to discover, or a pre-rename temp file to accumulate forever. Only remove `abs`
+      // after our rename succeeded; a collision/failing rename must never delete somebody else's target.
+      if (tmp) { try { await fsp.rm(tmp, { force: true }); } catch (_) {} }
+      if (activated) { try { await fsp.rm(abs, { force: true }); } catch (_) {} }
+      return { ok: false, code: 500, error: 'write failed' };
+    }
     return { ok: true, id, name, path: rel, mediaType: parsed.mime, kind, size: parsed.buffer.length };
   }
 

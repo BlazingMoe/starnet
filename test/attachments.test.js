@@ -41,6 +41,28 @@ const PNG_URL = 'data:image/png;base64,' + PNG_B64;
     const missingAfterReplace = await lostRename.saveAttachment('agent', 'lost.png', PNG_URL);
     A.eq(missingAfterReplace.ok, false, 'an attachment is not reported saved until the renamed bytes read back exactly');
 
+    const attachmentDir = path.join(ROOT, 'agent', '.attachments');
+    const beforeRejected = new Set(await fsp.readdir(attachmentDir));
+    let corruptRead = true;
+    const corruptReadFsp = new Proxy(fsp, { get(target, prop) {
+      if (prop === 'readFile') return async file => {
+        if (corruptRead && path.dirname(String(file)) === attachmentDir) {
+          corruptRead = false;
+          return Buffer.from('corrupt');
+        }
+        return target.readFile(file);
+      };
+      const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    const corruptReadStore = require('../sidecar/attachments.js')({
+      fsp: corruptReadFsp, path, crypto,
+      resolveInside: (aid, rel) => fsJail.resolveInside(aid, rel)
+    });
+    const rejectedReadback = await corruptReadStore.saveAttachment('agent', 'corrupt.png', PNG_URL);
+    A.eq(rejectedReadback.ok, false, 'a mismatched final read-back rejects the upload');
+    A.eq(new Set(await fsp.readdir(attachmentDir)), beforeRejected,
+      'a rejected upload removes its unverified final file and temporary artifact');
+
     // B. save a text file -> kind:file, extension preserved from the name.
     const txt = await attachments.saveAttachment('agent', 'notes.md', 'data:text/markdown;base64,' + Buffer.from('# hi\nbody', 'utf8').toString('base64'));
     A.ok(txt.ok && txt.kind === 'file', 'markdown -> kind file');
