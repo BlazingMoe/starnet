@@ -7,7 +7,7 @@
 
 const A = require('./_assert.js');
 const path = require('path');
-const { makeMemoryStore, memoryFileFor, resetAgentMemory, restoreDeclined, appendPending, takePending, listPending, PENDING_CAP } = require('../sidecar/memory-store.js');
+const { makeMemoryStore, memoryFileFor, resetAgentMemory, restoreDeclined, appendPending, takePending, listPending, findPending, PENDING_CAP } = require('../sidecar/memory-store.js');
 const { makeTodoTool, formatForInjection } = require('../sidecar/tools/builtin/todo.js');
 
 function memFs() {
@@ -146,6 +146,10 @@ function memFs() {
     // proposal ids are per-batch (every batch mints a prop_1) — the composite key must keep runs apart
     await appendPending(pstore, 'hero', 'run-b', [{ id: 'prop_1', kind: 'fact', content: 'a different belief' }], 7000);
     A.eq(listPending(pstore, 'hero').length, 2, 'the same prop id from a DIFFERENT run is its own entry');
+
+    const peeked = findPending(pstore, 'hero', 'run-a', 'prop_1');
+    A.eq(peeked.content, 'the api key rotates monthly', 'two-phase turn-in can inspect the exact proposal before committing it');
+    A.eq(listPending(pstore, 'hero').length, 2, 'non-consuming lookup leaves the proposal retryable when the destination write fails');
 
     // resolving returns the real proposal body — this is what lets a post-restart verdict commit the right text
     const taken = await takePending(pstore, 'hero', 'run-a', 'prop_1');
