@@ -292,10 +292,11 @@ export function runPreflight(ctx, io) {
     if (smoke != null) {
       try {
         const j = JSON.parse(stripBom(smoke));
-        const green = /green/i.test(String(j.verdict || j.status || ''));
+        const stampResult = j.result || j.verdict || j.status || '';
+        const green = /green/i.test(String(stampResult));
         const ageH = j.stampIso ? (io.now() - Date.parse(j.stampIso)) / 36e5 : NaN;
         if (target && String(j.appVersion) === target && green && ageH <= 7 * 24) smokeRow = row('soak', 'installed-exe soak stamp for ' + tag, 'PASS', 'GREEN · appVersion ' + j.appVersion + ' · ' + ageH.toFixed(1) + 'h old');
-        else smokeRow = row('soak', 'installed-exe soak stamp for ' + (tag || 'target'), 'WARN', 'stamp is for appVersion ' + j.appVersion + ' (' + (green ? 'GREEN' : String(j.verdict || j.status)) + ', ' + (isFinite(ageH) ? ageH.toFixed(1) + 'h old' : 'no stamp time') + ') — not a soak of ' + (target || 'the target'), 'soak the RC build of ' + (target || 'the target') + ' (docs/RELEASE_READINESS.md §2) or record the waiver');
+        else smokeRow = row('soak', 'installed-exe soak stamp for ' + (tag || 'target'), 'WARN', 'stamp is for appVersion ' + j.appVersion + ' (' + (green ? 'GREEN' : String(stampResult)) + ', ' + (isFinite(ageH) ? ageH.toFixed(1) + 'h old' : 'no stamp time') + ') — not a soak of ' + (target || 'the target'), 'soak the RC build of ' + (target || 'the target') + ' (docs/RELEASE_READINESS.md §2) or record the waiver');
       } catch { smokeRow = row('soak', 'installed-exe soak stamp', 'WARN', 'qa/installed/last-smoke.json unparseable', 're-run `npm run qa:smoke:installed`'); }
     }
     rows.push(smokeRow);
