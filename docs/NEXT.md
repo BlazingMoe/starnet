@@ -13,8 +13,10 @@ The two unreviewed August 31 sweep batches (`5558a707a..422e38c6f` and
 found. Credential logout/FORGET deliberately keeps the live session when disk sanitization fails:
 clearing RAM would falsely report logout while a persisted secret could resurrect after restart.
 
-Before RC.2: merge the repair lane, re-lock claims, run exact-merged-tree `test:fast` + `test:http`,
-prove a real seeded app restart, earn fresh Beginner Run / installed-smoke / `qa:ready`, and perform the
+The repair head is green on claims (37/212), `test:fast` (691/691), `test:http` (87/87), and a real
+seeded-app restart that quarantined a corrupt orphan widget backup and then returned an empty widget
+store. Before RC.2: merge the repair lane, repeat the exact-merged-tree gates, earn fresh Beginner Run /
+installed-smoke / `qa:ready`, and perform the
 physical macOS recovery check. RC.1 time and receipts do not transfer to RC.2. No tag, push, draft, or
 publication was performed in this repair pass.
 

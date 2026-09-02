@@ -1,7 +1,7 @@
 # v0.10.13 release-preparation snapshot
 
 Refreshed on 2026-09-02 against the repair lane's code snapshot
-`592884e8de9bf62e098105d7d3bb0232a8f7860a`, based on `feat/harness-backend` at
+`15cf6ea20630c5a07db1c7558fb809e3dcbcfa8f`, based on `feat/harness-backend` at
 `838404545`. The documentation commit that records this snapshot is intentionally not counted.
 This is a point-in-time inventory, not release authority. `docs/RELEASE_RUNBOOK.md`,
 `npm run release:preflight`, and `npm run qa:ready` remain authoritative at cut time.
@@ -18,7 +18,7 @@ Cut `0.10.13`. Although the tree gained environment discovery, outcome learning,
 connector/key-directory entries, and the 19-system LINES library, StarNet's established 0.10.x
 release convention has already carried similarly large feature bundles in patch releases. For
 comparison, `0.10.2` contained 252 commits across 250 files and `0.10.8` contained 228 commits
-across 204 files; this snapshot contains 192 commits across 177 files. No singular product-generation
+across 204 files; this snapshot contains 205 commits across 187 files. No singular product-generation
 or intentionally breaking contract justifies moving the release line to `0.11.0`.
 
 ## Measured delta from v0.10.12
@@ -26,13 +26,13 @@ or intentionally breaking contract justifies moving the release line to `0.11.0`
 | Item | Value |
 | --- | --- |
 | Baseline | `v0.10.12` · `86f8fd144d11b6c28a34cfc105f5429f611cb5a1` · 2026-08-26 |
-| Candidate snapshot | `592884e8de9bf62e098105d7d3bb0232a8f7860a` · 2026-09-02 repair lane |
-| Commits | 202 total · 183 non-merge · 19 merge |
-| First-parent history | 76 commits |
-| Source delta | 185 files · 8,003 insertions · 595 deletions |
+| Candidate snapshot | `15cf6ea20630c5a07db1c7558fb809e3dcbcfa8f` · 2026-09-02 repair lane |
+| Commits | 205 total · 186 non-merge · 19 merge |
+| First-parent history | 79 commits |
+| Source delta | 187 files · 8,067 insertions · 601 deletions |
 | Current version pins | all five agree on `0.10.12` |
-| Local vs origin | must be re-measured on the final merged head |
-| Claims surface | re-lock and exact-head PASS owed after merge |
+| Local vs origin | candidate is 205 commits ahead of `origin/feat/harness-backend`; re-measure after merge |
+| Claims surface | PASS · 37 claims / 212 locked surface files at the repair head |
 | Website mirror | PASS · in sync |
 
 ## 2026-09-02 release-blocker repair and adversarial review
@@ -50,13 +50,21 @@ The review reproduced or confirmed the reported failure paths and added a fifth 
 | Logout/FORGET retains the live session when credential removal cannot be proven on disk | **Intentional fail-closed contract, not reverted.** Clearing RAM alone would display a false logout while the persisted secret could resurrect on restart. The route returns failure and keeps the session usable until both protected copies are sanitized and read back. |
 
 No additional P0/P1 was found in those 40 commits. This closes the missing adversarial-review
-process debt for the two sweep merges; the exact merged repair tree still owes the normal full gates.
+process debt for the two sweep merges. On the repair head, `test:fast` is GREEN (691/691 steps),
+`test:http` is GREEN (87/87 steps), and the claims authority is GREEN (37 claims / 212 files); the
+merged tree must repeat the binding gates.
 
 The two agreed next-cut requirements are now represented in code: creating a new Commander resets
 `starnet.tutorial.v1` and re-arms the tour/coachmarks/FIRST STEPS, and the save-unreachable screen
 shows stable `SAVE-403` versus `SAVE-NET` diagnosis plus copyable recovery details. The existing
 genesis `USE A DIFFERENT ACCOUNT` action clears a wrong StarNet account link in-app. Physical macOS
 runtime proof is still owed; Windows tests and source inspection are not a substitute.
+
+Live Windows proof used the real seeded sidecar and an isolated worktree scratch workspace. After a
+process stop, the restarted app encountered an absent `station.widgets.json` plus a corrupt orphan
+`.bak`, quarantined that exact backup, and served `GET /api/widgets` as HTTP 200 with an empty list.
+The live UI also rendered the recovery-report and `USE A DIFFERENT ACCOUNT` surfaces. This is not the
+still-owed physical macOS recovery proof.
 
 ## Every merge since v0.10.12
 
@@ -136,7 +144,7 @@ Other owed work:
 - a fresh `0.10.13` RC.2 soak is owed; the invalidated RC.1 soak cannot satisfy it;
 - updater-key backup to two offline locations requires human attestation;
 - `qa/STATUS.md` must be committed separately or stashed before tagging;
-- the 192 local commits and the final tag must both reach origin for the train to build the intended bytes.
+- the 205 candidate commits (plus the repair merge) and the final tag must both reach origin for the train to build the intended bytes.
 
 ## Current QA evidence
 
@@ -186,4 +194,4 @@ required artifact returns HTTP 200. The existing fleet feed is healthy before th
 - no release tag;
 - no push, release-train dispatch, draft, publish, website deploy, or credential action;
 - no claim that `0.10.13` is release-ready;
-- no full gate rerun that would have to be repeated after the bump anyway.
+- no reuse of pre-bump gates as the post-bump or packaged-artifact receipts.
