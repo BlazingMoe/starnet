@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "b24422956232b52d7cabce01827d309a4c545c72",
+    "sourceCommit": "040932b7846d439568bea93950d9d538e612f38d",
     "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
     "files": [
       {
@@ -188,8 +188,8 @@
       },
       {
         "path": "frontend/app/crtlab.js",
-        "bytes": 18590,
-        "sha256": "022c7b3b10ebcbc445f434acaf45eaa9c035c8a6f15b0aae675b43ad1341d9a6"
+        "bytes": 19954,
+        "sha256": "4ebd102bbd03390114d4da51ddd2910074ae3b4200c588dbe83a9043802ea022"
       },
       {
         "path": "frontend/app/ctxgauge.js",
@@ -728,8 +728,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 283322,
-        "sha256": "7e63b4fec16ec4d19b1c0241a94aa52a36c8e026fd826cba384b3177ac0bef1c"
+        "bytes": 291425,
+        "sha256": "a0f12c043be2852eb94e003fc46810a357cc54a27aab4a67b75c41c96ca6d9af"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -958,13 +958,13 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 702807,
-        "sha256": "0755709aa9c2a182f28bd6cf7a78a7710e375ba4b952d02a3fbba0af26d09825"
+        "bytes": 703320,
+        "sha256": "b2693d4a97dd4708c4b4fb4b8091e443689bb5c505925016724b55c3a020e68f"
       },
       {
         "path": "frontend/app/worldmodel.js",
-        "bytes": 155407,
-        "sha256": "d9c1f55bbe54508ad83b40f65e825c5f862b8072f59b6bd92f293ed3adb3b351"
+        "bytes": 155771,
+        "sha256": "dba89b88cd877a150f5ab5125d91d794b0c55368a256534f8f51dcaff1e5d497"
       },
       {
         "path": "frontend/app/xp.js",
@@ -1023,8 +1023,8 @@
       },
       {
         "path": "frontend/css/style.css",
-        "bytes": 103428,
-        "sha256": "2a3872d8b47779b734953932251a272b5aafd3a48a37eca006426498b5995c38"
+        "bytes": 104297,
+        "sha256": "1ddcaed934c8f03cecbeab88e5e1aee6112e1226402c0a5ab9f65fb9469f4267"
       },
       {
         "path": "frontend/css/titlebar.css",
