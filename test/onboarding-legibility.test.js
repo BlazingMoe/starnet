@@ -33,9 +33,15 @@ const Glossary = require('../frontend/app/glossary.js');
   const tutorialSrc = fs.readFileSync(path.join(root, 'frontend', 'app', 'tutorial.js'), 'utf8');
   let opens = 0;
   let closedManual = 0;
+  let tutorialRaw = JSON.stringify({ v: 1, firstCommandDone: true, seen: {}, brief: { command: true }, briefDismissed: true, briefComplete: false });
+  let tutorialRemovals = 0;
   const context = vm.createContext({
     console, setTimeout, clearTimeout, Promise,
-    localStorage: { getItem: () => JSON.stringify({ v: 1, firstCommandDone: true, seen: {}, brief: { command: true }, briefDismissed: true, briefComplete: false }), setItem() {} },
+    localStorage: {
+      getItem: () => tutorialRaw,
+      setItem(_key, value) { tutorialRaw = value; },
+      removeItem() { tutorialRaw = null; tutorialRemovals++; }
+    },
     Chat: { typeLine() {}, localLine() {}, choices() {} },
     Dialogue: { open() { opens++; }, node() { return new Promise(() => {}); }, isOpen() { return false; }, close() {} },
     StationUI: { closeTerm(key) { if (key === 'manual') closedManual++; } },
@@ -51,12 +57,20 @@ const Glossary = require('../frontend/app/glossary.js');
   A.ok(replayed && opens === 1, 'Field Manual replay enters the real quick-tour flow for a returning user');
   A.eq(closedManual, 1, 'replay closes the Field Manual before the Dialogue lesson can be covered');
   A.ok(/fm-replay/.test(tutorialSrc) && /replay\.onclick = \(\) =>/.test(tutorialSrc), 'Field Manual renders and wires REPLAY QUICK TOUR');
+  const resetState = vm.runInContext('Tutorial.reset()', context);
+  A.eq(resetState.firstCommandDone, false, 'new-Commander reset re-arms the one-shot tour');
+  A.eq(resetState.seen, {}, 'new-Commander reset clears inherited coachmark history');
+  A.eq(resetState.brief, {}, 'new-Commander reset clears inherited FIRST STEPS progress');
+  A.eq(tutorialRemovals, 1, 'tutorial reset explicitly removes starnet.tutorial.v1');
 
   // Release clarity regression: Genesis must route each editable choice to its real home, and the work
   // vocabulary must preserve the product's existing truth — deliberate tasks are board cards; every saved
   // conversation is a COMMS Session; recruited crew are real agents, never decorative placeholders.
   const indexSrc = fs.readFileSync(path.join(root, 'frontend', 'index.html'), 'utf8');
   const stationUiSrc = fs.readFileSync(path.join(root, 'frontend', 'app', 'stationui.js'), 'utf8');
+  const appSrc = fs.readFileSync(path.join(root, 'frontend', 'app', 'app.js'), 'utf8');
+  A.ok(/Workstreams\.reset\(\);[\s\S]{0,240}Tutorial\.reset\(\)/.test(appSrc),
+    'the real new-Commander reset funnel clears tutorial ownership before entering the station');
   A.ok(indexSrc.includes('agent setup in CREW › AGENTS') && indexSrc.includes('model in COMMS') && indexSrc.includes('SYSTEM › SETTINGS'),
     'Genesis routes editable setup to the real agent, model, and settings surfaces');
   A.eq(indexSrc.includes('everything here is re-editable later in the Commander Dossier'), false,
