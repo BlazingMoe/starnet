@@ -51,7 +51,7 @@ const World = (() => {
               margin. The cost is ~11% of edge content, never any change to the curvature.
      Both feed the GL path and the CPU LUT path IDENTICALLY — drawCurveGL's probe compares the two and defects
      to CPU on divergence, so they must never drift apart. */
-  const CRT = { scan: 0.43, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.35, grain: 0.24 };
+  const CRT = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.35, grain: 0.16 };
   let _warpCv = null, _warpCtx = null;   // the barrel-warp snapshot buffer — see drawCurve()
   let _lut = null, _lutKey = '', _outImg = null;   // CPU per-pixel barrel-warp inverse-map LUT + output buffer — see buildLUT()/drawCurveCPU()
   let _gl = null, _glc = null, _glProg = null, _glTex = null, _glKLoc = null, _glAberrLoc = null, _glVigLoc = null, _glOverLoc = null, _glReady = false, _glFailed = false;   // GPU barrel-warp (WebGL) — see initGL()/drawCurveGL()
@@ -5971,7 +5971,7 @@ const World = (() => {
       // ONCE and only its pattern offset changes each frame (a whole-number jitter derived from `now`,
       // quantized to ~15fps so it reads as phosphor noise, not smooth scrolling texture).
       const fi = Math.floor(now / 66);
-      const jx = (fi * 53) % 128, jy = (fi * 97) % 128;
+      const jx = (fi * 53) % GRAIN_S, jy = (fi * 97) % GRAIN_S;
       ctx.globalCompositeOperation = 'overlay';
       ctx.globalAlpha = Math.min(0.25, CRT.grain);
       ctx.translate(jx, jy);
@@ -5982,15 +5982,21 @@ const World = (() => {
     }
     ctx.globalCompositeOperation = 'source-over';
   }
-  // Cached 128px mid-gray noise tile for the film grain — built once, reused forever (only the
-  // draw offset animates). Mid-gray (128) is the 'overlay' neutral, so ±spread is pure texture.
+  /* Cached mid-gray noise tile for the film grain — built once, reused forever (only the draw
+     offset animates). Mid-gray (128) is the 'overlay' neutral, so ±spread is pure texture.
+     2026-09-02: 128 -> 256px tile (the 128 repeat was readable as a tartan on a still frame at
+     zoom 2), and the noise went from UNIFORM ±55 to a TRIANGULAR ±64 (sum of two rands). Film
+     grain clusters around zero with rare strong specks; a flat uniform distribution puts the
+     same energy in every pixel, which on a dark deck reads as sand, not grain — the "digital
+     dirt" in every pre-09-02 crop. Same mean, lower variance per pixel, longer tail. */
+  const GRAIN_S = 256;
   function grainPattern() {
     if (_grainPat) return _grainPat;
-    const S = 128;
+    const S = GRAIN_S;
     _grainCv = document.createElement('canvas'); _grainCv.width = S; _grainCv.height = S;
     const gctx = _grainCv.getContext('2d'), id = gctx.createImageData(S, S);
     for (let i = 0; i < S * S; i++) {
-      const v = 128 + Math.round((Math.random() - 0.5) * 110);
+      const v = 128 + Math.round((Math.random() + Math.random() - 1) * 64);
       id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
     }
     gctx.putImageData(id, 0, 0);
