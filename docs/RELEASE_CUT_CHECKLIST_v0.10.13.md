@@ -6,11 +6,13 @@ Refreshed on 2026-09-02 against the repair lane's code snapshot
 This is a point-in-time inventory, not release authority. `docs/RELEASE_RUNBOOK.md`,
 `npm run release:preflight`, and `npm run qa:ready` remain authoritative at cut time.
 
-`rc/0.10.13-rc.1` / `5e7ff198ee73ecfc831de87eae316e689690a1ec` is **invalidated**.
-Its soak evidence remains useful forensic history, but its bytes contain the confirmed durable-store
-quarantine deadlock and cannot be promoted or used to satisfy a later candidate's soak. The RC.1
-heartbeat is paused. A future RC.2 must start from the exact merged repair head and earn fresh
-installed-smoke, readiness, and soak receipts.
+The frozen branch was `rc/0.10.13`; its RC marker was the tag `rc/0.10.13-rc.1`. Both pointed at
+`5e7ff198ee73ecfc831de87eae316e689690a1ec`, which is **invalidated**. Its soak evidence remains
+useful forensic history, but its bytes contain the confirmed durable-store quarantine deadlock and
+cannot be promoted or used to satisfy a later candidate's soak. The misleading remote release branch
+was preserved as `archive/rc-0.10.13-rc.1-invalid`, then `origin/rc/0.10.13` was deleted; the marker
+tag remains for forensic identity. The RC.1 heartbeat is paused. A future RC.2 must start from the
+exact merged repair head and earn fresh installed-smoke, readiness, and soak receipts.
 
 ## Recommendation
 

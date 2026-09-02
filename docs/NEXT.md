@@ -2,9 +2,11 @@
 
 ## 2026-09-02 — v0.10.13 RC.1 INVALIDATED; RELEASE-BLOCKER REPAIR
 
-`rc/0.10.13-rc.1` at `5e7ff198` is retained as forensic evidence but cannot be promoted. Its soak
-heartbeat is paused after a confirmed durable-store quarantine deadlock. The release repair lane fixes
-that deadlock, fails closed after an uncertain headed-browser teardown, retains rejected skill turn-ins,
+The invalidated frozen branch was `rc/0.10.13`, and its marker tag is `rc/0.10.13-rc.1`; both pointed
+at `5e7ff198`. The remote branch is now preserved under the unmistakable
+`archive/rc-0.10.13-rc.1-invalid` name, while the marker tag remains forensic evidence. Neither can be
+promoted. Its soak heartbeat is paused after a confirmed durable-store quarantine deadlock. The release
+repair lane fixes that deadlock, fails closed after an uncertain headed-browser teardown, retains rejected skill turn-ins,
 resets `starnet.tutorial.v1` for a genuinely new Commander, exposes screenshot-readable `SAVE-403` versus
 `SAVE-NET` recovery diagnosis, and cleans rejected attachment uploads.
 
@@ -17,8 +19,9 @@ The repair head is green on claims (37/212), `test:fast` (691/691), `test:http` 
 seeded-app restart that quarantined a corrupt orphan widget backup and then returned an empty widget
 store. Before RC.2: merge the repair lane, repeat the exact-merged-tree gates, earn fresh Beginner Run /
 installed-smoke / `qa:ready`, and perform the
-physical macOS recovery check. RC.1 time and receipts do not transfer to RC.2. No tag, push, draft, or
-publication was performed in this repair pass.
+physical macOS recovery check. RC.1 time and receipts do not transfer to RC.2. No official `v0.10.13`
+tag, draft, or publication was performed in this repair pass; the already-pushed invalid RC branch was
+archived and removed from the live `rc/` namespace.
 
 ## DONE 2026-08-25 — CUSTOM HTTP MCP OAUTH (`agent/custom-mcp-oauth`)
 
