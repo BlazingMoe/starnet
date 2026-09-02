@@ -1,5 +1,19 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-02 — v0.10.13 SAME-NIGHT CUT EXCEPTION
+
+Andrew directed that v0.10.13 go out tonight without running a second full 48-hour soak. This is an
+explicit waiver of the **RC.2 duration requirement only**. RC.1's time is not being reused or
+misrepresented: RC.1 contained the confirmed durable-store quarantine deadlock and remains invalid.
+The release decision instead accepts the residual duration risk after fresh exact-candidate Windows
+installation, byte-bound smoke, real OpenRouter dogfood, a full clean Guardian cycle, 130/130 journeys,
+and `qa:ready` READY with zero open P0/P1 findings.
+
+This waiver does not waive the staged-draft T0 clean-install or G1 packaged-lifecycle gates, hosted-feed
+verification, or the older-client update canary. Physical macOS recovery proof is still absent and must
+either pass on real Mac hardware or receive a separate explicit owner waiver before Publish. The updater
+signing key's two usable offline copies also still require human attestation before the official tag push.
+
 ## 2026-09-02 — v0.10.13 RC.1 INVALIDATED; RELEASE-BLOCKER REPAIR
 
 The invalidated frozen branch was `rc/0.10.13`, and its marker tag is `rc/0.10.13-rc.1`; both pointed

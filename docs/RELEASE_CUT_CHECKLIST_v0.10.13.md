@@ -1,8 +1,8 @@
-# v0.10.13 release-preparation snapshot
+# v0.10.13 cut checklist — REFRESHED 2026-09-02
 
-Refreshed on 2026-09-02 against the repair lane's code snapshot
-`15cf6ea20630c5a07db1c7558fb809e3dcbcfa8f`, based on `feat/harness-backend` at
-`838404545`. The documentation commit that records this snapshot is intentionally not counted.
+Refreshed on 2026-09-02 against cut-preparation parent
+`a39e0953cd4f26afe4d25dad4539c17e13437175` on `feat/harness-backend`. The documentation commit that
+records this snapshot is intentionally not counted.
 This is a point-in-time inventory, not release authority. `docs/RELEASE_RUNBOOK.md`,
 `npm run release:preflight`, and `npm run qa:ready` remain authoritative at cut time.
 
@@ -11,8 +11,11 @@ The frozen branch was `rc/0.10.13`; its RC marker was the tag `rc/0.10.13-rc.1`.
 useful forensic history, but its bytes contain the confirmed durable-store quarantine deadlock and
 cannot be promoted or used to satisfy a later candidate's soak. The misleading remote release branch
 was preserved as `archive/rc-0.10.13-rc.1-invalid`, then `origin/rc/0.10.13` was deleted; the marker
-tag remains for forensic identity. The RC.1 heartbeat is paused. A future RC.2 must start from the
-exact merged repair head and earn fresh installed-smoke, readiness, and soak receipts.
+tag remains for forensic identity. The RC.1 heartbeat is retired. RC.2 is frozen at
+`0365ceb92d6389081ff8bae8457cf6516d850828` and marked by `rc/0.10.13-rc.2`; its Windows installer
+passed a byte-bound installed smoke and a real OpenRouter dogfood shift. Andrew has explicitly waived
+a second full 48-hour duration run for the same-night cut. That waiver does not convert RC.1 evidence
+into RC.2 evidence.
 
 ## Recommendation
 
@@ -28,13 +31,13 @@ or intentionally breaking contract justifies moving the release line to `0.11.0`
 | Item | Value |
 | --- | --- |
 | Baseline | `v0.10.12` · `86f8fd144d11b6c28a34cfc105f5429f611cb5a1` · 2026-08-26 |
-| Candidate snapshot | `15cf6ea20630c5a07db1c7558fb809e3dcbcfa8f` · 2026-09-02 repair lane |
-| Commits | 205 total · 186 non-merge · 19 merge |
-| First-parent history | 79 commits |
-| Source delta | 187 files · 8,067 insertions · 601 deletions |
-| Current version pins | all five agree on `0.10.12` |
-| Local vs origin | candidate is 205 commits ahead of `origin/feat/harness-backend`; re-measure after merge |
-| Claims surface | PASS · 37 claims / 212 locked surface files at the repair head |
+| Candidate snapshot | `a39e0953cd4f26afe4d25dad4539c17e13437175` · 2026-09-02 cut preparation |
+| Commits | 212 total · 192 non-merge · 20 merge |
+| First-parent history | 76 commits |
+| Source delta | 195 files · 8,116 insertions · 627 deletions |
+| Current version pins | all five agree on `0.10.13` |
+| Local vs origin | candidate is 212 commits ahead of `origin/feat/harness-backend` |
+| Claims surface | PASS · 37 claims / 212 locked surface files at the cut-preparation parent |
 | Website mirror | PASS · in sync |
 
 ## 2026-09-02 release-blocker repair and adversarial review
@@ -128,25 +131,24 @@ still-owed physical macOS recovery proof.
 5. **Channels/processes/UI:** Discord backoff, partial-delivery progress, unique outbox IDs, bounded process
    cleanup, profile teardown, draft preservation, minimized-window safety, drag release, and double-submit guards.
 
-## Preflight status for the repaired candidate
-
-Command: `npm run release:preflight -- --version 0.10.13`
-
-Run this only after the repair merge freezes the exact trunk head:
+## Preflight status for the cut candidate
 
 `npm run release:preflight -- --version 0.10.13`
 
-Expected pre-cut debts are exact-head Beginner Run, a byte-bound installed smoke, fresh `qa:ready`,
-claims re-lock, and a new RC.2 soak. RC.1 receipts must not be reused.
+Exact RC.2 evidence includes a byte-bound Windows installed smoke, real OpenRouter dogfood, Beginner
+Run PASS, Guardian GREEN, journeys 130/130, and `qa:ready` READY. The installed-smoke schema-3
+`result` field is now read correctly by preflight. RC.1 receipts are not reused; the missing full RC.2
+duration is the explicit owner-directed exception recorded in `docs/NEXT.md`.
 
 Other owed work:
 
 - binding `test:fast` and `test:http` receipts must be earned **after** the version bump;
 - hosted T0 clean-install and G1 packaged-lifecycle proofs are owed against the staged draft;
-- a fresh `0.10.13` RC.2 soak is owed; the invalidated RC.1 soak cannot satisfy it;
+- the full RC.2 soak duration is explicitly waived for this same-night cut; RC.1 time is not credited;
+- physical macOS recovery proof still requires a real-Mac pass or a separate explicit owner waiver;
 - updater-key backup to two offline locations requires human attestation;
 - `qa/STATUS.md` must be committed separately or stashed before tagging;
-- the 205 candidate commits (plus the repair merge) and the final tag must both reach origin for the train to build the intended bytes.
+- the 212 candidate commits and the final tag must both reach origin for the train to build the intended bytes.
 
 ## Current QA evidence
 
@@ -171,29 +173,24 @@ required artifact returns HTTP 200. The existing fleet feed is healthy before th
 
 ## Cut sequence
 
-1. Merge the repair lane, freeze that exact trunk candidate, and refresh the inventory once more.
-2. Let the existing Guardian-owned `qa/STATUS.md` refresh land as its own QA commit; never fold it into
-   release notes or version commits.
-3. Re-lock claims and re-run Beginner Run on the exact frozen head.
-4. Build/install the exact frozen pre-bump candidate and run `npm run qa:smoke:installed` with its source
-   head/tree and artifact SHA bound correctly.
-5. Run `npm run qa:ready`; stop unless it prints READY, then cut RC.2 and begin a fresh soak clock.
-6. Run `npm run release:ritual:dry -- --version 0.10.13` and inspect the complete plan.
-7. Start `npm run release:ritual -- --version 0.10.13`. Let it perform the five-pin bump without tagging,
-   then replace the scaffolded `RELEASE_NOTES.md` with `docs/RELEASE_NOTES_v0.10.13_DRAFT.md` and review the
-   wording before continuing.
-8. Re-lock the claims surface and earn complete post-bump `test:fast` and `test:http` logs. Feed only logs
-   whose final line carries the green summary to the ritual.
-9. Review the final local tag and release notes. Do not push or publish without Andrew's explicit approval
-   and the required physical updater-key-backup attestation.
-10. When approved, push the branch and tag together, supervise the signed train, review the staged draft,
-    run hosted T0/G1, complete/waive the RC soak explicitly, verify notarized macOS and signed Windows
-    artifacts, and publish only after every required receipt is green.
+1. Keep the exact final candidate immutable after its claims re-lock and binding gates.
+2. Stash the Guardian-owned `qa/STATUS.md` refresh before pushing; never fold it into the tag.
+3. Rebuild/install the exact final candidate and repeat the byte-bound installed smoke.
+4. Run a fresh full Guardian cycle and `npm run qa:ready`; stop unless it prints READY.
+5. Run post-bump preflight and inspect every warning. The duration waiver is documentary, not a false
+   machine PASS.
+6. Require explicit resolution of physical macOS recovery proof and human attestation of two usable
+   offline updater-key copies before pushing the tag.
+7. Push `feat/harness-backend` and `v0.10.13` together, supervise the signed train, and inspect both
+   notarized Mac legs plus signed Windows artifacts in the staged draft.
+8. Run hosted T0 and G1 against the staged draft. Do not Publish unless both pass.
+9. Publish, verify the source-release mirror and hosted updater feed, then run the older-client installed
+   update canary.
 
 ## Intentionally not done in this preparation pass
 
-- no version bump;
-- no release tag;
+- version pins are bumped to `0.10.13`;
+- local `v0.10.13` exists but remains unpushed until the final gates and attestations;
 - no push, release-train dispatch, draft, publish, website deploy, or credential action;
 - no claim that `0.10.13` is release-ready;
 - no reuse of pre-bump gates as the post-bump or packaged-artifact receipts.
