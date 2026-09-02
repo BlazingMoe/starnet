@@ -174,6 +174,26 @@ async function main() {
     A.eq(fs.files.get(backupOnlyFile + '.bak'), '{ corrupt surviving backup', 'refused update preserves the surviving backup bytes exactly');
     A.ok(!fs.files.has(backupOnlyFile), 'refused update does not mint an amnesiac replacement main');
 
+    // The production host DOES quarantine and returns the destination. That acknowledgement must target the
+    // orphan backup (not the absent main) and let this same update initialize, while preserving the bad bytes.
+    const healedFile = fileFor('backup-only-healed');
+    const badBackup = '{ corrupt orphan backup';
+    fs.files.set(healedFile + '.bak', badBackup);
+    let quarantinedSource = '';
+    const healingStore = makeDurableJsonStore({
+      fs, path: pathMod, fileFor,
+      onCorrupt(_key, problemFile) {
+        quarantinedSource = problemFile;
+        const dest = problemFile + '.corrupt-proof';
+        fs.renameSync(problemFile, dest);
+        return dest;
+      }
+    });
+    await healingStore.update('backup-only-healed', cur => ({ initializedFrom: cur === undefined ? 'absent' : 'unexpected' }));
+    A.eq(quarantinedSource, healedFile + '.bak', 'orphan-backup recovery quarantines the actual corrupt backup, not the absent main');
+    A.eq(fs.files.get(healedFile + '.bak.corrupt-proof'), badBackup, 'orphan-backup quarantine preserves the forensic bytes');
+    A.eq(healingStore.get('backup-only-healed'), { initializedFrom: 'absent' }, 'the same update initializes after successful orphan-backup quarantine');
+
     // Preserve the valid initialization path: a genuinely absent key still starts from undefined and commits.
     await store.update('brandnew', cur => ({ initializedFrom: cur === undefined ? 'absent' : 'unexpected' }));
     A.eq(store.get('brandnew'), { initializedFrom: 'absent' }, 'update() still initializes a genuinely absent record');

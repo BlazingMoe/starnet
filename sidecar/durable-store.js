@@ -101,9 +101,11 @@ function readJsonResilient(deps, file) {
   const b = readOne(fs, file + '.bak');
   if (b.kind === 'ok') return { value: b.value, status: 'recovered' };
   if (m.kind === 'absent' && b.kind === 'absent') return { value: undefined, status: 'absent' };
-  if (m.kind === 'absent' && b.kind === 'unreadable') return { value: undefined, status: 'unreadable', err: b.err };
+  if (m.kind === 'absent' && b.kind === 'unreadable') return { value: undefined, status: 'unreadable', err: b.err, problemFile: file + '.bak' };
   // main present-but-bad (empty/corrupt) and no usable .bak -> unrecoverable; do NOT silently empty.
-  return { value: undefined, status: 'corrupt' };
+  // When the main is absent, the forensic bytes live in the BACKUP. Carry that exact path so a host quarantine
+  // never keeps trying to rename the missing main while the bad backup pins this key corrupt forever.
+  return { value: undefined, status: 'corrupt', problemFile: m.kind === 'absent' ? file + '.bak' : file };
 }
 
 /* ---- durable write with a last-known-good snapshot ----
@@ -146,7 +148,16 @@ function makeDurableJsonStore(deps) {
     if (r.status === 'recovered') { try { onRecover(key, file, r); } catch (e) { failNote('durable-store.onRecover', e); } }
     // both 'corrupt' (bad bytes, no .bak) and 'unreadable' (present but locked) are LOUD failures the caller
     // must see — never a silent empty. Route both through the store's onCorrupt-style surface.
-    else if (r.status === 'corrupt' || r.status === 'unreadable') { try { onCorrupt(key, file, r); } catch (e) { failNote('durable-store.onCorrupt', e); } }
+    else if (r.status === 'corrupt' || r.status === 'unreadable') {
+      let handled = false;
+      try { handled = !!onCorrupt(key, r.problemFile || file, r); } catch (e) { failNote('durable-store.onCorrupt', e); }
+      // A successful quarantine changes the truth on disk. Re-read it now so the SAME update may initialize an
+      // actually-empty key; a failed/undefined handler keeps the original corrupt status and the write refusal.
+      if (r.status === 'corrupt' && handled) {
+        const after = readJsonResilient({ fs: fs }, file);
+        if (after.status === 'absent') return Object.assign(after, { quarantined: r.problemFile || file });
+      }
+    }
     return r;
   }
   function get(key) {

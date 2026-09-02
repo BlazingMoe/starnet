@@ -755,7 +755,7 @@ function quarantineCorrupt(file, tag) {
 function loadResilient(file, tag) {
   const r = readJsonResilient({ fs: fs }, file);
   if (r.status === 'recovered') console.warn('[' + (tag || 'store') + '] recovered ' + file + ' from .bak last-known-good after a torn/corrupt main.');
-  else if (r.status === 'corrupt') quarantineCorrupt(file, tag);
+  else if (r.status === 'corrupt') quarantineCorrupt(r.problemFile || file, tag);
   return (r.status === 'ok' || r.status === 'recovered') ? r.value : undefined;
 }
 // durable single-file write: fsync-before-rename + snapshot the prior good value to <file>.bak.
@@ -4276,9 +4276,14 @@ function loadCronJobs() {
     const r = readJsonResilient({ fs: fs }, CRON_FILE);
     if (r.status === 'recovered') console.warn('[cron] recovered ' + CRON_FILE + ' from .bak last-known-good after a torn/corrupt main.');
     else if (r.status === 'corrupt') {
-      const dest = quarantineCorrupt(CRON_FILE, 'cron');
-      if (!cronDegraded) cronDegraded = { quarantinePath: dest || null, since: new Date().toISOString() };
-      console.error('[cron] store DEGRADED — routines frozen until acknowledged (POST /api/cron/degraded/clear) or the quarantined file is restored.');
+      const problemFile = r.problemFile || CRON_FILE;
+      const dest = quarantineCorrupt(problemFile, 'cron');
+      // Missing main + quarantined orphan backup is a genuinely empty cron store again. A failed quarantine or
+      // corrupt main remains degraded: no scheduler action may proceed from an unproven empty snapshot.
+      if (!(dest && problemFile === CRON_FILE + '.bak')) {
+        if (!cronDegraded) cronDegraded = { quarantinePath: dest || null, since: new Date().toISOString() };
+        console.error('[cron] store DEGRADED — routines frozen until acknowledged (POST /api/cron/degraded/clear) or the quarantined file is restored.');
+      }
     } else if (r.status === 'unreadable') {
       console.error('[cron] ' + CRON_FILE + ' exists but is unreadable (' + ((r.err && r.err.code) || r.err) + ') — keeping the in-memory list, not treating as empty.');
       if (Array.isArray(cronJobs)) return cronJobs;
