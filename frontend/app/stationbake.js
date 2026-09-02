@@ -41,7 +41,7 @@ const StationBake = (() => {
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
     if (p) return p;
-    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#33302a';
+    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#3c3429';
     p = { base, face: U.shade(base, WALL_TONE.face), top: U.shade(base, WALL_TONE.top), cap: U.shade(base, WALL_TONE.cap) };
     if (!wallPalCache) wallPalCache = new Map();
     wallPalCache.set(z, p);

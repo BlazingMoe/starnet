@@ -109,7 +109,8 @@ console.log('staged:', JSON.stringify(staged));
 if (staged && staged.error) { proc.kill(); side.kill(); process.exit(2); }
 await sleep(2500);   // rebake + a few frames so bodies settle
 mkdirSync(OUT, { recursive: true });
-// VARIANTS — a ladder of look overrides shot from ONE boot. Each entry: { tag, light, crt, depth, css }.
+// VARIANTS — a ladder of look overrides shot from ONE boot. Each entry: { tag, light, crt, depth, css, js }.
+//   `js` is raw page code run before the rebake (e.g. retint a FLOOR_STYLES entry).
 //   SKYNET_WS_VARIANTS='[{"tag":"warm14","light":{"warm":0.14}},{"tag":"sat","css":"#stage{filter:saturate(1)}"}]'
 const VARIANTS = JSON.parse(process.env.SKYNET_WS_VARIANTS || 'null') || [{ tag: TAG }];
 for (const V of VARIANTS) {
@@ -120,6 +121,7 @@ await evalJS(cdp, `(() => {
   if (${JSON.stringify(!!V.light)}) Object.assign(StationBake.LIGHT, ${JSON.stringify(V.light || {})});
   if (${JSON.stringify(!!V.depth)}) Object.assign(StationBake.DEPTH, ${JSON.stringify(V.depth || {})});
   if (${JSON.stringify(!!V.crt)}) Object.assign(World.crt, ${JSON.stringify(V.crt || {})});
+  ${V.js || ''}
   World.rebake(); return 'variant';
 })()`);
 await sleep(900);

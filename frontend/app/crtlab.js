@@ -10,7 +10,7 @@
 (function () {
   if (!/[?&]crtlab\b/.test(location.search)) return;
 
-  const CRT_DEFAULTS = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.35, grain: 0.16 };
+  const CRT_DEFAULTS = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16 };
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
@@ -42,7 +42,7 @@
     'Light: pre-08-15': { light: { ambient: 0.77, pool: 1, room: 0.6, corridor: 0.42, door: 0.5 } },
     // the pre-2026-09-02 station: linear pool falloff, warm-black shadow, no film, no spill, pools at
     // reach 1, plus the heavier scan/grain — A/B the whole glow-up against what shipped before it
-    'Light: pre-09-02': { light: { ambient: 0.82, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, reach: 1, falloff: 0, cool: 0, warm: 0, spill: 0 }, crt: { scan: 0.43, grain: 0.24 } },
+    'Light: pre-09-02': { light: { ambient: 0.82, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, reach: 1, falloff: 0, cool: 0, warm: 0, spill: 0 }, crt: { scan: 0.43, grain: 0.24, aberr: 0.35 } },
     'Light: v1 (flat)': { light: { falloff: 0, cool: 0, warm: 0, spill: 0 } },
     // side is pinned at `pad` (7) — past it the wall band juts out of the station's own silhouette
     'Flat (old)':      { wall: { up: 0, corUp: 0, skirt: 12, side: 4 }, depth: { wallShadow: 0, sheen: 0, cornerAO: 0, dither: 0, floorWear: 0, floorDetail: 0, deckSeam: 0, wallDetail: 0, poolAlbedo: 0 } },
@@ -52,7 +52,7 @@
     'Room: pre-08-08': { wall: { up: 14, corUp: 8, capH: 3 }, light: { pitch: 40 }, shape: { cornerN: 2 } },
     'Corner: chamfer': { shape: { cornerN: 1 } },
     'Corner: fillet':  { shape: { cornerN: 2 } },
-    'Depth+':          { crt: { dust: 0.5, aberr: 0.35, grain: 0.16 }, depth: { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1 } },
+    'Depth+':          { crt: { dust: 0.5, aberr: 0.2, grain: 0.16 }, depth: { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1 } },
     // A/B the WHOLE aperture — in-canvas vignette + overscan + the CSS glass together. `curve` is 0.09 in
     // every one of them: these change how much of the panel the picture gets, never how hard it bows.
     'Ap: old (tight)': { crt: { vig: 0.55, over: 1 },    tube: { clear: 50, mid: 82, midA: 0.34, edgeA: 0.82, inset: 60 } },
