@@ -741,6 +741,7 @@ const processFault = makeProcessFaultHandler({
   surface: surfaceProcessError,
   exit: code => process.exit(code),
   schedule: (fn, ms) => setTimeout(fn, ms),
+  now: () => Date.now(),
   delayMs: UNCAUGHT_EXIT_DELAY_MS,
   keepAlive: UNCAUGHT_KEEP_SERVING,
   log: msg => console.error('[process-fault] ' + msg),

@@ -47,7 +47,7 @@ function makeProcessFaultHandler(deps) {
   const schedule = typeof deps.schedule === 'function' ? deps.schedule : function (fn, ms) { return setTimeout(fn, ms); };
   const release = typeof deps.release === 'function' ? deps.release : function () {};
   const log = typeof deps.log === 'function' ? deps.log : function () {};
-  const now = typeof deps.now === 'function' ? deps.now : function () { return Date.now(); };
+  const now = typeof deps.now === 'function' ? deps.now : function () { return null; };   // clock is INJECTED (lint-determinism); index.js passes Date.now
   const keepAlive = !!deps.keepAlive;
   const delayMs = (typeof deps.delayMs === 'number' && deps.delayMs >= 0) ? deps.delayMs : DEFAULT_DELAY_MS;
   let fault = null;   // { kind, message, at, exiting } — set ONCE; the first fault wins, later ones only surface
