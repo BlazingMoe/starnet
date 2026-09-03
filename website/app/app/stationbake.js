@@ -96,7 +96,7 @@ const StationBake = (() => {
     return out;
   }
 
-  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.30 };
+  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.10 };   // cap 0.30→0.10 (2026-09-03): the crown ring was the brightest thing on the station's outside
   let wallPalCache = null;
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
@@ -237,7 +237,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.92, room: 0.5, corridor: 0.36, door: 0.42, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.2, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -443,9 +443,25 @@ const StationBake = (() => {
      axis and is the one every other skin was tuned to sit beside. Resolved through the recipe so
      there is exactly ONE path from (room → hue → paint) — the parallel legacy table is what let a
      pre-existing room fall outside the catalog entirely. */
+  /* EXTERIOR EXPOSURE (2026-09-03, Andrew: "look how dark outer space is, then everything else is as
+     bright as hell… the outer shell needs a major lighting fix, it's WAY too bright"). The shell hangs
+     outside the ambient plate by design, so every skin rendered at its raw authored tone — brighter than
+     the lit deck inside it. Nothing lights a hull in vacuum but starlight, so every hull palette, in every
+     skin, is scaled by one exposure factor here: hue kept, only the light on it changes. The hull look-lock
+     test scales its expected tones by the same constant. */
+  const HULL_EXPOSURE = 0.6;
+  const exposeHex = hex => {
+    const n = parseInt(hex.slice(1), 16);
+    const c = v => Math.max(0, Math.min(255, Math.round(v * HULL_EXPOSURE)));
+    return '#' + ((1 << 24) | (c((n >> 16) & 255) << 16) | (c((n >> 8) & 255) << 8) | c(n & 255)).toString(16).slice(1);
+  };
+  const expose = v => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) ? exposeHex(v)
+    : Array.isArray(v) ? v.map(expose)
+    : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expose(x)]))
+    : v;
   const hullPalOf = (matId, raw) => {
     const r = HULL_RECIPES[matId];
-    return (r && r.pal ? r.pal : derivedHullPal)(raw || STATION_TONE);
+    return expose((r && r.pal ? r.pal : derivedHullPal)(raw || STATION_TONE));
   };
   let hullPalCache = null;
   function hullPal(z) {
@@ -1580,7 +1596,7 @@ const StationBake = (() => {
     // lit crown — opaque cap band, 1px lighter top edge, 1px darker seam beneath. Kept BRIGHT:
     // after the ambient bake this continuous line defines the wall height at any zoom.
     crown(b, X, topY - capH, T, capH, pal.cap);
-    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.30));                          // 1px lighter top edge
+    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.12));                          // 1px lighter top edge
     b.fillStyle = shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
     // THE FACE — per material
     (WALL_RECIPES[wallMatOf(e.z)] || WALL_RECIPES.plating)(b, pal, X, topY, h, e, n, room, Y + inFace);
@@ -2695,7 +2711,7 @@ const StationBake = (() => {
        correction — the ring simply did not. Keep them together. */
     const xLo = outX < 0 ? Math.round(ax - HR) : X, xHi = outX < 0 ? X + T : Math.round(ax + HR);
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
-    const lit = shade(pal.cap, 0.30), seam = shade(pal.cap, -0.45);
+    const lit = shade(pal.cap, 0.12), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
     const put = (x, y, w, h, c) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
@@ -2899,7 +2915,7 @@ const StationBake = (() => {
          Nothing spikes above its neighbours — the -0.22 crest's original complaint (a bright 1px
          divider column, 2026-07-24) is avoided because the crown is a WIDE band with its highlight
          on the outer edge, where the hull is, not stranded in the middle of the wall. */
-      const crownLit = shade(pal.cap, 0.30), crownSeam = shade(pal.cap, -0.45);
+      const crownLit = shade(pal.cap, 0.12), crownSeam = shade(pal.cap, -0.45);
       const cw = sideCapW();
       // walls only extrude OUTSIDE the tile when the neighbour is void. Interior boundaries
       // (a non-door seam to another zone) draw the face only, so the wall never smears onto
@@ -4479,7 +4495,7 @@ const StationBake = (() => {
      doorway and keeps its sill, track, guide ticks and light spill. */
   const seamOpenJoins = geo => [...classifyJoins(geo)].sort();
 
-  return { bake, bakeIncremental, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE };
+  return { bake, bakeIncremental, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE, HULL_EXPOSURE };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StationBake;
