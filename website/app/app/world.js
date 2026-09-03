@@ -51,7 +51,7 @@ const World = (() => {
               margin. The cost is ~11% of edge content, never any change to the curvature.
      Both feed the GL path and the CPU LUT path IDENTICALLY — drawCurveGL's probe compares the two and defects
      to CPU on divergence, so they must never drift apart. */
-  const CRT = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16, bloom: 0, emit: 0.6 };   // bloom = phosphor bloom strength (drawBloom) · emit = prop light-source strength (drawPropLights)
+  const CRT = { scan: 0.46, pitch: 2, fade: 0.25, glow: 0.07, curve: 0.13, vig: 0.40, over: 1.20, dust: 0.5, aberr: 0.3, grain: 0.16, bloom: 0.2, emit: 0.6, mask: 0.22, bleed: 0.2, roll: 0.12 };   // 2026-09-03 'old TV' pass (Andrew: "90s Bandersnatch vibes"): pitch-2 lines, an RGB phosphor mask, colour bleed, more bow + vignette, a faint rolling sync bar. mask/bleed/roll = drawCRT   // bloom = phosphor bloom strength (drawBloom) · emit = prop light-source strength (drawPropLights)
   let _warpCv = null, _warpCtx = null;   // the barrel-warp snapshot buffer — see drawCurve()
   let _lut = null, _lutKey = '', _outImg = null;   // CPU per-pixel barrel-warp inverse-map LUT + output buffer — see buildLUT()/drawCurveCPU()
   let _gl = null, _glc = null, _glProg = null, _glTex = null, _glKLoc = null, _glAberrLoc = null, _glVigLoc = null, _glOverLoc = null, _glReady = false, _glFailed = false;   // GPU barrel-warp (WebGL) — see initGL()/drawCurveGL()
@@ -5972,10 +5972,44 @@ const World = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const dpr = window.devicePixelRatio || 1;
     const W = cv.width, H = cv.height;
+    /* COLOUR BLEED — the beam does not stop at a pixel edge; every bright edge smears a hair to the right.
+       The frame is drawn over itself shifted one device pixel, additively at a low alpha. One full-frame
+       draw (GPU-trivial), before the lines so they cut it too. CRT.bleed = strength (0 = off). */
+    if (CRT.bleed > 0.001) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, CRT.bleed);
+      ctx.drawImage(cv, Math.max(1, Math.round(dpr)), 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
     if (CRT.scan > 0) {                               // soft neutral scanlines, drawn straight on top of the feed
       ctx.globalCompositeOperation = 'source-over';
       const sc = scanCanvas(CRT.scan, CRT.pitch, dpr);
       ctx.fillStyle = ctx.createPattern(sc, 'repeat'); ctx.fillRect(0, 0, W, H);
+    }
+    /* PHOSPHOR MASK — the aperture grille. A real tube is three phosphor stripes per triad, and the eye reads
+       that fine vertical RGB rhythm as "a screen" even when it cannot resolve it. A 3px-wide tile (R, G, B
+       columns at a low multiply) laid over the whole feed; at 4K it tightens to the device pixel like the
+       scanlines do. CRT.mask scales it (0 = off). */
+    if (CRT.mask > 0.001) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = Math.min(1, CRT.mask);
+      ctx.fillStyle = ctx.createPattern(maskCanvas(dpr), 'repeat'); ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    /* THE ROLL BAR — the faint bright band that drifts down an old set every so often (a vertical-hold
+       hiccup). One soft horizontal gradient, additive, sweeping the frame over ~2.6s then absent for ~14s;
+       phase is derived from the clock so it needs no state. Steady under reduced motion. CRT.roll = strength. */
+    if (CRT.roll > 0.001 && !reduceMotion()) {
+      const PER = 16800, SWEEP = 2600, t = now % PER;
+      if (t < SWEEP) {
+        const y = (t / SWEEP) * (H + 80) - 40, hh = 34 * dpr;
+        const g = ctx.createLinearGradient(0, y - hh, 0, y + hh);
+        const a = (CRT.roll * 0.35).toFixed(3);
+        g.addColorStop(0, 'rgba(255,250,240,0)'); g.addColorStop(0.5, 'rgba(255,250,240,' + a + ')'); g.addColorStop(1, 'rgba(255,250,240,0)');
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = g; ctx.fillRect(0, y - hh, W, hh * 2);
+      }
     }
     if (CRT.fade > 0) {                               // soft faded matte (cool-neutral, no yellow) — CRT.fade
       ctx.globalCompositeOperation = 'lighter';
@@ -6006,6 +6040,18 @@ const World = (() => {
      same energy in every pixel, which on a dark deck reads as sand, not grain — the "digital
      dirt" in every pre-09-02 crop. Same mean, lower variance per pixel, longer tail. */
   const GRAIN_S = 256;
+  // the aperture-grille tile: R, G, B columns, each one device px wide, at mid-grey so 'multiply' only tints
+  let _maskCv = null, _maskKey = '';
+  function maskCanvas(dpr) {
+    const u = Math.max(1, Math.round(dpr)), key = 'm' + u;
+    if (_maskCv && _maskKey === key) return _maskCv;
+    const c = document.createElement('canvas'); c.width = 3 * u; c.height = 1;
+    const g = c.getContext('2d');
+    const cols = ['#ff9a9a', '#9aff9a', '#9a9aff'];
+    for (let i = 0; i < 3; i++) { g.fillStyle = cols[i]; g.fillRect(i * u, 0, u, 1); }
+    _maskCv = c; _maskKey = key;
+    return c;
+  }
   function grainPattern() {
     if (_grainPat) return _grainPat;
     const S = GRAIN_S;
