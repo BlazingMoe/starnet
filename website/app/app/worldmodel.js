@@ -138,8 +138,12 @@ const WorldModel = (() => {
      sole source: add a colour here and it appears in the SURFACE palette's COLOUR row AND as a room floor
      style automatically. */
   const FLOOR_STYLES = {
-    hull:     { base: '#33302a', label: 'HULL' },
-    corridor: { base: '#2c2924', label: 'DECKING' },
+    // 2026-09-02: hull #33302a -> #3c3429, decking #2c2924 -> #342d25. The stock hab is what every
+    // new station boots on and it measured the greyest room in the building (mean chroma 11 on a
+    // furnished floor vs 22 on oak). Same value band, a notch of warmth — the lamp pools finally
+    // have a colour to land on. Every other swatch is untouched.
+    hull:     { base: '#3c3429', label: 'HULL' },
+    corridor: { base: '#342d25', label: 'DECKING' },
     cobalt:   { base: '#2b3340', label: 'COBALT' },
     rust:     { base: '#3a302a', label: 'RUST' },
     sterile:  { base: '#34383a', label: 'STERILE' },

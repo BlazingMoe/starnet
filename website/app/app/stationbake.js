@@ -41,7 +41,7 @@ const StationBake = (() => {
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
     if (p) return p;
-    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#33302a';
+    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#3c3429';
     p = { base, face: U.shade(base, WALL_TONE.face), top: U.shade(base, WALL_TONE.top), cap: U.shade(base, WALL_TONE.cap) };
     if (!wallPalCache) wallPalCache = new Map();
     wallPalCache.set(z, p);
@@ -157,7 +157,61 @@ const StationBake = (() => {
      THE CROWN LAW STILL HOLDS at these values (checked, don't assume): the wall's lit top reads
      59.6 against the hull skirt's 11.1 — the skirt hangs outside the ambient plate so it never
      moved, and a deeper plate is exactly what could have put the crown back UNDER it. */
-  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, crown: 0.45, pitch: 8 };   // crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  /*   falloff  = shape of EVERY light pool's edge (see falloffAt): 0 = the old dead-linear ramp,
+                  1 = the physical curve a lamp hung over a deck actually lands.
+       cool     = how far the SHADOW tint travels from the old warm-black toward cold blue. Light
+                  has a colour temperature; the absence of it does too, and the two must differ or
+                  the room is one grey field at two brightnesses.
+       warm     = alpha of the warm film painted back INSIDE each pool. The cut alone only removes
+                  darkness — it cannot put light ON anything. This is the pass that lands lamplight
+                  on the crew, the props and the crates standing in the pool, not just on the deck
+                  the base layer already baked. Kept LOW: the film rides lightCv, which blits OVER
+                  the entities, so past ~0.1 it washes a body standing in its own room's light.
+       spill    = cold starlight falling in through every viewport pane. The one light in the
+                  station that is not a lamp, and the only source of real colour contrast.
+       reach    = multiplier on every pool's radius (base pool AND cut AND film together). At 1 a
+                  room's pools are islands on a dark deck; past ~1.4 neighbours merge into a wash. */
+  /* 2026-09-02 (world glow-up, measured on a furnished 18x12 lounge + the stock hab at zoom 2,
+     full CRT frame): the pre-09-02 room sat at mean luma 31 with 2% of the deck lit and mean
+     chroma 12 — one dim field, no texture readable. The four CUT strengths, `floor`, `warm` and
+     `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
+     contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
+     thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
+  const LIGHT = { ambient: 0.8, ambR: 7, ambG: 5, ambB: 3, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.26, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.14, spill: 0.7 };   // crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
+  const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
+  const STAR_RGB = '150,186,255';   // the sky through the glass
+  const COLD_AMB = [4, 8, 19];      // the tint the shadow travels TO at cool:1
+
+  /* ---------- THE FALLOFF CURVE ----------
+     Every pool in the station was a 3-stop gradient through (0,1) (0.55,0.45) (1,0) — three
+     COLLINEAR points, i.e. exactly `1 - t`. A linear ramp is the one falloff no real light source
+     has, and it is why the deck read as an airbrushed wash: half of a linear ramp's travel sits
+     above 50%, so a room ends up uniformly grey with no pool visible inside it.
+     A fixture hung at height h over a flat deck lands E(r) = h³/(h²+r²)^(3/2) on it — a broad
+     bright plateau under the lamp, a fast shoulder, then a long dim tail. Written in pool-radius
+     units (h = H_OVER_R·R, t = r/R) and re-normalized so the rim still reaches exactly 0, that is
+     the curve below. Sampled at 8 fixed offsets so it stays a plain multi-stop gradient: portable
+     to the headless canvas mock (which only fakes createRadialGradient) and keyed on nothing but
+     `t`, so a chunk bake emits a byte-identical stop list to the monolithic one — the parity
+     stationbake.chunk.test.js asserts. LIGHT.falloff mixes linear↔physical. */
+  const FALL_T = [0, 0.12, 0.25, 0.38, 0.5, 0.65, 0.8, 1];
+  const H_OVER_R = 0.55;
+  const E_RIM = Math.pow(1 + 1 / (H_OVER_R * H_OVER_R), -1.5);
+  function falloffAt(t) {
+    const u = t / H_OVER_R;
+    const phys = (Math.pow(1 + u * u, -1.5) - E_RIM) / (1 - E_RIM);
+    const k = Math.max(0, Math.min(1, LIGHT.falloff));
+    return (1 - t) * (1 - k) + phys * k;
+  }
+  /* paint `rgb` into a radial gradient along that curve. One helper for the lightmap's cuts, the
+     warm film, the window spill and the base layer's additive floor pools — so the light a surface
+     receives and the darkness it keeps are shaped by the SAME curve. They used to disagree (the
+     floor pool bent at 0.6→0.32 while the cut ran dead straight), which is a soft double edge on
+     every pool rim. */
+  function falloffStops(g, rgb, a) {
+    for (const t of FALL_T) g.addColorStop(t, 'rgba(' + rgb + ',' + (a * falloffAt(t)).toFixed(4) + ')');
+  }
 
   /* live-tunable DEPTH FX — the CRT LAB writes these and re-bakes (same contract as LIGHT/WALL).
      Pure top-down 2D cosmetics that make the deck read a touch more 3D — never imply agent/run
@@ -2968,7 +3022,7 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = Math.min(60, Math.max(30, RH * 0.85));
+      const rad = Math.min(60, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -2982,7 +3036,7 @@ const StationBake = (() => {
         const gw = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
         // Warm-neutral rather than near-white: keeps the shipped pool strength/contrast while
         // taking the clinical edge off the deck and lowering peak luminance a small amount.
-        gw.addColorStop(0, 'rgba(246,224,188,' + LIGHT.floor + ')'); gw.addColorStop(0.6, 'rgba(246,224,188,' + (LIGHT.floor * 0.32).toFixed(3) + ')'); gw.addColorStop(1, 'rgba(246,224,188,0)');
+        falloffStops(gw, POOL_RGB, LIGHT.floor);   // same curve as the lightmap's cut — a pool used to bend at 0.6→0.32 while the darkness over it ran dead straight, which doubles the rim
         b.fillStyle = gw; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
         // FLOOR SHEEN (Slice 2): a faint vertical reflection streak on the deck below the pool, as if
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
@@ -3064,12 +3118,10 @@ const StationBake = (() => {
       // the room's own floor pool, sized to the passage: warm, at LIGHT.floor, with the polished
       // sheen streak under it. Radius follows the CROSS span so the pool fills the hallway's width
       // and falls off along its length — which is what puts light and shade down a corridor.
-      const rad = Math.min(60, Math.max(22, cross * 0.85));
+      const rad = Math.min(60, Math.max(22, cross * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
       const pool = (lx, ly) => {
         const g = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
-        g.addColorStop(0, 'rgba(246,224,188,' + LIGHT.floor + ')');
-        g.addColorStop(0.6, 'rgba(246,224,188,' + (LIGHT.floor * 0.32).toFixed(3) + ')');
-        g.addColorStop(1, 'rgba(246,224,188,0)');
+        falloffStops(g, POOL_RGB, LIGHT.floor);
         b.fillStyle = g; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
         lampPos.push({ x: lx, y: ly, r: rad * 1.4 });
@@ -3578,7 +3630,14 @@ const StationBake = (() => {
     const mg = mask.getContext('2d');
     mg.imageSmoothingEnabled = false;
     mg.translate(-VX, -VY);
-    mg.fillStyle = 'rgb(' + LIGHT.ambR + ',' + LIGHT.ambG + ',' + LIGHT.ambB + ')';
+    /* SHADOW HAS A COLOUR. The plate was rgb(7,5,3) — a WARM black, the same hue family as the
+       tungsten it stands in for, so lit and unlit differed only in brightness and the whole room
+       read as one grey field at two exposures. Real unlit interior is filled by cold bounce, and
+       the film's alpha already tracks the darkness, so tinting the plate cold puts the blue
+       exactly where the shadow is deepest and nowhere else — no haze pass, no per-pixel work. */
+    const coolK = Math.max(0, Math.min(1, LIGHT.cool));
+    const mixc = (warm, cold) => Math.round(warm + (cold - warm) * coolK);
+    mg.fillStyle = 'rgb(' + mixc(LIGHT.ambR, COLD_AMB[0]) + ',' + mixc(LIGHT.ambG, COLD_AMB[1]) + ',' + mixc(LIGHT.ambB, COLD_AMB[2]) + ')';
     for (const r of G.allRects) {
       const u = upReach(r);
       const RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
@@ -3637,7 +3696,7 @@ const StationBake = (() => {
     L.globalCompositeOperation = 'destination-out';
     const cut = (x, y, r, a) => {
       const g = L.createRadialGradient(x, y, 1, x, y, r);
-      g.addColorStop(0, 'rgba(0,0,0,' + a + ')'); g.addColorStop(0.55, 'rgba(0,0,0,' + a * 0.45 + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      falloffStops(g, '0,0,0', a);
       L.fillStyle = g; L.fillRect(x - r, y - r, r * 2, r * 2);
     };
     for (const r of G.allRects) {
@@ -3679,6 +3738,54 @@ const StationBake = (() => {
     for (const [x1, y1, x2, y2] of G.doorDefs) {
       if (!pairIsSill(x1, y1, x2, y2)) continue;
       cut((x1 + x2 + 1) / 2 * T, (y1 + y2 + 1) / 2 * T, T * 1.6, LIGHT.door);
+    }
+    /* ...then the two passes that put light ON things rather than taking darkness away. Both run
+       BEFORE the glass clear below, so neither can lay film over a pane and dull the real sky.
+       ANY FILM MUST CLIP TO THE SAME SHAPE THE AMBIENT PLATE COVERS: a lamp sits under a room's
+       top edge and its dab reaches r in every direction, so an unclipped pass hangs a haze in the
+       starfield above every room. The plate MASK is that shape by construction — the films are
+       painted on a scratch layer and keyed through it (destination-in), so cover and art can never
+       drift apart. */
+    {
+      const w = Math.max(0, LIGHT.warm), sp = Math.max(0, LIGHT.spill);
+      if ((w > 0.001 && lampPos.length) || (sp > 0.001 && viewportRects.length)) {
+        const film = canvas(CW, CH);
+        const F = translatedContext(film);
+        /* THE WARM FILM — what the cuts cannot do. `destination-out` only REMOVES darkness: at a
+           pool's centre the light layer goes fully transparent and the scene below shows through at
+           its raw baked tone. Nothing in the station ever had light PUT on it — an agent standing
+           directly under a fixture rendered exactly as an agent standing in a doorway, only less
+           dim. TIGHTER THAN THE CUT (0.6×) ON PURPOSE: at the cut's full radius neighbouring
+           fixtures' films overlap across the whole deck and the pass stops being pools and becomes
+           a haze that lifts the entire room. Darkness may reach far and stay believable; a
+           highlight may not. */
+        if (w > 0.001) for (const l of lampPos) {
+          const r = l.r * 0.6;
+          const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
+          falloffStops(g, LAMP_RGB, w);
+          F.fillStyle = g; F.fillRect(l.x - r, l.y - r, r * 2, r * 2);
+        }
+        /* VIEWPORT SPILL — the sky is a light source. A pane cut through the north wall opens onto
+           real (moving) starlight, and that light used to stop dead at the glass: the pane read at
+           full brightness and the deck 4px below it sat at the room's ambient, which is the read
+           of a PAINTING of space, not a window onto it. South of the pane only (north is hull):
+           the ambient gives way, and what lands there is COLD. That colour against the tungsten
+           pools is most of why the station reads as lit rather than dimmed. */
+        if (sp > 0.001) for (const v of viewportRects) {
+          const cx = v.x + v.w / 2, cy = v.y + v.h, r = Math.max(T * 2.2, v.w * 3.4);
+          const g1 = L.createRadialGradient(cx, cy, 1, cx, cy, r);
+          falloffStops(g1, '0,0,0', sp * 0.5);
+          L.fillStyle = g1; L.fillRect(cx - r, cy, r * 2, r);   // still destination-out here: the room side of the glass loses darkness
+          const g2 = F.createRadialGradient(cx, cy, 1, cx, cy, r);
+          falloffStops(g2, STAR_RGB, sp * 0.13);
+          F.fillStyle = g2; F.fillRect(cx - r, cy, r * 2, r);
+        }
+        F.globalCompositeOperation = 'destination-in';
+        F.drawImage(mask, VX, VY);
+        L.globalCompositeOperation = 'source-over';
+        L.drawImage(film, VX, VY);
+        L.globalCompositeOperation = 'destination-out';
+      }
     }
     // VIEWPORT GLASS — clear the ambient mask fully over every window the wall pass cut, so the
     // live starfield behind the hole reads at its own brightness instead of the interior's 23%.
