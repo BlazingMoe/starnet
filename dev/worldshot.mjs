@@ -108,6 +108,24 @@ const staged = await evalJS(cdp, STAGE);
 console.log('staged:', JSON.stringify(staged));
 if (staged && staged.error) { proc.kill(); side.kill(); process.exit(2); }
 await sleep(2500);   // rebake + a few frames so bodies settle
+/* FRAME COST — how long World's own frame body takes on this station, sampled over ~3s by wrapping
+   requestAnimationFrame. Reports the mean and p95 of the rAF-to-rAF interval and of the time the
+   frame callback itself spent (the render cost proper). SKYNET_WS_PERF=1 to enable; the number to
+   compare across shots is `bodyMean` — the interval is capped by vsync and says little. */
+if (process.env.SKYNET_WS_PERF) {
+  const perf = await evalJS(cdp, `new Promise(res => {
+    const raf = window.requestAnimationFrame, gaps = [], bodies = [];
+    let prev = 0;
+    window.requestAnimationFrame = fn => raf(t => { if (prev) gaps.push(t - prev); prev = t; const a = performance.now(); fn(t); bodies.push(performance.now() - a); });
+    setTimeout(() => {
+      window.requestAnimationFrame = raf;
+      const q = (arr, p) => { const s = arr.slice().sort((x, y) => x - y); return s.length ? +s[Math.min(s.length - 1, Math.floor(s.length * p))].toFixed(2) : 0; };
+      const mean = arr => arr.length ? +(arr.reduce((x, y) => x + y, 0) / arr.length).toFixed(2) : 0;
+      res({ frames: bodies.length, gapMean: mean(gaps), gapP95: q(gaps, 0.95), bodyMean: mean(bodies), bodyP95: q(bodies, 0.95), stage: [document.getElementById('stage').width, document.getElementById('stage').height] });
+    }, 3000);
+  })`);
+  console.log('perf:', JSON.stringify(perf));
+}
 mkdirSync(OUT, { recursive: true });
 // VARIANTS — a ladder of look overrides shot from ONE boot. Each entry: { tag, light, crt, depth, css, js }.
 //   `js` is raw page code run before the rebake (e.g. retint a FLOOR_STYLES entry).

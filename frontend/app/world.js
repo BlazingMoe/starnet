@@ -6281,8 +6281,8 @@ const World = (() => {
       const red = (kind === 'tl' || kind === 'br');
       const ph = (cx * 0.37 + cy * 0.61) % 1;
       const t = still ? 0.5 : ((now / (red ? 1400 : 2200) + ph) % 1);
-      const on = still ? 0.55 : (t < 0.12 ? 1 : t < 0.3 ? 1 - (t - 0.12) / 0.18 : 0.06);
-      if (on < 0.05) continue;
+      // a lamp is never OFF: it idles at a dim ember (0.3) and beats up to full, so a still frame always shows it
+      const on = still ? 0.55 : (t < 0.14 ? 1 : t < 0.34 ? 1 - 0.7 * (t - 0.14) / 0.2 : 0.3);
       const c = red ? '255,70,60' : '255,190,90';
       ctx.fillStyle = 'rgba(' + c + ',' + (0.18 * on).toFixed(3) + ')'; ctx.fillRect(x - 3, y - 3, 8, 8);
       ctx.fillStyle = 'rgba(' + c + ',' + (0.9 * on).toFixed(3) + ')'; ctx.fillRect(x, y, 2, 2);

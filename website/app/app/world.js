@@ -51,7 +51,7 @@ const World = (() => {
               margin. The cost is ~11% of edge content, never any change to the curvature.
      Both feed the GL path and the CPU LUT path IDENTICALLY — drawCurveGL's probe compares the two and defects
      to CPU on divergence, so they must never drift apart. */
-  const CRT = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16 };
+  const CRT = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16, bloom: 0.45, emit: 1 };   // bloom = phosphor bloom strength (drawBloom) · emit = prop light-source strength (drawPropLights)
   let _warpCv = null, _warpCtx = null;   // the barrel-warp snapshot buffer — see drawCurve()
   let _lut = null, _lutKey = '', _outImg = null;   // CPU per-pixel barrel-warp inverse-map LUT + output buffer — see buildLUT()/drawCurveCPU()
   let _gl = null, _glc = null, _glProg = null, _glTex = null, _glKLoc = null, _glAberrLoc = null, _glVigLoc = null, _glOverLoc = null, _glReady = false, _glFailed = false;   // GPU barrel-warp (WebGL) — see initGL()/drawCurveGL()
@@ -5745,7 +5745,7 @@ const World = (() => {
       convey.drawBelts(ctx, now, T, geo.belts, beltLiveSet);
     }
 
-    const items = [], decals = [];   // decals = the flat floor pass, painted under every item (see isFlatProp)
+    const items = [], decals = [], propLights = [];   // decals = the flat floor pass, painted under every item (see isFlatProp) · propLights = this frame's emissive sources
     // placeable props (furniture) — drawn over the bake, y-sorted with agents, under the lightmap
     if (geo && geo.props && geo.props.length && typeof PropSprites !== 'undefined') {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
@@ -5805,6 +5805,7 @@ const World = (() => {
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
         if (sleeper) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { sleeper: true });
         items.push({ y: sy, draw: () => PropSprites.draw(dp, work, live) });
+        if (PropSprites.lightOf) { const lt = PropSprites.lightOf(dp, work, reduceMotion()); if (lt) propLights.push(lt); }   // this prop is a light SOURCE this frame — painted over the lightmap (drawPropLights)
         // SEAT-FRONT SLIVER: a stool/chair's pad front rim redraws just IN FRONT of its (lifted) sitter,
         // so the body's lap tucks INTO the pad — the couch trick, at single-seat scale. Sorted a hair
         // past the body's own key (sitter.seatPy) and well short of the next tile row.
@@ -5847,6 +5848,10 @@ const World = (() => {
         PropSprites.draw({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, work, live);
       } else F_desk(desk.tx * T, desk.ty * T, desk.w * T, desk.h * T, { x: desk.tx, work, heat: live ? live.heat : 0, prog: live ? live.prog : null });
     } });
+    if (desk && !deskPropId && typeof PropSprites !== 'undefined' && PropSprites.lightOf) {   // the auto-desk's CRT lights the deck while the hero works, like any placed workstation
+      const lt = PropSprites.lightOf({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, !!(agent && agent.working), reduceMotion());
+      if (lt) propLights.push(lt);
+    }
     if (seat && !deskPropId) items.push({ y: (seat.ty + 1) * T, draw: () => drawSeatChair(seat.tx, seat.ty, seat.cx) });
   // a PLACED hero desk's chair is drawn by the workstation loop above; draw here only for the synthetic auto-desk
     /* a body dormant IN a bed sorts INSIDE its bed — after the frame + pillow, before the quilt — which
@@ -5865,6 +5870,14 @@ const World = (() => {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
       for (const p of decals) PropSprites.draw(p, false);
     }
+    /* THE SHADOW PASS — every standing prop's cast shadow, on the deck (over the rugs), before any item
+       paints. One pass rather than per-item so a shadow can never land on a neighbour's body: the props
+       and bodies are y-sorted and paint OVER this. The synthetic auto-desk casts one too. */
+    if (typeof PropSprites !== 'undefined' && PropSprites.drawShadow) {
+      PropSprites.setCtx(ctx);
+      if (geo && geo.props) for (const p of geo.props) PropSprites.drawShadow(p, (station && station.mountOf) ? station.mountOf(p) : null);
+      if (desk && !deskPropId) PropSprites.drawShadow({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, null);
+    }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     if (convey) convey.drawBoxes(ctx, now, T);   // boxes ride on top of the belts
@@ -5875,6 +5888,8 @@ const World = (() => {
 
     ctx.drawImage(cache.lightCv, 0, 0);
     drawGlows(now);
+    drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
+    drawNavLights(now);   // the hull's running lights at every rounded corner — the one sign of life on the station's outside
     drawDust(now);   // Slice 3: tiny motes drifting through the light pools (world-space, additive, over the glows)
     drawDeskFlashes(now);   // G0.4/G0.8: red distress strobe over a desk whose run just died (additive, with the glows)
     drawAwakenLight(now);   // the soul kindling: ignition spark + a growing halo + motes (world-space additive, awakening only)
@@ -5917,6 +5932,7 @@ const World = (() => {
     // widget consumer keeps honest numbers — only the floating canvas readout is gone.
     if (linkStaleDim) drawLinkDown(now);   // E1: honest "the live telemetry is not live" marker in the chrome
     // (station growth headline now lives in the top bar's STATION chip — see xpstore.pushTopbar)
+    drawBloom(now); // phosphor bloom: the bright things in the frame haze outward (screen-space, before the warp so it bows with the picture)
     drawCurve(now); // barrel-warp the whole feed IN-CANVAS — the original (dot-matrix-era) curve, no dots
     drawCRT(now);   // scanlines + fade, painted in-canvas at device-px OVER the warped feed (no moiré)
     paintStageHeartbeat();   // the frame's last act: the one opaque pixel a dead stage context cannot fake (see watchStageLoss)
@@ -6209,9 +6225,125 @@ const World = (() => {
     for (const f of cache.flickers) {
       const a = Math.max(0, CRT.glow * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
       const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
-      g.addColorStop(0, 'rgba(238,218,184,' + a + ')'); g.addColorStop(1, 'rgba(238,218,184,0)');
+      const rgb = f.rgb || '238,218,184';   // the room's fixture temperature (StationBake.lampRgbOf); tungsten 'rgba(238,218,184' is the hab default
+      g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
       ctx.fillStyle = g; ctx.fillRect(f.x - f.r * 0.7, f.y - f.r * 0.7, f.r * 1.4, f.r * 1.4);
     }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- PROP LIGHT SOURCES (world overhaul, 2026-09-03) ----
+     The baked lightmap knows only the ceiling fixtures. A lit screen, a plasma core, a kiln or a desk lamp
+     is a light source too, and PropSprites.lightOf says what each emits this frame (colour, reach, strength,
+     flicker). Painted ADDITIVELY over the lightmap, so the deck under a screen takes its phosphor, a body at a
+     lamp takes its warmth, and the source itself glows — the same 'lighter' pass the lamp shimmer uses.
+     One radial gradient per source, cached by (position, radius, colour): the gradient never changes, only
+     the alpha it is painted at, so a busy station costs one fillRect per source per frame and no allocation.
+     CRT.emit scales the whole pass (0 = off = the pre-overhaul deck). */
+  const _emitGrad = new Map();
+  function drawPropLights(now, lights) {
+    const k = +CRT.emit;
+    if (!lights || !lights.length || !(k > 0.001)) return;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const l of lights) {
+      const key = l.x + ',' + l.y + ',' + l.r + ',' + l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+      let g = _emitGrad.get(key);
+      if (!g) {
+        if (_emitGrad.size > 600) _emitGrad.clear();   // a station is rebuilt, not grown, past this — never let the cache grow unbounded
+        g = ctx.createRadialGradient(l.x, l.y, 1, l.x, l.y, l.r);
+        const rgb = l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+        g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(0.3, 'rgba(' + rgb + ',0.55)');
+        g.addColorStop(0.65, 'rgba(' + rgb + ',0.18)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+        _emitGrad.set(key, g);
+      }
+      ctx.globalAlpha = Math.max(0, Math.min(1, l.a * k));
+      ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- HULL RUNNING LIGHTS (world overhaul, 2026-09-03) ----
+     A station's exterior is dark by design (the hull hangs outside the ambient plate), which left the
+     whole outside of the picture DEAD — nothing on it ever changed. Real hulls carry running lights.
+     One at every rounded (void-exposed) corner the geometry already computes, sat just outside the
+     plate ring: a slow red beat on one diagonal, amber on the other, each with a small additive halo so
+     it reads as a lamp and not a pixel. Purely cosmetic (never encodes state), steady under reduced
+     motion, and free — one small fill per corner. */
+  const NAV_PAD = 7;   // StationBake's plate `pad`: the ring reaches this far past the floor edge
+  function drawNavLights(now) {
+    if (!geo || !geo.chamfers || !geo.chamfers.length) return;
+    const still = reduceMotion();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [cx, cy, kind] of geo.chamfers) {
+      const east = kind === 'tr' || kind === 'br', south = kind === 'bl' || kind === 'br';
+      const x = cx * T + (east ? T + NAV_PAD - 3 : -NAV_PAD + 1), y = cy * T + (south ? T + NAV_PAD - 3 : -NAV_PAD + 1);
+      const red = (kind === 'tl' || kind === 'br');
+      const ph = (cx * 0.37 + cy * 0.61) % 1;
+      const t = still ? 0.5 : ((now / (red ? 1400 : 2200) + ph) % 1);
+      // a lamp is never OFF: it idles at a dim ember (0.3) and beats up to full, so a still frame always shows it
+      const on = still ? 0.55 : (t < 0.14 ? 1 : t < 0.34 ? 1 - 0.7 * (t - 0.14) / 0.2 : 0.3);
+      const c = red ? '255,70,60' : '255,190,90';
+      ctx.fillStyle = 'rgba(' + c + ',' + (0.18 * on).toFixed(3) + ')'; ctx.fillRect(x - 3, y - 3, 8, 8);
+      ctx.fillStyle = 'rgba(' + c + ',' + (0.9 * on).toFixed(3) + ')'; ctx.fillRect(x, y, 2, 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- PHOSPHOR BLOOM (world overhaul, 2026-09-03) ----
+     A CRT's bright pixels bleed into their neighbours; ours stopped dead at the pixel edge, which is the
+     single biggest reason the feed read as "a canvas" rather than "a tube". This is a soft-threshold bloom
+     done entirely with canvas compositing — no readback, no shader, nothing per-pixel on the CPU:
+       1. the frame is drawn DOWN to 1/4 size (smoothing on: that is the first blur tap);
+       2. the small copy is multiplied by itself twice, v → v⁴, which is a soft threshold — a lit deck at
+          0.4 falls to 0.03 and vanishes, a screen at 0.9 keeps 0.66;
+       3. it is blurred (canvas `filter: blur()` where the engine has it; else a further down/up scale,
+          which is the same box blur by other means — WKWebView is the fallback's customer);
+       4. it is added back over the frame at CRT.bloom, upscaled with smoothing so it is a haze, not blocks.
+     Runs BEFORE the barrel warp so the bloom bows with the picture and the scanlines then sit over both.
+     Cost: five small drawImage calls, ~0.3 ms. Never reads pixels back (the frame-loop getImageData law). */
+  let _blA = null, _blB = null, _blCtxA = null, _blCtxB = null, _blFilter = null;
+  function drawBloom(now) {
+    const k = +CRT.bloom;
+    if (!cv || !(k > 0.001) || document.body.classList.contains('no-scan')) return;
+    const W = cv.width, H = cv.height;
+    if (W < 16 || H < 16) return;
+    const S = 4, bw = Math.max(2, Math.ceil(W / S)), bh = Math.max(2, Math.ceil(H / S));
+    if (!_blA || _blA.width !== bw || _blA.height !== bh) {
+      _blA = document.createElement('canvas'); _blA.width = bw; _blA.height = bh; _blCtxA = _blA.getContext('2d');
+      _blB = document.createElement('canvas'); _blB.width = bw; _blB.height = bh; _blCtxB = _blB.getContext('2d');
+      if (!_blCtxA || !_blCtxB) { _blA = null; return; }
+      if (_blFilter == null) _blFilter = ('filter' in _blCtxA);
+    }
+    const A = _blCtxA, B = _blCtxB;
+    A.setTransform(1, 0, 0, 1, 0, 0); A.globalCompositeOperation = 'source-over'; A.globalAlpha = 1; A.imageSmoothingEnabled = true;
+    A.clearRect(0, 0, bw, bh);
+    A.drawImage(cv, 0, 0, W, H, 0, 0, bw, bh);
+    A.globalCompositeOperation = 'multiply';
+    A.drawImage(_blA, 0, 0); A.drawImage(_blA, 0, 0);   // v → v² → v⁴: the soft threshold
+    A.globalCompositeOperation = 'source-over';
+    B.setTransform(1, 0, 0, 1, 0, 0); B.globalCompositeOperation = 'source-over'; B.globalAlpha = 1; B.imageSmoothingEnabled = true;
+    B.clearRect(0, 0, bw, bh);
+    let src = _blB;
+    if (_blFilter) {
+      const dpr = window.devicePixelRatio || 1;
+      B.filter = 'blur(' + (2.2 * dpr).toFixed(2) + 'px)';
+      B.drawImage(_blA, 0, 0);
+      B.filter = 'none';
+    } else {
+      const qw = Math.max(1, Math.ceil(bw / 3)), qh = Math.max(1, Math.ceil(bh / 3));
+      B.drawImage(_blA, 0, 0, bw, bh, 0, 0, qw, qh);
+      A.clearRect(0, 0, bw, bh);
+      A.drawImage(_blB, 0, 0, qw, qh, 0, 0, bw, bh);
+      src = _blA;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, k);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(src, 0, 0, bw, bh, 0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
 
