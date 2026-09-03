@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "ccaaff41301169e403d641c253f356aefcec0bd9",
+    "sourceCommit": "3e754ff24deade1df5a870a2520ff68d09e53a69",
     "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
     "files": [
       {
@@ -188,8 +188,8 @@
       },
       {
         "path": "frontend/app/crtlab.js",
-        "bytes": 18590,
-        "sha256": "022c7b3b10ebcbc445f434acaf45eaa9c035c8a6f15b0aae675b43ad1341d9a6"
+        "bytes": 20527,
+        "sha256": "175a4cd7014993ce6f7cbc183f6842aa75d7b42c0be586c733d8a3110b1e8888"
       },
       {
         "path": "frontend/app/ctxgauge.js",
@@ -498,8 +498,8 @@
       },
       {
         "path": "frontend/app/propsprites.js",
-        "bytes": 742202,
-        "sha256": "67856a295ec67aab83dadcf5f54688e276bf1f2ab0e04a934f71634ef8777836"
+        "bytes": 725068,
+        "sha256": "db6e55d648d23d1eef9ade2089e56ee7f6125fec38f2fec52cca8b4921d9ee98"
       },
       {
         "path": "frontend/app/prospect.js",
@@ -728,8 +728,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 283322,
-        "sha256": "7e63b4fec16ec4d19b1c0241a94aa52a36c8e026fd826cba384b3177ac0bef1c"
+        "bytes": 297914,
+        "sha256": "89555e70adc6a4116a71fdb0e7eb371f86efd4739124d2bf6f9de9006081afe9"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -958,13 +958,13 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 702807,
-        "sha256": "0755709aa9c2a182f28bd6cf7a78a7710e375ba4b952d02a3fbba0af26d09825"
+        "bytes": 712764,
+        "sha256": "fdd620495155a2c3ab867c59c8e22a930b1987040065c42896d6a05f512139a1"
       },
       {
         "path": "frontend/app/worldmodel.js",
-        "bytes": 155407,
-        "sha256": "d9c1f55bbe54508ad83b40f65e825c5f862b8072f59b6bd92f293ed3adb3b351"
+        "bytes": 155771,
+        "sha256": "dba89b88cd877a150f5ab5125d91d794b0c55368a256534f8f51dcaff1e5d497"
       },
       {
         "path": "frontend/app/xp.js",
@@ -1023,8 +1023,8 @@
       },
       {
         "path": "frontend/css/style.css",
-        "bytes": 103428,
-        "sha256": "2a3872d8b47779b734953932251a272b5aafd3a48a37eca006426498b5995c38"
+        "bytes": 104297,
+        "sha256": "1ddcaed934c8f03cecbeab88e5e1aee6112e1226402c0a5ab9f65fb9469f4267"
       },
       {
         "path": "frontend/css/titlebar.css",
