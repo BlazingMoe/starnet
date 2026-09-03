@@ -356,6 +356,8 @@ input[type=file]::file-selector-button:hover { border-color: var(--ph); backgrou
 .prov-byok-lab { text-align: center; color: var(--ph-dim); font-size: 11px; letter-spacing: 2px; opacity: .8; margin: 0; }
 .prov-grid { display: flex; flex-wrap: wrap; gap: 7px; }
 .prov-grid .prov { flex: 0 1 auto; min-width: 0; font-size: 13px; padding: 5px 11px; }
+/* the free-local tag on the OLLAMA chip: a quiet gold caption inside the chip, never a second control */
+.prov-tag { display: inline-block; margin-left: 6px; color: var(--gold); font-size: 9px; letter-spacing: 1.5px; vertical-align: 1px; opacity: .92; }
 
 /* corner brackets — the in-game cam-HUD framing, reused so the create screen feels like the same machine */
 .cc-bracket { position: absolute; font-size: 22px; color: var(--ph); opacity: .5; z-index: 4; pointer-events: none; text-shadow: 0 0 8px var(--ph-glow); }
@@ -496,22 +498,32 @@ input[type=file]::file-selector-button:hover { border-color: var(--ph); backgrou
    Sits low-center over the feed, above the cam HUD (z3) so it reads clearly; the world stays visible behind
    it. Only the banner itself takes pointer events. Rendered/hidden purely from Harness.hasStoredCredential. */
 .key-cta {
-  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 4;
-  display: flex; align-items: center; gap: 10px; max-width: 88%;
+  /* centred by auto margins, NOT left:50%+translate: an absolutely positioned box shrink-fits to the space
+     right of `left`, so left:50% capped the banner at half the stage and crushed the sentence to one word
+     per line once it carried three doors. left:0;right:0 gives it the whole stage to fit-content in. */
+  position: absolute; left: 0; right: 0; bottom: 16px; margin: 0 auto; z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: fit-content; max-width: 88%;
   padding: 9px 12px; pointer-events: auto;
   color: var(--warn); font-size: 13px; line-height: 1.4;
   background: rgba(4, 8, 5, 0.92); border: 1px solid var(--warn); border-radius: 4px;
   box-shadow: 0 0 12px rgba(0,0,0,.7), 0 0 10px color-mix(in srgb, var(--warn) 35%, transparent);
   animation: keyctaIn .5s ease both;
 }
-@keyframes keyctaIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes keyctaIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .key-cta[hidden] { display: none; }
 .key-cta-glyph { flex: 0 0 auto; }
-.key-cta-txt { min-width: 0; }
+.key-cta-txt { min-width: 0; flex: 1 1 240px; }   /* the sentence keeps a real column; the doors wrap under it when the stage is narrow */
 .key-cta-act {
   flex: 0 0 auto; cursor: pointer; padding: 5px 9px; font: inherit; font-size: 11px; color: var(--ink); background: var(--warn); border: 0; border-radius: 3px; white-space: nowrap;
 }
 .key-cta-act:hover { filter: brightness(1.12); }
+/* three doors (issue #6): the named fix is the filled primary; SWITCH PROVIDER and the free local path are
+   outlined twins — same phosphor, quieter weight, so one banner never shouts three commands at once. */
+.key-cta-acts { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.key-cta-alt, .key-cta-free {
+  flex: 0 0 auto; cursor: pointer; padding: 4px 8px; font: inherit; font-size: 11px; color: var(--warn); background: transparent; border: 1px solid var(--warn); border-radius: 3px; white-space: nowrap;
+}
+.key-cta-alt:hover, .key-cta-free:hover { background: color-mix(in srgb, var(--warn) 16%, transparent); }
 
 /* ---- CRT TUBE FACE: a curved-glass overlay so the feed reads as a convex tube.
    Pure overlay (bowed corner vignette + edge rim) — the pixel canvas underneath
