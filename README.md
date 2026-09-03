@@ -100,6 +100,14 @@ Open <http://localhost:8787>, then connect a provider —
 station state, transcripts, memory, and ledgers stay in the local StarNet workspace unless you
 explicitly use a network tool or connector. See [PRIVACY.md](PRIVACY.md) for the full data map.
 
+### Run free with a local model
+
+No key, no account, no bill: install [Ollama](https://ollama.com), pull a model
+(`ollama pull llama3.1`), and pick **OLLAMA** as the provider — on the first-run brain screen, or
+later in **SETTINGS → PROVIDERS**. StarNet talks to Ollama on `127.0.0.1:11434` and only reports
+it ready once it can list your local models. Honest caveat: local models are smaller than the
+cloud ones, so expect slower and rougher work on long tasks.
+
 For desktop development:
 
 ```bash

@@ -67,6 +67,14 @@ report the release tag, asset name, Mac architecture, and macOS version.
 
 To uninstall, quit StarNet and drag it from **Applications** to the Trash.
 
+## Run free with a local model
+
+StarNet does not require an API key or a StarNet account. Install [Ollama](https://ollama.com),
+pull a model (`ollama pull llama3.1`), and choose **OLLAMA** as the provider — on the first-run
+brain screen, or later under **SETTINGS → PROVIDERS**. StarNet reaches Ollama at `127.0.0.1:11434`
+and shows it as ready only after it has listed your local models. Local models are smaller than
+cloud models: expect slower, rougher results on long tasks.
+
 ## Updates
 
 The public release train produces signed updater artifacts for Windows and both Mac
