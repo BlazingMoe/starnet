@@ -13619,7 +13619,7 @@ function serveSkills(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     const placedTypes = String(u.searchParams.get('placed') || '').split(',').map(s => s.trim()).filter(Boolean);
     json(200, { skills: skillsCatalog.catalog(SKILL_LIBRARY, { overrides: skillPrefs.overrides(), placedTypes: placedTypes }) });
-  } catch (e) { json(500, routeFailure('skills', e)); }   // broken ≠ empty (chat.js already prints "could not load", not "none")
+  } catch (e) { json(500, readRouteFailure('skills', e)); }   // broken ≠ empty (chat.js already prints "could not load", not "none")
 }
 // POST /api/skills/toggle { slug, enabled } — persist a station-wide enable/disable choice for a library recipe.
 // Station-wide by design: per-AGENT reach stays the capability gate (the placed objects), not a per-agent toggle.
@@ -13775,7 +13775,7 @@ function serveAgentSkills(req, res) {
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
     skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
     json(200, { agentId, skills, withheld: skills.filter(s => s.withheld).length });
-  } catch (e) { json(500, routeFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
+  } catch (e) { json(500, readRouteFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
 }
 
 // POST /api/agent-skills/manage { agentId, action, ... } - user-visible runtime skill management.
@@ -18700,7 +18700,7 @@ function storeFailure(r) {
   if (r.quarantined) return { error: 'store was corrupt and has been quarantined', code: 'ESTORE_QUARANTINED' };
   return null;
 }
-function routeFailure(tag, e) { failNote('route.' + tag, e); return { error: tag + ' read failed', code: 'ROUTE_FAILED' }; }
+function readRouteFailure(tag, e) { failNote('route.' + tag, e); return { error: tag + ' read failed', code: 'ROUTE_FAILED' }; }
 function serveNotebook(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   try {
@@ -18715,7 +18715,7 @@ function serveNotebook(req, res) {
       ? raw.map(n => ({ id: n && n.id, title: String((n && n.title) || ''), body: String((n && n.body) || ''), ts: (n && n.ts) || 0 }))
       : [];
     json(200, { notes });
-  } catch (e) { json(500, routeFailure('notebook', e)); }   // broken ≠ empty: the panel must not print "no notes" as fact
+  } catch (e) { json(500, readRouteFailure('notebook', e)); }   // broken ≠ empty: the panel must not print "no notes" as fact
 }
 // POST /api/notebook/restore { agent?, notes:[...] } — fold a backup's memory snapshot back into the agent's
 // notebook (M-save P2). This is the ONLY HTTP write to the notebook, and it is user-initiated (import/restore),
@@ -19274,7 +19274,7 @@ function serveInsights(req, res) {
     let trackRecord = null;
     try { const rec = Outcomes.fold(rows, { now: Date.now() }); trackRecord = { decided: rec.decided, windowMs: rec.windowMs, patterns: Outcomes.summary(rec), lines: Outcomes.lines(rec) }; } catch (_) { trackRecord = null; }
     json(200, Object.assign(foldInsights(rows, { nowMs: Date.now(), bucketMs: 3600000, buckets: 24 }), { trackRecord }));
-  } catch (e) { json(500, routeFailure('insights', e)); }   // a zeroed fold would read as "0 runs, $0" — a fabricated telemetry claim
+  } catch (e) { json(500, readRouteFailure('insights', e)); }   // a zeroed fold would read as "0 runs, $0" — a fabricated telemetry claim
 }
 
 // GET /api/transcript?stream=<id>&agent=<id>&limit=<n> — the durable per-workstream conversation transcript
@@ -19289,7 +19289,7 @@ function serveTranscript(req, res) {
     const stream = u.searchParams.get('stream') || 'global';
     const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 200));
     json(200, { stream, turns: transcriptStore.history(stream, { limit }) });
-  } catch (e) { json(500, routeFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
+  } catch (e) { json(500, readRouteFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }
 
 /* Bind a local authenticated messaging conversation to an existing desktop workstream. This mutates only
@@ -19681,7 +19681,7 @@ function serveMemoryRecords(req, res) {
     const nowMs = Date.now();   // surface effectiveTrust (time-decayed) so the panel shows earned-vs-current trust
     const records = Array.isArray(raw) ? raw.map(r => redact(memcore.projectRecord(r, nowMs))) : [];
     json(200, { agentId: agent, records });
-  } catch (e) { json(500, routeFailure('memory.records', e)); }
+  } catch (e) { json(500, readRouteFailure('memory.records', e)); }
 }
 
 /* GET /api/memory/pending?agent=<id> — high-stakes proposals still awaiting a Keep/Edit/Discard verdict, oldest
@@ -19702,7 +19702,7 @@ function servePending(req, res) {
       origin: p.origin || 'commander', createdAt: p.createdAt || 0
     }));
     json(200, { agentId: agent, pending: rows });
-  } catch (e) { json(500, routeFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty
+  } catch (e) { json(500, readRouteFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty
 }
 
 // GET /api/memory/declined?agent=<id> — the permanent reject-list: beliefs the Commander Discarded, which
@@ -19720,7 +19720,7 @@ function serveDeclined(req, res) {
     const raw = rk.value;
     const declined = Array.isArray(raw) ? raw.map(t => redact(String(t))) : [];
     json(200, { agentId: agent, declined });
-  } catch (e) { json(500, routeFailure('memory.declined', e)); }
+  } catch (e) { json(500, readRouteFailure('memory.declined', e)); }
 }
 
 // POST /api/memory/declined/restore { agent, text } — REMOVE one entry from the permanent reject-list so a belief
