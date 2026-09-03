@@ -4537,6 +4537,15 @@ const App = (() => {
     const status = el('unreachable-status');
     let attempts = 0, timer = null, checking = false, resetting = false, browserResetBlocked = false, preservedReset = null;
     const setStatus = m => { if (status) status.textContent = '＋ ' + m; };
+    // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
+    // screen used to offer nothing but the 5s poll — a dead end (audit: "first run fails silently"). Say plainly
+    // where the service lives, on the subtitle AND on every poll line, so the exit is never a mystery.
+    const core = tauriCore();
+    const BROWSER_HINT = 'the station service isn\'t answering. if you launched with `npm start`, check that terminal; otherwise open the desktop app.';
+    if (!core) {
+      if (sub && reason !== 'forbidden') sub.textContent = 'station service not answering (browser mode)';
+      setStatus(BROWSER_HINT);
+    }
     const attempt = async () => {
       if (checking || resetting || browserResetBlocked) return;
       checking = true;
@@ -4553,7 +4562,7 @@ const App = (() => {
         try { location.reload(); } catch (_) {}
         return;
       }
-      setStatus('still unreachable — retrying every 5s (attempt ' + attempts + '). Your save is untouched.');
+      setStatus('still unreachable — retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core ? '' : ' ' + BROWSER_HINT));
       checking = false;
     };
     const btn = el('btn-unreachable-retry');
@@ -4562,7 +4571,6 @@ const App = (() => {
     // the exit the retry loop can never reach on its own: a sidecar that is alive-but-wedged, or one that
     // exits before listening on every spawn, answers no poll ever (a macOS user sat at attempt 15+ with no
     // way out, 2026-08-22). Browser mode (no shell) has nothing to restart; the button stays hidden there.
-    const core = tauriCore();
     const restartBtn = el('btn-unreachable-restart');
     let restarting = false;
     const restart = async (auto) => {
@@ -4643,6 +4651,41 @@ const App = (() => {
             if (btn) btn.disabled = browserResetBlocked;
             if (restartBtn) restartBtn.disabled = browserResetBlocked;
             setStatus((browserResetBlocked ? 'the clean station is still protected from the uncleared window cache — retry START COMPLETELY FRESH. ' : 'nothing was reset — ') + String(error && error.message || error));
+          }
+        };
+      } else if (!core && typeof FreshStart !== 'undefined' && FreshStart.clearBrowserState) {
+        // BROWSER MODE exit — START FRESH scoped to what this window actually owns. This gate only opens when the
+        // local cache is ALREADY empty (Save.load() null) and the durable side could not be read, so the only
+        // StarNet state left in this browser is stale bookkeeping (prefs, a dead session token, a dev fault flag);
+        // clearing it cannot lose a save. The sidecar's own files are never touched from here — the copy says so.
+        // Two clicks, same arm/confirm shape as the desktop path. Honest label: it is NOT the desktop quarantine.
+        const LABEL = '✦ START FRESH (CLEAR BROWSER STATE)';
+        freshBtn.hidden = false;
+        freshBtn.textContent = LABEL;
+        freshBtn.onclick = () => {
+          SFX.click && SFX.click();
+          if (resetting) return;
+          if (!armed) {
+            armed = true;
+            freshBtn.textContent = '✦ CONFIRM — CLEAR BROWSER STATE';
+            setStatus('this clears only this browser\'s StarNet state (cached settings, any stale session) and reloads. The station service\'s own save files are not touched. Press again to confirm.');
+            setTimeout(() => { if (armed && !resetting) { armed = false; freshBtn.textContent = LABEL; } }, 12000);
+            return;
+          }
+          armed = false;
+          resetting = true;
+          freshBtn.disabled = true;
+          if (btn) btn.disabled = true;
+          try {
+            const n = FreshStart.clearBrowserState();
+            setStatus('cleared ' + n + ' browser key(s) — reloading…');
+            try { location.reload(); } catch (_) {}
+          } catch (error) {
+            resetting = false;
+            freshBtn.disabled = false;
+            if (btn) btn.disabled = false;
+            freshBtn.textContent = LABEL;
+            setStatus('nothing was cleared — ' + String(error && error.message || error));
           }
         };
       } else freshBtn.hidden = true;
