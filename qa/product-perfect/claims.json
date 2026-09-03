@@ -18,13 +18,13 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "a44af1adf0200e1ed85b488dad32c863d5a6ec86",
-    "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
+    "sourceCommit": "5bb2ad1ec6ba3b72e43a98becaf1591f54700df9",
+    "pathSetSha256": "2b7cbf80ad078c2725bc3712c7f3822f5b3ac61b46d51ae1ff6deabf15892290",
     "files": [
       {
         "path": "INSTALL.md",
-        "bytes": 4871,
-        "sha256": "06daaa605cf7293ebfe474abf4be4ee00001c13e59ba0d77afbacd49118c7437"
+        "bytes": 5355,
+        "sha256": "278a132e68b1c5a96402787ebad7d8a94360c58e03dee8fa1a6b63a7301f2593"
       },
       {
         "path": "PRIVACY.md",
@@ -33,8 +33,8 @@
       },
       {
         "path": "README.md",
-        "bytes": 8460,
-        "sha256": "1597378d3a7399fc5b5c3aef5e306a1ed8d098811b3db03e75616340436d72f0"
+        "bytes": 8928,
+        "sha256": "4b8dd90437e07ea1324203f6c4e0b62204413cb827d90f7fd195308a5fe7dd92"
       },
       {
         "path": "RELEASE_NOTES.md",
@@ -63,8 +63,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 367336,
-        "sha256": "3907fa556adec4a376d0bd7785fbb7d0f2cecc7c9f1f86685c47894edfe82581"
+        "bytes": 371034,
+        "sha256": "4504abf1b0fd5a1ec8b332164960d73a45b51aa6491e15932a88472b83d3485e"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -120,6 +120,11 @@
         "path": "frontend/app/beatcard.js",
         "bytes": 14984,
         "sha256": "9521a865cf38c2e55f33588661f6aeceba1648e51af1e0f0e0c015b63d6bf4e2"
+      },
+      {
+        "path": "frontend/app/bootguard.js",
+        "bytes": 11239,
+        "sha256": "e6a1074ee47dcee32a907203e75c388b70650fa4444ae9735a066468d89a2dd4"
       },
       {
         "path": "frontend/app/bottlestore.js",
@@ -218,8 +223,8 @@
       },
       {
         "path": "frontend/app/diagnostics.js",
-        "bytes": 18786,
-        "sha256": "fbac492822f8e94b8d05f964fb9ee686a838dcd11b73b96f4388ccbcb1974983"
+        "bytes": 19765,
+        "sha256": "a4738ae9cd8f308977e51260f178e54239ec2587fc5f5b6027765ee15dac710b"
       },
       {
         "path": "frontend/app/dialogue.js",
@@ -338,8 +343,8 @@
       },
       {
         "path": "frontend/app/keycta.js",
-        "bytes": 6524,
-        "sha256": "52525ae4be951ed5c1e5f18fb66301560cc57d822a7e696a5d8cf6019b6a7b81"
+        "bytes": 12728,
+        "sha256": "ba4b6544ec114790750ca8b938c02c1df79e5953bba5f70420815123e8e05cf1"
       },
       {
         "path": "frontend/app/launchmemory.js",
@@ -983,8 +988,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 383465,
-        "sha256": "1902a29504c580d808035c972f048007735aa43c0a36ca4b16c5c2e6ab4e356e"
+        "bytes": 386602,
+        "sha256": "93e8a2432e69b631c13d3496800ba27236c6e74074e40ea18b1677fb4b8996be"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1053,8 +1058,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 77423,
-        "sha256": "55ac9e088d0bef020e8a6970dcddf8a562469d08a3b6edac5c05ec6015c43aeb"
+        "bytes": 79106,
+        "sha256": "f490d3f488c9a03bf94af6df96bfb32e17ff20226955dae49245ad2245da6d50"
       },
       {
         "path": "frontend/js/arcade.js",
