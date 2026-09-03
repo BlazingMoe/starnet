@@ -27,6 +27,26 @@ function startMockOpenRouter() {
       if (req.url.indexOf('/chat/completions') >= 0) {
         let body = ''; req.on('data', d => { body += d; }); req.on('end', () => {
           let parsed = null; try { parsed = JSON.parse(body); requests.push(parsed); } catch (_) {}
+          // PAIRRECOVERY sentinel: enforce the provider's real tool-pair invariant so the full sidecar
+          // regression below would 400 forever without the OpenRouter adapter's transcript repair.
+          if (body.indexOf('PAIRRECOVERY') >= 0) {
+            const open = new Set();
+            let invalid = '';
+            for (const msg of (parsed && parsed.messages) || []) {
+              if (msg && msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+                for (const tc of msg.tool_calls) open.add(String(tc && tc.id || ''));
+              } else if (msg && msg.role === 'tool') {
+                const id = String(msg.tool_call_id || '');
+                if (!id || !open.delete(id)) invalid = 'No tool call found for tool result ' + id;
+              } else if (open.size) invalid = 'Tool call has no result';
+            }
+            if (open.size) invalid = 'Tool call has no result';
+            if (invalid) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: { message: invalid, code: 400 } }));
+              return;
+            }
+          }
           // KABOOM sentinel: a hard non-retryable provider failure (401 auth) whose message carries a
           // distinctive needle — used to provoke a REAL recorded run error for the diagnostics-tail tests.
           if (body.indexOf('KABOOM') >= 0) {
@@ -164,6 +184,29 @@ function boot(port, env, attemptsLeft) {
     A.ok(firstSystem.indexOf('Provider: openrouter') >= 0, 'runtime block names the selected provider');
     A.ok(firstSystem.indexOf('Requested model at run start: test/model') >= 0, 'runtime block names the requested model');
     A.ok(firstSystem.indexOf('If the Commander asks what StarNet build, model, provider') >= 0, 'runtime block tells the agent to answer build/model/provider questions from host state');
+
+    // CURRENT-RELEASE INCIDENT: an orphaned tool result used to pass straight through OpenRouter and make
+    // every replay fail with the same provider 400. Drive the malformed history through the real HTTP route,
+    // loop, adapter, and enforcing upstream; the adapter must preserve the result as labeled text and finish.
+    {
+      const before = mock.requests.length;
+      const r = await fetch(B + '/api/run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
+        body: JSON.stringify({
+          key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'pair-recovery-e2e',
+          messages: [
+            { role: 'user', content: 'PAIRRECOVERY continue this interrupted run' },
+            { role: 'tool', tool_call_id: 'orphan_live_1', content: 'PAIRRECOVERY preserved result' }
+          ]
+        })
+      });
+      const raw = await r.text();
+      const evs = raw.split('\n').map(l => l.trim()).filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
+      A.ok(evs.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'), 'orphaned OpenRouter history completes through the real sidecar instead of provider 400');
+      const wire = mock.requests.slice(before).find(q => JSON.stringify((q && q.messages) || []).indexOf('PAIRRECOVERY') >= 0) || {};
+      A.ok(!(wire.messages || []).some(m => m && m.role === 'tool' && m.tool_call_id === 'orphan_live_1'), 'the invalid orphan never reaches the provider as a tool result');
+      A.ok((wire.messages || []).some(m => m && m.role === 'user' && String(m.content).indexOf('[recovered tool result orphan_live_1') >= 0 && String(m.content).indexOf('preserved result') >= 0), 'the provider receives a truthful recovery label with the original result content');
+    }
 
     // TYPED COMPLETION CONTRACT: a clean provider stop without the requested mechanical proof must remain
     // incomplete on both the live event and the durable run row. Model prose cannot promote it.
