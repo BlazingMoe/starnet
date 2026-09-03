@@ -1,5 +1,29 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-03 — POST-AUDIT: NEXT CUT MUSTS (owner-directed, audit items 1–5)
+
+The 2026-09-03 whole-repo audit (backend, frontend, release, process, product) found the harness solid
+at its seams and the funnel unproven: ~6 outsiders have tried StarNet, all six hit an onboarding or
+connector wall, none was watched. Andrew directed items 1–5 to execute. State:
+
+1. **Users answered.** Issues #6/#5/#2 got replies naming the fixes that ride v0.10.13
+   (`5b5f50a1d` BYOK credit gate, `6adda1348` connector 401 → REAUTH + SSE, `977294cbc`/`03519b043`/
+   `1e651a03e` unreachable-station recovery). 49thMedia's residual "no STARNET key" banner is the keycta
+   asking for the wrong provider after unlink — lane `agent/free-path-ollama` fixes the CTA.
+2. **macOS physical recovery proof — retroactively waived for 0.10.13** (record in
+   `docs/RELEASE_CUT_CHECKLIST_v0.10.13.md` § Post-publish record). **It is the first MUST of the next cut.**
+   No cut publishes on a CI-runner Mac leg alone again without a fresh written owner waiver.
+3. **First run fails loud, not silent** — lanes `agent/firstrun-fail-loud` (global error/boot-integrity
+   banner, browser-mode UNREACHABLE exit) and `agent/sidecar-fail-loud` (uncaughtException exits for the
+   shell to relaunch, 500 instead of 200+empty on corrupt stores, bounded channel Maps).
+4. **Free path visible** — lane `agent/free-path-ollama`: keycta offers USE A DIFFERENT PROVIDER / RUN
+   FREE LOCALLY, genesis shows the Ollama choice, README/INSTALL gain a "run free with a local model" section.
+5. **CI truth** — lane `agent/audit-ops`: `secret-history` now prints its (redacted) finding so the
+   weeks-red gate can be classified; dead GitHub-Pages `deploy-website` workflow removed (the real deploy is
+   `wrangler pages deploy website-deploy`); new `fast-gate.yml` runs `test:fast` on every trunk push/PR.
+
+Not executed (audit items 6+): branch/worktree/`.dogfood` inventory purge, NEXT/STATUS archival, lint gate.
+
 ## DONE 2026-09-03 — MANAGED MODEL TRUTH + SAFE UPSTREAM TRACE (`agent/provider-truth-0903`)
 
 The 0.10.13 support report exposed a real provider/model-pair bug: after switching providers,
