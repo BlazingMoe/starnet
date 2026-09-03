@@ -129,6 +129,79 @@ async function collect(provider, req) { const out = []; for await (const e of pr
     A.eq(caught.preStreamRetriesExhausted, undefined, 'a fail-fast 400 never claims a retry ladder was exhausted');
   }
 
+  // H2. TOOL-PAIR RECOVERY: a persisted orphan must not permanently 400-brick an OpenRouter chat.
+  //     Exercise the real request-building path against a fake upstream that enforces the pairing rule.
+  {
+    const posted = [];
+    const validatingFetch = async (url, opts) => {
+      if (!/chat\/completions/.test(url)) return new Response('{"data":[]}', { status: 200 });
+      const body = JSON.parse(opts.body);
+      posted.push(body.messages);
+      const open = new Set();
+      let invalid = '';
+      for (const msg of body.messages || []) {
+        if (msg && msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+          for (const tc of msg.tool_calls) open.add(String(tc && tc.id || ''));
+        } else if (msg && msg.role === 'tool') {
+          const id = String(msg.tool_call_id || '');
+          if (!id || !open.delete(id)) invalid = 'No tool call found for tool result ' + id;
+        } else if (open.size) invalid = 'Tool call has no result';
+      }
+      if (open.size) invalid = 'Tool call has no result';
+      if (invalid) return new Response(JSON.stringify({ error: { message: invalid } }), { status: 400 });
+      return new Response(['data: [DONE]', ''].join('\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    const p = makeOpenRouterProvider({ fetch: validatingFetch, key: 'k' });
+
+    await collect(p, { model: 'm', messages: [
+      { role: 'user', content: 'hi' },
+      { role: 'tool', tool_call_id: 'orphan_1', content: 'result body' }
+    ] });
+    A.eq(posted[0][1], {
+      role: 'user',
+      content: '[recovered tool result orphan_1 — its originating call is not in this transcript]\nresult body'
+    }, 'orphan result is preserved as labeled user text instead of a 400-invalid tool message');
+
+    await collect(p, { model: 'm', messages: [
+      { role: 'assistant', content: '', tool_calls: [{ id: 'call_lost', type: 'function', function: { name: 'fs_read', arguments: '{}' } }] },
+      { role: 'user', content: 'continue' }
+    ] });
+    A.eq(posted[1][1], {
+      role: 'tool', tool_call_id: 'call_lost',
+      content: '[interrupted — this call produced no recorded result. Reissue it if it is still needed.]'
+    }, 'unanswered call receives a synthetic result before the next conversational message');
+    A.eq(posted[1][2], { role: 'user', content: 'continue' }, 'the following user message keeps its place after the repaired pair');
+  }
+
+  // H3. Healthy parallel pairs are byte-identical; duplicate results are downgraded without losing content.
+  {
+    const { repairToolPairs } = require('../sidecar/providers/openrouter.js')._internals;
+    const healthy = [
+      { role: 'assistant', content: '', tool_calls: [
+        { id: 'a', type: 'function', function: { name: 'one', arguments: '{}' } },
+        { id: 'b', type: 'function', function: { name: 'two', arguments: '{}' } }
+      ] },
+      { role: 'tool', tool_call_id: 'a', content: 'A' },
+      { role: 'tool', tool_call_id: 'b', content: 'B' }
+    ];
+    A.eq(repairToolPairs(healthy), healthy, 'well-formed parallel tool history is byte-identical');
+    A.ok(repairToolPairs(healthy) === healthy, 'well-formed history returns by identity');
+
+    const duplicate = repairToolPairs(healthy.concat({ role: 'tool', tool_call_id: 'b', content: { kept: true } }));
+    A.eq(duplicate[3], {
+      role: 'user',
+      content: '[recovered tool result b — its originating call is not in this transcript]\n{"kept":true}'
+    }, 'duplicate result becomes labeled text and preserves structured content');
+
+    const badIds = repairToolPairs([{ role: 'assistant', content: '', tool_calls: [
+      { id: 'same', type: 'function', function: { name: 'one', arguments: '{}' } },
+      { id: 'same', type: 'function', function: { name: 'two', arguments: '{}' } },
+      { type: 'function', function: { name: 'three', arguments: '{}' } }
+    ] }]);
+    A.eq(badIds[0].tool_calls.map(tc => tc.id), ['same', 'call_local_1', 'call_local_2'], 'missing or duplicate ids inside one batch are deterministically minted');
+    A.eq(badIds.slice(1).map(m => m.tool_call_id), ['same', 'call_local_1', 'call_local_2'], 'every repaired call id receives a matching synthetic result');
+  }
+
   // I. supportsTools reflects the warmed catalog; unknown -> null (never a false refusal)
   {
     const modelsFetch = async () => new Response(JSON.stringify({ data: [
