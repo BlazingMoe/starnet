@@ -194,3 +194,18 @@ required artifact returns HTTP 200. The existing fleet feed is healthy before th
 - no push, release-train dispatch, draft, publish, website deploy, or credential action;
 - no claim that `0.10.13` is release-ready;
 - no reuse of pre-bump gates as the post-bump or packaged-artifact receipts.
+
+## Post-publish record (2026-09-03)
+
+`v0.10.13` was published as Latest on `androoAGI/starnet-releases` at 04:41Z with signed Windows and
+both notarized macOS legs; hosted T0 and G1 passed against the staged draft first. Two rows in the cut
+sequence above were NOT satisfied at Publish time and the record must say so:
+
+- **Physical macOS recovery proof — WAIVED retroactively, owner-directed.** No real-Mac pass of the
+  unreachable-station → START COMPLETELY FRESH / SAVE-403 / SAVE-NET path was performed; the train's
+  `macos-15-intel installed-acceptance` job is a CI runner, not that check. Andrew directed the
+  2026-09-03 audit's item 2 to execute, whose stated alternative to a borrowed-Mac pass was to write
+  this waiver so the checklist stops lying. The waiver covers 0.10.13 only. **The physical Mac pass
+  is the first MUST of the next cut** (see NEXT.md); no further cut may publish on a CI-runner Mac
+  leg alone without a fresh, separately written owner waiver.
+- **Updater-key two-offline-copies attestation** — still unattested at publish; owed by the owner.
