@@ -36,13 +36,73 @@ const StationBake = (() => {
      continuous field with an arbitrary seam across it rather than a floor with walls around it.
      Walls are vertical, they face away from the ceiling lamps, and they must sit clearly DARKER
      than the deck they enclose. */
+  /* ================= HUE-SHIFTED SHADING (world overhaul, 2026-09-03) =================
+     Every interior mark in this bake used to step off its base through U.shade, which lerps toward
+     white or black: a darker step is the SAME hue with less light, a lighter step the same hue washed
+     grey. That is how a spreadsheet shades a cell, and it is why the deck read as one brown field with
+     lines on it. A painted surface does not do that — shadow travels COOL (toward blue-violet) and gains
+     saturation as it deepens; light travels WARM (toward yellow) and thins. Every pixel-art game you
+     would pay $40 for hue-shifts its ramps; it is the single most recognisable mark of the craft.
+     So the interior painters (deck materials, wall recipes, side faces, corner crowns) shade through
+     this instead. LIGHTNESS IS EXACTLY U.shade's — only the hue rotates toward the pole and the
+     saturation nudges — so every tone relationship the bake was tuned on survives; the rotation is
+     capped per step (`darkRot`/`lightRot` at |f| = 1) and scales with the step, so a -0.03 plate tone
+     barely moves and a -0.62 floor-contact seam goes distinctly cool. A neutral (s < 0.02) picks up the
+     pole's tint from nothing, which is what puts blue in a grey deck's shadows.
+     THE HULL DOES NOT USE THIS. Its ramp is hand-tuned in `hullPal` and pinned by the hull test, and it
+     hangs outside the ambient plate where a cool cast would read as a colour change, not a shadow.
+     Cached per (hex, f): the painters call this millions of times across a bake. */
+  const HUE = { darkTo: 250, darkRot: 40, darkSat: 0.22, lightTo: 50, lightRot: 30, lightSat: 0.10 };
+  const _shadeCache = new Map();
+  const _hsl = (r, g, b) => {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    if (mx === mn) return [0, 0, l];
+    const d = mx - mn, s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [h / 6, s, l];
+  };
+  const _rgb = (h, s, l) => {
+    if (s <= 0) { const v = Math.round(l * 255); return [v, v, v]; }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = t => { t = ((t % 1) + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+    return [Math.round(f(h + 1 / 3) * 255), Math.round(f(h) * 255), Math.round(f(h - 1 / 3) * 255)];
+  };
+  function shade(hex, f) {
+    if (!f || typeof hex !== 'string' || hex.length !== 7 || hex[0] !== '#') return U.shade(hex, f);
+    const key = hex + '|' + Math.round(f * 1000);
+    const hit = _shadeCache.get(key);
+    if (hit) return hit;
+    const nn = parseInt(hex.slice(1), 16);
+    let r = (nn >> 16) & 255, g = (nn >> 8) & 255, b = nn & 255;
+    if (f >= 0) { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; }
+    else { r *= (1 + f); g *= (1 + f); b *= (1 + f); }
+    let out;
+    const hsl = _hsl(r, g, b), l = hsl[2];
+    if (l > 0.02 && l < 0.98) {
+      const dark = f < 0, amt = Math.min(1, Math.abs(f));
+      const to = dark ? HUE.darkTo : HUE.lightTo, cap = amt * (dark ? HUE.darkRot : HUE.lightRot);
+      let h = hsl[1] < 0.02 ? to : hsl[0] * 360, s = hsl[1] < 0.02 ? 0 : hsl[1];
+      const d = ((to - h + 540) % 360) - 180;                        // signed shortest way round to the pole
+      h += Math.max(-cap, Math.min(cap, d));
+      s = Math.max(0, Math.min(1, s + (dark ? amt * HUE.darkSat : -amt * HUE.lightSat) * (hsl[1] < 0.02 ? 0.5 : 1)));
+      const c = _rgb(((h % 360) + 360) % 360 / 360, s, l);
+      out = '#' + ((1 << 24) | (c[0] << 16) | (c[1] << 8) | c[2]).toString(16).slice(1);
+    } else {
+      out = '#' + ((1 << 24) | (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)).toString(16).slice(1);
+    }
+    if (_shadeCache.size > 20000) _shadeCache.clear();
+    _shadeCache.set(key, out);
+    return out;
+  }
+
   const WALL_TONE = { face: -0.40, top: -0.10, cap: 0.30 };
   let wallPalCache = null;
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
     if (p) return p;
     const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#3c3429';
-    p = { base, face: U.shade(base, WALL_TONE.face), top: U.shade(base, WALL_TONE.top), cap: U.shade(base, WALL_TONE.cap) };
+    p = { base, face: shade(base, WALL_TONE.face), top: shade(base, WALL_TONE.top), cap: shade(base, WALL_TONE.cap) };
     if (!wallPalCache) wallPalCache = new Map();
     wallPalCache.set(z, p);
     return p;
@@ -177,10 +237,23 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.8, ambR: 7, ambG: 5, ambB: 3, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.26, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.14, spill: 0.7 };   // crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.8, ambR: 7, ambG: 5, ambB: 3, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.3, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.3, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
+  /* FIXTURE TEMPERATURE PER ROOM KIND (world overhaul, 2026-09-03). Every room hung the same tungsten,
+     so a lab and a lounge were the same picture in two floor colours. The film that lands light ON
+     things (and the live lamp shimmer, which reads it back through `flickers`) now takes the kind's
+     own fixtures: a lab is lit cool and clinical, a bridge cooler still, a foundry by sodium, quarters
+     by amber. The DECK pool (POOL_RGB) stays the one tungsten — it is the floor's albedo under light
+     and is locked by simulation-lighting.test.js; the temperature difference is the film's to carry.
+     A hab keeps LAMP_RGB exactly, so the stock station is unchanged by this table. */
+  const LAMP_RGB_BY_KIND = { lab: '214,232,255', bridge: '196,216,255', factory: '255,196,120', storage: '232,224,205', quarters: '255,212,156', corridor: '224,230,240' };
+  const lampRgbOf = z => {
+    if (G && G.isCorridor && G.isCorridor(z)) return LAMP_RGB_BY_KIND.corridor;
+    const k = (G && G.kindOf) ? G.kindOf(z) : null;
+    return LAMP_RGB_BY_KIND[k] || LAMP_RGB;
+  };
   const COLD_AMB = [4, 8, 19];      // the tint the shadow travels TO at cool:1
 
   /* ---------- THE FALLOFF CURVE ----------
@@ -241,7 +314,7 @@ const StationBake = (() => {
                     so it gets its own knob rather than being deleted. Scales ONLY the seam/bevel
                     steps — per-plate tone, material dressing and wear are untouched.
                     0 = a genuinely seamless deck · 1 = the old hard v3 grid. */
-  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, wallDetail: 1, deckSeam: 0.38, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 = Andrew's dialed value (2026-07-13 crtlab COPY VALUES)
+  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.45, floorWear: 0.55, floorDetail: 1, wallDetail: 1, deckSeam: 0.38, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 was Andrew's 07-13 dial; 0.45 (2026-09-03 overhaul) makes the light read in the same stepped pixel idiom as the geometry now that the pools have real shape
 
   /* ============================ THE EXTERIOR SHELL (HULL SKINS) ============================
      Everything you see of a room from OUTSIDE: the plate surrounding its footprint, the texture
@@ -826,7 +899,7 @@ const StationBake = (() => {
      toward the light. Growth must not. Negative f falls through to U.shade: darkening toward black
      already preserves hue. */
   const vivid = (hex, f) => {
-    if (f <= 0) return U.shade(hex, f);
+    if (f <= 0) return shade(hex, f);
     const n = parseInt(String(hex).slice(1), 16);
     const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
     const mx = Math.max(r, g, b) || 1;
@@ -847,7 +920,7 @@ const StationBake = (() => {
 
   function deckSlab(b, mat, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const PW = MAT_PITCH[mat][0], PH = MAT_PITCH[mat][1];
     px(X, Y, T, T, base);
     // V3 SLAB TILES — the tile texture itself is dimensional now, not a flat fill with
@@ -910,7 +983,7 @@ const StationBake = (() => {
      beams every third tile keep long runs from turning into flat noise. */
   function deckGrate(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     px(X, Y, T, T, base);
     px(X, Y, T, T, sh(-0.50));                                        // the void between the bars
     if (n % 3 === 0) px(X, Y + 4 + (n % 5), T, 1, sh(-0.34));          // a strut on the deck far below
@@ -925,7 +998,7 @@ const StationBake = (() => {
      non-square lattice alone is what makes this read as a different technology. */
   function deckHex(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     px(X, Y, T, T, base);
     for (let row = 0; row < 2; row++) {
       const cy = Y + row * 6, off = row ? 6 : 0, cx = X + off - (off ? 12 : 0);
@@ -953,7 +1026,7 @@ const StationBake = (() => {
      run, and the occasional knot. Warm, and the only deck that reads as CARPENTRY. */
   function deckPlank(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const PWp = MAT_PITCH.plank[0];
     const stagger = (y % 3) * 2;
     const rel = ((x - stagger) % PWp + PWp) % PWp;              // safe mod: x-stagger can go negative
@@ -980,7 +1053,7 @@ const StationBake = (() => {
      is a built surface, and the only way to read "grown" at 12px is to remove the grid. */
   function deckTurf(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const clump = h2(x >> 1, y >> 1, ':cl');                 // 2×2-tile patches read denser/sparser
     const cl = ((clump % 5) - 2) * 0.018;
     /* v3 (2026-07-25, matched against a real grass reference). v2 gave every blade an INDEPENDENT
@@ -1039,7 +1112,7 @@ const StationBake = (() => {
        U.shade travels. Sparse — a couple of flecks per few tiles, or the lawn reads as dying. */
     if ((clump % 3) === 0) {
       const r = hp(X, Y, 71);
-      px(X + (r % T), Y + ((r >>> 6) % T), 1, 1 + ((r >>> 12) & 1), U.shade(base, (0.30 + cl) * fd));
+      px(X + (r % T), Y + ((r >>> 6) % T), 1, 1 + ((r >>> 12) & 1), shade(base, (0.30 + cl) * fd));
     }
     if ((clump % 7) === 0) { const r = hp(X, Y, 99); px(X + (r % T), Y + ((r >>> 6) % T), 1, 1, vivid(base, (cl + 0.48) * fd)); }   // seed head
   }
@@ -1061,7 +1134,7 @@ const StationBake = (() => {
      correct in every close-up and wrong in every wide shot, which is the trap this deck sets. */
   function deckSpine(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const sk = Math.max(0, DEPTH.deckSeam);
     const band = Math.floor(y / 3), off = (band % 2) * 2;
     const pcx = Math.floor((x - off) / 4);
@@ -1115,7 +1188,7 @@ const StationBake = (() => {
      conservative of the three: it matches by speaking the identical language. */
   function deckRunner(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const sk = Math.max(0, DEPTH.deckSeam);
     const band = Math.floor(y / 2), off = (band % 2);
     const pcx = Math.floor((x - off) / 2);
@@ -1153,7 +1226,7 @@ const StationBake = (() => {
       if (a1 <= a0 || c1 <= c0) return;
       b.fillStyle = col; b.fillRect(a0, c0, a1 - a0, c1 - c0);
     };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const sk = Math.max(0, DEPTH.deckSeam);
     const pcx = Math.floor(x / 3), pcy = Math.floor(y / 2);
     const pn = h2(pcx, pcy, ':tw');
@@ -1201,7 +1274,7 @@ const StationBake = (() => {
       if (a1 <= a0 || c1 <= c0) return;
       b.fillStyle = col; b.fillRect(a0, c0, a1 - a0, c1 - c0);
     };
-    const sh = d => U.shade(base, d * fd);
+    const sh = d => shade(base, d * fd);
     const sk = Math.max(0, DEPTH.deckSeam);
     const pcx = Math.floor(x / 3), pcy = Math.floor(y / 3);
     const pn = h2(pcx, pcy, ':mw');
@@ -1245,6 +1318,16 @@ const StationBake = (() => {
      telemetry law failing in the art layer.
      LAW: one surface class, one painter. A second painter for "the same thing but narrower" does
      not stay in sync — it silently stops receiving every improvement the first one gets. */
+  /* smooth value noise in [-0.5, 0.5] on a 4-tile lattice, keyed on world tile coords (see bakeDeck) */
+  const LF_PITCH = 4;
+  const lfv = (cx, cy) => (hp(cx, cy, 0x1f1f) & 0xffff) / 65535;
+  function lowFreq(x, y) {
+    const cx = Math.floor(x / LF_PITCH), cy = Math.floor(y / LF_PITCH);
+    let tx = (x - cx * LF_PITCH) / LF_PITCH, ty = (y - cy * LF_PITCH) / LF_PITCH;
+    tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
+    const a = lfv(cx, cy), b2 = lfv(cx + 1, cy), c = lfv(cx, cy + 1), d = lfv(cx + 1, cy + 1);
+    return (a + (b2 - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty - 0.5;
+  }
   function bakeDeck(b, r) {
     const px = (x, y, w, h, c) => { b.fillStyle = c; b.fillRect(x, y, w, h); };
     const fd = Math.max(0, DEPTH.floorDetail);
@@ -1254,9 +1337,15 @@ const StationBake = (() => {
     const doorTo = (x, y, nx, ny) => { const nz = zAt(nx, ny); return nz != null && nz !== r.z && (G.canStep(x, y, nx, ny) || G.canStep(nx, ny, x, y)); };
     const wallTo = (x, y, nx, ny) => zAt(nx, ny) !== r.z && !doorTo(x, y, nx, ny);
     for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) {
-      const base = G.baseColorOf(r.z, x, y);
+      /* LOW-FREQUENCY TONE — a painted floor is never one flat swatch. Smooth value noise on a 4-tile
+         lattice (bilinear, smoothstepped) drifts the base tone ±5% across the room, so plates a few
+         tiles apart sit at slightly different values and the deck reads as a SURFACE with light and
+         history on it rather than a fill. World-tile keyed like every other mark (chunk parity), never
+         zone keyed (a re-roll at a room join would draw the seam the deck painters were fixed to hide).
+         Rides floorDetail, so 0 is still the flat unadorned deck. */
+      const base = shade(G.baseColorOf(r.z, x, y), lowFreq(x, y) * 0.10 * fd);
       const X = x * T, Y = y * T, n = h2(x, y, r.z);
-      const sh = d => U.shade(base, d * fd);
+      const sh = d => shade(base, d * fd);
       paintDeck(b, mat, base, x, y, X, Y, r.z, n, fd);
       // FLOOR WEAR — a lived-in deck: hash-keyed scuffs, drag marks, worn-pale patches and
       // grime films over the plates above. Same idiom (opaque-ish 1px marks, deterministic on
@@ -1491,15 +1580,15 @@ const StationBake = (() => {
     // lit crown — opaque cap band, 1px lighter top edge, 1px darker seam beneath. Kept BRIGHT:
     // after the ambient bake this continuous line defines the wall height at any zoom.
     crown(b, X, topY - capH, T, capH, pal.cap);
-    crown(b, X, topY - capH, T, 1, U.shade(pal.cap, 0.30));                          // 1px lighter top edge
-    b.fillStyle = U.shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
+    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.30));                          // 1px lighter top edge
+    b.fillStyle = shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
     // THE FACE — per material
     (WALL_RECIPES[wallMatOf(e.z)] || WALL_RECIPES.plating)(b, pal, X, topY, h, e, n, room, Y + inFace);
     // FLOOR-CONTACT SEAM. This used to be a LIGHT line (wallTop), which is exactly backwards: a
     // highlight at the junction fuses the wall into the deck. Where a vertical surface meets a
     // horizontal one, no light reaches — it is the darkest line in the room, and it is what tells
     // the eye "the floor stops here".
-    b.fillStyle = U.shade(pal.base, -0.62); b.fillRect(X, Y + inFace, T, 1);
+    b.fillStyle = shade(pal.base, -0.62); b.fillRect(X, Y + inFace, T, 1);
   }
 
   /* ---------- WALL RECIPES — one per material, each painting ONE tile's interior face ----------
@@ -1513,9 +1602,9 @@ const StationBake = (() => {
      Deliberately NOT scaled all the way out by wallDetail: even a "flat" wall must stay seated on
      the floor, and this band is what seats it. Three hard steps, darkest at the contact line. */
   function wallFoot(b, tone, X, footY, wd) {
-    b.fillStyle = U.shade(tone, -0.16 - 0.08 * wd); b.fillRect(X, footY - 4, T, 4);
-    b.fillStyle = U.shade(tone, -0.30 - 0.10 * wd); b.fillRect(X, footY - 2, T, 2);
-    b.fillStyle = U.shade(tone, -0.46 - 0.12 * wd); b.fillRect(X, footY - 1, T, 1);
+    b.fillStyle = shade(tone, -0.16 - 0.08 * wd); b.fillRect(X, footY - 4, T, 4);
+    b.fillStyle = shade(tone, -0.30 - 0.10 * wd); b.fillRect(X, footY - 2, T, 2);
+    b.fillStyle = shade(tone, -0.46 - 0.12 * wd); b.fillRect(X, footY - 1, T, 1);
   }
 
   /* PLATING — the classic standing metal, but no longer starved: the weld line, vent panels and
@@ -1524,28 +1613,28 @@ const StationBake = (() => {
      a horizon instead of one flat tone. */
   function wallPlating(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const plate = U.shade(pal.face, ((n % 4) - 1.5) * 0.03 * wd);
+    const plate = shade(pal.face, ((n % 4) - 1.5) * 0.03 * wd);
     b.fillStyle = plate; b.fillRect(X, topY, T, h);
     const topCourse = Math.max(2, Math.min(4, (h / 3) | 0));
-    b.fillStyle = U.shade(plate, 0.10 * wd); b.fillRect(X, topY, T, topCourse);       // lit top course
-    b.fillStyle = U.shade(plate, 0.16 * wd); b.fillRect(X, topY, T, 1);               // 1px bright course edge
+    b.fillStyle = shade(plate, 0.10 * wd); b.fillRect(X, topY, T, topCourse);       // lit top course
+    b.fillStyle = shade(plate, 0.16 * wd); b.fillRect(X, topY, T, 1);               // 1px bright course edge
     wallFoot(b, plate, X, footY, wd);
-    b.fillStyle = U.shade(pal.face, -0.34 * wd); b.fillRect(X, topY, 1, h);           // per-tile plate seam
+    b.fillStyle = shade(pal.face, -0.34 * wd); b.fillRect(X, topY, 1, h);           // per-tile plate seam
     // BUMPER RAIL — a hard horizontal band ~58% down, lit on top. This is the single biggest
     // legibility win on a tall wall: it gives the eye a line to read height against.
     const rail = topY + Math.round(h * 0.58);
-    b.fillStyle = U.shade(plate, -0.26 * wd); b.fillRect(X, rail, T, 2);
-    b.fillStyle = U.shade(plate, 0.14 * wd); b.fillRect(X, rail, T, 1);
-    b.fillStyle = U.shade(plate, 0.20 * wd); b.fillRect(X + 2 + (n % 7), topY + 1 + (n % 2), 1, 1);   // rivet
-    if (n % 5 === 0) { b.fillStyle = U.shade(plate, -0.30 * wd); b.fillRect(X + 4 + (n % 5), topY + 3 + (n % 3), 1, 1); }
+    b.fillStyle = shade(plate, -0.26 * wd); b.fillRect(X, rail, T, 2);
+    b.fillStyle = shade(plate, 0.14 * wd); b.fillRect(X, rail, T, 1);
+    b.fillStyle = shade(plate, 0.20 * wd); b.fillRect(X + 2 + (n % 7), topY + 1 + (n % 2), 1, 1);   // rivet
+    if (n % 5 === 0) { b.fillStyle = shade(plate, -0.30 * wd); b.fillRect(X + 4 + (n % 5), topY + 3 + (n % 3), 1, 1); }
     if (h >= 14) {
-      b.fillStyle = U.shade(pal.face, -0.30 * wd); b.fillRect(X, topY + ((h * 0.28) | 0), T, 1);      // weld line
+      b.fillStyle = shade(pal.face, -0.30 * wd); b.fillRect(X, topY + ((h * 0.28) | 0), T, 1);      // weld line
       if (room && n % 9 === 0) {                                                     // recessed vent panel
-        b.fillStyle = U.shade(pal.face, -0.55 * wd); b.fillRect(X + 6, topY + 3, 5, 6);
-        b.fillStyle = U.shade(pal.face, -0.72 * wd);
+        b.fillStyle = shade(pal.face, -0.55 * wd); b.fillRect(X + 6, topY + 3, 5, 6);
+        b.fillStyle = shade(pal.face, -0.72 * wd);
         for (let i = 0; i < 3; i++) b.fillRect(X + 7, topY + 4 + i * 2, 3, 1);
       } else if (n % 11 === 3) {                                                     // pale conduit drop
-        b.fillStyle = U.shade(pal.face, 0.20 * wd); b.fillRect(X + 2, topY + 2, 1, h - 6);
+        b.fillStyle = shade(pal.face, 0.20 * wd); b.fillRect(X + 2, topY + 2, 1, h - 6);
       }
     }
   }
@@ -1554,19 +1643,19 @@ const StationBake = (() => {
      The strongest vertical rhythm of any recipe; reads as engine-room / pressure bulkhead. */
   function wallRibbed(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const body = U.shade(pal.face, ((n % 3) - 1) * 0.02 * wd);
+    const body = shade(pal.face, ((n % 3) - 1) * 0.02 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
     for (let i = 0; i < T; i += 4) {
-      b.fillStyle = U.shade(body, -0.34 * wd); b.fillRect(X + i, topY, 1, h);        // deep channel
-      b.fillStyle = U.shade(body, 0.15 * wd); b.fillRect(X + i + 1, topY, 1, h);     // lit rib edge
-      b.fillStyle = U.shade(body, -0.10 * wd); b.fillRect(X + i + 3, topY, 1, h);    // rib shadow side
+      b.fillStyle = shade(body, -0.34 * wd); b.fillRect(X + i, topY, 1, h);        // deep channel
+      b.fillStyle = shade(body, 0.15 * wd); b.fillRect(X + i + 1, topY, 1, h);     // lit rib edge
+      b.fillStyle = shade(body, -0.10 * wd); b.fillRect(X + i + 3, topY, 1, h);    // rib shadow side
     }
     // top and bottom rails cap the ribs so they don't float
-    b.fillStyle = U.shade(body, 0.12 * wd); b.fillRect(X, topY, T, 2);
-    b.fillStyle = U.shade(body, 0.20 * wd); b.fillRect(X, topY, T, 1);
+    b.fillStyle = shade(body, 0.12 * wd); b.fillRect(X, topY, T, 2);
+    b.fillStyle = shade(body, 0.20 * wd); b.fillRect(X, topY, T, 1);
     const rail = topY + Math.round(h * 0.62);
-    b.fillStyle = U.shade(body, -0.28 * wd); b.fillRect(X, rail, T, 2);
-    b.fillStyle = U.shade(body, 0.10 * wd); b.fillRect(X, rail, T, 1);
+    b.fillStyle = shade(body, -0.28 * wd); b.fillRect(X, rail, T, 2);
+    b.fillStyle = shade(body, 0.10 * wd); b.fillRect(X, rail, T, 1);
     wallFoot(b, body, X, footY, wd);
   }
 
@@ -1574,17 +1663,17 @@ const StationBake = (() => {
      bottom-right. The finished command-deck read; deliberately the calmest recipe. */
   function wallPanelled(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const body = U.shade(pal.face, ((n % 3) - 1) * 0.018 * wd);
+    const body = shade(pal.face, ((n % 3) - 1) * 0.018 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
-    b.fillStyle = U.shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);              // tile seam
+    b.fillStyle = shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);              // tile seam
     const pTop = topY + 2, pH = Math.max(4, h - 6);
-    b.fillStyle = U.shade(body, -0.20 * wd); b.fillRect(X + 2, pTop, T - 4, pH);     // recess
-    b.fillStyle = U.shade(body, 0.06 * wd); b.fillRect(X + 3, pTop + 1, T - 6, pH - 2);
-    b.fillStyle = U.shade(body, 0.18 * wd); b.fillRect(X + 3, pTop + 1, T - 6, 1);   // lit inner top
-    b.fillStyle = U.shade(body, 0.14 * wd); b.fillRect(X + 3, pTop + 1, 1, pH - 2);  // lit inner left
-    b.fillStyle = U.shade(body, -0.24 * wd); b.fillRect(X + T - 4, pTop + 1, 1, pH - 2);
-    b.fillStyle = U.shade(body, -0.24 * wd); b.fillRect(X + 3, pTop + pH - 2, T - 6, 1);
-    b.fillStyle = U.shade(body, 0.22 * wd); b.fillRect(X, topY, T, 1);               // trim line along the run
+    b.fillStyle = shade(body, -0.20 * wd); b.fillRect(X + 2, pTop, T - 4, pH);     // recess
+    b.fillStyle = shade(body, 0.06 * wd); b.fillRect(X + 3, pTop + 1, T - 6, pH - 2);
+    b.fillStyle = shade(body, 0.18 * wd); b.fillRect(X + 3, pTop + 1, T - 6, 1);   // lit inner top
+    b.fillStyle = shade(body, 0.14 * wd); b.fillRect(X + 3, pTop + 1, 1, pH - 2);  // lit inner left
+    b.fillStyle = shade(body, -0.24 * wd); b.fillRect(X + T - 4, pTop + 1, 1, pH - 2);
+    b.fillStyle = shade(body, -0.24 * wd); b.fillRect(X + 3, pTop + pH - 2, T - 6, 1);
+    b.fillStyle = shade(body, 0.22 * wd); b.fillRect(X, topY, T, 1);               // trim line along the run
     wallFoot(b, body, X, footY, wd);
   }
 
@@ -1594,16 +1683,16 @@ const StationBake = (() => {
      Baked stars would be a lie — the real sky is already back there, and it moves. */
   function wallViewport(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const body = U.shade(pal.face, ((n % 3) - 1) * 0.02 * wd);
+    const body = shade(pal.face, ((n % 3) - 1) * 0.02 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
     const gTop = topY + 3, gH = Math.max(3, h - 9);
     b.clearRect(X + 1, gTop, T - 1, gH);                     // THE HOLE — 1px left mullion kept per tile
     viewportRects.push({ x: X + 1, y: gTop, w: T - 1, h: gH });
     // frame: bright sill under the glass, shaded head above, mullion at the tile seam
-    b.fillStyle = U.shade(body, -0.40 * wd); b.fillRect(X, gTop - 1, T, 1);          // head shadow
-    b.fillStyle = U.shade(body, 0.26 * wd); b.fillRect(X, gTop + gH, T, 2);          // lit sill
-    b.fillStyle = U.shade(body, 0.34 * wd); b.fillRect(X, gTop + gH, T, 1);
-    b.fillStyle = U.shade(body, 0.10 * wd); b.fillRect(X, gTop, 1, gH);              // mullion
+    b.fillStyle = shade(body, -0.40 * wd); b.fillRect(X, gTop - 1, T, 1);          // head shadow
+    b.fillStyle = shade(body, 0.26 * wd); b.fillRect(X, gTop + gH, T, 2);          // lit sill
+    b.fillStyle = shade(body, 0.34 * wd); b.fillRect(X, gTop + gH, T, 1);
+    b.fillStyle = shade(body, 0.10 * wd); b.fillRect(X, gTop, 1, gH);              // mullion
     wallFoot(b, body, X, footY, wd);
   }
 
@@ -1611,22 +1700,22 @@ const StationBake = (() => {
      horizontal cable tray, and the occasional valve block. The utility/engine-room read. */
   function wallPipework(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const body = U.shade(pal.face, ((n % 4) - 1.5) * 0.025 * wd);
+    const body = shade(pal.face, ((n % 4) - 1.5) * 0.025 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
-    b.fillStyle = U.shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);
+    b.fillStyle = shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);
     const pipe = (px, w) => {                                                        // a round-read pipe
-      b.fillStyle = U.shade(body, -0.34 * wd); b.fillRect(X + px, topY, w, h);
-      b.fillStyle = U.shade(body, 0.24 * wd); b.fillRect(X + px + 1, topY, 1, h);    // highlight column
-      b.fillStyle = U.shade(body, -0.48 * wd); b.fillRect(X + px + w - 1, topY, 1, h);
+      b.fillStyle = shade(body, -0.34 * wd); b.fillRect(X + px, topY, w, h);
+      b.fillStyle = shade(body, 0.24 * wd); b.fillRect(X + px + 1, topY, 1, h);    // highlight column
+      b.fillStyle = shade(body, -0.48 * wd); b.fillRect(X + px + w - 1, topY, 1, h);
     };
     pipe(2 + (n % 2), 3);
     if (n % 3 !== 0) pipe(8, 2);
     const tray = topY + Math.round(h * 0.66);                                        // horizontal cable tray
-    b.fillStyle = U.shade(body, -0.38 * wd); b.fillRect(X, tray, T, 3);
-    b.fillStyle = U.shade(body, 0.16 * wd); b.fillRect(X, tray, T, 1);
+    b.fillStyle = shade(body, -0.38 * wd); b.fillRect(X, tray, T, 3);
+    b.fillStyle = shade(body, 0.16 * wd); b.fillRect(X, tray, T, 1);
     if (n % 7 === 2) {                                                               // valve block
-      b.fillStyle = U.shade(body, 0.10 * wd); b.fillRect(X + 1 + (n % 2), topY + 4, 5, 4);
-      b.fillStyle = U.shade(body, -0.44 * wd); b.fillRect(X + 2 + (n % 2), topY + 5, 3, 1);
+      b.fillStyle = shade(body, 0.10 * wd); b.fillRect(X + 1 + (n % 2), topY + 4, 5, 4);
+      b.fillStyle = shade(body, -0.44 * wd); b.fillRect(X + 2 + (n % 2), topY + 5, 3, 1);
     }
     wallFoot(b, body, X, footY, wd);
   }
@@ -1636,21 +1725,21 @@ const StationBake = (() => {
      wainscot wall above a plank deck from looking like one continuous surface. */
   function wallWainscot(b, pal, X, topY, h, e, n, room, footY) {
     const wd = wallDet();
-    const upper = U.shade(pal.face, 0.10 * wd);
+    const upper = shade(pal.face, 0.10 * wd);
     b.fillStyle = upper; b.fillRect(X, topY, T, h);                                  // plain plaster above
-    b.fillStyle = U.shade(upper, -0.08 * wd); b.fillRect(X, topY, 1, h);
+    b.fillStyle = shade(upper, -0.08 * wd); b.fillRect(X, topY, 1, h);
     const railY = topY + Math.round(h * 0.42);
     const boardTop = railY + 2;
-    b.fillStyle = U.shade(pal.face, -0.10 * wd); b.fillRect(X, boardTop, T, footY - boardTop);
+    b.fillStyle = shade(pal.face, -0.10 * wd); b.fillRect(X, boardTop, T, footY - boardTop);
     for (let i = 0; i < T; i += 3) {                                                 // vertical boards
       const bn = h2(e.x * 4 + i, e.y, 'wsc');
-      b.fillStyle = U.shade(pal.face, (((bn % 5) - 2) * 0.020 - 0.10) * wd); b.fillRect(X + i, boardTop, 3, footY - boardTop);
-      b.fillStyle = U.shade(pal.face, -0.36 * wd); b.fillRect(X + i, boardTop, 1, footY - boardTop);      // board seam
-      b.fillStyle = U.shade(pal.face, 0.04 * wd); b.fillRect(X + i + 1, boardTop, 1, footY - boardTop);   // lit face
-      if (bn % 4 === 0) b.fillStyle = U.shade(pal.face, -0.18 * wd), b.fillRect(X + i + 1, boardTop + 2 + (bn % 4), 1, 2);  // grain fleck
+      b.fillStyle = shade(pal.face, (((bn % 5) - 2) * 0.020 - 0.10) * wd); b.fillRect(X + i, boardTop, 3, footY - boardTop);
+      b.fillStyle = shade(pal.face, -0.36 * wd); b.fillRect(X + i, boardTop, 1, footY - boardTop);      // board seam
+      b.fillStyle = shade(pal.face, 0.04 * wd); b.fillRect(X + i + 1, boardTop, 1, footY - boardTop);   // lit face
+      if (bn % 4 === 0) b.fillStyle = shade(pal.face, -0.18 * wd), b.fillRect(X + i + 1, boardTop + 2 + (bn % 4), 1, 2);  // grain fleck
     }
-    b.fillStyle = U.shade(pal.face, -0.34 * wd); b.fillRect(X, railY, T, 2);         // chair rail
-    b.fillStyle = U.shade(pal.face, 0.30 * wd); b.fillRect(X, railY, T, 1);          // lit rail edge
+    b.fillStyle = shade(pal.face, -0.34 * wd); b.fillRect(X, railY, T, 2);         // chair rail
+    b.fillStyle = shade(pal.face, 0.30 * wd); b.fillRect(X, railY, T, 1);          // lit rail edge
     wallFoot(b, pal.face, X, footY, wd);
   }
 
@@ -1660,16 +1749,16 @@ const StationBake = (() => {
     const wd = wallDet();
     // foliage lifts go through vivid() for the same reason the TURF deck's do: U.shade would take
     // the lit leaves toward white and the hedge would read as a grey bush.
-    const body = U.shade(pal.base, -0.34 * wd);
+    const body = shade(pal.base, -0.34 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
-    const LEAF = [U.shade(pal.base, -0.20 * wd), vivid(pal.base, 0.10 * wd), vivid(pal.base, 0.30 * wd), vivid(pal.base, 0.50 * wd)];
+    const LEAF = [shade(pal.base, -0.20 * wd), vivid(pal.base, 0.10 * wd), vivid(pal.base, 0.30 * wd), vivid(pal.base, 0.50 * wd)];
     const leaves = Math.max(8, Math.round(T * h / 6));
     for (let i = 0; i < leaves; i++) {
       const r = hp(X, topY, i);
       const ly = (r >>> 5) % h;
       // darker toward the base, where light doesn't reach into the foliage
       const k = 1 - 0.45 * (ly / Math.max(1, h));
-      b.fillStyle = U.shade(LEAF[(r >>> 11) & 3], -(1 - k) * 0.5);
+      b.fillStyle = shade(LEAF[(r >>> 11) & 3], -(1 - k) * 0.5);
       b.fillRect(X + (r % T), topY + ly, 1, Math.min(1 + ((r >>> 14) % 2), h - ly));
     }
     b.fillStyle = vivid(pal.base, 0.62 * wd); b.fillRect(X + (hp(X, topY, 91) % T), topY, 1, 2);   // lit crown sprig
@@ -1726,8 +1815,8 @@ const StationBake = (() => {
     const wd = wallDet();
     const px = (a, c, w, ht, col) => { b.fillStyle = col; b.fillRect(a, c, w, ht); };
     const bay = Math.floor(e.x / 2), tx = ((e.x % 2) + 2) % 2;      // tx 0 = the pilaster tile
-    const body = U.shade(pal.face, ((h2(bay, e.y, 'bht') % 5) - 2) * 0.014 * wd);
-    const sh = d => U.shade(body, d * wd);
+    const body = shade(pal.face, ((h2(bay, e.y, 'bht') % 5) - 2) * 0.014 * wd);
+    const sh = d => shade(body, d * wd);
     px(X, topY, T, h, body);
     wallFoot(b, body, X, footY, wd);                                                  // seated first, marks over it
     px(X, topY + 2, T, 1, sh(0.07));                                                  // a single lit line under the crown
@@ -1749,8 +1838,8 @@ const StationBake = (() => {
     for (let ci = 0; ci < cuts.length; ci++) {
       const y0 = topY + cuts[ci], y1 = topY + (ci + 1 < cuts.length ? cuts[ci + 1] : usable);
       const cn = h2(Math.floor((e.x - ci * 2) / 4), ci, 'crs');
-      const body = U.shade(pal.face, (((cn % 5) - 2) * 0.018 - ci * 0.035) * wd);     // lower courses darker
-      const sh = d => U.shade(body, d * wd);
+      const body = shade(pal.face, (((cn % 5) - 2) * 0.018 - ci * 0.035) * wd);     // lower courses darker
+      const sh = d => shade(body, d * wd);
       px(X, y0, T, y1 - y0, body);
       px(X, y0, T, 1, sh(0.16));                                                      // lit course lip
       px(X, y1 - 1, T, 1, sh(-0.30));                                                 // shadowed underside
@@ -1774,8 +1863,8 @@ const StationBake = (() => {
     const wd = wallDet();
     const px = (a, c, w, ht, col) => { b.fillStyle = col; b.fillRect(a, c, w, ht); };
     const pan = Math.floor(e.x / 4), lx = ((e.x % 4) + 4) % 4;
-    const body = U.shade(pal.face, ((h2(pan, e.y, 'svc') % 5) - 2) * 0.015 * wd);
-    const sh = d => U.shade(body, d * wd);
+    const body = shade(pal.face, ((h2(pan, e.y, 'svc') % 5) - 2) * 0.015 * wd);
+    const sh = d => shade(body, d * wd);
     px(X, topY, T, h, body);
     for (let i = 4; i < h - 5; i += 5) px(X, topY + i, T, 1, sh(-0.04));              // faint grain
     if (lx === 0) { px(X, topY, 1, h, sh(-0.30)); px(X + 1, topY, 1, h, sh(0.08)); }  // panel joint every 4 tiles
@@ -1948,29 +2037,29 @@ const StationBake = (() => {
     const a0 = axis === 'x' ? y : x;                       // this strip's absolute along-origin
     /* the depth ramp: lightest at the top edge where the ceiling light lands, falling to the floor
        contact. This is what makes 4px read as a surface with thickness instead of a stripe. */
-    const base = ed.glass ? U.shade(pal.base, -0.55) : pal.face;
+    const base = ed.glass ? shade(pal.base, -0.55) : pal.face;
     for (let d = 0; d < depth; d++) {
       const t = depth === 1 ? 0 : d / (depth - 1);
-      put(d, 0, len, U.shade(base, 0.12 - 0.38 * t));
+      put(d, 0, len, shade(base, 0.12 - 0.38 * t));
     }
     if (ed.speck) {                                        // foliage: no rhythm at all, just density
       for (let a = 0; a < len; a++) for (let d = 0; d < depth; d++) {
         const r = h2(a0 + a, d, 'wedge');
-        if (r % 3 === 0) put(d, a, 1, U.shade(base, 0.18));
-        else if (r % 5 === 0) put(d, a, 1, U.shade(base, -0.26));
+        if (r % 3 === 0) put(d, a, 1, shade(base, 0.18));
+        else if (r % 5 === 0) put(d, a, 1, shade(base, -0.26));
       }
       return;
     }
     for (const [d, lift] of (ed.runs || [])) {             // continuous lines running the wall's length
-      if (d < depth) put(d, 0, len, U.shade(base, lift));
+      if (d < depth) put(d, 0, len, shade(base, lift));
     }
     if (ed.pitch > 0) {                                    // the material's rhythm, across the depth
       const first = a0 - ((a0 % ed.pitch) + ed.pitch) % ed.pitch;
       for (let wa = first; wa < a0 + len; wa += ed.pitch) {
         const a = wa - a0;
         if (a < 0) continue;
-        for (let d = 0; d < depth; d++) put(d, a, 1, U.shade(base, ed.joint));
-        if (ed.litNext && a + 1 < len) for (let d = 0; d < depth; d++) put(d, a + 1, 1, U.shade(base, ed.litNext));
+        for (let d = 0; d < depth; d++) put(d, a, 1, shade(base, ed.joint));
+        if (ed.litNext && a + 1 < len) for (let d = 0; d < depth; d++) put(d, a + 1, 1, shade(base, ed.litNext));
       }
     }
   }
@@ -2606,7 +2695,7 @@ const StationBake = (() => {
        correction — the ring simply did not. Keep them together. */
     const xLo = outX < 0 ? Math.round(ax - HR) : X, xHi = outX < 0 ? X + T : Math.round(ax + HR);
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
-    const lit = U.shade(pal.cap, 0.30), seam = U.shade(pal.cap, -0.45);
+    const lit = shade(pal.cap, 0.30), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
     const put = (x, y, w, h, c) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
@@ -2801,7 +2890,7 @@ const StationBake = (() => {
          side there doesn't really feel like there's a real wall there"). Only the north wall is
          extruded up-screen, so it is the only one whose HEIGHT you can read directly; every other
          wall is seen from straight above and is read ENTIRELY by its lit top surface. That surface
-         used to be 3px of `U.shade(base,-0.22)` — DARKER than the deck it encloses — fronting 9px
+         used to be 3px of `shade(base,-0.22)` — DARKER than the deck it encloses — fronting 9px
          of global near-black hull, so the bright crown that defines a wall at any zoom simply
          STOPPED at the two top corners and the e/w sides read as "the floor ends here".
          The fix is not more contrast, it is the SAME LADDER bakeTallNorthFace paints, read outward
@@ -2810,7 +2899,7 @@ const StationBake = (() => {
          Nothing spikes above its neighbours — the -0.22 crest's original complaint (a bright 1px
          divider column, 2026-07-24) is avoided because the crown is a WIDE band with its highlight
          on the outer edge, where the hull is, not stranded in the middle of the wall. */
-      const crownLit = U.shade(pal.cap, 0.30), crownSeam = U.shade(pal.cap, -0.45);
+      const crownLit = shade(pal.cap, 0.30), crownSeam = shade(pal.cap, -0.45);
       const cw = sideCapW();
       // walls only extrude OUTSIDE the tile when the neighbour is void. Interior boundaries
       // (a non-door seam to another zone) draw the face only, so the wall never smears onto
@@ -2836,7 +2925,7 @@ const StationBake = (() => {
            band against a dark one, which is all the seating the edge needs.
            `DEPTH.southFoot` keeps the old band one slider away (1 = the shipped sliver). */
         const sf = Math.max(0, DEPTH.southFoot);
-        if (sf > 0.001) b.fillStyle = U.shade(pal.base, -0.62 * sf), b.fillRect(X, Y + T - dep, T, 1);
+        if (sf > 0.001) b.fillStyle = shade(pal.base, -0.62 * sf), b.fillRect(X, Y + T - dep, T, 1);
         /* THE SOUTH WALL HAS NO VISIBLE INNER FACE (2026-08-05, Andrew: "we need to remove the wall
            on the bottom it doesnt make sense to be there due to the angle").
            The camera sits above and SOUTH. That is what lets you see the north wall's inner face at
@@ -2851,7 +2940,7 @@ const StationBake = (() => {
         if (sf > 0.001) {
           const rows = Math.max(1, Math.round(fw * Math.min(1, sf)));
           for (let i = 0; i < rows; i++) {
-            b.fillStyle = U.shade(pal.base, (-0.62 + 0.16 * (rows <= 1 ? 1 : i / (rows - 1))) * Math.min(1, sf));
+            b.fillStyle = shade(pal.base, (-0.62 + 0.16 * (rows <= 1 ? 1 : i / (rows - 1))) * Math.min(1, sf));
             b.fillRect(X, Y + T - rows + i, T, 1);
           }
         }
@@ -2861,10 +2950,10 @@ const StationBake = (() => {
           crown(b, X, Y + T + cw, T, 1, crownLit);                                // lit outer edge
           b.fillStyle = crownSeam; b.fillRect(X, Y + T, T, 1);                    // dark seam under the crown
         } else {
-          b.fillStyle = U.shade(pal.base, -0.22); b.fillRect(X, Y + T - fw, T, 2);   // interior seam keeps the quiet crest
+          b.fillStyle = shade(pal.base, -0.22); b.fillRect(X, Y + T - fw, T, 2);   // interior seam keeps the quiet crest
         }
       } else if (e.side === 'w') {
-        b.fillStyle = U.shade(pal.base, -0.62); b.fillRect(X + fw, Y, 1, T);      // contact seam onto the deck
+        b.fillStyle = shade(pal.base, -0.62); b.fillRect(X + fw, Y, 1, T);      // contact seam onto the deck
         bakeSideFace(b, pal, mat, X, Y, fw, T, 'x', 1, eStrip);        // west: crown is to the LEFT, so depth grows with x
         if (e.exterior) {
           const side = Math.max(out, cw + 2, Math.round(WALL.side));   // the hull band under the crown — one width, corridors included (see sideCapW)
@@ -2875,7 +2964,7 @@ const StationBake = (() => {
           b.fillStyle = crownSeam; b.fillRect(X - 1, Y, 1, T);             // dark seam under the crown
         }
       } else {
-        b.fillStyle = U.shade(pal.base, -0.62); b.fillRect(X + T - dep, Y, 1, T);
+        b.fillStyle = shade(pal.base, -0.62); b.fillRect(X + T - dep, Y, 1, T);
         bakeSideFace(b, pal, mat, X + T - fw, Y, fw, T, 'x', -1, eStrip);   // east: crown is to the RIGHT — depth reversed
         if (e.exterior) {
           const side = Math.max(out, cw + 2, Math.round(WALL.side));   // the hull band under the crown — one width, corridors included (see sideCapW)
@@ -3042,7 +3131,7 @@ const StationBake = (() => {
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4 });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z) });
       }
       b.restore();
     }
@@ -3124,7 +3213,7 @@ const StationBake = (() => {
         falloffStops(g, POOL_RGB, LIGHT.floor);
         b.fillStyle = g; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4 });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z) });
       };
       /* A WALL WASH PER FIXTURE WAS TRIED HERE AND REMOVED (2026-07-29) — keep the result, it is
          not obvious. The theory was that a corridor's pool is centred on the passage and sized to
@@ -3762,7 +3851,7 @@ const StationBake = (() => {
         if (w > 0.001) for (const l of lampPos) {
           const r = l.r * 0.6;
           const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
-          falloffStops(g, LAMP_RGB, w);
+          falloffStops(g, l.rgb || LAMP_RGB, w);   // the film carries the ROOM's fixture temperature (lampRgbOf)
           F.fillStyle = g; F.fillRect(l.x - r, l.y - r, r * 2, r * 2);
         }
         /* VIEWPORT SPILL — the sky is a light source. A pane cut through the north wall opens onto

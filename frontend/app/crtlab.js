@@ -14,7 +14,7 @@
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
-  const LIGHT_DEFAULTS = { ambient: 0.8, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.26, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.14, spill: 0.7 };
+  const LIGHT_DEFAULTS = { ambient: 0.8, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.3, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.3, spill: 0.7 };
   // MUST MIRROR StationBake.SHAPE — same RESET-writes-these contract as WALL_DEFAULTS below.
   const SHAPE_DEFAULTS = { cornerN: 1 };
   /* MUST MIRROR StationBake.WALL EXACTLY — these are not just the readout's key list, RESET writes
@@ -22,7 +22,7 @@
      RESET restored a state that never shipped and side 12 pushed the wall band past the hull
      silhouette it is pinned to. Add a WALL knob, add it here. */
   const WALL_DEFAULTS = { up: 22, corUp: 12, skirt: 32, side: 7, capH: 4, sideCap: 5 };
-  const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
+  const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.45, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
   // TUBE APERTURE — the CSS glass vignette over the feed (app.css :root --tube-*). NOT the barrel warp:
   // `curve` bows the picture, these dim its outer band, and they move independently. Seeded from the live
   // custom properties at build time so opening the lab can never itself change the shipped look.
@@ -43,6 +43,8 @@
     // the pre-2026-09-02 station: linear pool falloff, warm-black shadow, no film, no spill, pools at
     // reach 1, plus the heavier scan/grain — A/B the whole glow-up against what shipped before it
     'Light: pre-09-02': { light: { ambient: 0.82, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, reach: 1, falloff: 0, cool: 0, warm: 0, spill: 0 }, crt: { scan: 0.43, grain: 0.24, aberr: 0.35 } },
+    // the pre-2026-09-03 world: no bloom, no prop light, no cast shadows' worth of light, thin film, faint dither — A/B the whole overhaul
+    'World: pre-09-03': { light: { warm: 0.14, floor: 0.26 }, depth: { dither: 0.15 }, crt: { bloom: 0, emit: 0 } },
     'Light: v1 (flat)': { light: { falloff: 0, cool: 0, warm: 0, spill: 0 } },
     // side is pinned at `pad` (7) — past it the wall band juts out of the station's own silhouette
     'Flat (old)':      { wall: { up: 0, corUp: 0, skirt: 12, side: 4 }, depth: { wallShadow: 0, sheen: 0, cornerAO: 0, dither: 0, floorWear: 0, floorDetail: 0, deckSeam: 0, wallDetail: 0, poolAlbedo: 0 } },

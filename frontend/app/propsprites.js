@@ -10398,7 +10398,7 @@ const PropSprites = (() => {
     const X = f.x * TILE, Y = f.y * TILE, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
     const reach = 3 + (SHADOW_TALL[f.t] || 0) + ((f.h || 1) >= 2 ? 2 : 0);
     // three nested steps, each smaller and darker, spreading south-east from the footprint's lower half
-    const steps = [[0, 0.07], [0.35, 0.09], [0.7, 0.11]];
+    const steps = [[0, 0.09], [0.35, 0.11], [0.7, 0.14]];
     for (const [k, a] of steps) {
       const rx = Math.round(reach * (1 - k));
       const ox = 2 + Math.round(k * 2), oy = Math.round(H * (0.45 + 0.25 * k));

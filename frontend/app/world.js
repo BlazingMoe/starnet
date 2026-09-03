@@ -5889,6 +5889,7 @@ const World = (() => {
     ctx.drawImage(cache.lightCv, 0, 0);
     drawGlows(now);
     drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
+    drawNavLights(now);   // the hull's running lights at every rounded corner — the one sign of life on the station's outside
     drawDust(now);   // Slice 3: tiny motes drifting through the light pools (world-space, additive, over the glows)
     drawDeskFlashes(now);   // G0.4/G0.8: red distress strobe over a desk whose run just died (additive, with the glows)
     drawAwakenLight(now);   // the soul kindling: ignition spark + a growing halo + motes (world-space additive, awakening only)
@@ -6224,7 +6225,8 @@ const World = (() => {
     for (const f of cache.flickers) {
       const a = Math.max(0, CRT.glow * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
       const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
-      g.addColorStop(0, 'rgba(238,218,184,' + a + ')'); g.addColorStop(1, 'rgba(238,218,184,0)');
+      const rgb = f.rgb || '238,218,184';   // the room's fixture temperature (StationBake.lampRgbOf); tungsten 'rgba(238,218,184' is the hab default
+      g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
       ctx.fillStyle = g; ctx.fillRect(f.x - f.r * 0.7, f.y - f.r * 0.7, f.r * 1.4, f.r * 1.4);
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -6258,6 +6260,33 @@ const World = (() => {
       ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
     }
     ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- HULL RUNNING LIGHTS (world overhaul, 2026-09-03) ----
+     A station's exterior is dark by design (the hull hangs outside the ambient plate), which left the
+     whole outside of the picture DEAD — nothing on it ever changed. Real hulls carry running lights.
+     One at every rounded (void-exposed) corner the geometry already computes, sat just outside the
+     plate ring: a slow red beat on one diagonal, amber on the other, each with a small additive halo so
+     it reads as a lamp and not a pixel. Purely cosmetic (never encodes state), steady under reduced
+     motion, and free — one small fill per corner. */
+  const NAV_PAD = 7;   // StationBake's plate `pad`: the ring reaches this far past the floor edge
+  function drawNavLights(now) {
+    if (!geo || !geo.chamfers || !geo.chamfers.length) return;
+    const still = reduceMotion();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [cx, cy, kind] of geo.chamfers) {
+      const east = kind === 'tr' || kind === 'br', south = kind === 'bl' || kind === 'br';
+      const x = cx * T + (east ? T + NAV_PAD - 3 : -NAV_PAD + 1), y = cy * T + (south ? T + NAV_PAD - 3 : -NAV_PAD + 1);
+      const red = (kind === 'tl' || kind === 'br');
+      const ph = (cx * 0.37 + cy * 0.61) % 1;
+      const t = still ? 0.5 : ((now / (red ? 1400 : 2200) + ph) % 1);
+      const on = still ? 0.55 : (t < 0.12 ? 1 : t < 0.3 ? 1 - (t - 0.12) / 0.18 : 0.06);
+      if (on < 0.05) continue;
+      const c = red ? '255,70,60' : '255,190,90';
+      ctx.fillStyle = 'rgba(' + c + ',' + (0.18 * on).toFixed(3) + ')'; ctx.fillRect(x - 3, y - 3, 8, 8);
+      ctx.fillStyle = 'rgba(' + c + ',' + (0.9 * on).toFixed(3) + ')'; ctx.fillRect(x, y, 2, 2);
+    }
     ctx.globalCompositeOperation = 'source-over';
   }
 
