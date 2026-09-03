@@ -96,12 +96,12 @@ const StationBake = (() => {
     return out;
   }
 
-  const WALL_TONE = { face: -0.40, top: -0.10, cap: 0.30 };
+  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.30 };
   let wallPalCache = null;
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
     if (p) return p;
-    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#3c3429';
+    const base = (G && G.wallBaseOf && G.wallBaseOf(z)) || '#3a3b41';
     p = { base, face: shade(base, WALL_TONE.face), top: shade(base, WALL_TONE.top), cap: shade(base, WALL_TONE.cap) };
     if (!wallPalCache) wallPalCache = new Map();
     wallPalCache.set(z, p);
@@ -237,7 +237,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.8, ambR: 7, ambG: 5, ambB: 3, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.3, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.6, warm: 0.3, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 1, room: 0.56, corridor: 0.4, door: 0.46, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -314,7 +314,7 @@ const StationBake = (() => {
                     so it gets its own knob rather than being deleted. Scales ONLY the seam/bevel
                     steps — per-plate tone, material dressing and wear are untouched.
                     0 = a genuinely seamless deck · 1 = the old hard v3 grid. */
-  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.45, floorWear: 0.55, floorDetail: 1, wallDetail: 1, deckSeam: 0.38, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 was Andrew's 07-13 dial; 0.45 (2026-09-03 overhaul) makes the light read in the same stepped pixel idiom as the geometry now that the pools have real shape
+  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.12, floorWear: 0.55, floorDetail: 1, wallDetail: 1, deckSeam: 0.38, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 was Andrew's 07-13 dial; 0.45 (2026-09-03 overhaul) makes the light read in the same stepped pixel idiom as the geometry now that the pools have real shape
 
   /* ============================ THE EXTERIOR SHELL (HULL SKINS) ============================
      Everything you see of a room from OUTSIDE: the plate surrounding its footprint, the texture
@@ -1031,18 +1031,18 @@ const StationBake = (() => {
     const stagger = (y % 3) * 2;
     const rel = ((x - stagger) % PWp + PWp) % PWp;              // safe mod: x-stagger can go negative
     const pn = h2(Math.floor((x - stagger) / PWp), y, ':pk');
-    const body = ((pn % 7) - 3) * 0.018;                         // per-BOARD tone (whole board, not per tile)
+    const body = ((pn % 7) - 3) * 0.045;                         // per-BOARD tone (whole board, not per tile)
     const sk = Math.max(0, DEPTH.deckSeam);                      // board joints ride the same knob
     px(X, Y, T, T, base);
     px(X, Y, T, T, sh(body));
-    px(X, Y, T, 1, sh(body + 0.10 * sk));                        // lit top edge of the board
+    px(X, Y, T, 1, sh(body + 0.18 * sk));                        // lit top edge of the board
     px(X, Y + T - 2, T, 1, sh(body - 0.10 * sk));                // shadow into the gap
-    px(X, Y + T - 1, T, 1, sh(body - 0.30 * sk));                // the gap between boards
-    if (rel === 0) { px(X, Y, 1, T, sh(body - 0.32 * sk)); px(X + 1, Y, 1, T, sh(body + 0.06 * sk)); }   // butt-end seam
-    px(X, Y + 3 + (n % 3), T, 1, sh(body - 0.07));               // grain hairlines running with the board
-    px(X, Y + 7 + (n % 3), T, 1, sh(body - 0.05));
+    px(X, Y + T - 1, T, 1, sh(body - 0.50 * sk));                // the gap between boards
+    if (rel === 0) { px(X, Y, 1, T, sh(body - 0.50 * sk)); px(X + 1, Y, 1, T, sh(body + 0.10 * sk)); }   // butt-end seam
+    px(X, Y + 3 + (n % 3), T, 1, sh(body - 0.10));               // grain hairlines running with the board
+    px(X, Y + 7 + (n % 3), T, 1, sh(body - 0.08));
     if (n % 3 === 0) px(X, Y + 5, T, 1, sh(body + 0.05));
-    if (n % 29 === 4) {                                          // knot
+    if (n % 17 === 4) {                                          // knot
       px(X + 3 + (n % 4), Y + 4, 4, 3, sh(body - 0.26));
       px(X + 4 + (n % 4), Y + 5, 2, 1, sh(body - 0.40));
     }
@@ -1140,19 +1140,19 @@ const StationBake = (() => {
     const pcx = Math.floor((x - off) / 4);
     const lx = ((x - off) % 4 + 4) % 4, ly = ((y % 3) + 3) % 3;
     const pn = h2(pcx, band, ':sp');   // world-keyed, never per-zone — see deckSlab's note
-    const body = ((pn % 5) - 2) * 0.013;
+    const body = ((pn % 5) - 2) * 0.03;
     px(X, Y, T, T, sh(body));
-    for (let i = 1; i < T; i += 3) px(X, Y + i, T, 1, sh(body + ((i & 1) ? 0.026 : -0.020)));   // brushed grain
+    for (let i = 1; i < T; i += 3) px(X, Y + i, T, 1, sh(body + ((i & 1) ? 0.05 : -0.04)));   // brushed grain
     // PLATE AS A PANEL — a 1px recess just inside the joint on the plate's own outer edges, so a
     // plate reads as a discrete bolted panel instead of a cell in a grid.
-    if (lx === 0) px(X + 2, Y, 1, T, sh(body - 0.09));
-    if (lx === 3) px(X + T - 3, Y, 1, T, sh(body - 0.09));
-    if (ly === 0) px(X, Y + 2, T, 1, sh(body - 0.09));
-    if (ly === 2) px(X, Y + T - 3, T, 1, sh(body - 0.09));
-    if (lx === 0) { px(X, Y, 1, T, sh(-0.26 * sk)); px(X + 1, Y, 1, T, sh(body + 0.07 * sk)); } // plate joint
-    if (ly === 0) { px(X, Y, T, 1, sh(-0.26 * sk)); px(X, Y + 1, T, 1, sh(body + 0.07 * sk)); }
+    if (lx === 0) px(X + 2, Y, 1, T, sh(body - 0.16));
+    if (lx === 3) px(X + T - 3, Y, 1, T, sh(body - 0.16));
+    if (ly === 0) px(X, Y + 2, T, 1, sh(body - 0.16));
+    if (ly === 2) px(X, Y + T - 3, T, 1, sh(body - 0.16));
+    if (lx === 0) { px(X, Y, 1, T, sh(-0.45 * sk)); px(X + 1, Y, 1, T, sh(body + 0.12 * sk)); } // plate joint
+    if (ly === 0) { px(X, Y, T, 1, sh(-0.45 * sk)); px(X, Y + 1, T, 1, sh(body + 0.12 * sk)); }
     // bolts at EVERY plate corner, not one — four fixings is what makes it read as fastened down
-    const bolt = (bx, by) => { px(bx, by, 2, 2, sh(0.15)); px(bx, by, 1, 1, sh(0.27)); px(bx + 1, by + 1, 1, 1, sh(-0.22)); };
+    const bolt = (bx, by) => { px(bx, by, 2, 2, sh(0.22)); px(bx, by, 1, 1, sh(0.40)); px(bx + 1, by + 1, 1, 1, sh(-0.35)); };
     if (ly === 0 && lx === 0) bolt(X + 3, Y + 3);
     if (ly === 0 && lx === 3) bolt(X + T - 5, Y + 3);
     if (ly === 2 && lx === 0) bolt(X + 3, Y + T - 5);
@@ -1194,16 +1194,16 @@ const StationBake = (() => {
     const pcx = Math.floor((x - off) / 2);
     const lx = ((x - off) % 2 + 2) % 2, ly = ((y % 2) + 2) % 2;
     const pn = h2(pcx, band, ':rn');
-    const body = ((pn % 5) - 2) * 0.013;
+    const body = ((pn % 5) - 2) * 0.03;
     px(X, Y, T, T, sh(body));
     for (let i = 1; i < T; i += 3) px(X, Y + i, T, 1, sh(body + ((i & 1) ? 0.024 : -0.018)));   // brushed grain
-    if (lx === 0) px(X + 2, Y, 1, T, sh(body - 0.09));                                          // panel recess
-    if (lx === 1) px(X + T - 3, Y, 1, T, sh(body - 0.09));
-    if (ly === 0) px(X, Y + 2, T, 1, sh(body - 0.09));
-    if (ly === 1) px(X, Y + T - 3, T, 1, sh(body - 0.09));
-    if (lx === 0) { px(X, Y, 1, T, sh(-0.26 * sk)); px(X + 1, Y, 1, T, sh(body + 0.07 * sk)); }  // plate joint
-    if (ly === 0) { px(X, Y, T, 1, sh(-0.26 * sk)); px(X, Y + 1, T, 1, sh(body + 0.07 * sk)); }
-    const bolt = (bx, by) => { px(bx, by, 2, 2, sh(0.15)); px(bx, by, 1, 1, sh(0.27)); px(bx + 1, by + 1, 1, 1, sh(-0.22)); };
+    if (lx === 0) px(X + 2, Y, 1, T, sh(body - 0.16));                                          // panel recess
+    if (lx === 1) px(X + T - 3, Y, 1, T, sh(body - 0.16));
+    if (ly === 0) px(X, Y + 2, T, 1, sh(body - 0.16));
+    if (ly === 1) px(X, Y + T - 3, T, 1, sh(body - 0.16));
+    if (lx === 0) { px(X, Y, 1, T, sh(-0.45 * sk)); px(X + 1, Y, 1, T, sh(body + 0.12 * sk)); }  // plate joint
+    if (ly === 0) { px(X, Y, T, 1, sh(-0.45 * sk)); px(X, Y + 1, T, 1, sh(body + 0.12 * sk)); }
+    const bolt = (bx, by) => { px(bx, by, 2, 2, sh(0.22)); px(bx, by, 1, 1, sh(0.40)); px(bx + 1, by + 1, 1, 1, sh(-0.35)); };
     if (ly === 0 && lx === 0) bolt(X + 3, Y + 3);
     if (ly === 0 && lx === 1) bolt(X + T - 5, Y + 3);
     if (ly === 1 && lx === 0) bolt(X + 3, Y + T - 5);
@@ -1343,7 +1343,7 @@ const StationBake = (() => {
          history on it rather than a fill. World-tile keyed like every other mark (chunk parity), never
          zone keyed (a re-roll at a room join would draw the seam the deck painters were fixed to hide).
          Rides floorDetail, so 0 is still the flat unadorned deck. */
-      const base = shade(G.baseColorOf(r.z, x, y), lowFreq(x, y) * 0.10 * fd);
+      const base = shade(G.baseColorOf(r.z, x, y), lowFreq(x, y) * 0.05 * fd);
       const X = x * T, Y = y * T, n = h2(x, y, r.z);
       const sh = d => shade(base, d * fd);
       paintDeck(b, mat, base, x, y, X, Y, r.z, n, fd);

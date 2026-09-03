@@ -54,7 +54,7 @@ A.ok(warm(glow) > warm(oldGlow), 'animated shimmer shifts warmer rather than mer
 /* World overhaul 2026-09-03: the film that puts light ON the deck under a lamp went 0.14 -> 0.3 and the
    deck pool 0.26 -> 0.3, measured on the same furnished lounge as CONTRAST (luma sd 28.8 -> 35+, crushed
    4% -> 2%) — the deck models by light now instead of sitting in one wash. Ambient, cuts, pitch unmoved. */
-const lightControls = { ambient: '0.8', pool: '1', room: '0.56', corridor: '0.4', door: '0.46', floor: '0.3', crown: '0.45', pitch: '8', reach: '1.3', falloff: '0.85', cool: '0.6', warm: '0.3', spill: '0.7' };
+const lightControls = { ambient: '0.84', pool: '1', room: '0.56', corridor: '0.4', door: '0.46', floor: '0.24', crown: '0.45', pitch: '8', reach: '1.3', falloff: '0.85', cool: '0.9', warm: '0.16', spill: '0.7' };
 for (const [key, value] of Object.entries(lightControls)) {
   const lock = new RegExp('\\b' + key + ': ' + value.replace('.', '\\.') + '(?:[, }])');
   A.ok(lock.test(bake), 'the shipped ' + key + ' lighting control remains ' + value);

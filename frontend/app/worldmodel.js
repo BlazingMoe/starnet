@@ -142,8 +142,8 @@ const WorldModel = (() => {
     // new station boots on and it measured the greyest room in the building (mean chroma 11 on a
     // furnished floor vs 22 on oak). Same value band, a notch of warmth — the lamp pools finally
     // have a colour to land on. Every other swatch is untouched.
-    hull:     { base: '#3c3429', label: 'HULL' },
-    corridor: { base: '#342d25', label: 'DECKING' },
+    hull:     { base: '#3a3b41', label: 'HULL' },
+    corridor: { base: '#31333a', label: 'DECKING' },
     cobalt:   { base: '#2b3340', label: 'COBALT' },
     rust:     { base: '#3a302a', label: 'RUST' },
     sterile:  { base: '#34383a', label: 'STERILE' },
