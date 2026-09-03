@@ -95,8 +95,11 @@ const scratch = mkdtempSync(join(tmpdir(), 'worldshot-'));
 materializeSeedWorkspace(scratch);
 const side = bootSeededSidecar({ port: PORT, scratchDir: scratch });
 if (!(await waitUp(URL))) { console.error('sidecar never came up'); side.kill(); process.exit(2); }
+if (process.env.SKYNET_WS_HOLD) { console.log('HOLD: seeded sidecar up at ' + URL + ' — Ctrl-C to stop'); console.log('STAGE=' + JSON.stringify(STAGE)); await new Promise(() => {}); }
 const chrome = findChrome();
-const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--no-proxy-server',
+// SKYNET_WS_GPU=1 keeps the real GPU (ANGLE/D3D11) instead of SwiftShader — the perf probe reports which one ran
+const GPU_ARGS = process.env.SKYNET_WS_GPU ? ['--headless=new', '--use-angle=d3d11', '--enable-gpu-rasterization', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] : ['--headless=new', '--disable-gpu'];
+const proc = spawn(chrome, [...GPU_ARGS, '--no-first-run', '--no-default-browser-check', '--no-proxy-server',
   '--hide-scrollbars', '--mute-audio', `--remote-debugging-port=${CDP_PORT}`, '--window-size=1440,900', `--user-data-dir=${join(scratch, 'chrome')}`, 'about:blank'], { stdio: 'ignore' });
 await sleep(1200);
 const cdp = await connectCDP(CDP_PORT);
@@ -112,7 +115,8 @@ await sleep(2500);   // rebake + a few frames so bodies settle
    requestAnimationFrame. Reports the mean and p95 of the rAF-to-rAF interval and of the time the
    frame callback itself spent (the render cost proper). SKYNET_WS_PERF=1 to enable; the number to
    compare across shots is `bodyMean` — the interval is capped by vsync and says little. */
-if (process.env.SKYNET_WS_PERF) {
+async function perfProbe(tag) {
+  if (!process.env.SKYNET_WS_PERF) return;
   const perf = await evalJS(cdp, `new Promise(res => {
     const raf = window.requestAnimationFrame, gaps = [], bodies = [];
     let prev = 0;
@@ -121,10 +125,11 @@ if (process.env.SKYNET_WS_PERF) {
       window.requestAnimationFrame = raf;
       const q = (arr, p) => { const s = arr.slice().sort((x, y) => x - y); return s.length ? +s[Math.min(s.length - 1, Math.floor(s.length * p))].toFixed(2) : 0; };
       const mean = arr => arr.length ? +(arr.reduce((x, y) => x + y, 0) / arr.length).toFixed(2) : 0;
-      res({ frames: bodies.length, gapMean: mean(gaps), gapP95: q(gaps, 0.95), bodyMean: mean(bodies), bodyP95: q(bodies, 0.95), stage: [document.getElementById('stage').width, document.getElementById('stage').height] });
+      let gpu = 'n/a'; try { const g = document.createElement('canvas').getContext('webgl'); const x = g.getExtension('WEBGL_debug_renderer_info'); gpu = x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : g.getParameter(g.RENDERER); } catch (_) {}
+      res({ gpu, frames: bodies.length, gapMean: mean(gaps), gapP95: q(gaps, 0.95), bodyMean: mean(bodies), bodyP95: q(bodies, 0.95), stage: [document.getElementById('stage').width, document.getElementById('stage').height] });
     }, 3000);
   })`);
-  console.log('perf:', JSON.stringify(perf));
+  console.log('perf ' + tag + ':', JSON.stringify(perf));
 }
 mkdirSync(OUT, { recursive: true });
 // VARIANTS — a ladder of look overrides shot from ONE boot. Each entry: { tag, light, crt, depth, css, js }.
@@ -143,6 +148,7 @@ await evalJS(cdp, `(() => {
   World.rebake(); return 'variant';
 })()`);
 await sleep(900);
+await perfProbe(TAGV);
 const shots = [
   ['wide', null],
   ['hab', [0, 0, 17, 10]],

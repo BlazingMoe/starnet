@@ -6297,51 +6297,51 @@ const World = (() => {
        1. the frame is drawn DOWN to 1/4 size (smoothing on: that is the first blur tap);
        2. the small copy is multiplied by itself twice, v → v⁴, which is a soft threshold — a lit deck at
           0.4 falls to 0.03 and vanishes, a screen at 0.9 keeps 0.66;
-       3. it is blurred (canvas `filter: blur()` where the engine has it; else a further down/up scale,
-          which is the same box blur by other means — WKWebView is the fallback's customer);
+       3. it is blurred by scaling — down to 1/3 and back up with bilinear smoothing, twice. That is a
+          box blur by other means, and it is a plain resample the GPU (and even SwiftShader) does for
+          nothing; canvas `filter: blur()` was measured at +3 ms a frame on the software GL of headless
+          Chrome and WKWebView does not ship it at all;
        4. it is added back over the frame at CRT.bloom, upscaled with smoothing so it is a haze, not blocks.
      Runs BEFORE the barrel warp so the bloom bows with the picture and the scanlines then sit over both.
-     Cost: five small drawImage calls, ~0.3 ms. Never reads pixels back (the frame-loop getImageData law). */
-  let _blA = null, _blB = null, _blCtxA = null, _blCtxB = null, _blFilter = null;
+     THE HAZE IS EXTRACTED EVERY OTHER FRAME and the composite reuses it in between — at 1/5 resolution a
+     one-frame-stale bloom is invisible, and it halves the pass's cost. The only full-frame read is the
+     first downscale. Never reads pixels back (the frame-loop getImageData law). */
+  let _blA = null, _blB = null, _blCtxA = null, _blCtxB = null, _blFrame = 0, _blFresh = false;
   function drawBloom(now) {
     const k = +CRT.bloom;
     if (!cv || !(k > 0.001) || document.body.classList.contains('no-scan')) return;
     const W = cv.width, H = cv.height;
     if (W < 16 || H < 16) return;
-    const S = 4, bw = Math.max(2, Math.ceil(W / S)), bh = Math.max(2, Math.ceil(H / S));
+    const S = 5, bw = Math.max(3, Math.ceil(W / S)), bh = Math.max(3, Math.ceil(H / S));
     if (!_blA || _blA.width !== bw || _blA.height !== bh) {
       _blA = document.createElement('canvas'); _blA.width = bw; _blA.height = bh; _blCtxA = _blA.getContext('2d');
       _blB = document.createElement('canvas'); _blB.width = bw; _blB.height = bh; _blCtxB = _blB.getContext('2d');
       if (!_blCtxA || !_blCtxB) { _blA = null; return; }
-      if (_blFilter == null) _blFilter = ('filter' in _blCtxA);
+      _blFresh = false;
     }
     const A = _blCtxA, B = _blCtxB;
-    A.setTransform(1, 0, 0, 1, 0, 0); A.globalCompositeOperation = 'source-over'; A.globalAlpha = 1; A.imageSmoothingEnabled = true;
-    A.clearRect(0, 0, bw, bh);
-    A.drawImage(cv, 0, 0, W, H, 0, 0, bw, bh);
-    A.globalCompositeOperation = 'multiply';
-    A.drawImage(_blA, 0, 0); A.drawImage(_blA, 0, 0);   // v → v² → v⁴: the soft threshold
-    A.globalCompositeOperation = 'source-over';
-    B.setTransform(1, 0, 0, 1, 0, 0); B.globalCompositeOperation = 'source-over'; B.globalAlpha = 1; B.imageSmoothingEnabled = true;
-    B.clearRect(0, 0, bw, bh);
-    let src = _blB;
-    if (_blFilter) {
-      const dpr = window.devicePixelRatio || 1;
-      B.filter = 'blur(' + (2.2 * dpr).toFixed(2) + 'px)';
-      B.drawImage(_blA, 0, 0);
-      B.filter = 'none';
-    } else {
-      const qw = Math.max(1, Math.ceil(bw / 3)), qh = Math.max(1, Math.ceil(bh / 3));
-      B.drawImage(_blA, 0, 0, bw, bh, 0, 0, qw, qh);
+    if (!_blFresh || (_blFrame++ & 1) === 0) {
+      A.setTransform(1, 0, 0, 1, 0, 0); A.globalCompositeOperation = 'source-over'; A.globalAlpha = 1; A.imageSmoothingEnabled = true;
       A.clearRect(0, 0, bw, bh);
-      A.drawImage(_blB, 0, 0, qw, qh, 0, 0, bw, bh);
-      src = _blA;
+      A.drawImage(cv, 0, 0, W, H, 0, 0, bw, bh);
+      A.globalCompositeOperation = 'multiply';
+      A.drawImage(_blA, 0, 0); A.drawImage(_blA, 0, 0);   // v → v² → v⁴: the soft threshold
+      A.globalCompositeOperation = 'source-over';
+      B.setTransform(1, 0, 0, 1, 0, 0); B.globalCompositeOperation = 'source-over'; B.globalAlpha = 1; B.imageSmoothingEnabled = true;
+      const qw = Math.max(1, Math.ceil(bw / 3)), qh = Math.max(1, Math.ceil(bh / 3));
+      for (let i = 0; i < 2; i++) {                        // two down/up rounds ≈ a 9px blur at full size
+        B.clearRect(0, 0, qw, qh);
+        B.drawImage(_blA, 0, 0, bw, bh, 0, 0, qw, qh);
+        A.clearRect(0, 0, bw, bh);
+        A.drawImage(_blB, 0, 0, qw, qh, 0, 0, bw, bh);
+      }
+      _blFresh = true;
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = Math.min(1, k);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(src, 0, 0, bw, bh, 0, 0, W, H);
+    ctx.drawImage(_blA, 0, 0, bw, bh, 0, 0, W, H);
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
