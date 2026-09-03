@@ -5623,3 +5623,28 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .dlv-fmain { flex: none; font-size: 9.5px; letter-spacing: 1px; color: var(--gold); }
 
 .dlv-none { margin: 0; font-size: 12px; color: var(--text); opacity: 0.55; }
+
+/* ===== BOOT GUARD — the fatal-boot banner (frontend/app/bootguard.js) =====
+   Rendered ONLY when a critical module global is missing or a <script> failed to load. Same matte CRT card
+   vocabulary as the gate screens (.panel bezel, .ov-recovery gold inset, .btn/.btn-xl hardware); the wrapper's
+   positioning/backdrop are ALSO set inline by the module so the banner survives app.css itself failing. */
+.bgf { color: var(--ph-bright); }
+.bgf-card {
+  width: min(760px, 94%); max-height: 92%; overflow-y: auto; padding: 18px 22px 16px;
+  background: radial-gradient(ellipse 130% 100% at 50% 0%, var(--ph-glow2), transparent 42%), var(--panel);
+  border: 1px solid rgba(0,0,0,.85); border-radius: var(--r-lg); box-shadow: var(--bezel);
+}
+.bgf-head { display: inline-block; color: var(--ink); background: var(--ph); padding: 2px 12px; letter-spacing: 2px; font-size: 22px; }
+.bgf-lead { margin-top: 12px; font-size: 17px; letter-spacing: .3px; color: var(--text); text-shadow: 0 0 6px var(--ph-glow2); }
+.bgf-list {
+  margin: 12px 0 0; padding: 9px 14px 9px 30px; font-size: 17px; color: var(--ph-bright);
+  border: 1px solid var(--gold); border-left: 4px solid var(--gold); border-radius: 3px;
+  background: rgba(var(--ph-rgb),.07); box-shadow: inset 0 0 22px rgba(0,0,0,.5), 0 0 12px var(--ph-glow2);
+}
+.bgf-list li { margin: 2px 0; }
+.bgf-pre {
+  margin: 12px 0 0; padding: 8px 10px; max-height: 180px; overflow: auto; font: 14px/1.3 VT323, monospace;
+  color: var(--ph-dim); background: rgba(0,0,0,.45); border: 1px solid var(--ph-faint); border-radius: 3px;
+  white-space: pre-wrap; word-break: break-word; user-select: text;
+}
+.bgf-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
