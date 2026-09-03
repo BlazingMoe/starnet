@@ -21,9 +21,9 @@ const stagedApp = fs.readFileSync(path.join(staged, 'app', 'index.html'));
 const stagedEmbed = fs.readFileSync(path.join(staged, 'app', 'embed.htm'));
 A.ok(stagedEmbed.equals(stagedApp), 'staged artifact carries a unique dashboard-upload-safe embed entry');
 
-const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'deploy-website.yml'), 'utf8');
-A.ok(/run: npm run website:stage/.test(workflow), 'Pages workflow builds the guarded artifact');
-A.ok(/path: website-deploy/.test(workflow), 'Pages workflow uploads only the guarded artifact');
+// 2026-09-03: the GitHub Pages workflow was removed — Pages was never enabled and it failed on
+// every trunk push since 2026-08-11. The real deploy is 'wrangler pages deploy website-deploy' by
+// hand, so the guard is the staging script itself (asserted above), not a workflow file.
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 A.eq(pkg.scripts['website:stage'], 'node scripts/stage-website-deploy.mjs', 'staging has one package entry point');
 

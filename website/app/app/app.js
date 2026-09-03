@@ -822,11 +822,15 @@ const App = (() => {
   }
   function applyQuickModel(sel) {
     if (!agent || !sel) return;
-    const model = String(sel.model || ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : '') || '').trim();
+    // An explicit empty model is meaningful: ModelDock uses it to invalidate a saved provider/model pair
+    // after a successful catalog proves the model absent. Do not `||` it back into the stale Harness value.
+    const suppliedModel = Object.prototype.hasOwnProperty.call(sel, 'model');
+    const model = String((suppliedModel ? sel.model : ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : '')) || '').trim();
     const provider = normalizeProviderId(sel.provider || ((typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter'));
     const effort = (typeof Harness !== 'undefined' && Harness.normalizeReasoningEffort) ? Harness.normalizeReasoningEffort(sel.effort) : String(sel.effort || 'medium');
     if (effort && typeof Harness !== 'undefined' && Harness.setReasoningEffort) Harness.setReasoningEffort(effort);
-    if (model) {
+    const catalogInvalid = sel.reason === 'catalog_unavailable';
+    if (model || catalogInvalid) {
       if (typeof Harness !== 'undefined' && Harness.setProv) Harness.setProv(provider);
       if (typeof Harness !== 'undefined' && Harness.setModel) Harness.setModel(model);
       agent.model = model; agent.provider = provider; agent.reasoningEffort = effort;   // #4: keep model+provider+effort TOGETHER on the agent
@@ -841,9 +845,13 @@ const App = (() => {
     if (typeof Chat !== 'undefined' && Chat.refreshIdBar) Chat.refreshIdBar();   // keep the COMMS header model readout in sync with the footer dock change
     if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();   // a provider switch can change key state — keep the keyless-brain banner honest
     if (typeof StationUI !== 'undefined' && StationUI.notify) {
-      const msg = sel.reason === 'effort'
-        ? 'REASONING: ' + effortLabel(effort)
-        : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
+      const msg = catalogInvalid
+        ? 'MODEL UNAVAILABLE: ' + String(sel.previousModel || 'saved model') + ' is not in the ' + providerLabel(provider) + ' catalog — pick a model to continue'
+        : sel.reason === 'catalog_reconcile'
+          ? 'MODEL UPDATED: ' + String(sel.previousModel || 'saved model') + ' → ' + model + ' (confirmed in ' + providerLabel(provider) + ')'
+          : sel.reason === 'effort'
+            ? 'REASONING: ' + effortLabel(effort)
+            : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
       StationUI.notify(msg, 'good');
     }
   }
@@ -1505,6 +1513,16 @@ const App = (() => {
       inp.placeholder = 'type a model slug — e.g. ' + (defId || 'gpt-5.5');
     }
     if (el('model-pop') && !el('model-pop').hidden) renderModelPop();   // live-refresh an open popover after a provider switch
+    // OLLAMA status = the catalog truth for this machine: a non-empty live list IS "ollama detected"; an empty one
+    // reads "not detected yet" with the setup pointer — never a claim the sidecar didn't earn.
+    if (p === 'ollama' && pickedProvider === 'ollama') {
+      const os = el('ollama-status');
+      if (os) {
+        os.textContent = list.length
+          ? '● ollama detected on this machine · ' + list.length + ' local model' + (list.length === 1 ? '' : 's') + ' ready'
+          : '○ ollama not detected yet — install it from ollama.com, pull a model, and it will show up here';
+      }
+    }
     updateHint();
   }
 
@@ -1860,10 +1878,14 @@ const App = (() => {
     // STARNET MANAGED wears its own link block (the codex-block twin) — visible only while picked.
     const isStarnet = pickedProvider === 'starnet';
     { const sb = el('starnet-block'); if (sb) sb.classList.toggle('hidden', !isStarnet); }
+    // OLLAMA (the free local path) wears its own honest block — visible only while picked; its status line is
+    // repainted by loadModels() from the sidecar's live catalog for 127.0.0.1:11434.
+    const isOllama = pickedProvider === 'ollama';
+    { const ob = el('ollama-block'); if (ob) ob.classList.toggle('hidden', !isOllama); }
     // the BYOK note talks about your key on 127.0.0.1 / the OS keychain — irrelevant and contradictory on the
     // keyless subscription paths (no key at all), so hide the whole disclosure there. On BYOK it stays collapsed
     // behind its toggle (progressive disclosure) — the note's own .hidden is owned by #byok-toggle, not this switch.
-    { const bd = el('byok-disclose'); if (bd) bd.classList.toggle('hidden', isOAuth || isStarnet); }
+    { const bd = el('byok-disclose'); if (bd) bd.classList.toggle('hidden', isOAuth || isStarnet || isOllama); }   // ollama: no key exists to ask about
     // Switching providers must drop any OTHER provider's in-flight device-code poll — a code minted for the
     // previous pick has no business connecting the new one's block. The active pick's own poll survives a re-click.
     cancelOAuthPolls(isOpenAI ? 'codex' : pickedProvider);   // the OPENAI card's sign-in IS the codex poll — keep it alive
@@ -4515,6 +4537,15 @@ const App = (() => {
     const status = el('unreachable-status');
     let attempts = 0, timer = null, checking = false, resetting = false, browserResetBlocked = false, preservedReset = null;
     const setStatus = m => { if (status) status.textContent = '＋ ' + m; };
+    // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
+    // screen used to offer nothing but the 5s poll — a dead end (audit: "first run fails silently"). Say plainly
+    // where the service lives, on the subtitle AND on every poll line, so the exit is never a mystery.
+    const core = tauriCore();
+    const BROWSER_HINT = 'the station service isn\'t answering. if you launched with `npm start`, check that terminal; otherwise open the desktop app.';
+    if (!core) {
+      if (sub && reason !== 'forbidden') sub.textContent = 'station service not answering (browser mode)';
+      setStatus(BROWSER_HINT);
+    }
     const attempt = async () => {
       if (checking || resetting || browserResetBlocked) return;
       checking = true;
@@ -4531,7 +4562,7 @@ const App = (() => {
         try { location.reload(); } catch (_) {}
         return;
       }
-      setStatus('still unreachable — retrying every 5s (attempt ' + attempts + '). Your save is untouched.');
+      setStatus('still unreachable — retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core ? '' : ' ' + BROWSER_HINT));
       checking = false;
     };
     const btn = el('btn-unreachable-retry');
@@ -4540,7 +4571,6 @@ const App = (() => {
     // the exit the retry loop can never reach on its own: a sidecar that is alive-but-wedged, or one that
     // exits before listening on every spawn, answers no poll ever (a macOS user sat at attempt 15+ with no
     // way out, 2026-08-22). Browser mode (no shell) has nothing to restart; the button stays hidden there.
-    const core = tauriCore();
     const restartBtn = el('btn-unreachable-restart');
     let restarting = false;
     const restart = async (auto) => {
@@ -4621,6 +4651,41 @@ const App = (() => {
             if (btn) btn.disabled = browserResetBlocked;
             if (restartBtn) restartBtn.disabled = browserResetBlocked;
             setStatus((browserResetBlocked ? 'the clean station is still protected from the uncleared window cache — retry START COMPLETELY FRESH. ' : 'nothing was reset — ') + String(error && error.message || error));
+          }
+        };
+      } else if (!core && typeof FreshStart !== 'undefined' && FreshStart.clearBrowserState) {
+        // BROWSER MODE exit — START FRESH scoped to what this window actually owns. This gate only opens when the
+        // local cache is ALREADY empty (Save.load() null) and the durable side could not be read, so the only
+        // StarNet state left in this browser is stale bookkeeping (prefs, a dead session token, a dev fault flag);
+        // clearing it cannot lose a save. The sidecar's own files are never touched from here — the copy says so.
+        // Two clicks, same arm/confirm shape as the desktop path. Honest label: it is NOT the desktop quarantine.
+        const LABEL = '✦ START FRESH (CLEAR BROWSER STATE)';
+        freshBtn.hidden = false;
+        freshBtn.textContent = LABEL;
+        freshBtn.onclick = () => {
+          SFX.click && SFX.click();
+          if (resetting) return;
+          if (!armed) {
+            armed = true;
+            freshBtn.textContent = '✦ CONFIRM — CLEAR BROWSER STATE';
+            setStatus('this clears only this browser\'s StarNet state (cached settings, any stale session) and reloads. The station service\'s own save files are not touched. Press again to confirm.');
+            setTimeout(() => { if (armed && !resetting) { armed = false; freshBtn.textContent = LABEL; } }, 12000);
+            return;
+          }
+          armed = false;
+          resetting = true;
+          freshBtn.disabled = true;
+          if (btn) btn.disabled = true;
+          try {
+            const n = FreshStart.clearBrowserState();
+            setStatus('cleared ' + n + ' browser key(s) — reloading…');
+            try { location.reload(); } catch (_) {}
+          } catch (error) {
+            resetting = false;
+            freshBtn.disabled = false;
+            if (btn) btn.disabled = false;
+            freshBtn.textContent = LABEL;
+            setStatus('nothing was cleared — ' + String(error && error.message || error));
           }
         };
       } else freshBtn.hidden = true;

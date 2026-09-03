@@ -182,7 +182,10 @@
                 <button class="prov" data-prov="openai" aria-pressed="false">OPENAI</button>
                 <button class="prov" data-prov="anthropic" aria-pressed="false">ANTHROPIC</button>
                 <button class="prov" data-prov="gemini" aria-pressed="false">GEMINI</button>
-                <button class="prov" data-prov="ollama" aria-pressed="false">OLLAMA</button>
+                <!-- THE FREE PATH: a local model through Ollama — no key, no account, no bill. The tag makes the
+                     zero-cost door visible at the moment the brain is chosen (issue #6 audit: it was invisible);
+                     #ollama-block below is honest about needing Ollama installed and running. -->
+                <button class="prov prov-free" data-prov="ollama" aria-pressed="false">OLLAMA <span class="prov-tag">FREE · LOCAL</span></button>
                 <!-- the long tail hides behind MORE so a first-run user faces a handful of choices, not 15. All
                      buttons stay in the DOM (wiring untouched); app.js expands the grid when a tail provider is saved. -->
                 <button class="prov tail" data-prov="xai" aria-pressed="false">XAI</button>
@@ -235,6 +238,16 @@
                   <button type="button" id="btn-starnet-switch" class="btn hidden">↻ USE A DIFFERENT ACCOUNT</button>
                 </div>
                 <div class="dim hint" id="starnet-hint">Runs on your StarNet subscription — no API key to find or paste. You’ll confirm a short code in your browser; StarNet never handles your payment details in the app.</div>
+              </div>
+            </div>
+
+            <!-- OLLAMA free-local block — the keyless twin of the sign-in blocks (same classes, same rhythm).
+                 #ollama-status is a PROJECTION of the sidecar's model catalog for 127.0.0.1:11434 (app.js loadModels):
+                 it may only say "detected" once the sidecar listed real local models. Never a promise, never a gate. -->
+            <div id="ollama-block" class="hidden">
+              <div class="codex-signin">
+                <div id="ollama-status" class="codex-status">checking for ollama on this machine…</div>
+                <div class="dim hint" id="ollama-hint">Free and fully local — no key, no account, no bill. Needs <b>Ollama</b> installed and running on this machine (ollama.com), with at least one model pulled (e.g. <code>ollama pull llama3.1</code>). Honest caveat: local models are smaller than the cloud ones — expect slower, rougher work on long tasks.</div>
               </div>
             </div>
 
@@ -686,7 +699,8 @@
 
 <link rel="stylesheet" href="demo.css"><!-- WEBSITE EMBED ONLY: half-strength glass for the downscaled iframe -->
 <script src="demo-boot.js?v=20260810-default-station-v3"></script><!-- WEBSITE EMBED ONLY: seeds the captured demo save + DEV seam before any store reads -->
-<script src="app/legacymigrate.js"></script><!-- FIRST: migrate starnet.* localStorage keys -> starnet.* before any store reads -->
+<script src="app/bootguard.js"></script><!-- BOOT GUARD: installs the window error/unhandledrejection listeners before anything else can fail silently, then verifies the critical module globals after DOMContentLoaded (fatal banner names the file). Reads no state — the ONE script allowed ahead of legacymigrate -->
+<script src="app/legacymigrate.js"></script><!-- FIRST store-touching script: migrate starnet.* localStorage keys -> starnet.* before any store reads -->
 <script src="js/util.js"></script>
 <script src="app/asciifx.js"></script><!-- ASCII-motion kit (AsciiFX): decode/dissolve/typewriter primitives; must load before its consumers (chat.js, stationui.js) -->
 <script src="js/audio.js"></script>

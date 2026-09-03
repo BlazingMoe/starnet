@@ -136,6 +136,15 @@
           ts: num(e && e.ts) || null,
           message: redactStr(e && e.message)   // SECOND redaction backstop over the caller's already-redacted tail
         })).filter(e => e.message),
+        /* PROCESS FAULT (2026-09-03). An uncaught exception this process caught: health is DEGRADED (/api/health
+           answers 503) and, outside the test opt-out, the process is exiting so the shell watchdog restarts it.
+           null means no fault — a real measurement, not an assumption. Message is redacted like every free-text field. */
+        processFault: (s.processFault && typeof s.processFault === 'object') ? {
+          kind: clean(s.processFault.kind, 40) || 'uncaughtException',
+          message: redactStr(s.processFault.message) || 'unknown error',
+          at: num(s.processFault.at) || null,
+          exiting: bool(s.processFault.exiting)
+        } : null,
         /* SWALLOWED ERRORS (2026-08-21, reliability item 1). Every fire-and-forget seam in the sidecar goes through
            failopen.swallow(tag): the pass is allowed to fail, but the failure is COUNTED. Those counters used to
            end at console.warn — a probe that misread 100% of the time for weeks (the close-zombie incident) is the
@@ -207,6 +216,12 @@
         }
       } else {
         lines.push('  (not observed yet — no provider call has reported quota headers this session)');
+      }
+      // A process fault is the loudest line in the block: it explains a 503 health probe / LINK DOWN + restart.
+      if (r.processFault) {
+        lines.push('Process fault: ' + r.processFault.kind + ' — ' + r.processFault.message
+          + (r.processFault.at ? ' @ ' + iso(r.processFault.at) : '')
+          + (r.processFault.exiting ? ' (health DEGRADED; process exiting for the shell watchdog to restart)' : ' (health DEGRADED; kept alive by test opt-out)'));
       }
       lines.push('Recent errors:');
       if (r.errors.length) {

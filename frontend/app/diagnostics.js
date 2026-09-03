@@ -218,6 +218,19 @@
     }).catch(() => '');
   }
 
+  /* PAGE-ERROR TALLY (2026-09-03, "first run fails silently" audit). bootguard.js — the first app script —
+     counts window `error` / `unhandledrejection` events and script-load failures since page load. Neither report
+     above can see those (the sidecar never learns a page-side throw; localReport predates the guard), so every
+     copied report gets ONE appended line from BootGuard.summaryLine(): a real measurement ('none recorded since
+     page load' is a zero, not a guess). Pure: text in → text out; no BootGuard → text unchanged. */
+  function withPageErrors(text, guard) {
+    const g = guard || (typeof BootGuard !== 'undefined' ? BootGuard : null);
+    if (!text || !g || typeof g.summaryLine !== 'function') return text;
+    let line = '';
+    try { line = String(g.summaryLine() || ''); } catch (_) { line = ''; }
+    return line ? text + '\npage errors:   ' + line : text;
+  }
+
   /* Fetch → copy → tell the user. opts.notify (default true) shows a toast; opts.onDone(ok, text) fires after.
      opts.context ({ error, kind, engineAlive }) enriches the page-side fallback when the sidecar can't be read.
      Always resolves (never throws) with the boolean success so a caller can flip button state. */
@@ -227,6 +240,7 @@
     // Prefer the sidecar's full report; fall back to the page-side one rather than stranding the user.
     return fetchText()
       .then(text => text ? text : localReport(opts.context))
+      .then(text => text ? withPageErrors(text) : text)
       .then(text => {
       if (!text) { if (wantNotify) notify('could not read diagnostics — is the app still running?', 'warn'); if (opts.onDone) opts.onDone(false, ''); return false; }
       return copyToClipboard(text).then(ok => {
@@ -296,5 +310,5 @@
     return fetchText().then(paint).catch(() => paint(''));
   }
 
-  return { SUPPORT_EMAIL, supportEmail, hasSupport, fetchText, fetchReport, formatSwallowed, runLive, copy, showBlock, buildLine, localReport, copyText: copyToClipboard, _internals: { copyToClipboard, fallbackCopy, normSupport, SUPPORT_PLACEHOLDER, formatBuild, tauriCore, localRedact, apiOrigin, MAX_LINE_TAGS } };
+  return { SUPPORT_EMAIL, supportEmail, hasSupport, fetchText, fetchReport, formatSwallowed, runLive, copy, showBlock, buildLine, localReport, withPageErrors, copyText: copyToClipboard, _internals: { copyToClipboard, fallbackCopy, normSupport, SUPPORT_PLACEHOLDER, formatBuild, tauriCore, localRedact, apiOrigin, MAX_LINE_TAGS } };
 });

@@ -11,6 +11,7 @@ test/diagnostics.test.js
 test/diagnostics-support-email.test.js
 test/diagnostics-build.test.js
 test/diagnostics-dead-engine.test.js
+test/bootguard.test.js
 test/live-doctor.test.js
 test/live-doctor-ui.test.js
 test/outbound-failure-diagnosability.test.js
@@ -133,6 +134,7 @@ test/cloudsavecore.test.js
 test/cloudsave-refusal.test.js
 test/cloudsave-unknown.test.js
 test/freshstart.test.js
+test/unreachable-browser-mode.test.js
 test/desktop-fresh-start-contract.test.js
 test/cloudsave-unload.test.js
 test/fullscreen.test.js
@@ -441,6 +443,7 @@ test/genesis-phosphor-accessibility.test.js
 test/provider-oauth-parity.test.js
 test/personality-no-sample.test.js
 test/modelpicker.test.js
+test/model-provider-reconcile.test.js
 test/agent-model-select.test.js
 test/provider-connections-ui.test.js
 test/newhero-reset.test.js
@@ -690,3 +693,5 @@ test/failopen.test.js
 test/failopen-ratchet.test.js
 test/frontend-fetch-truth-ratchet.test.js
 test/loop-verdict.test.js
+test/free-path-ollama.test.js
+test/process-fault.test.js
