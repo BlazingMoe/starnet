@@ -226,12 +226,12 @@ A.ok(!parseGateLog('').ok, 'empty log rejected');
   const io = fakeRepo({ files: {
     '.dogfood/t0-clean-install-20260821/t0-clean-install-status.json': JSON.stringify({ version: '0.10.8', verdict: 'PASS' }),
     '.dogfood/g1/packaged-lifecycle-receipt.json': JSON.stringify({ tag: 'v0.10.8', ok: true }),
-    'qa/installed/last-smoke.json': JSON.stringify({ appVersion: '0.10.8', verdict: 'GREEN', stampIso: '2026-08-20T12:00:00Z' })
+    'qa/installed/last-smoke.json': JSON.stringify({ schemaVersion: 3, appVersion: '0.10.8', result: 'GREEN', stampIso: '2026-08-20T12:00:00Z' })
   } });
   const r = runPreflight(CTX, io);
   A.eq(byId(r, 't0').status, 'PASS', 'T0 receipt for target → PASS');
   A.eq(byId(r, 'g1').status, 'PASS', 'G1 receipt for target → PASS');
-  A.eq(byId(r, 'soak').status, 'PASS', 'fresh GREEN soak stamp for target → PASS');
+  A.eq(byId(r, 'soak').status, 'PASS', 'fresh schema-3 GREEN soak stamp for target → PASS');
   const r2 = runPreflight(CTX, fakeRepo({ files: { 'qa/installed/last-smoke.json': JSON.stringify({ appVersion: '0.10.7', verdict: 'GREEN', stampIso: '2026-08-20T12:00:00Z' }) } }));
   A.eq(byId(r2, 'soak').status, 'WARN', 'a soak of the PREVIOUS version is not a soak of the target');
   const r3 = runPreflight(CTX, fakeRepo({ files: { 'qa/installed/last-smoke.json': JSON.stringify({ appVersion: '0.10.8', verdict: 'GREEN', stampIso: '2026-08-01T12:00:00Z' }) } }));

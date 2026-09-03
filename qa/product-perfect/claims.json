@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "bd5fa9125c4e26dd0c343285512232ef0d7b181a",
+    "sourceCommit": "b24422956232b52d7cabce01827d309a4c545c72",
     "pathSetSha256": "a553b268ce2ae3a9eefc0e606a7e0954934d5aaa926387389c58c0ea6ed0169d",
     "files": [
       {
@@ -38,8 +38,8 @@
       },
       {
         "path": "RELEASE_NOTES.md",
-        "bytes": 2577,
-        "sha256": "0a499b4828946ca0c3ba1cf8c5854876ff88d0b6f16f5a5b05855b3dae24843a"
+        "bytes": 5023,
+        "sha256": "03ca9f26d7d4c6b4468ff164db5f51c368a568f9dde36138d114faafad91dd58"
       },
       {
         "path": "TERMS.md",
@@ -63,8 +63,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 364906,
-        "sha256": "87c1b9ef83b61f7a834116e7c7ad03dbde793c441961abd54fc9b1db34a6743a"
+        "bytes": 366553,
+        "sha256": "6d66a94c1df7552bb663b62a869debb2dd8770bd629af56056bc323eda752493"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -823,8 +823,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 80069,
-        "sha256": "7ee695acfe5825683ea63675f83b3912ea33da8d5ffae57428f60f09b01b6a30"
+        "bytes": 80830,
+        "sha256": "312fa43e0f8caa8e14bf37181f0d1b0f30bcf4f831fd3a750e17d054e369d27e"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1053,8 +1053,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 77211,
-        "sha256": "239b6092a46a1b3df1819e8ba0e159aca7fc4eb2422952fc621b7153d214247c"
+        "bytes": 77423,
+        "sha256": "55ac9e088d0bef020e8a6970dcddf8a562469d08a3b6edac5c05ec6015c43aeb"
       },
       {
         "path": "frontend/js/arcade.js",

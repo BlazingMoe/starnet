@@ -153,4 +153,11 @@ function listPending(store, agentId) {
   return Array.isArray(v) ? v.filter(Boolean) : [];
 }
 
-module.exports = { makeMemoryStore, memoryFileFor, resetAgentMemory, restoreDeclined, appendPending, takePending, listPending, PENDING_CAP };
+// Non-consuming lookup for two-phase turn-in: KEEP/EDIT must prove the destination write before the proposal is
+// removed. Consuming first loses the Commander's decision forever when the notebook/skill disk write fails.
+function findPending(store, agentId, runId, id) {
+  const key = pendingKey(runId, id);
+  return listPending(store, agentId).find(e => e && e.key === key) || null;
+}
+
+module.exports = { makeMemoryStore, memoryFileFor, resetAgentMemory, restoreDeclined, appendPending, takePending, listPending, findPending, PENDING_CAP };

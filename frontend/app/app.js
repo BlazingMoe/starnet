@@ -2771,6 +2771,7 @@ const App = (() => {
     agent.systemPrompt = composeSystemPrompt(agent);
     Harness.resetTotals();
     Workstreams.reset();   // a fresh General stream for the new agent
+    if (typeof Tutorial !== 'undefined' && Tutorial.reset) Tutorial.reset();   // a NEW Commander re-earns the one-shot tour + FIRST STEPS state (own key)
     if (typeof PitchStore !== 'undefined') PitchStore.reset();   // a brand-new hero re-earns its First Pitch (own key)
     if (typeof SuggestStore !== 'undefined') SuggestStore.reset();   // …and a fresh ongoing-suggestion cadence
     if (typeof SeedStore !== 'undefined') SeedStore.reset();   // …and a fresh seed-offer budget
@@ -4494,6 +4495,23 @@ const App = (() => {
     try { if (World && World.stop) World.stop(); } catch (_) {}
     const sub = el('unreachable-sub');
     if (sub) sub.textContent = reason === 'forbidden' ? 'station service refused this window (stale session) — a relaunch usually clears it' : 'station service not answering';
+    // Screenshot-readable diagnosis for a stranded beginner: support can distinguish an alive sidecar refusing
+    // stale window auth from a fetch that died after the page loaded without asking for Terminal logs.
+    const diagnosis = reason === 'forbidden'
+      ? { code: 'SAVE-403 · STALE WINDOW SESSION', text: 'the station service is running, but it refused this app window' }
+      : { code: 'SAVE-NET · SAVE REQUEST LOST', text: 'the app loaded, but its saved-station request did not return' };
+    const code = el('unreachable-code');
+    if (code) code.innerHTML = '<b>RECOVERY CODE: ' + diagnosis.code + '</b><br>' + diagnosis.text + '. Send a screenshot of this code to support.';
+    const reportBtn = el('btn-unreachable-report'), reportHost = el('unreachable-report');
+    if (reportBtn) reportBtn.onclick = () => {
+      SFX.click && SFX.click();
+      if (typeof Diag === 'undefined' || !Diag.copy) { if (status) status.textContent = '＋ recovery details unavailable — send a screenshot of ' + diagnosis.code; return; }
+      reportBtn.disabled = true; reportBtn.textContent = '⧉ COPYING…';
+      Diag.copy({ notify: false, context: { kind: diagnosis.code, error: diagnosis.text, engineAlive: true }, onDone: (ok, text) => {
+        reportBtn.disabled = false; reportBtn.textContent = ok ? '✓ RECOVERY DETAILS COPIED' : '⧉ RECOVERY DETAILS SHOWN BELOW';
+        if (!ok && reportHost && Diag.showBlock) Diag.showBlock(reportHost, { text });
+      } });
+    };
     const status = el('unreachable-status');
     let attempts = 0, timer = null, checking = false, resetting = false, browserResetBlocked = false, preservedReset = null;
     const setStatus = m => { if (status) status.textContent = '＋ ' + m; };

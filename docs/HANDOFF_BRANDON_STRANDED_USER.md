@@ -3,6 +3,19 @@
 Written mid-investigation, interrupted deliberately. Everything below is either **VERIFIED** (I ran it)
 or **UNPROVEN** (labelled). Do not repeat my mistake of treating a merged fix as a fixed user.
 
+## 2026-09-02 release-preparation update
+
+The two missing recovery affordances are now implemented on the v0.10.13 repair lane:
+
+- the unreachable screen renders a stable screenshot-readable diagnosis: `SAVE-403 · STALE WINDOW SESSION`
+  or `SAVE-NET · SAVE REQUEST LOST`, plus **COPY RECOVERY DETAILS** with a selectable fallback;
+- genesis exposes **USE A DIFFERENT ACCOUNT**, which clears the desktop token and sidecar link before
+  starting a new account-link flow.
+
+These changes make the next screenshot actionable and remove the wrong-account dead end. They do **not**
+prove Brandon's underlying account mapping or prove the flow on macOS. Do not tell him the issue is fixed
+until the account backend evidence and a physical Mac run confirm it.
+
 ---
 
 ## The user
@@ -102,10 +115,10 @@ listed but the app says LINKED, it is cause #2.
 
 - **Never proved live on a Mac.** The whole desktop path (restart command, boot reclaim) was proved by
   `cargo check` and Windows-side CDP only. Flagged as owed at merge; it is still owed.
-- **No log-out / unlink button** on the connect screen. He asked for it. There is `harness_clear_credits_token`
-  + the sidecar unlink route, but no UI at genesis. A user linked to the wrong account currently **cannot
-  recover in-app** — that is a real product hole and is probably the fix this whole thread needs.
-- The subtitle line on UNREACHABLE has still not been read.
+- ~~No log-out / unlink button on the connect screen.~~ Implemented as **USE A DIFFERENT ACCOUNT** on the
+  v0.10.13 repair lane; still owes physical Mac proof.
+- The old subtitle line was never captured from Brandon. The new stable support code makes the next screenshot
+  sufficient to classify the save failure without Terminal or logs.
 
 ## Rules for whoever picks this up
 

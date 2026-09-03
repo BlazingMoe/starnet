@@ -1108,6 +1108,19 @@ const Tutorial = (() => {
     if (typeof Dialogue !== 'undefined' && Dialogue.isOpen && Dialogue.isOpen()) Dialogue.close();
   }
 
+  // A NEW Commander is a new onboarding owner, not a returning user. Clear this module's one-shot key and every
+  // in-memory latch after tearing down overlays/listeners, so the fresh hero genuinely receives the tour and
+  // first-steps map instead of inheriting the previous Commander's completed tutorial.
+  function reset() {
+    teardown();
+    try { localStorage.removeItem(KEY); } catch (_) {}
+    state = load();
+    active = false; wired = false; finished = false; replayMode = false; agentName = 'AGENT';
+    sawStart = false; sawPermission = false; sawEnd = false; sawDeny = false; cleanRunId = null;
+    kitMode = false; kitNeeded = null; kitComplete = false; kitWasOpen = false; kitHold = false; kitFocusKey = null;
+    return state;
+  }
+
   // G1c coordination — is the tutorial ACTIVELY coaching right now (a live coach bubble / the kit-out loop /
   // the awakening tour)? The deferred BUILD-dock glow (dockglow.js) checks this and stands down while true —
   // the tutorial's own targeting always wins, so the two never glow different controls at once.
@@ -1116,7 +1129,7 @@ const Tutorial = (() => {
   return {
     firstCommand, replayFirstCommand, spotlight, seen, markSeen, _state: () => state,
     onBuildOpen, onPropPlaced, onBeltPlaced, onConnectorPlaced, onLevelUp, clearCoach,
-    onEnterGame, fillFieldManual, showBrief, tickBrief, teardown, isCoaching, watchConnectors
+    onEnterGame, fillFieldManual, showBrief, tickBrief, teardown, reset, isCoaching, watchConnectors
   };
 })();
 
