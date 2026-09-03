@@ -1513,6 +1513,16 @@ const App = (() => {
       inp.placeholder = 'type a model slug — e.g. ' + (defId || 'gpt-5.5');
     }
     if (el('model-pop') && !el('model-pop').hidden) renderModelPop();   // live-refresh an open popover after a provider switch
+    // OLLAMA status = the catalog truth for this machine: a non-empty live list IS "ollama detected"; an empty one
+    // reads "not detected yet" with the setup pointer — never a claim the sidecar didn't earn.
+    if (p === 'ollama' && pickedProvider === 'ollama') {
+      const os = el('ollama-status');
+      if (os) {
+        os.textContent = list.length
+          ? '● ollama detected on this machine · ' + list.length + ' local model' + (list.length === 1 ? '' : 's') + ' ready'
+          : '○ ollama not detected yet — install it from ollama.com, pull a model, and it will show up here';
+      }
+    }
     updateHint();
   }
 
@@ -1868,10 +1878,14 @@ const App = (() => {
     // STARNET MANAGED wears its own link block (the codex-block twin) — visible only while picked.
     const isStarnet = pickedProvider === 'starnet';
     { const sb = el('starnet-block'); if (sb) sb.classList.toggle('hidden', !isStarnet); }
+    // OLLAMA (the free local path) wears its own honest block — visible only while picked; its status line is
+    // repainted by loadModels() from the sidecar's live catalog for 127.0.0.1:11434.
+    const isOllama = pickedProvider === 'ollama';
+    { const ob = el('ollama-block'); if (ob) ob.classList.toggle('hidden', !isOllama); }
     // the BYOK note talks about your key on 127.0.0.1 / the OS keychain — irrelevant and contradictory on the
     // keyless subscription paths (no key at all), so hide the whole disclosure there. On BYOK it stays collapsed
     // behind its toggle (progressive disclosure) — the note's own .hidden is owned by #byok-toggle, not this switch.
-    { const bd = el('byok-disclose'); if (bd) bd.classList.toggle('hidden', isOAuth || isStarnet); }
+    { const bd = el('byok-disclose'); if (bd) bd.classList.toggle('hidden', isOAuth || isStarnet || isOllama); }   // ollama: no key exists to ask about
     // Switching providers must drop any OTHER provider's in-flight device-code poll — a code minted for the
     // previous pick has no business connecting the new one's block. The active pick's own poll survives a re-click.
     cancelOAuthPolls(isOpenAI ? 'codex' : pickedProvider);   // the OPENAI card's sign-in IS the codex poll — keep it alive
