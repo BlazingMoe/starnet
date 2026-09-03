@@ -64,6 +64,10 @@ const ModelDock = (() => {
   let open = false;
   let loading = false;
   let cache = {};
+  // Per-provider truth about the catalog fetch. A populated fallback list is useful for recovery, but it is
+  // not proof that a saved model still belongs to the active provider. Only a successful provider response
+  // may reconcile (or invalidate) the current provider/model pair.
+  let catalogState = {};
   let models = [];
 
   function provider() {
@@ -195,8 +199,48 @@ const ModelDock = (() => {
   function mergeCurrent(list) {
     const current = getModel();
     const p = provider();
-    if (current && !list.some(m => m.id === current && normalizeProvider(m.provider) === p)) list.unshift({ id: current, name: current, provider: p });
+    // Preserve a saved current model only while the active catalog is unavailable. Once a successful catalog
+    // says it is absent, reconcileCurrentModel() has either mapped it to a proven provider-native id or cleared
+    // it. Re-inserting it here was the stale-model bug: a bare Anthropic id appeared selectable under STARNET.
+    if (current && !list.some(m => m.id === current && normalizeProvider(m.provider) === p) && !(catalogState[p] && catalogState[p].confirmed)) {
+      list.unshift({ id: current, name: current, provider: p, fallback: true, unverifiedCurrent: true });
+    }
     return list.filter(m => m && m.id);
+  }
+
+  // Return a catalog-confirmed equivalent for a model whose provider changed. Managed StarNet/OpenRouter ids
+  // are vendor/model; Anthropic's direct API uses the bare tail. Never invent a slug: a candidate is returned
+  // only when that exact id is present in the successful catalog.
+  function catalogEquivalent(current, p, list) {
+    const id = String(current || '').trim();
+    p = normalizeProvider(p);
+    const rows = Array.isArray(list) ? list : [];
+    if (!id) return '';
+    if (rows.some(m => m && m.id === id)) return id;
+    let candidate = '';
+    if ((p === 'starnet' || p === 'openrouter') && id.indexOf('/') < 0) candidate = 'anthropic/' + id;
+    else if (p === 'anthropic' && /^anthropic\//i.test(id)) candidate = id.slice(id.indexOf('/') + 1);
+    return candidate && rows.some(m => m && m.id === candidate) ? candidate : '';
+  }
+
+  function reconcileCurrentModel(p, list) {
+    p = normalizeProvider(p);
+    if (!(catalogState[p] && catalogState[p].confirmed)) return;
+    const current = getModel();
+    if (!current || (Array.isArray(list) && list.some(m => m && m.id === current))) return;
+    const next = catalogEquivalent(current, p, list);
+    const picked = next && list.find(m => m && m.id === next);
+    const effort = picked ? clampEffortForModel(currentEffort(), picked) : currentEffort();
+    if (typeof Harness !== 'undefined' && Harness.setProv) Harness.setProv(p);
+    if (typeof Harness !== 'undefined' && Harness.setModel) Harness.setModel(next);
+    if (picked && typeof Harness !== 'undefined' && Harness.setReasoningEffort) Harness.setReasoningEffort(effort);
+    if (opts.apply) opts.apply({
+      model: next,
+      provider: p,
+      effort: effort,
+      reason: next ? 'catalog_reconcile' : 'catalog_unavailable',
+      previousModel: current
+    });
   }
 
   // Does this provider require an API key to run at all? (Codex uses OAuth; ollama/custom are keyless
@@ -355,31 +399,44 @@ const ModelDock = (() => {
       return cache[p].slice();
     }
     let list = [];
+    let confirmed = false;
     try {
       if (p === 'codex') {
-        if (!(await codexEnabled())) { cache[p] = []; return []; }
+        if (!(await codexEnabled())) { catalogState[p] = { confirmed: false, reason: 'not connected' }; cache[p] = []; return []; }
         const r = await apiFetch('/api/auth/codex/models', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
-        if (Array.isArray(j.models)) list = j.models.map(m => asModel(m, p));
+        if (!Array.isArray(j.models)) throw new Error((j && j.error) || 'invalid catalog response');
+        list = j.models.map(m => asModel(m, p)); confirmed = true;
       } else if (p === 'grok' || p === 'kimi') {
         // the other keyless device-code providers: gate on the OAuth status, discover models via /api/auth/<pid>/models.
-        if (!(await oauthProviderEnabled(p))) { cache[p] = []; return []; }
+        if (!(await oauthProviderEnabled(p))) { catalogState[p] = { confirmed: false, reason: 'not connected' }; cache[p] = []; return []; }
         const r = await apiFetch('/api/auth/' + p + '/models', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
-        if (Array.isArray(j.models)) list = j.models.map(m => asModel(m, p));
+        if (!Array.isArray(j.models)) throw new Error((j && j.error) || 'invalid catalog response');
+        list = j.models.map(m => asModel(m, p)); confirmed = true;
       } else if (typeof Harness !== 'undefined' && Harness.listModels) {
-        if (!providerEnabled(p)) { cache[p] = []; return []; }
+        if (!providerEnabled(p)) { catalogState[p] = { confirmed: false, reason: 'not connected' }; cache[p] = []; return []; }
         try {
           const q = (p === 'custom' && typeof Harness !== 'undefined' && Harness.getBaseUrl && Harness.getBaseUrl(p))
             ? ('?baseUrl=' + encodeURIComponent(Harness.getBaseUrl(p))) : '';
           const r = await apiFetch('/api/models/' + encodeURIComponent(p) + q, { cache: 'no-store' });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
           const j = await r.json();
-          if (Array.isArray(j.models) && j.models.length) list = j.models.map(m => asModel(m, p));
+          if (j && j.error) throw new Error(j.error);
+          if (!Array.isArray(j && j.models)) throw new Error('invalid catalog response');
+          list = j.models.map(m => asModel(m, p)); confirmed = true;
         } catch (_) {}
-        if (!list.length) list = (await Harness.listModels(p)).map(m => asModel(m, p));
+        if (!confirmed) {
+          list = (await Harness.listModels(p)).map(m => asModel(m, p));
+          // Harness deliberately collapses catalog failures to []; a non-empty result is still positive proof.
+          if (list.length) confirmed = true;
+        }
       }
     } catch (_) {}
-    if (!list.length && (p === 'codex' || p === 'openrouter' || p === 'anthropic' || p === 'gemini' || HOSTED_FALLBACKS[p])) {
+    catalogState[p] = { confirmed: confirmed, reason: confirmed ? '' : 'catalog unavailable' };
+    if (!list.length && !confirmed && (p === 'codex' || p === 'openrouter' || p === 'anthropic' || p === 'gemini' || HOSTED_FALLBACKS[p])) {
       // E4: the live catalog fetch found nothing (sidecar/provider unreachable) — fall back to the
       // hardcoded seed list, but MARK each item so the UI can label it "(catalog offline)". Without the
       // flag a seed list renders indistinguishably from a verified live catalog, asserting models the
@@ -406,6 +463,8 @@ const ModelDock = (() => {
     const active = provider();
     if (ids.indexOf(active) < 0) ids.unshift(active);
     const parts = await Promise.all(ids.map(p => fetchProviderModels(p, force)));
+    const activeList = parts[ids.indexOf(active)] || [];
+    reconcileCurrentModel(active, activeList);
     models = mergeCurrent(parts.reduce((a, b) => a.concat(b), []));
     models.sort((a, b) => {
       const pa = normalizeProvider(a.provider), pb = normalizeProvider(b.provider);
@@ -775,6 +834,7 @@ const ModelDock = (() => {
   return {
     init,
     refresh: () => fetchModels(true),
+    reconcile: () => fetchModels(false),
     reflect,
     open: openDock,   // programmatic open — the model_not_found error door lands here (the PRIMARY model picker; Settings→MODELS is only the fallback chain)
     close: closeDock,
@@ -783,7 +843,7 @@ const ModelDock = (() => {
     catalog: (o) => computeCatalog(!!(o && o.force), o && o.ensure),
     labels: { model: modelLabel, provider: providerLabel, group: groupOf, short: shortModelName, normProvider: normalizeProvider, orGroup: openRouterGroupName },
     efforts: { optionsFor: effortOptionsFor, label: effortLabel, clamp: clampEffortForModel, list: () => EFFORTS.slice() },
-    _internals: { effortOptionsFor, clampEffortForModel, modelFamily, supportsReasoning, selectorLabel }
+    _internals: { effortOptionsFor, clampEffortForModel, modelFamily, supportsReasoning, selectorLabel, catalogEquivalent }
   };
 })();
 

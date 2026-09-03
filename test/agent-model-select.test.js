@@ -15,6 +15,7 @@ const ModelDock = require('../frontend/app/modeldock.js');
 
 // ---- ModelDock: a PURE catalog + helper surface for other pickers (no Harness/DOM side effects) ----
 A.ok(/catalog:\s*\(o\)\s*=>\s*computeCatalog/.test(dock), 'ModelDock exposes a pure catalog() accessor');
+A.ok(/reconcile:\s*\(\)\s*=>\s*fetchModels\(false\)/.test(dock), 'provider switches can revalidate the saved model against cached live catalogs');
 A.ok(/async function computeCatalog\(/.test(dock), 'computeCatalog fans out across providers without touching the dock');
 A.ok(/labels:\s*\{/.test(dock) && /efforts:\s*\{/.test(dock), 'ModelDock exposes label + effort helpers for reuse');
 A.eq(ModelDock._internals.selectorLabel('anthropic/claude-haiku-4.5', 'medium'),
@@ -120,7 +121,7 @@ A.ok(/function selectAgent[\s\S]{0,2000}Workstreams\.create\(a\.name,\s*\{\s*age
 A.ok(/function selectAgent[\s\S]{0,2200}switchWorkstream\(ws\.id\)/.test(appjs), 'selectAgent switches to the agent\'s own workstream when the current one has content');
 // the header model readout stays truthful when the model changes via the footer dock or the dossier pin.
 A.ok(/refreshIdBar:\s*renderIdBar/.test(chat), 'chat.js exposes refreshIdBar so other surfaces can re-sync the header model');
-A.ok(/function applyQuickModel[\s\S]{0,1400}Chat\.refreshIdBar\(\)/.test(appjs), 'the footer dock model change re-syncs the COMMS header readout');
+A.ok(/function applyQuickModel[\s\S]{0,2200}Chat\.refreshIdBar\(\)/.test(appjs), 'the footer dock model change re-syncs the COMMS header readout');
 A.ok(/function setAgentModelPin[\s\S]{0,1500}Chat\.refreshIdBar\(\)/.test(appjs), 'the dossier model pin re-syncs the COMMS header readout');
 
 A.report('agent-model-select.test');

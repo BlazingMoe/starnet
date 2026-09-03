@@ -441,6 +441,7 @@ test/genesis-phosphor-accessibility.test.js
 test/provider-oauth-parity.test.js
 test/personality-no-sample.test.js
 test/modelpicker.test.js
+test/model-provider-reconcile.test.js
 test/agent-model-select.test.js
 test/provider-connections-ui.test.js
 test/newhero-reset.test.js

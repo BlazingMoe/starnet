@@ -1,5 +1,25 @@
 # NEXT.md — current priorities & task queue
 
+## DONE 2026-09-03 — MANAGED MODEL TRUTH + SAFE UPSTREAM TRACE (`agent/provider-truth-0903`)
+
+The 0.10.13 support report exposed a real provider/model-pair bug: after switching providers,
+ModelDock could reinsert the saved model into a successfully fetched catalog that did not contain it.
+The UI now treats a successful catalog as authoritative, maps direct Anthropic
+`claude-sonnet-5` to managed `anthropic/claude-sonnet-5` only when that exact routed id is present,
+and otherwise clears the stale selection instead of presenting an unexecutable pair. Reconciliation
+runs after provider changes and key saves; offline fallback rows are explicitly unverified.
+
+The managed proxy lane (`codex/provider-truth-0903`, cloud commit `b83271e`) adds a StarNet request id
+and preserves only bounded, redacted upstream message/type/code/provider/request-id fields in both
+responses and structured logs. Deterministic proxy replays of the exact Sonnet 5 body, with and without
+`reasoning_effort`, pass, and the public route inventory reported nine active endpoints for the id on
+2026-09-03. Historical production-log correlation remains unclaimed because this workstation has no
+Fly.io authentication and the old client did not forward its run id to the cloud request.
+
+Proof: live seeded Windows UI selected the direct bare id, switched to StarNet, showed `MODEL UPDATED`,
+and reopened with StarNet owning `anthropic/claude-sonnet-5`; cloud tests are 221/221, `test:fast` is
+692/692, and `test:http` is 87/87. No cloud deployment or integration-tree merge was performed.
+
 ## 2026-09-02 — v0.10.13 SAME-NIGHT CUT EXCEPTION
 
 Andrew directed that v0.10.13 go out tonight without running a second full 48-hour soak. This is an

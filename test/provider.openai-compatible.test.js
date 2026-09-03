@@ -352,5 +352,41 @@ module.exports = (async () => {
     A.ok(err2 && !/routed-catalog/.test(String(err2.message)), 'a slashless model id gets no mismatch hint (not a crossing)');
   }
 
+  /* ---- managed upstream failures retain safe diagnostic identity ----
+     OpenRouter can answer only "Provider returned error" at the top level while carrying the provider, code,
+     and a StarNet correlation id separately. Those fields must survive into diagnostics; raw metadata must not. */
+  {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      error: {
+        message: 'Provider returned error', type: 'upstream_error', code: 'provider_rejected',
+        provider: 'Anthropic', request_id: 'req_body_7',
+        metadata: { raw: 'secret prompt-shaped upstream body' }
+      }
+    }), { status: 400, headers: { 'x-starnet-request-id': 'req_header_ignored' } });
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, key: 'k', baseUrl: 'https://managed.test/v1', label: 'starnet' });
+    let err = null;
+    try { await collect(p, { model: 'anthropic/claude-sonnet-5', messages: [{ role: 'user', content: 'hi' }] }); }
+    catch (e) { err = e; }
+    A.ok(err, 'upstream 400 still fails the run');
+    A.ok(/Provider returned error/.test(err.message), 'safe upstream message survives');
+    A.ok(/code provider_rejected/.test(err.message), 'upstream code survives');
+    A.ok(/provider Anthropic/.test(err.message), 'upstream provider identity survives');
+    A.ok(/request req_body_7/.test(err.message), 'body request id survives for support correlation');
+    A.eq(err.requestId, 'req_body_7', 'request id is also structured on the error');
+    A.ok(!/secret prompt-shaped/.test(err.message), 'unbounded raw provider metadata is never exposed');
+  }
+
+  // If the body has no request id, the managed proxy response header is retained; token-shaped strings redact.
+  {
+    const fetchImpl = async () => new Response(JSON.stringify({ error: { message: 'bad Bearer abcdefghijklmnop sk-secretsecret' } }), {
+      status: 400, headers: { 'x-starnet-request-id': 'starnet_req_9' }
+    });
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'https://managed.test/v1' });
+    let err = null;
+    try { await collect(p, { model: 'm', messages: [] }); } catch (e) { err = e; }
+    A.ok(/request starnet_req_9/.test(err && err.message), 'proxy correlation header is retained');
+    A.ok(!/abcdefghijklmnop|sk-secretsecret/.test(err && err.message), 'obvious credential-shaped text is redacted');
+  }
+
   A.report('provider.openai-compatible.test');
 })();
