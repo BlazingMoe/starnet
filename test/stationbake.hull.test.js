@@ -153,7 +153,7 @@ A.ok(!!WorldModel.FLOOR_STYLES.white, 'WHITE is in the palette');
 const ordinary = ['rust', 'cobalt', 'walnut', 'verdant'];
 for (const sid of ordinary) {
   const peak = brightestOf('stucco', WorldModel.FLOOR_STYLES[sid].base);
-  A.ok(peak < 90 * X, 'an ordinary hue (' + sid + ') is clamped into the shell band — peak ' + Math.round(peak));
+  A.ok(peak < 90, 'an ordinary hue (' + sid + ') is clamped into the shell band — peak ' + Math.round(peak));
 }
 for (const sid of ['white', 'bone']) {
   const peak = brightestOf('stucco', WorldModel.FLOOR_STYLES[sid].base);
