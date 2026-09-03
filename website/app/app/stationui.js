@@ -4657,7 +4657,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       Promise.resolve(h.validateAndSetKey ? h.validateAndSetKey(v, provider) : h.setKey(v, provider)).then(() => {
         invalidateProviderHealth(provider);
         notify('✓ connected ' + provName(provider) + ' API key — ' + keyStoreClause(), 'good');
-        if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+        if (typeof ModelDock !== 'undefined' && ModelDock.reconcile) ModelDock.reconcile().catch(() => ModelDock.reflect && ModelDock.reflect());
+        else if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
         if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();
         sfx('click');
         rerender('settings');
@@ -4693,11 +4694,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
             rerender('settings');
           }).catch(() => {});
         }
-        // Repaint the dock for EVERY provider switch, not only the OAuth reconcile above. The dock caches the
-        // provider it last drew, so without this it kept advertising the previous one — most visibly as
-        // "no OPENROUTER key — this model can't run yet" on a station that had just switched to a provider
-        // needing no key at all.
-        if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
+        // Repaint AND revalidate for every non-OAuth switch. ModelDock uses only a successful live catalog to
+        // map a direct-vendor id to its routed equivalent (or clear a truly absent stale id). OAuth providers
+        // keep their account-specific defaulting path above.
+        if (!isOAuthProvider(p) && typeof ModelDock !== 'undefined' && ModelDock.reconcile) ModelDock.reconcile().catch(() => ModelDock.reflect && ModelDock.reflect());
+        else if (typeof ModelDock !== 'undefined' && ModelDock.reflect) ModelDock.reflect();
         notify('selected ' + provName(p) + ' provider', 'good');
         sfx('click');
         rerender('settings');

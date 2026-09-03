@@ -185,7 +185,6 @@ const SYNC_BASELINE = {
   'providers/gemini.js': 1,
   'providers/liveprices.js': 3,
   'providers/oauth-device.js': 2,
-  'providers/openai-compatible.js': 1,
   'providers/openrouter.js': 1,
   'providers/prices.js': 1,
   'providers/provider.js': 5,

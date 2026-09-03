@@ -48,6 +48,51 @@
     if (key) h.Authorization = 'Bearer ' + key;
     return h;
   }
+  function safeErrorField(value, limit) {
+    if (value == null || (typeof value === 'object' && typeof value !== 'number')) return '';
+    return String(value)
+      .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+      .replace(/\b(?:sk|api)[-_][A-Za-z0-9_-]{8,}\b/gi, '[redacted]')
+      .replace(/[\r\n\t\0-\x08\x0b\x0c\x0e-\x1f\x7f]+/g, ' ')
+      .replace(/\s+/g, ' ').trim().slice(0, limit || 300);
+  }
+  function responseHeader(res, names) {
+    if (!res || !res.headers || typeof res.headers.get !== 'function') return '';
+    for (const name of names) {
+      const value = safeErrorField(res.headers.get(name), 120);
+      if (value) return value;
+    }
+    return '';
+  }
+  async function responseErrorDetail(res) {
+    let data = null;
+    let text = '';
+    try {
+      text = typeof res.text === 'function' ? await res.text() : '';
+      if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
+    } catch (_) { text = ''; data = null; }
+    if (!data && !text && typeof res.json === 'function') {
+      try { data = await res.json(); } catch (_) { data = null; }
+    }
+    const e = data && data.error;
+    const message = safeErrorField((e && e.message) || (data && data.message) || text || res.statusText || ('HTTP ' + res.status), 500);
+    const type = safeErrorField(e && e.type, 80);
+    const code = safeErrorField(e && e.code, 80);
+    // OpenRouter places provider identity in metadata; raw metadata is deliberately ignored because it may
+    // contain provider payloads or user content. The managed proxy promotes only this allowlisted field.
+    const providerName = safeErrorField((e && e.provider) || (e && e.metadata && (e.metadata.provider_name || e.metadata.provider)), 100);
+    const requestId = safeErrorField(
+      (e && (e.request_id || e.requestId)) || (data && (data.request_id || data.requestId)) ||
+      responseHeader(res, ['x-starnet-request-id', 'x-request-id', 'x-openrouter-request-id', 'request-id']),
+      120
+    );
+    const facts = [];
+    if (type) facts.push('type ' + type);
+    if (code) facts.push('code ' + code);
+    if (providerName) facts.push('provider ' + providerName);
+    if (requestId) facts.push('request ' + requestId);
+    return { detail: message + (facts.length ? ' [' + facts.join('; ') + ']' : ''), type, code, providerName, requestId };
+  }
   function normalizeModel(m) {
     const id = (m && (m.id || m.name || m.model)) ? String(m.id || m.name || m.model) : '';
     if (!id) return null;
@@ -299,9 +344,8 @@
           guard.disarm();
         }
         if (res.ok && res.body) return res;
-        let detail = res.statusText || '';
-        try { const j = await res.json(); detail = (j && j.error && (j.error.message || j.error.code)) || JSON.stringify(j); }
-        catch (_) { try { detail = (await res.text()).slice(0, 300); } catch (_) {} }
+        const upstreamError = await responseErrorDetail(res);
+        let detail = upstreamError.detail;
         // Compatibility self-heal: providers behind the "OpenAI-compatible" label reject different optional
         // params. Strip the named param and retry immediately (remembered per model, so later turns in the
         // run never pay the extra round-trip). Does not consume a transient-retry attempt.
@@ -319,6 +363,9 @@
         const err = new Error(errLabel + ' http ' + res.status + ' - ' + detail);
         err.status = res.status;
         err.headers = res.headers;
+        err.requestId = upstreamError.requestId;
+        err.providerCode = upstreamError.code;
+        err.upstreamProvider = upstreamError.providerName;
         const cls = classifyApiError(err, { model: body.model });
         err.transient = cls.retryable;
         if (cls.retryable && attempt < RETRY_DELAYS.length) { await delay(Math.min(60000, Math.max(RETRY_DELAYS[attempt], cls.retryAfterMs || 0)), signal); continue; }
@@ -396,5 +443,5 @@
     return { stream, listModels, contextLimit, priceOf, supportsTools, reasoningEfforts };
   }
 
-  return { makeOpenAICompatibleProvider, _internals: { normalizeModel, cleanBaseUrl } };
+  return { makeOpenAICompatibleProvider, _internals: { normalizeModel, cleanBaseUrl, responseErrorDetail, safeErrorField } };
 });

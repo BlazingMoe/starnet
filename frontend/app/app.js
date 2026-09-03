@@ -822,11 +822,15 @@ const App = (() => {
   }
   function applyQuickModel(sel) {
     if (!agent || !sel) return;
-    const model = String(sel.model || ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : '') || '').trim();
+    // An explicit empty model is meaningful: ModelDock uses it to invalidate a saved provider/model pair
+    // after a successful catalog proves the model absent. Do not `||` it back into the stale Harness value.
+    const suppliedModel = Object.prototype.hasOwnProperty.call(sel, 'model');
+    const model = String((suppliedModel ? sel.model : ((typeof Harness !== 'undefined' && Harness.getModel) ? Harness.getModel() : '')) || '').trim();
     const provider = normalizeProviderId(sel.provider || ((typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter'));
     const effort = (typeof Harness !== 'undefined' && Harness.normalizeReasoningEffort) ? Harness.normalizeReasoningEffort(sel.effort) : String(sel.effort || 'medium');
     if (effort && typeof Harness !== 'undefined' && Harness.setReasoningEffort) Harness.setReasoningEffort(effort);
-    if (model) {
+    const catalogInvalid = sel.reason === 'catalog_unavailable';
+    if (model || catalogInvalid) {
       if (typeof Harness !== 'undefined' && Harness.setProv) Harness.setProv(provider);
       if (typeof Harness !== 'undefined' && Harness.setModel) Harness.setModel(model);
       agent.model = model; agent.provider = provider; agent.reasoningEffort = effort;   // #4: keep model+provider+effort TOGETHER on the agent
@@ -841,9 +845,13 @@ const App = (() => {
     if (typeof Chat !== 'undefined' && Chat.refreshIdBar) Chat.refreshIdBar();   // keep the COMMS header model readout in sync with the footer dock change
     if (typeof KeyCTA !== 'undefined' && KeyCTA.refresh) KeyCTA.refresh();   // a provider switch can change key state — keep the keyless-brain banner honest
     if (typeof StationUI !== 'undefined' && StationUI.notify) {
-      const msg = sel.reason === 'effort'
-        ? 'REASONING: ' + effortLabel(effort)
-        : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
+      const msg = catalogInvalid
+        ? 'MODEL UNAVAILABLE: ' + String(sel.previousModel || 'saved model') + ' is not in the ' + providerLabel(provider) + ' catalog — pick a model to continue'
+        : sel.reason === 'catalog_reconcile'
+          ? 'MODEL UPDATED: ' + String(sel.previousModel || 'saved model') + ' → ' + model + ' (confirmed in ' + providerLabel(provider) + ')'
+          : sel.reason === 'effort'
+            ? 'REASONING: ' + effortLabel(effort)
+            : 'MODEL: ' + providerLabel(provider) + ' / ' + shortModelLabel(model) + ' / ' + effortLabel(effort);
       StationUI.notify(msg, 'good');
     }
   }
