@@ -79,7 +79,7 @@
      feed's mean light and nothing gave it back, so the picture under the lines sat a stop under
      the bake. brightness() is multiplicative — black stays black — so this restores the lit deck
      without lifting the floor (the thing every "brighter" attempt got wrong). Every theme +0.06. */
-  --cam-grade: saturate(1.06) contrast(1.1) brightness(0.94);
+  --cam-grade: saturate(1.06) contrast(1.1) brightness(0.9);
 
   /* ============================================================
      DESIGN SYSTEM SCALE — the one scale everything snaps to.
@@ -111,7 +111,7 @@ body.theme-amber {
   --ink: #190f02; --ph-glow: rgba(255, 170, 51, 0.5); --ph-glow2: rgba(255,170,51,0.14);
   --bg: #030201; --panel: rgba(5, 3, 1, 0.95); --panel2: #0c0704; --warn: #ffe97a; --text: #eec88f;
   --gold: #ffd34a; --ph-rgb: 255, 170, 51; --ph-bright-rgb: 255, 228, 180; --gold-rgb: 255, 211, 74;
-  --cam-grade: saturate(1.06) contrast(1.1) brightness(0.94);
+  --cam-grade: saturate(1.06) contrast(1.1) brightness(0.9);
 }
 body.theme-green {
   --ph: #3dff70; --ph-bright: #ccffdb; --ph-dim: #1fae4e; --ph-faint: #0c3a1d;

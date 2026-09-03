@@ -96,7 +96,7 @@ const StationBake = (() => {
     return out;
   }
 
-  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.10 };   // cap 0.30→0.10 (2026-09-03): the crown ring was the brightest thing on the station's outside
+  const WALL_TONE = { face: -0.32, top: -0.10, cap: -0.04 };   // cap 0.30→0.10 (2026-09-03): the crown ring was the brightest thing on the station's outside
   let wallPalCache = null;
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
@@ -237,7 +237,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.2, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.8, room: 0.42, corridor: 0.32, door: 0.38, floor: 0.24, crown: 0, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -449,7 +449,10 @@ const StationBake = (() => {
      the lit deck inside it. Nothing lights a hull in vacuum but starlight, so every hull palette, in every
      skin, is scaled by one exposure factor here: hue kept, only the light on it changes. The hull look-lock
      test scales its expected tones by the same constant. */
-  const HULL_EXPOSURE = 0.6;
+  const HULL_EXPOSURE = 0.25;   // 0.6 was not close (Andrew, 2026-09-03): "PITCH BLACK darkness out in the void" — the shell is barely lit
+  // a hull tone shaded at draw time: darkening as usual, but any LIFT is scaled by the exposure too, so a
+  // skin's own highlights (mortar, crests, rivets) cannot climb back out of the dark the palette was put in
+  const hshade = (hex, f) => U.shade(hex, f > 0 ? f * HULL_EXPOSURE : f);
   const exposeHex = hex => {
     const n = parseInt(hex.slice(1), 16);
     const c = v => Math.max(0, Math.min(255, Math.round(v * HULL_EXPOSURE)));
@@ -1596,7 +1599,7 @@ const StationBake = (() => {
     // lit crown — opaque cap band, 1px lighter top edge, 1px darker seam beneath. Kept BRIGHT:
     // after the ambient bake this continuous line defines the wall height at any zoom.
     crown(b, X, topY - capH, T, capH, pal.cap);
-    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.12));                          // 1px lighter top edge
+    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.05));                          // 1px lighter top edge
     b.fillStyle = shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
     // THE FACE — per material
     (WALL_RECIPES[wallMatOf(e.z)] || WALL_RECIPES.plating)(b, pal, X, topY, h, e, n, room, Y + inFace);
@@ -2340,7 +2343,7 @@ const StationBake = (() => {
         const row = Math.floor(gy / BRK), off = (row & 1) ? (BRW >> 1) : 0;
         for (let gx = courseAt(x - off, BRW) + off; gx < x + w; gx += BRW) {
           if (gx < x || gy < y || h2(gx, gy, 'brk') % 4) continue;
-          b.fillStyle = U.shade(pal.base, (h2(gx, gy, 'bt') % 2) ? 0.10 : -0.16);
+          b.fillStyle = hshade(pal.base, (h2(gx, gy, 'bt') % 2) ? 0.10 : -0.16);
           b.fillRect(gx + 1, gy, Math.min(BRW - 1, x + w - gx - 1), Math.min(BRK - 1, y + h - gy));
         }
       }
@@ -2423,7 +2426,7 @@ const StationBake = (() => {
         if (gx < x) continue;
         const r = h2(gx, gy, 'stc');
         if (r % 5) continue;
-        b.fillStyle = (r % 2) ? U.shade(pal.base, 0.07) : U.shade(pal.base, -0.09);
+        b.fillStyle = (r % 2) ? hshade(pal.base, 0.07) : hshade(pal.base, -0.09);
         b.fillRect(gx, gy, 2, 1);
       }
     },
@@ -2445,7 +2448,7 @@ const StationBake = (() => {
      tight pitch are the whole material — glass itself is just the dark gap between them. */
   const hullCurtain = {
     dress(b, pal, x, y, w, h) {
-      b.fillStyle = U.shade(pal.base, -0.34); b.fillRect(x, y, w, h);
+      b.fillStyle = hshade(pal.base, -0.34); b.fillRect(x, y, w, h);
       for (let gx = courseAt(x, 6); gx < x + w; gx += 6) {
         if (gx < x) continue;
         b.fillStyle = pal.rim; b.fillRect(gx, y, 1, h);
@@ -2480,13 +2483,13 @@ const StationBake = (() => {
       const px = boxed(b, x, y, x + w, y + h);
       for (let gy = y; gy < y + h; gy++) for (let gx = courseAt(x, 2); gx < x + w; gx += 2) {
         const r = h2(gx, gy, 'hdg');
-        if (r % 3 === 0) { b.fillStyle = U.shade(pal.base, 0.16); px(gx, gy, 1, 1); }
-        else if (r % 5 === 0) { b.fillStyle = U.shade(pal.base, -0.30); px(gx, gy, 2, 1); }
+        if (r % 3 === 0) { b.fillStyle = hshade(pal.base, 0.16); px(gx, gy, 1, 1); }
+        else if (r % 5 === 0) { b.fillStyle = hshade(pal.base, -0.30); px(gx, gy, 2, 1); }
       }
     },
     rim(b, pal, x1, y1, x2, y2) {
-      b.fillStyle = U.shade(pal.base, 0.26); b.fillRect(x1, y1, x2 - x1, 2);   // the clipped top catches the light
-      b.fillStyle = U.shade(pal.base, -0.44); b.fillRect(x1, y2 - 2, x2 - x1, 2);
+      b.fillStyle = hshade(pal.base, 0.26); b.fillRect(x1, y1, x2 - x1, 2);   // the clipped top catches the light
+      b.fillStyle = hshade(pal.base, -0.44); b.fillRect(x1, y2 - 2, x2 - x1, 2);
     },
     bands: (pal, skirt) => ramp6(pal, skirt, -0.70, 0.20),
     veins(fg, pal, w, h, vx, vy) {
@@ -2711,7 +2714,7 @@ const StationBake = (() => {
        correction — the ring simply did not. Keep them together. */
     const xLo = outX < 0 ? Math.round(ax - HR) : X, xHi = outX < 0 ? X + T : Math.round(ax + HR);
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
-    const lit = shade(pal.cap, 0.12), seam = shade(pal.cap, -0.45);
+    const lit = shade(pal.cap, 0.05), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
     const put = (x, y, w, h, c) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
@@ -2915,7 +2918,7 @@ const StationBake = (() => {
          Nothing spikes above its neighbours — the -0.22 crest's original complaint (a bright 1px
          divider column, 2026-07-24) is avoided because the crown is a WIDE band with its highlight
          on the outer edge, where the hull is, not stranded in the middle of the wall. */
-      const crownLit = shade(pal.cap, 0.12), crownSeam = shade(pal.cap, -0.45);
+      const crownLit = shade(pal.cap, 0.05), crownSeam = shade(pal.cap, -0.45);
       const cw = sideCapW();
       // walls only extrude OUTSIDE the tile when the neighbour is void. Interior boundaries
       // (a non-door seam to another zone) draw the face only, so the wall never smears onto
