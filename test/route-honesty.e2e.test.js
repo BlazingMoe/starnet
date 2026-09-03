@@ -1,0 +1,131 @@
+/* node test/route-honesty.e2e.test.js — boot the REAL sidecar (child process, ISOLATED temp workspace) and prove
+   the two 2026-09-03 audit fixes over real sockets:
+     1. corrupt store ≠ empty store: GET /api/notebook / /api/memory/declined answer 500 { error, code } over a
+        corrupt file (no .bak), while an absent store still answers 200 + [].
+     2. fail-loud-but-safe: POST /api/dev/fault (DEV-only) raises a real uncaught exception → /api/health flips to
+        503 "degraded: …", /api/diagnostics carries processFault, and the process EXITS 1 (the desktop watchdog's
+        respawn trigger) after the bounded delay. With STARNET_UNCAUGHT_KEEP_SERVING=1 it degrades but stays up.
+   Zero network, zero model spend. Registered in test/http.list (child-process boot tests don't gate test:fast). */
+'use strict';
+const A = require('./_assert.js');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { bootToken } = require('./_httpToken.js');
+
+const HOST = '127.0.0.1';
+const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function boot(port, workspaces, attemptsLeft, extraEnv) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [INDEX], {
+      env: Object.assign({}, process.env, {
+        STARNET_PORT: String(port), STARNET_WORKSPACES: workspaces,
+        STARNET_DEV: '1', SKYNET_DEV: '1',                      // enables POST /api/dev/fault (404 otherwise)
+        STARNET_UNCAUGHT_EXIT_DELAY_MS: '3000',                 // widen the DEGRADED window so it is observable over sockets
+        STARNET_UNCAUGHT_KEEP_SERVING: '', SKYNET_UNCAUGHT_KEEP_SERVING: '',
+        SKYNET_CRON_ENABLED: '', STARNET_CRON_ENABLED: ''
+      }, extraEnv || {}),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out = '', settled = false;
+    const onData = d => {
+      out += d.toString();
+      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port, output: () => out }); }
+      if (!settled && /already in use/i.test(out)) {
+        settled = true; try { child.kill(); } catch (_) {}
+        if (attemptsLeft > 0) resolve(boot(port + 1, workspaces, attemptsLeft - 1, extraEnv)); else reject(new Error('no free port'));
+      }
+    };
+    child.stdout.on('data', onData); child.stderr.on('data', onData);
+    child.on('error', e => { if (!settled) { settled = true; reject(e); } });
+    setTimeout(() => { if (!settled) { settled = true; try { child.kill(); } catch (_) {} reject(new Error('boot timeout; output:\n' + out)); } }, 45000);
+  });
+}
+function exited(child, ms) {
+  return new Promise(resolve => {
+    if (child.exitCode !== null) return resolve(child.exitCode);
+    const t = setTimeout(() => resolve(null), ms);
+    child.once('exit', code => { clearTimeout(t); resolve(code); });
+  });
+}
+
+(async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-route-honesty-'));
+  // CORRUPT fixtures (no .bak → unrecoverable): the exact "torn store" shape the old routes rendered as 200 + [].
+  fs.writeFileSync(path.join(ws, 'agent.notebook.json'), '{"notes": [ this is not json');
+  fs.writeFileSync(path.join(ws, 'agent.declined.json'), 'not json either');
+  let child = null;
+  try {
+    const b = await boot(18990 + Math.floor(Math.random() * 400), ws, 6);
+    child = b.child;
+    const B = 'http://' + HOST + ':' + b.port;
+    const tok = await bootToken(B, B);
+    A.ok(!!tok, 'boot token extracted');
+    const H = { 'X-StarNet-Token': tok, Origin: B };
+    const j = async (m, p, body) => { const r = await fetch(B + p, { method: m, headers: Object.assign({ 'Content-Type': 'application/json' }, H), body: body ? JSON.stringify(body) : undefined }); let out = null; try { out = await r.json(); } catch (_) {} return { status: r.status, body: out }; };
+
+    // ---- 1. corrupt ≠ empty ----
+    const nb1 = await j('GET', '/api/notebook?agent=agent');
+    A.eq(nb1.status, 500, 'GET /api/notebook over a CORRUPT store → 500 (was 200 + notes:[])');
+    A.ok(nb1.body && /^ESTORE_/.test(String(nb1.body.code)), 'carries a store error code: ' + JSON.stringify(nb1.body));
+    A.ok(nb1.body && typeof nb1.body.error === 'string' && nb1.body.error.length > 0, 'carries a human error string');
+    const quarantined = fs.readdirSync(ws).filter(f => /^agent\.notebook\.json\.corrupt-/.test(f));
+    A.eq(quarantined.length, 1, 'the corrupt notebook was quarantined (forensic bytes kept), not wiped');
+    const nb2 = await j('GET', '/api/notebook?agent=agent');
+    A.eq(nb2.status, 200, 'after quarantine the key is genuinely absent → 200');
+    A.ok(nb2.body && Array.isArray(nb2.body.notes) && nb2.body.notes.length === 0, '…and honestly empty');
+    const dec = await j('GET', '/api/memory/declined?agent=agent');
+    A.eq(dec.status, 500, 'GET /api/memory/declined over a CORRUPT store → 500');
+    A.ok(dec.body && /^ESTORE_/.test(String(dec.body.code)), 'declined carries a store code: ' + JSON.stringify(dec.body));
+    const recs = await j('GET', '/api/memory/records?agent=fresh-agent');
+    A.eq(recs.status, 200, 'an ABSENT store (new agent) is still 200');
+    A.ok(recs.body && Array.isArray(recs.body.records) && recs.body.records.length === 0, 'absent → empty records, no error');
+    const pend = await j('GET', '/api/memory/pending?agent=fresh-agent');
+    A.eq(pend.status, 200, 'pending for a fresh agent → 200 (nothing broken)');
+    const tr = await j('GET', '/api/transcript?agent=fresh-agent&stream=global');
+    A.eq(tr.status, 200, 'transcript for a fresh agent → 200');
+    const sk = await j('GET', '/api/skills?placed=cabinet');
+    A.eq(sk.status, 200, 'skills catalog healthy → 200');
+
+    // ---- 2. fail-loud: health is honest, then the process exits for the watchdog ----
+    const h0 = await fetch(B + '/api/health');
+    A.eq(h0.status, 200, '/api/health is 200 before the fault');
+    A.eq(await h0.text(), 'ok', '/api/health says ok before the fault');
+    const f = await j('POST', '/api/dev/fault', {});
+    A.eq(f.status, 202, 'POST /api/dev/fault accepted (DEV mode)');
+    let hs = 0, ht = '';
+    for (let i = 0; i < 40 && hs !== 503; i++) { await sleep(50); try { const r = await fetch(B + '/api/health'); hs = r.status; ht = await r.text(); } catch (_) {} }
+    A.eq(hs, 503, '/api/health flips to 503 after the uncaught exception');
+    A.ok(/^degraded: uncaughtException: synthetic uncaught exception/.test(ht), 'health body names the fault: ' + ht);
+    const dg = await j('GET', '/api/diagnostics');
+    A.eq(dg.status, 200, 'diagnostics still assembles while degraded');
+    A.ok(dg.body && dg.body.report && dg.body.report.processFault && /synthetic uncaught exception/.test(dg.body.report.processFault.message), 'diagnostics report carries processFault');
+    A.eq(dg.body.report.processFault.exiting, true, 'diagnostics says the process is exiting');
+    A.ok(/Process fault: uncaughtException/.test(String(dg.body.text)), 'paste-ready text carries the Process fault line');
+    A.ok(dg.body.report.errors.some(e => /process uncaughtException: synthetic/.test(e.message)), 'the diagnostics ring ALSO recorded it (old behaviour preserved)');
+    const code = await exited(child, 8000);
+    A.eq(code, 1, 'sidecar exited with code 1 within the bounded delay (got ' + code + ')');
+    A.ok(/\[process-fault\] uncaughtException: state is unproven/.test(b.output()), 'boot log carries the fail-loud line');
+    child = null;
+
+    // ---- 3. the test-only opt-out keeps the process alive but still degrades health ----
+    const b2 = await boot(b.port + 1, fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-route-honesty-keep-')), 6, { STARNET_UNCAUGHT_KEEP_SERVING: '1' });
+    child = b2.child;
+    const B2 = 'http://' + HOST + ':' + b2.port;
+    const tok2 = await bootToken(B2, B2);
+    const f2 = await fetch(B2 + '/api/dev/fault', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': tok2, Origin: B2 }, body: '{}' });
+    A.eq(f2.status, 202, 'keep-serving boot accepted the fault');
+    let hs2 = 0;
+    for (let i = 0; i < 40 && hs2 !== 503; i++) { await sleep(50); try { hs2 = (await fetch(B2 + '/api/health')).status; } catch (_) {} }
+    A.eq(hs2, 503, 'keep-serving still degrades /api/health to 503 (never a false ok)');
+    const code2 = await exited(child, 1500);
+    A.eq(code2, null, 'with UNCAUGHT_KEEP_SERVING the process stays alive (exit code still null)');
+    A.ok(/kept alive \(UNCAUGHT_KEEP_SERVING is set/.test(b2.output()), 'log names the opt-out');
+  } finally {
+    if (child) { try { child.kill(); } catch (_) {} }
+  }
+  A.report('route-honesty.e2e');
+})().catch(e => { console.error(e && e.stack || e); process.exit(1); });
