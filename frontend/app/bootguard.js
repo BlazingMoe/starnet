@@ -116,7 +116,7 @@
     const L = [];
     L.push('STARNET BOOT GUARD (page-side — measured by the app window itself)');
     L.push('when:           ' + new Date().toISOString());
-    L.push('page:           ' + shortPath(root.location && root.location.href));
+    L.push('page:           ' + String((root.location && root.location.pathname) || '/'));
     L.push('boot check:     ' + (!state.checked ? 'not run yet' : (state.missing.length || state.scriptFailures) ? 'FAILED' : 'passed'));
     if (state.missing.length) L.push('missing:        ' + state.missing.map(m => m.name + ' (' + m.file + ')').join(', '));
     if (state.scripts.length) L.push('scripts failed: ' + state.scripts.join(', '));
