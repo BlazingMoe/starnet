@@ -10364,6 +10364,113 @@ const PropSprites = (() => {
     }
   }
 
+  /* ======================= CAST SHADOWS + EMISSIVE LIGHT (world overhaul, 2026-09-03) =======================
+     Two things every prop in a shipped pixel-art game has and ours had neither of:
+
+     1. A CAST SHADOW ON THE DECK. `shadow2` is a contact line — the 2px dark seam where the object meets the
+        floor. It seats the prop but it does not give it HEIGHT. The station's key light is high and
+        north-west (every prop's sheen is west-biased, every top face is north-lit), so a standing object
+        throws a soft pool to its SOUTH-EAST. Painted by world.js in ONE pass over the deck (after the floor
+        decals, before the y-sorted items), so a shadow lands on rugs and under neighbours and never on top of
+        another prop's body. Hard-edged stepped rects, not a blur — the light idiom is dithered steps.
+        A table-top object (mount:'surface') casts nothing: its shadow would fall on the table, which the
+        table's own art already carries. Floor decals (flat) cast nothing: paint has no height.
+
+     2. EMITTED LIGHT. A lit screen, a plasma core, a kiln, a desk lamp — these are light SOURCES, and until
+        now they lit nothing: the lightmap only knows the ceiling fixtures. `lightOf` answers, per prop,
+        "what colour, how far, how strong" and world.js paints it as an additive pool over the lightmap each
+        frame (drawPropLights), so the floor and anything standing near a source takes its colour. Screens
+        flicker; fire and plasma breathe; lamps hold steady. `work` gates a workstation: an idle desk's CRT is
+        a dark slab (that is what the art shows), so it emits only while its agent is actually working —
+        truthful telemetry, not a mood light. Values are WORLD px (TILE = 12), authored for camera scale 2. */
+  const SHADOW_RGB = '8,10,24';                     // a shadow has a colour: cool, the bounce-lit unlit side
+  // standing height in shadow REACH px beyond the footprint's south-east edges; footprint h>=2 adds its own
+  const SHADOW_TALL = { vault: 4, core: 4, connector_portal: 3, arcade: 3, arcade2: 3, bookshelf: 3, rackV: 3, cryopod: 3,
+    telescope: 2, telescope_r: 2, tallplant: 2, quarters_vending: 3, quarters_lockerbank: 3, jukebox: 3, pinball: 2, safe: 3,
+    war_intelcab: 3, comms_beacon: 3, bridge_relaystack: 3, incubator: 2, fabricator: 3, vat: 3, etsy_kiln: 3, etsy_dyevat: 2,
+    commswall: 3, bigscreen: 3, calwall: 2, chartwall: 2, arc_indexwall: 2, weaponrack: 2, weaponrack_r: 2, shelf: 2, rack: 2,
+    war_threatcore: 3, bridge_dispatch_pylon: 3, research_corelens: 3, research_trendpillar: 3, pub_outboundchute: 3,
+    punchbag: 2, punchbag_r: 2, camerarig: 2, camerarig_r: 2, treasury_token_furnace: 3, monstera: 1, tv: 2, couch: 1 };
+  function drawShadow(f, mounted) {
+    if (!ctx) return;
+    if ((mounted || f.mount) === 'surface') return;
+    const s = spec(f.t); if (s && s.flat) return;
+    const X = f.x * TILE, Y = f.y * TILE, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
+    const reach = 3 + (SHADOW_TALL[f.t] || 0) + ((f.h || 1) >= 2 ? 2 : 0);
+    // three nested steps, each smaller and darker, spreading south-east from the footprint's lower half
+    const steps = [[0, 0.07], [0.35, 0.09], [0.7, 0.11]];
+    for (const [k, a] of steps) {
+      const rx = Math.round(reach * (1 - k));
+      const ox = 2 + Math.round(k * 2), oy = Math.round(H * (0.45 + 0.25 * k));
+      ctx.fillStyle = 'rgba(' + SHADOW_RGB + ',' + a + ')';
+      ctx.fillRect(X + ox, Y + oy, W + rx - ox, H - oy + rx);
+    }
+  }
+  /* colour [r,g,b] · radius (world px) · strength · mode:
+       'screen' flickers (phosphor), 'fire' breathes fast and ragged, 'pulse' breathes slow, 'steady' holds.
+     `work: 1` = emits only while the prop is lit by real work (workstations). `y` = where the source sits
+     in the footprint (0 = north edge, 1 = south) — a desk's CRT is at the back, a floor lamp's head is up. */
+  const SCR_RGB = [98, 255, 158], BLUE_RGB = [110, 190, 255], AMBER_RGB = [255, 190, 110], WARM_RGB = [255, 214, 150];
+  const EMIT = {
+    desk: { c: SCR_RGB, r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, desk2: { c: SCR_RGB, r: 28, a: 0.18, m: 'screen', work: 1, y: 0.25 },
+    console: { c: SCR_RGB, r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, consoleL: { c: SCR_RGB, r: 32, a: 0.18, m: 'screen', work: 1, y: 0.25 },
+    pixelrig: { c: [255, 120, 200], r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, bench: { c: SCR_RGB, r: 34, a: 0.16, m: 'screen', work: 1, y: 0.25 },
+    workbench: { c: [255, 200, 120], r: 22, a: 0.10, m: 'screen', work: 1, y: 0.3 },
+    core: { c: [186, 110, 255], r: 32, a: 0.22, m: 'pulse', y: 0.35 }, comms_beacon: { c: [255, 200, 120], r: 30, a: 0.16, m: 'pulse', y: 0.2 },
+    comms_dish: { c: [74, 217, 255], r: 22, a: 0.10, m: 'steady', y: 0.5 }, comms_uplink: { c: [74, 217, 255], r: 22, a: 0.10, m: 'steady', y: 0.5 },
+    studio: { c: [255, 106, 213], r: 30, a: 0.16, m: 'pulse', y: 0.4 }, connector_portal: { c: [120, 220, 255], r: 22, a: 0.12, m: 'pulse', y: 0.35 },
+    bigscreen: { c: BLUE_RGB, r: 46, a: 0.12, m: 'screen', y: 0.4 }, holotable: { c: [120, 200, 255], r: 30, a: 0.14, m: 'screen', y: 0.45 },
+    screens: { c: BLUE_RGB, r: 24, a: 0.12, m: 'screen', y: 0.35 }, tank: { c: [80, 200, 220], r: 22, a: 0.12, m: 'pulse', y: 0.45 },
+    ticker: { c: AMBER_RGB, r: 26, a: 0.10, m: 'screen', y: 0.35 }, chartwall: { c: BLUE_RGB, r: 26, a: 0.10, m: 'screen', y: 0.35 },
+    wartable: { c: [120, 200, 255], r: 34, a: 0.12, m: 'screen', y: 0.45 }, calwall: { c: BLUE_RGB, r: 30, a: 0.10, m: 'screen', y: 0.35 },
+    bridge_tacscreen: { c: BLUE_RGB, r: 24, a: 0.12, m: 'screen', y: 0.35 }, bridge_dispatch_pylon: { c: AMBER_RGB, r: 22, a: 0.12, m: 'pulse', y: 0.3 },
+    bridge_orderqueue: { c: AMBER_RGB, r: 22, a: 0.10, m: 'screen', y: 0.35 }, war_pivotpanel: { c: BLUE_RGB, r: 22, a: 0.10, m: 'screen', y: 0.35 },
+    war_threatcore: { c: [255, 90, 80], r: 26, a: 0.14, m: 'pulse', y: 0.3 },
+    tv: { c: [140, 200, 255], r: 26, a: 0.14, m: 'screen', y: 0.4 }, arcade: { c: [255, 120, 200], r: 22, a: 0.14, m: 'screen', y: 0.3 },
+    arcade2: { c: [120, 255, 200], r: 22, a: 0.14, m: 'screen', y: 0.3 }, pinball: { c: [255, 190, 90], r: 20, a: 0.12, m: 'screen', y: 0.4 },
+    jukebox: { c: [255, 180, 80], r: 22, a: 0.12, m: 'pulse', y: 0.35 }, djbooth: { c: [255, 90, 190], r: 30, a: 0.12, m: 'pulse', y: 0.4 },
+    fishtank: { c: [80, 200, 220], r: 22, a: 0.12, m: 'pulse', y: 0.45 }, bar: { c: AMBER_RGB, r: 24, a: 0.08, m: 'steady', y: 0.3 },
+    quarters_vending: { c: [120, 220, 255], r: 20, a: 0.12, m: 'screen', y: 0.35 }, speaker: { c: [255, 120, 120], r: 10, a: 0.05, m: 'pulse', y: 0.5 },
+    fabricator: { c: [255, 150, 70], r: 26, a: 0.10, m: 'fire', y: 0.45 }, vat: { c: [120, 255, 170], r: 28, a: 0.14, m: 'pulse', y: 0.45 },
+    tube: { c: [120, 255, 170], r: 20, a: 0.12, m: 'pulse', y: 0.4 }, research_corelens: { c: [180, 200, 255], r: 24, a: 0.14, m: 'pulse', y: 0.3 },
+    research_trendpillar: { c: [120, 200, 255], r: 20, a: 0.10, m: 'screen', y: 0.3 }, etsy_kiln: { c: [255, 120, 50], r: 28, a: 0.18, m: 'fire', y: 0.5 },
+    etsy_dyevat: { c: [200, 100, 255], r: 20, a: 0.10, m: 'pulse', y: 0.5 }, easel: { c: WARM_RGB, r: 16, a: 0.05, m: 'steady', y: 0.4 },
+    desklamp: { c: WARM_RGB, r: 26, a: 0.22, m: 'steady', y: 0.3 }, arc_floorlight: { c: [255, 220, 170], r: 36, a: 0.24, m: 'steady', y: 0.2 },
+    lavalamp: { c: [255, 90, 140], r: 18, a: 0.14, m: 'pulse', y: 0.4 }, plasmaglobe: { c: [170, 110, 255], r: 22, a: 0.16, m: 'fire', y: 0.4 },
+    holopet: { c: [120, 255, 220], r: 16, a: 0.12, m: 'pulse', y: 0.4 }, deskterminal: { c: SCR_RGB, r: 18, a: 0.10, m: 'screen', y: 0.35 },
+    treasury_pnl_holo: { c: [120, 255, 180], r: 18, a: 0.12, m: 'screen', y: 0.35 }, cryopod: { c: [120, 210, 255], r: 24, a: 0.14, m: 'pulse', y: 0.4 },
+    incubator: { c: [255, 170, 90], r: 20, a: 0.12, m: 'steady', y: 0.4 }, crt_pile: { c: SCR_RGB, r: 14, a: 0.06, m: 'screen', y: 0.4 },
+    radio: { c: [255, 120, 80], r: 10, a: 0.06, m: 'steady', y: 0.5 }, terrarium: { c: [120, 255, 170], r: 14, a: 0.06, m: 'steady', y: 0.4 },
+    bay: { c: AMBER_RGB, r: 28, a: 0.08, m: 'steady', y: 0.45 }, intake: { c: [255, 170, 80], r: 22, a: 0.08, m: 'steady', y: 0.45 },
+    outbox: { c: [255, 170, 80], r: 22, a: 0.08, m: 'steady', y: 0.45 },
+    missionboard: { c: WARM_RGB, r: 28, a: 0.08, m: 'steady', y: 0.3 }, trophycase: { c: [255, 214, 120], r: 24, a: 0.10, m: 'steady', y: 0.35 },
+    commswall: { c: BLUE_RGB, r: 42, a: 0.10, m: 'screen', y: 0.35 }, comms_inbox: { c: AMBER_RGB, r: 16, a: 0.06, m: 'steady', y: 0.4 },
+    gigs_amp: { c: [255, 120, 120], r: 14, a: 0.08, m: 'pulse', y: 0.4 }, pub_publishpress: { c: AMBER_RGB, r: 22, a: 0.08, m: 'steady', y: 0.45 },
+    arc_indexwall: { c: [120, 200, 255], r: 26, a: 0.08, m: 'screen', y: 0.35 }, arc_microfiche: { c: [140, 255, 190], r: 18, a: 0.10, m: 'screen', y: 0.4 },
+    gigs_thumbwall: { c: [255, 150, 200], r: 20, a: 0.08, m: 'screen', y: 0.35 }, pub_mailpod: { c: AMBER_RGB, r: 16, a: 0.06, m: 'steady', y: 0.4 },
+    treasury_token_furnace: { c: [255, 130, 50], r: 26, a: 0.16, m: 'fire', y: 0.45 }, goldcrate: { c: [255, 214, 120], r: 14, a: 0.06, m: 'steady', y: 0.4 },
+    gigs_servercart: { c: [120, 255, 180], r: 14, a: 0.08, m: 'screen', y: 0.4 }, bridge_relaystack: { c: [120, 200, 255], r: 20, a: 0.10, m: 'screen', y: 0.3 },
+    airlock: { c: [255, 90, 70], r: 18, a: 0.10, m: 'pulse', y: 0.5 }, steamvent: { c: [255, 170, 120], r: 12, a: 0.05, m: 'fire', y: 0.5 },
+  };
+  /* the light a placed prop emits THIS frame, or null. `work` is the same lit flag `draw` receives. The
+     modulation is deterministic on `now` + the prop's position, so two identical screens never flicker in
+     lockstep; under reduced motion every mode holds steady (`still`). */
+  function lightOf(f, work, still) {
+    const e = EMIT[f.t]; if (!e) return null;
+    if (e.work && !work) return null;
+    const lift = f.mount === 'surface' ? SURFACE_RISE : 0;
+    const W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
+    const x = f.x * TILE + W / 2, y = f.y * TILE - lift + H * e.y;
+    let k = 1;
+    if (!still) {
+      const seed = (f.x * 7.31 + f.y * 3.17) % 6.28;
+      if (e.m === 'screen') k = 0.86 + 0.09 * Math.sin(now / 90 + seed) + 0.05 * Math.sin(now / 610 + seed * 1.7);
+      else if (e.m === 'fire') k = 0.78 + 0.14 * Math.sin(now / 130 + seed) + 0.08 * Math.sin(now / 47 + seed * 2.3);
+      else if (e.m === 'pulse') k = 0.82 + 0.18 * Math.sin(now / 900 + seed);
+    }
+    return { x, y, r: e.r, c: e.c, a: e.a * k };
+  }
+
   return {
     setCtx(c) { ctx = c; },
     setNow(t) { now = t; },
@@ -10372,6 +10479,7 @@ const PropSprites = (() => {
     setChroma(k) { CHROMA = (k == null ? 1 : +k) || 1; _cboost.clear(); },
     getChroma: () => CHROMA,
     draw, drawOver, hasOver, drawSeatFront, CATALOG, CATS, spec, has, TILE,
+    drawShadow, lightOf, EMIT,
     // ORIENTATION: what each prop's art can honestly do, and the box it covers once turned. The
     // builder asks BEFORE offering an R/M affordance — never an input that produces broken art.
     facings, canRotate, canMirror, nextFacing, footprintAt, viewAt, hasView, NO_MIRROR, PLAN_FOOTPRINT,
