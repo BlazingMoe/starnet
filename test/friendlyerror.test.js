@@ -252,6 +252,9 @@ for (const raw of [
   A.ok(/weekly/i.test(q.userMessage), 'and names the subscription schedule, not a seconds-scale wait');
   A.ok(/PROVIDERS/.test(q.userMessage), 'and points at a door that can keep the work moving now');
   A.eq(q.action, 'settings', 'the action opens that door');
+  const exactReport = friendlyError(Object.assign(new Error('codex http 429 — The usage limit has been reached'), { status: 429 }));
+  A.eq(exactReport.kind, 'quota_exhausted', 'the exact Codex diagnostics wording is a spent allowance');
+  A.eq(exactReport.retryable, false, 'the exact Codex diagnostics wording offers no doomed retry');
   // a real rate limit is untouched
   const rl = friendlyError(Object.assign(new Error('openrouter http 429 — slow down'), { status: 429 }));
   A.eq(rl.kind, 'rate_limit', 'a plain 429 is still a rate limit');
@@ -283,6 +286,9 @@ for (const raw of [
   A.eq(weekly.retryable, false, 'BROWSER: and offers no doomed retry');
   A.ok(/allowance is used up/i.test(weekly.userMessage), 'BROWSER: with copy that names the spent allowance');
   A.ok(!/wait a few seconds/i.test(weekly.userMessage), 'BROWSER: and never the busy-provider line');
+  const exactReport = kindOf('sidecar HTTP 429 — codex: The usage limit has been reached');
+  A.eq(exactReport.kind, 'quota_exhausted', 'BROWSER: the exact Codex diagnostics wording is a spent allowance');
+  A.eq(exactReport.retryable, false, 'BROWSER: the exact Codex diagnostics wording offers no doomed retry');
 
   A.eq(kindOf('sidecar HTTP 429 — gemini: Quota exceeded for quota metric: requests per minute').kind, 'rate_limit',
     'BROWSER: a PER-MINUTE quota stays a plain rate limit');
