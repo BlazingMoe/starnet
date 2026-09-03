@@ -137,6 +137,7 @@ const { MIME, CHANNEL_UPLOAD_MAX_BYTES, mimeForPath, safeDownloadName, isActiveD
 const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } = require('./reflect.js');
 const Failreview = require('./failreview.js');   // failure-review aux pass: PURE lesson producer for FAILED runs (reflect.js mold)
 const { swallow, note: failNote, summary: failopenSummary, setClock: failopenSetClock } = require('./failopen.js');    // tagged fail-open: a swallowed error stays visible (throttled warn + counter + diagnostics summary)
+const { makeProcessFaultHandler } = require('./process-fault.js');   // fail-loud-but-safe uncaughtException policy (degrade health, release locks, exit(1) for the shell watchdog)
 failopenSetClock(() => Date.now());   // composition root injects ambient time (lint-determinism keeps failopen.js pure)
 // GROWTH Tier 1 — the pure STUDY ENGINE (the dossier's Phase B). A UMD frontend module that also exports under
 // node, so the sidecar reuses the SAME parse/salience/dedup the browser consent path uses. Fail-open: if it can't
@@ -726,7 +727,31 @@ function surfaceProcessError(kind, e) {
   } catch (_) {}
 }
 process.on('unhandledRejection', e => surfaceProcessError('unhandledRejection', e));
-process.on('uncaughtException', e => surfaceProcessError('uncaughtException', e));
+/* uncaughtException is NO LONGER keep-serving (2026-09-03 audit: "sidecar keeps serving after uncaught errors").
+   After a genuine uncaught throw the in-memory state is unproven, yet /api/health said "ok" and the topbar stayed
+   ONLINE — the app asserting health the harness cannot prove. Policy now (sidecar/process-fault.js): surface it
+   exactly as before (log + diagnostics ring), flip /api/health to 503 DEGRADED with the summary, release the
+   cron lock + WORKSPACES owner claim a clean shutdown would release, then exit(1) after 500ms so the desktop
+   shell's watchdog (src-tauri spawn_guardian, ~3s poll) respawns a clean process. A known-benign stdio EPIPE stays
+   surface-only. STARNET_UNCAUGHT_KEEP_SERVING=1 is the TEST-ONLY opt-out (degrade, never exit). unhandledRejection
+   stays on the log-only path: an un-awaited rejection does not tear the process. */
+const UNCAUGHT_KEEP_SERVING = /^(1|true|yes|on)$/i.test(String(ENV('UNCAUGHT_KEEP_SERVING') || '').trim());
+const UNCAUGHT_EXIT_DELAY_MS = num(ENV('UNCAUGHT_EXIT_DELAY_MS'), 500);   // test knob: widen the observable DEGRADED window
+const processFault = makeProcessFaultHandler({
+  surface: surfaceProcessError,
+  exit: code => process.exit(code),
+  schedule: (fn, ms) => setTimeout(fn, ms),
+  delayMs: UNCAUGHT_EXIT_DELAY_MS,
+  keepAlive: UNCAUGHT_KEEP_SERVING,
+  log: msg => console.error('[process-fault] ' + msg),
+  // best-effort SYNC release of what gracefulShutdown would release — both are hoisted consts defined later in this
+  // file and only ever invoked at runtime (after boot), so the typeof guards are belt-and-braces, not dead code.
+  release: () => {
+    try { if (typeof cronLock !== 'undefined' && cronLock && cronLock.release) cronLock.release(); } catch (e) { failNote('process-fault.cronLock.release', e); }
+    try { if (typeof workspaceOwner !== 'undefined' && workspaceOwner && workspaceOwner.release) workspaceOwner.release(); } catch (e) { failNote('process-fault.workspaceOwner.release', e); }
+  }
+});
+process.on('uncaughtException', e => processFault.onUncaught(e));
 
 try { fs.mkdirSync(WORKSPACES, { recursive: true }); } catch (e) {}
 
@@ -3811,7 +3836,9 @@ const queueDepth = new Map();
 const activeItem = new Map();   // chatId -> { agentId, workitemId } newest in-flight item; older ones the hub superseded
                                 // (keyed by CHAT, mirroring the hub's one-run-per-conversation abort — floor
                                 // routing can send consecutive messages of one chat to DIFFERENT agents)
-function bumpQueue(agentId, d) { const n = Math.max(0, (queueDepth.get(agentId) || 0) + d); queueDepth.set(agentId, n); return n; }
+// delete-on-drain: a drained queue leaves NO entry, so the Map is bounded by the number of agents with work in
+// flight, not by every agentId that ever received a message (2026-09-03 audit: unbounded set-never-delete).
+function bumpQueue(agentId, d) { const n = Math.max(0, (queueDepth.get(agentId) || 0) + d); if (n > 0) queueDepth.set(agentId, n); else queueDepth.delete(agentId); return n; }
 
 // the placed floor's RoutingPlan (posted by the app on every geo change). resolveTarget answers "which agent
 // runs this work-item?"; a non-deployable plan (cycle/orphan/dead-bay) is refused so routing can't loop.
@@ -8184,12 +8211,14 @@ const devReplies = new Map(); // chatId -> [{ text, ts }] captured outbound repl
 /* the DEV channel's one send: capture the outbound text so POST /api/dev/inbound can return it. Shared by the
    dev hub (an agent's reply to an injected message) and by liveChannelFor('dev') (an agent's channel.send to a
    dev chat), so both paths land in the same ring and the dev channel behaves like a real transport. */
+const DEV_REPLIES_MAX_CHATS = 64;   // LRU cap on distinct dev chatIds (each ring is ≤20 replies); oldest-touched chat evicted first
 function devCaptureReply(chatId, text) {
   const k = String(chatId);
   const arr = devReplies.get(k) || [];
   arr.push({ text: String(text == null ? '' : text), ts: Date.now() });
   if (arr.length > 20) arr.shift();
-  devReplies.set(k, arr);
+  devReplies.delete(k); devReplies.set(k, arr);   // re-insert = move to the Map's tail (most recently used)
+  while (devReplies.size > DEV_REPLIES_MAX_CHATS) devReplies.delete(devReplies.keys().next().value);
   return Promise.resolve({ ok: true });
 }
 function devHubSecrets() {
@@ -8245,6 +8274,15 @@ function getDevHub() {
    read that does not mutate — otherwise the one channel we can drive without a platform token is the one
    channel whose outbound traffic cannot be inspected. DEV_MODE only (404 otherwise, exactly like the inbound
    route), behind the same launch-token + loopback gate as every other /api route. */
+// POST /api/dev/fault — DEV-only: throw an uncaught exception off the request stack (setImmediate) so it reaches
+// process.on('uncaughtException') exactly like a real torn-state throw would. Answers 202 first so the caller can
+// then watch /api/health flip to 503 and the process exit. Inert (404) in a packaged build (no SKYNET_DEV).
+function handleDevFault(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  if (!DEV_MODE) return json(404, { error: 'not found' });
+  json(202, { ok: true, scheduled: 'uncaughtException' });
+  setImmediate(() => { const e = new Error('synthetic uncaught exception (POST /api/dev/fault)'); e.code = 'EDEVFAULT'; throw e; });
+}
 function handleDevReplies(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   if (!DEV_MODE) return json(404, { error: 'not found' });
@@ -8697,6 +8735,9 @@ const ROUTES = [
   // qsplit, not exact: this GET carries ?chatId=, and an `exact` match would never fire (same reason the SSE
   // route uses qsplit) — it would fall through to the router's plain-text 404.
   { m: 'GET', qsplit: '/api/dev/replies', h: handleDevReplies },   // DEV-only read of a dev chat's captured OUTBOUND text (never clears)
+  // DEV-ONLY (404s unless SKYNET_DEV): raise a synthetic uncaught exception on the next tick so the fail-loud
+  // policy (process-fault.js) is live-provable: /api/health → 503 degraded, then exit(1) for the shell watchdog.
+  { m: 'POST', exact: '/api/dev/fault', h: handleDevFault },
   { m: 'GET', exact: '/api/channels/telegram/status', h: handleChannelStatus },
   { m: 'GET', exact: '/api/channels/status', h: handleChannelsStatusAll },   // one bulk poll paints the whole CHANNELS panel
   { m: 'POST', rx: GENERIC_CHANNEL_RX.connect, h: (req, res, gm) => handleGenericChannelConnect(req, res, gm[1]) },
@@ -8858,7 +8899,13 @@ const ROUTES = [
   { m: 'POST', exact: '/api/plugins/delete', h: handlePluginsDelete },
   { m: 'POST', exact: '/api/checkpoint/restore', h: handleCheckpointRestore },
   { m: 'GET', prefix: '/api/checkpoint', h: handleCheckpointList },
-  { m: 'GET', exact: '/api/health', h: (req, res) => { res.writeHead(200); return res.end('ok'); } },
+  // /api/health is the topbar LINK / Diag liveness probe. After an uncaught exception it answers 503 with the fault
+  // summary (the process is degraded and exiting for the shell watchdog) — never a plain "ok" over torn state.
+  { m: 'GET', exact: '/api/health', h: (req, res) => {
+    const f = processFault.fault();
+    if (f) { res.writeHead(503, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('degraded: ' + f.kind + ': ' + f.message); }
+    res.writeHead(200); return res.end('ok');
+  } },
   { m: 'GET', exact: '/api/execution-profiles', h: (req, res) => {
     const backend = executionEnvironment.describe();
     const agents = [...agentRoster].map(([agentId, rec]) => {
@@ -13572,7 +13619,7 @@ function serveSkills(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     const placedTypes = String(u.searchParams.get('placed') || '').split(',').map(s => s.trim()).filter(Boolean);
     json(200, { skills: skillsCatalog.catalog(SKILL_LIBRARY, { overrides: skillPrefs.overrides(), placedTypes: placedTypes }) });
-  } catch (e) { json(200, { skills: [] }); }
+  } catch (e) { json(500, routeFailure('skills', e)); }   // broken ≠ empty (chat.js already prints "could not load", not "none")
 }
 // POST /api/skills/toggle { slug, enabled } — persist a station-wide enable/disable choice for a library recipe.
 // Station-wide by design: per-AGENT reach stays the capability gate (the placed objects), not a per-agent toggle.
@@ -13728,7 +13775,7 @@ function serveAgentSkills(req, res) {
        still true. Without it the card blesses a package whose SKILL.md was rewritten after review. */
     skills = skillGate.annotate(skills, { verify: includeBody }).map(s => Object.assign({}, s, { guardDigest: skillGate.stampOf(s), goldens: goldensFor(agentId, s.id).length }));
     json(200, { agentId, skills, withheld: skills.filter(s => s.withheld).length });
-  } catch (e) { json(200, { skills: [] }); }
+  } catch (e) { json(500, routeFailure('agent-skills', e)); }   // harness.agentSkillsRead maps !ok to { ok:false } — never a confirmed empty
 }
 
 // POST /api/agent-skills/manage { agentId, action, ... } - user-visible runtime skill management.
@@ -17402,6 +17449,9 @@ function collectDiagnosticsInput(opts) {
       // must never be rendered as "plenty left" (see ratelimits.advise).
       rateLimits: (() => { try { return rateLimits.snapshot(); } catch (_) { return []; } })(),
       errors: DIAG_ERR_RING.slice(),   // already redacted on write; the assembler redacts again as a backstop
+      // an uncaught exception this process caught: the health surface is DEGRADED and the process is exiting for
+      // the shell watchdog (process-fault.js). null = no fault. Message only (redacted again by the assembler).
+      processFault: (() => { try { const f = processFault.fault(); return f ? { kind: f.kind, message: f.message, at: f.at, exiting: !!f.exiting } : null; } catch (_) { return null; } })(),
       proxy: proxySnapshot(),
       // fail-open pressure: per-tag swallowed-error counts since boot (failopen.js). Bounded + secret-free by
       // construction (tags are code literals). A read failure leaves it undefined -> the assembler says "unknown".
@@ -18638,18 +18688,34 @@ async function serveWorkspaceFile(req, res) {
 // dossier). The agent WRITES these notes itself via the notebook tool during runs; this route only reads
 // them. Jailed by the same agentId validation as the notebook store; never writable over HTTP, and the
 // store already lives outside the fs jail so the agent's fs.* tools can't touch it either.
+/* ROUTE HONESTY (2026-09-03 audit: "corrupt stores render as empty"). A read route must never answer 200 + []
+   when the store is BROKEN — the panel would print "no notes" as a confirmed fact over a corrupt/locked file.
+   readKey() exposes the loud statuses durable-store.js already computes; map them to a 500 { error, code } so the
+   frontend can tell "empty" from "broken" (every consumer already treats !r.ok as "unavailable", never as []-fact).
+   A genuinely absent file (new agent) stays a 200 + []. A generic throw inside a route is a 500 ROUTE_FAILED. */
+function storeFailure(r) {
+  if (!r) return null;
+  if (r.status === 'corrupt') return { error: 'store corrupt (no usable backup)', code: 'ESTORE_CORRUPT' };
+  if (r.status === 'unreadable') return { error: 'store unreadable (' + ((r.err && r.err.code) || 'EUNKNOWN') + ')', code: 'ESTORE_UNREADABLE' };
+  if (r.quarantined) return { error: 'store was corrupt and has been quarantined', code: 'ESTORE_QUARANTINED' };
+  return null;
+}
+function routeFailure(tag, e) { failNote('route.' + tag, e); return { error: tag + ' read failed', code: 'ROUTE_FAILED' }; }
 function serveNotebook(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   try {
     const u = new URL(req.url, 'http://127.0.0.1');
     const agent = u.searchParams.get('agent') || 'agent';
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agent)) return json(403, { error: 'forbidden' });
-    const raw = notebookStore.get('notebook:' + agent);
+    const r = notebookStore.readKey('notebook:' + agent);
+    const bad = storeFailure(r);
+    if (bad) return json(500, bad);
+    const raw = r.value;
     const notes = Array.isArray(raw)
       ? raw.map(n => ({ id: n && n.id, title: String((n && n.title) || ''), body: String((n && n.body) || ''), ts: (n && n.ts) || 0 }))
       : [];
     json(200, { notes });
-  } catch (e) { json(200, { notes: [] }); }   // tolerate missing/corrupt — empty memory, never a 500
+  } catch (e) { json(500, routeFailure('notebook', e)); }   // broken ≠ empty: the panel must not print "no notes" as fact
 }
 // POST /api/notebook/restore { agent?, notes:[...] } — fold a backup's memory snapshot back into the agent's
 // notebook (M-save P2). This is the ONLY HTTP write to the notebook, and it is user-initiated (import/restore),
@@ -19208,7 +19274,7 @@ function serveInsights(req, res) {
     let trackRecord = null;
     try { const rec = Outcomes.fold(rows, { now: Date.now() }); trackRecord = { decided: rec.decided, windowMs: rec.windowMs, patterns: Outcomes.summary(rec), lines: Outcomes.lines(rec) }; } catch (_) { trackRecord = null; }
     json(200, Object.assign(foldInsights(rows, { nowMs: Date.now(), bucketMs: 3600000, buckets: 24 }), { trackRecord }));
-  } catch (e) { json(200, { totalRuns: 0, totalUsd: 0, byModel: [], byReason: {}, byAgent: [], overTime: [] }); }
+  } catch (e) { json(500, routeFailure('insights', e)); }   // a zeroed fold would read as "0 runs, $0" — a fabricated telemetry claim
 }
 
 // GET /api/transcript?stream=<id>&agent=<id>&limit=<n> — the durable per-workstream conversation transcript
@@ -19223,7 +19289,7 @@ function serveTranscript(req, res) {
     const stream = u.searchParams.get('stream') || 'global';
     const limit = Math.max(1, Math.min(500, Number(u.searchParams.get('limit')) || 200));
     json(200, { stream, turns: transcriptStore.history(stream, { limit }) });
-  } catch (e) { json(200, { turns: [] }); }   // tolerate any error — empty transcript, never a 500
+  } catch (e) { json(500, routeFailure('transcript', e)); }   // broken ≠ empty: every reader gates on r.ok (autosessions/chat/returnstore)
 }
 
 /* Bind a local authenticated messaging conversation to an existing desktop workstream. This mutates only
@@ -19608,11 +19674,14 @@ function serveMemoryRecords(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     const agent = u.searchParams.get('agent') || 'agent';
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agent)) return json(403, { error: 'forbidden' });
-    const raw = notebookStore.get('notebook:' + agent);
+    const rk = notebookStore.readKey('notebook:' + agent);
+    const bad = storeFailure(rk);
+    if (bad) return json(500, bad);
+    const raw = rk.value;
     const nowMs = Date.now();   // surface effectiveTrust (time-decayed) so the panel shows earned-vs-current trust
     const records = Array.isArray(raw) ? raw.map(r => redact(memcore.projectRecord(r, nowMs))) : [];
     json(200, { agentId: agent, records });
-  } catch (e) { json(200, { records: [] }); }
+  } catch (e) { json(500, routeFailure('memory.records', e)); }
 }
 
 /* GET /api/memory/pending?agent=<id> — high-stakes proposals still awaiting a Keep/Edit/Discard verdict, oldest
@@ -19633,7 +19702,7 @@ function servePending(req, res) {
       origin: p.origin || 'commander', createdAt: p.createdAt || 0
     }));
     json(200, { agentId: agent, pending: rows });
-  } catch (e) { json(200, { pending: [] }); }
+  } catch (e) { json(500, routeFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty
 }
 
 // GET /api/memory/declined?agent=<id> — the permanent reject-list: beliefs the Commander Discarded, which
@@ -19645,10 +19714,13 @@ function serveDeclined(req, res) {
     const u = new URL(req.url, 'http://127.0.0.1');
     const agent = u.searchParams.get('agent') || 'agent';
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agent)) return json(403, { error: 'forbidden' });
-    const raw = notebookStore.get('declined:' + agent);
+    const rk = notebookStore.readKey('declined:' + agent);
+    const bad = storeFailure(rk);
+    if (bad) return json(500, bad);
+    const raw = rk.value;
     const declined = Array.isArray(raw) ? raw.map(t => redact(String(t))) : [];
     json(200, { agentId: agent, declined });
-  } catch (e) { json(200, { declined: [] }); }
+  } catch (e) { json(500, routeFailure('memory.declined', e)); }
 }
 
 // POST /api/memory/declined/restore { agent, text } — REMOVE one entry from the permanent reject-list so a belief
