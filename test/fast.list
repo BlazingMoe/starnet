@@ -11,6 +11,7 @@ test/diagnostics.test.js
 test/diagnostics-support-email.test.js
 test/diagnostics-build.test.js
 test/diagnostics-dead-engine.test.js
+test/bootguard.test.js
 test/live-doctor.test.js
 test/live-doctor-ui.test.js
 test/outbound-failure-diagnosability.test.js
@@ -133,6 +134,7 @@ test/cloudsavecore.test.js
 test/cloudsave-refusal.test.js
 test/cloudsave-unknown.test.js
 test/freshstart.test.js
+test/unreachable-browser-mode.test.js
 test/desktop-fresh-start-contract.test.js
 test/cloudsave-unload.test.js
 test/fullscreen.test.js
