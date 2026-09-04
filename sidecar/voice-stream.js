@@ -7,7 +7,7 @@ const normalized = word => String(word || '').toLowerCase().replace(/[^\p{L}\p{N
 // Incremental Whisper adapter: audio arrives once; two successive hypotheses confirm words.
 // Word timestamps let us retire confirmed audio instead of re-decoding a growing full recording.
 // No transcript or audio is persisted. This is local incremental ASR, not a native streaming model.
-function createVoiceStream({ transcribe, now = () => performance.now() }) {
+function createVoiceStream({ transcribe, now = () => 0 }) {
   const ac = new AbortController(), started = now();
   let pcm = Buffer.alloc(0), offset = 0, received = 0, decodedAt = 0;
   let committed = [], previous = [], provisional = [], through = 0, confirmed = 0;
@@ -107,7 +107,7 @@ function createVoiceStream({ transcribe, now = () => performance.now() }) {
   };
 }
 
-function makeVoiceStreams({ localVoice, now = Date.now }) {
+function makeVoiceStreams({ localVoice, now = () => 0, monotonicNow = now, uuid = randomUUID }) {
   const sessions = new Map();
   function sweep() {
     for (const [id, row] of sessions) if (now() - row.used > 30000) { row.stream.cancel(); sessions.delete(id); }
@@ -118,7 +118,7 @@ function makeVoiceStreams({ localVoice, now = Date.now }) {
       sweep();
       if (!localVoice.status().available) throw new Error('Local speech models are unavailable.');
       if (sessions.size >= 4) throw new Error('Too many active voice streams. Close another voice session first.');
-      const id = randomUUID(), stream = createVoiceStream({ transcribe: (pcm, opts) => localVoice.transcribe(pcm, opts) });
+      const id = uuid(), stream = createVoiceStream({ now: monotonicNow, transcribe: (pcm, opts) => localVoice.transcribe(pcm, opts) });
       sessions.set(id, { stream, used: now() });
       return { id, engine: 'local-incremental', ...stream.snapshot() };
     },

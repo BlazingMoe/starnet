@@ -150,7 +150,6 @@ function makeMediaService(options) {
   const fetchFn = o.fetch;
   const edgetts = o.edgetts;
   const localVoice = o.localVoice;
-  const voiceStreams = require('./voice-stream.js').makeVoiceStreams({ localVoice });
   const nativeStt = o.nativeStt;
   const readBody = o.readBody;
   const readBodyBuffer = o.readBodyBuffer;
@@ -166,6 +165,9 @@ function makeMediaService(options) {
   // backend policy (tests and alternate compositions can then reproduce cache decisions exactly).
   const now = typeof o.now === 'function' ? o.now : (() => 0);
   const randomUUID = typeof o.randomUUID === 'function' ? o.randomUUID : crypto.randomUUID;
+  const voiceStreams = require('./voice-stream.js').makeVoiceStreams({
+    localVoice, now, monotonicNow: typeof o.monotonicNow === 'function' ? o.monotonicNow : now, uuid: randomUUID
+  });
   const voiceCacheDir = path.join(o.workspaces, 'voice-cache');
   const sttModels = String(env('STT_MODELS') || 'google/gemini-3.1-flash-lite-preview,google/gemini-2.5-flash')
     .split(',').map(s => s.trim()).filter(Boolean);

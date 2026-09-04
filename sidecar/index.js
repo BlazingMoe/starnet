@@ -2129,6 +2129,7 @@ const media = makeMediaService({
   redact,
   logger: console,
   now: () => Date.now(),
+  monotonicNow: () => performance.now(),
   randomUUID: () => crypto.randomUUID()
 });
 function providerCredentialError(provider) {

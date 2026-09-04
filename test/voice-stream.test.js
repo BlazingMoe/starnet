@@ -7,6 +7,8 @@ const tick = async () => { for (let i=0;i<20;i++) await Promise.resolve(); };
 const pcm = n => Buffer.alloc(n * 4);
 const hypothesis = (...text) => ({text: text.join(' '), chunks:text.map((t,i)=>({text:' '+t,timestamp:[i*.2,(i+1)*.2]}))});
 (async () => {
+  let time=100;const timed=createVoiceStream({now:()=>time,transcribe:async()=>{time+=7;return hypothesis('timed');}});
+  timed.push(pcm(8000));await tick();assert.equal(timed.snapshot().metrics.firstPartialMs,7);assert.equal(timed.snapshot().metrics.recognitionMs,7);timed.cancel();
   let calls=0;
   const s=createVoiceStream({transcribe:async()=>++calls===1?hypothesis('turn','write'):hypothesis('turn','right','now')});
   s.push(pcm(8000)); await tick();
