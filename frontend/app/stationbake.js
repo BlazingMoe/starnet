@@ -897,8 +897,8 @@ const StationBake = (() => {
   // FALLBACK ONLY — projected geometry always carries matOf, so this map is not what you see in
   // game. WorldModel.ROOM_KINDS[kind].mat is the authority; keep the two in step.
   const MAT_BY_KIND = { hab: 'spine', corridor: 'spine', bridge: 'panel', lab: 'tile', factory: 'tread', storage: 'tread', quarters: 'soft' };
-  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [2, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
-  const MAT_NO_WEAR = { tile: 1, grate: 1, turf: 1 };   // gloss, open mesh and growth don't take boot scuffs
+  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [2, 2], diamond: [1, 1], resin: [4, 4], ceramic: [3, 3], cargo: [3, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
+  const MAT_NO_WEAR = { tile: 1, grate: 1, turf: 1, ceramic: 1, resin: 1 };   // gloss, open mesh, growth, and a poured or glazed floor take no boot scuffs   // gloss, open mesh and growth don't take boot scuffs
   // the room's deck material — the model's per-room choice when it has one, else the kind default
   // (a station built before the material axis existed has none, and bakes exactly as it always did).
   const matOf = z => {
@@ -1316,6 +1316,95 @@ const StationBake = (() => {
     if (y % 3 === 0) { px(X, Y, T, 1, sh(-0.28 * sk)); px(X, Y + 1, T, 1, sh(body + 0.06 * sk)); }
   }
 
+
+  /* ============ NEW DECKS (2026-09-03) — four surfaces the station did not have ============
+     Each carries ONE idea (the wall lane's law: a second element competes with the first rather than
+     supporting it), each is axis-neutral (a corridor can run either way and the REFIT swatch samples
+     the same painter), and each is keyed on WORLD tile coords so it survives a chunk boundary and a
+     room join without re-rolling. */
+
+  /* DIAMOND — rolled tread plate, the raised-lozenge sheet of every workshop and cargo lift. The read
+     is the LOZENGE: two short diagonal bars per cell in alternating directions, each with a lit crest
+     and the shadow it casts. No plate seams at all — this is stock sheet, and a joint drawn on top of
+     the pattern is exactly what turns it into noise. */
+  function deckDiamond(b, base, x, y, X, Y, z, n, fd) {
+    const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
+    const sh = d => shade(base, d * fd);
+    px(X, Y, T, T, sh(((h2(Math.floor(x / 3), Math.floor(y / 3), ':dm') % 5) - 2) * 0.012));
+    for (let cy = 0; cy < T; cy += 6) for (let cx = 0; cx < T; cx += 6) {
+      const gx = X + cx, gy = Y + cy;
+      const up = ((((x * T + cx) / 6) | 0) + (((y * T + cy) / 6) | 0)) % 2 === 0;   // alternating lozenge direction
+      for (let i = 0; i < 4; i++) {
+        const ox = gx + 1 + i, oy = up ? gy + 4 - i : gy + 1 + i;
+        px(ox, oy, 1, 2, sh(0.16));          // the raised bar
+        px(ox, oy - 1, 1, 1, sh(0.30));      // its lit crest
+        px(ox, oy + 2, 1, 1, sh(-0.34));     // the shadow it casts
+      }
+    }
+  }
+
+  /* RESIN — a poured, seamless floor with inlaid metal strips. The opposite of every other deck here:
+     no tiles, no bolts, no lattice. The read comes from the pour itself (soft mottling) plus two
+     bright strips inlaid every 4 tiles, which is what a lab or a clean passage actually looks like. */
+  function deckResin(b, base, x, y, X, Y, z, n, fd) {
+    const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
+    const sh = d => shade(base, d * fd);
+    px(X, Y, T, T, sh(0.04));
+    for (let j = 0; j < T; j += 2) for (let i = 0; i < T; i += 2) {           // the pour's soft mottle
+      const v = (hp(X + i, Y + j, 0x5e51) & 255) / 255;
+      if (v > 0.72) px(X + i, Y + j, 2, 2, sh(0.075));
+      else if (v < 0.22) px(X + i, Y + j, 2, 2, sh(-0.055));
+    }
+    const strip = (sx, sy, w, h) => { px(sx, sy, w, h, sh(0.34)); px(sx, sy, w, 1, sh(0.5)); px(sx, sy + h - 1, w, 1, sh(-0.2)); };
+    if (((x % 4) + 4) % 4 === 0) { px(X, Y, 1, T, sh(-0.22)); strip(X + 1, Y, 2, T); }   // inlaid strip, north-south
+    if (((y % 4) + 4) % 4 === 0) { px(X, Y, T, 1, sh(-0.22)); strip(X, Y + 1, T, 2); }   // and east-west
+  }
+
+  /* CERAMIC — big gloss tiles with a PALE grout and a specular catch. Where TILE is a 2x2 utility
+     surface, this is a 3x3 architectural one, and its joint is the only one in the catalog that runs
+     LIGHTER than its body — which is what reads as a finished room rather than a machine deck. */
+  function deckCeramic(b, base, x, y, X, Y, z, n, fd) {
+    const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
+    const sh = d => shade(base, d * fd);
+    const P = 3, cx0 = Math.floor(x / P), cy0 = Math.floor(y / P);
+    const lx = ((x % P) + P) % P, ly = ((y % P) + P) % P;
+    const tn = h2(cx0, cy0, ':cr');
+    const body = ((tn % 7) - 3) * 0.016 + ((cx0 + cy0) % 2 ? 0.022 : -0.018);   // a quiet checker between tiles
+    px(X, Y, T, T, sh(body));
+    const sk = Math.max(0, DEPTH.deckSeam);
+    if (lx === 0) { px(X, Y, 2, T, sh(0.20 * sk)); px(X + 2, Y, 1, T, sh(body - 0.16 * sk)); }   // pale grout + the tile's shaded edge
+    if (ly === 0) { px(X, Y, T, 2, sh(0.20 * sk)); px(X, Y + 2, T, 1, sh(body - 0.16 * sk)); }
+    if (lx === 0 && ly === 0) { px(X + 3, Y + 3, 5, 1, sh(body + 0.26)); px(X + 3, Y + 4, 3, 1, sh(body + 0.14)); }   // the gloss catch, north-west
+    if (tn % 11 === 3) px(X + 4 + (tn % 4), Y + 7, 3, 1, sh(body - 0.14));      // a hairline crack in one tile in eleven
+  }
+
+  /* CARGO — the heaviest deck in the catalog: 3x2 structural slabs, a deep channel between them, a
+     lifting eye at each slab corner and a painted load line down every third slab. Sized for a hold,
+     and the one deck that still reads from across the station. */
+  function deckCargo(b, base, x, y, X, Y, z, n, fd) {
+    const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
+    const sh = d => shade(base, d * fd);
+    const PW = 3, PH = 2;
+    const cx0 = Math.floor(x / PW), cy0 = Math.floor(y / PH);
+    const lx = ((x % PW) + PW) % PW, ly = ((y % PH) + PH) % PH;
+    const pn = h2(cx0, cy0, ':cg');
+    const body = ((pn % 5) - 2) * 0.026;
+    const sk = Math.max(0.4, DEPTH.deckSeam);
+    px(X, Y, T, T, sh(body));
+    for (let j = 2; j < T; j += 4) px(X, Y + j, T, 1, sh(body - 0.05));         // rolled grain across the slab
+    if (lx === 0) { px(X, Y, 3, T, sh(-0.62 * sk)); px(X + 3, Y, 1, T, sh(body + 0.22 * sk)); }   // deep channel + lit lip
+    if (ly === 0) { px(X, Y, T, 3, sh(-0.62 * sk)); px(X, Y + 3, T, 1, sh(body + 0.22 * sk)); }
+    if (lx === PW - 1) px(X + T - 1, Y, 1, T, sh(body - 0.3 * sk));
+    if (ly === PH - 1) px(X, Y + T - 1, T, 1, sh(body - 0.3 * sk));
+    if (lx === 0 && ly === 0) {                                                 // lifting eye at the slab corner
+      px(X + 5, Y + 5, 5, 5, sh(-0.34)); px(X + 6, Y + 6, 3, 3, sh(-0.62));
+      px(X + 5, Y + 5, 5, 1, sh(0.22)); px(X + 5, Y + 5, 1, 5, sh(0.22));
+    }
+    if (pn % 3 === 0 && ly === 0 && lx === 1) {                                 // painted load line
+      px(X, Y + 6, T, 2, 'rgba(214,178,52,0.5)'); px(X, Y + 6, T, 1, 'rgba(232,206,120,0.45)');
+    }
+  }
+
   function paintDeck(b, mat, base, x, y, X, Y, z, n, fd) {
     if (mat === 'runner') return deckRunner(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'treadway') return deckTreadway(b, base, x, y, X, Y, z, n, fd);
@@ -1325,6 +1414,10 @@ const StationBake = (() => {
     if (mat === 'hex') return deckHex(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'plank') return deckPlank(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'turf') return deckTurf(b, base, x, y, X, Y, z, n, fd);
+    if (mat === 'diamond') return deckDiamond(b, base, x, y, X, Y, z, n, fd);
+    if (mat === 'resin') return deckResin(b, base, x, y, X, Y, z, n, fd);
+    if (mat === 'ceramic') return deckCeramic(b, base, x, y, X, Y, z, n, fd);
+    if (mat === 'cargo') return deckCargo(b, base, x, y, X, Y, z, n, fd);
     return deckSlab(b, mat, base, x, y, X, Y, z, n, fd);
   }
 
