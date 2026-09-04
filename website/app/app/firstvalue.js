@@ -19,8 +19,14 @@
     const matched = TASKS.find(t => t.words && t.words.test(pain));
     return { task: matched || (pain ? TASKS[3] : TASKS[0]), pain, reason: pain ? 'Based on what you said takes your time' : 'One concrete place to begin; change it to fit your work' };
   }
-  function approvedProjects(rows) {
-    return (Array.isArray(rows) ? rows : []).filter(p => p && p.blessed === true && clean(p.root)).map(p => ({ root: p.root, name: clean(p.displayPath) || p.root }));
+  function approvedProjects(rows, sources) {
+    const projects = (Array.isArray(rows) ? rows : []).filter(p => p && p.blessed === true && clean(p.root)).map(p => ({ root: p.root, name: clean(p.displayPath) || p.root }));
+    // The host canonicalized explicitly selected discovery sources and rechecks their current authority.
+    // Never infer filesystem authority from a string-prefix comparison: nested links can escape a parent.
+    for (const s of Array.isArray(sources) ? sources : []) {
+      if (s && s.available === true && clean(s.root) && !projects.some(p => p.root === s.root)) projects.push({ root: s.root, name: s.root });
+    }
+    return projects;
   }
   function compose(input) {
     const v = input || {}, task = TASKS.find(t => t.id === v.intent) || TASKS[0];
@@ -84,11 +90,16 @@
     el.querySelectorAll('input[name="fv-source"]').forEach(r => r.onchange = sourceMode);
     async function refreshRoots() {
       const chosen = q('.fv-root').value || ctx.root || '';
-      const res = await fetch('/api/projects', { cache: 'no-store' });
+      const [projectResult, sourceResult] = await Promise.allSettled([
+        fetch('/api/projects', { cache: 'no-store' }).then(async res => ({ ok: res.ok, data: res.ok ? await res.json() : null })),
+        fetch('/api/discovery/sources', { cache: 'no-store' }).then(async res => res.ok ? res.json() : null)
+      ]);
+      const res = projectResult.status === 'fulfilled' ? projectResult.value : { ok: false };
       if (!res.ok) throw new Error('Could not verify approved folders. Retry or paste a sample.');
-      const data = await res.json();
+      const data = res.data;
       if (!alive) return [];
-      roots = approvedProjects(data.projects);
+      const sources = sourceResult.status === 'fulfilled' && sourceResult.value ? sourceResult.value.sources : [];
+      roots = approvedProjects(data.projects, sources);
       q('.fv-root').innerHTML = '<option value="">' + (roots.length ? 'Choose a folder…' : 'No approved folders yet') + '</option>' + roots.map(p => '<option value="' + esc(p.root) + '">' + esc(p.name) + '</option>').join('');
       q('.fv-root').value = roots.some(p => p.root === chosen) ? chosen : '';
       return roots;
