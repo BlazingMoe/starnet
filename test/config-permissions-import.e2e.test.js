@@ -28,6 +28,12 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
     await fixture.restart();
     const restarted = await fixture.json('GET', '/api/permissions');
     A.eq(restarted.body.grants, ['cabinet:write', existing].sort(), 'both grants survive a real sidecar restart');
+
+    const reset = await fixture.json('POST', '/api/config/reset', { section: 'permissions' });
+    A.eq(reset.status, 200, 'permission reset succeeds only after the empty allowlist is durable');
+    A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'successful reset clears live authority');
+    await fixture.restart();
+    A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'successful reset stays revoked after restart');
   } finally {
     await fixture.dispose();
   }
