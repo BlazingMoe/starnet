@@ -136,7 +136,7 @@ const StationBake = (() => {
                 each footprint plus exactly `pad`, so a crown wider than that hangs OUTSIDE the
                 mask and renders at its raw baked tone against the starfield — a blazing line
                 down the sides while the north crown sits under 0.77 ambient. */
-  const WALL = { up: 22, corUp: 12, skirt: 32, side: 7, capH: 4, sideCap: 5 };   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
+  const WALL = { up: 30, corUp: 16, skirt: 32, side: 7, capH: 4, sideCap: 5 };   // up 22→30, corUp 12→16 (2026-09-03, depth pass): a room is a box you are inside, and height is the only cue a top-down view has for it   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
   /* VIEWPORT holes punched by the wall pass this bake. buildLightMap cuts the ambient mask over
      them — without that the sky behind a window renders at the interior's 23% and reads as a
      black pane. Reset per bake alongside the wall palette cache. */
@@ -1836,13 +1836,34 @@ const StationBake = (() => {
     const bay = Math.floor(e.x / 2), tx = ((e.x % 2) + 2) % 2;      // tx 0 = the pilaster tile
     const body = shade(pal.face, ((h2(bay, e.y, 'bht') % 5) - 2) * 0.014 * wd);
     const sh = d => shade(body, d * wd);
-    px(X, topY, T, h, body);
+    /* THE FACE HAS A LIGHT ON IT (2026-09-03 depth pass). One flat tone top to bottom is a poster of a wall;
+       a standing face is lit from the ceiling and falls off toward the floor. Three hard steps — the pixel
+       idiom, never a wash — top third lifted, middle at body, lower third shaded, then the foot. */
+    const t1 = topY + Math.round(h * 0.34), t2 = topY + Math.round(h * 0.66);
+    px(X, topY, T, t1 - topY, sh(0.09));
+    px(X, t1, T, t2 - t1, body);
+    px(X, t2, T, footY - t2, sh(-0.07));
     wallFoot(b, body, X, footY, wd);                                                  // seated first, marks over it
-    px(X, topY + 2, T, 1, sh(0.07));                                                  // a single lit line under the crown
+    px(X, topY + 1, T, 1, sh(0.16));                                                  // a single lit line under the crown
+    // CABLE TRAY — a conduit run just under the crown, clipped every tile: the one detail a station wall
+    // always has, and the horizontal that reads the wall's length
+    px(X, topY + 4, T, 2, sh(-0.30)); px(X, topY + 4, T, 1, sh(0.06)); px(X + 5, topY + 3, 2, 4, sh(-0.42));
     const rail = topY + Math.round(h * 0.62);
     px(X, rail, T, 2, sh(-0.22));
     px(X, rail, T, 1, sh(0.11));
     if (tx === 0) wallPilaster(b, sh, X, topY, footY, 3, false);
+    else if (h >= 20) {
+      const k = h2(e.x, e.y, 'bkd') % 6;
+      if (k === 0) {                                                                  // recessed vent panel
+        px(X + 3, topY + 9, 7, 7, sh(-0.5)); px(X + 3, topY + 9, 7, 1, sh(-0.62));
+        for (let i = 0; i < 3; i++) px(X + 4, topY + 11 + i * 2, 5, 1, sh(-0.24));
+      } else if (k === 1) {                                                           // conduit drop with a junction box
+        px(X + 4, topY + 6, 1, footY - topY - 10, sh(-0.36)); px(X + 5, topY + 6, 1, footY - topY - 10, sh(0.05));
+        px(X + 3, topY + 12, 4, 3, sh(-0.2)); px(X + 4, topY + 13, 1, 1, sh(0.3));
+      } else if (k === 2) {                                                           // an access panel with a status lamp
+        px(X + 2, rail - 9, 8, 6, sh(-0.14)); px(X + 2, rail - 9, 8, 1, sh(0.10)); px(X + 8, rail - 8, 1, 1, '#62ff9e');
+      }
+    }
   }
 
   /* B · COURSES — riveted hull plating, all horizontal: three stacked courses, each with a lit top
@@ -3000,6 +3021,9 @@ const StationBake = (() => {
   /* a doorway threshold: a recessed metal track + lit lip across the open seam */
   function bakeThreshold(b, e, X, Y) {
     const track = '#3a352c', lip = 'rgba(255,236,196,0.18)';
+    // hazard chevrons on the sill (2026-09-03 depth pass) — 3px yellow / 3px black, low alpha so the deck shows through
+    const hz = (x, y, w, h, along) => { for (let i = 0; i < (along ? w : h); i += 3) { b.fillStyle = ((i / 3) & 1) ? 'rgba(20,18,12,0.55)' : 'rgba(214,178,52,0.45)'; if (along) b.fillRect(x + i, y, Math.min(3, w - i), h); else b.fillRect(x, y + i, w, Math.min(3, h - i)); } };
+    if (e.side === 'n') hz(X, Y + 2, T, 2, true); else if (e.side === 's') hz(X, Y + T - 4, T, 2, true); else if (e.side === 'w') hz(X + 2, Y, 2, T, false); else hz(X + T - 4, Y, 2, T, false);
     if (e.side === 'n') { b.fillStyle = track; b.fillRect(X, Y - 1, T, 2); b.fillStyle = lip; b.fillRect(X, Y, T, 1); }
     else if (e.side === 's') { b.fillStyle = track; b.fillRect(X, Y + T - 1, T, 2); b.fillStyle = lip; b.fillRect(X, Y + T - 1, T, 1); }
     else if (e.side === 'w') { b.fillStyle = track; b.fillRect(X - 1, Y, 2, T); b.fillStyle = lip; b.fillRect(X, Y, 1, T); }
@@ -3150,7 +3174,7 @@ const StationBake = (() => {
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z) });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0 });
       }
       b.restore();
     }
@@ -3904,7 +3928,7 @@ const StationBake = (() => {
     ditherLight(L, lightCv.width, lightCv.height);
     const flickers = [];
     for (let i = 0; i < lampPos.length; i += 2) flickers.push(lampPos[i]);
-    return { lightCv, flickers };
+    return { lightCv, flickers, lamps: lampPos.slice() };   // lamps = EVERY fixture (the overhead pass draws the hanging ones)
   }
 
   function buildBase() {
@@ -4252,14 +4276,14 @@ const StationBake = (() => {
 
   function blankBake(geo) {
     const blank = canvas(1, 1);
-    return { baseCv: blank, lightCv: blank, W: geo.W, H: geo.H, origin: geo.origin, flickers: [] };
+    return { baseCv: blank, lightCv: blank, W: geo.W, H: geo.H, origin: geo.origin, flickers: [], lamps: [] };
   }
 
   function bakeViewport(geo, viewport) {
     if (!setBakeState(geo, viewport)) return blankBake(geo);
     const baseCv = buildBase();
-    const { lightCv, flickers } = buildLightMap();
-    return { baseCv, lightCv, W: geo.W, H: geo.H, origin: geo.origin, flickers, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
+    const { lightCv, flickers, lamps } = buildLightMap();
+    return { baseCv, lightCv, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
   }
 
   function bake(geo) {
@@ -4351,7 +4375,7 @@ const StationBake = (() => {
     const viewport = chunkViewport(geo, cx, cy);
     const baked = bakeViewport(geo, viewport);
     return { key: chunkKey(cx, cy), cx, cy, x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h,
-      baseCv: baked.baseCv, lightCv: baked.lightCv, flickers: baked.flickers, usedAt: usedAt || 0 };
+      baseCv: baked.baseCv, lightCv: baked.lightCv, flickers: baked.flickers, lamps: baked.lamps || [], usedAt: usedAt || 0 };
   }
   function pruneChunkMap(chunkMap, maxRetainedChunks, requiredKeys) {
     if (!maxRetainedChunks || chunkMap.size <= maxRetainedChunks) return { evicted: 0 };
@@ -4366,9 +4390,9 @@ const StationBake = (() => {
     }
     return { evicted };
   }
-  function uniqueFlickers(chunks) {
+  function uniqueFlickers(chunks, field) {
     const seen = new Set(), out = [];
-    for (const c of chunks) for (const f of (c.flickers || [])) {
+    for (const c of chunks) for (const f of (c[field || 'flickers'] || [])) {
       const key = Math.round(f.x * 1000) + ',' + Math.round(f.y * 1000) + ',' + Math.round(f.r * 1000);
       if (!seen.has(key)) { seen.add(key); out.push(f); }
     }
@@ -4399,7 +4423,7 @@ const StationBake = (() => {
     const chunks = Array.from(chunkMap.values()).sort((a, b) => (a.cy - b.cy) || (a.cx - b.cx));
     return {
       chunked: true, chunks, chunkMap, chunkPx: CHUNK_PX, generation,
-      W: geo.W, H: geo.H, origin: geo.origin, flickers: uniqueFlickers(chunks),
+      W: geo.W, H: geo.H, origin: geo.origin, flickers: uniqueFlickers(chunks), lamps: uniqueFlickers(chunks, 'lamps'),
       stats: { chunkCount: chunks.length, rebakedChunks: dirty.length + visibleBaked, reusedChunks: reuse ? Math.max(0, chunks.length - dirty.length - visibleBaked) : 0,
         dirtyChunks: dirty.map(d => d.key), visibleChunks: visible ? Array.from(visibleKeys) : null,
         evictedChunks: pruned.evicted, fullReset: !reuse }

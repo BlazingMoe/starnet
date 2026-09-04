@@ -10,7 +10,7 @@
 (function () {
   if (!/[?&]crtlab\b/.test(location.search)) return;
 
-  const CRT_DEFAULTS = { scan: 0.46, pitch: 2, fade: 0.25, glow: 0.07, curve: 0.13, vig: 0.40, over: 1.20, dust: 0.5, aberr: 0.3, grain: 0.16, bloom: 0.2, emit: 0.6, mask: 0.22, bleed: 0.2, roll: 0.12 };
+  const CRT_DEFAULTS = { scan: 0.46, pitch: 2, fade: 0.25, glow: 0.07, curve: 0.13, vig: 0.40, over: 1.20, dust: 0.8, aberr: 0.3, grain: 0.16, bloom: 0.2, emit: 0.6, mask: 0.22, bleed: 0.2, roll: 0.12 };
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
@@ -21,7 +21,7 @@
      them back over the live object. They had drifted (up 9, side 12) behind the shipped 14/7, so
      RESET restored a state that never shipped and side 12 pushed the wall band past the hull
      silhouette it is pinned to. Add a WALL knob, add it here. */
-  const WALL_DEFAULTS = { up: 22, corUp: 12, skirt: 32, side: 7, capH: 4, sideCap: 5 };
+  const WALL_DEFAULTS = { up: 30, corUp: 16, skirt: 32, side: 7, capH: 4, sideCap: 5 };
   const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.12, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
   // TUBE APERTURE — the CSS glass vignette over the feed (app.css :root --tube-*). NOT the barrel warp:
   // `curve` bows the picture, these dim its outer band, and they move independently. Seeded from the live
