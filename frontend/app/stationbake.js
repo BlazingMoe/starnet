@@ -937,6 +937,33 @@ const StationBake = (() => {
      sampler both go through paintDeck, so the swatch a Commander clicks is drawn by the exact
      code that bakes the station — a deck preview here can never drift from the deck they get. */
 
+  /* ================= THE DECK CRAFT HELPERS (2026-09-03 polish pass) =================
+     Same three moves the SPINE deck was rebuilt on, factored for every other recipe:
+       plateGrade — a slow diagonal light across a WHOLE plate (lit at its north-west corner, falling to
+         the south-east), quantized to four hard steps. It reads at plate scale rather than tile scale,
+         which is the difference between a surface and a swatch, and it costs no extra marks.
+       deckBolt   — hardware with four parts: countersunk well, domed head lit north-west, the shadow it
+         casts, and a pin. Every deck here was drawing 2px squares.
+     Both take the tile's local plate coords so a plate spanning several tiles grades continuously. */
+  function plateGrade(b, base, X, Y, lx, ly, PW, PH, body, fd) {
+    const k = Math.max(0, fd);
+    if (k <= 0.001) return;
+    const span = PW * T + PH * T;
+    for (let j = 0; j < T; j += 2) for (let i = 0; i < T; i += 2) {
+      const u = ((lx * T + i) + (ly * T + j)) / span;
+      const step = Math.round((0.5 - u) * 3) / 3;
+      if (step) { b.fillStyle = shade(base, (body + step * 0.026) * k); b.fillRect(X + i, Y + j, 2, 2); }
+    }
+  }
+  function deckBolt(b, base, bx, by, body, fd) {
+    const sh = d => shade(base, (body + d) * Math.max(0, fd));
+    b.fillStyle = sh(-0.28); b.fillRect(bx - 1, by - 1, 5, 5);
+    b.fillStyle = sh(0.12); b.fillRect(bx, by, 3, 3);
+    b.fillStyle = sh(0.32); b.fillRect(bx, by, 2, 1); b.fillRect(bx, by, 1, 2);
+    b.fillStyle = sh(-0.32); b.fillRect(bx + 2, by + 1, 1, 2); b.fillRect(bx + 1, by + 2, 2, 1);
+    b.fillStyle = sh(-0.14); b.fillRect(bx + 1, by + 1, 1, 1);
+  }
+
   function deckSlab(b, mat, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
     const sh = d => shade(base, d * fd);
@@ -959,16 +986,20 @@ const StationBake = (() => {
     const body = ((pn % 5) - 2) * 0.014 + checker;
     const step = PH > 1 ? (ly === 0 ? 0.016 : -0.012) : 0;   // slab body: light upper course → dark lower
     px(X, Y, T, T, sh(body + step));
+    plateGrade(b, base, X, Y, lx, ly, PW, PH, body + step, fd);   // the plate's own diagonal light
     // the plate JOINT rides DEPTH.deckSeam — see the knob's note. The body tone above is NOT scaled
     // by it, so softening the seam blends the plates together without flattening the deck.
     const sk = Math.max(0, DEPTH.deckSeam);
-    if (lx === 0) { px(X, Y, 1, T, sh(-0.30 * sk)); px(X + 1, Y, 1, T, sh(body + 0.07 * sk)); }   // grout + lit west bevel
-    if (ly === 0) { px(X, Y, T, 1, sh(-0.30 * sk)); px(X, Y + 1, T, 1, sh(body + 0.07 * sk)); }   // grout + lit north bevel
-    if (lx === PW - 1) px(X + T - 1, Y, 1, T, sh(body - 0.14 * sk));                              // shaded east bevel
-    if (ly === PH - 1) px(X, Y + T - 1, T, 1, sh(body - 0.14 * sk));                              // shaded south bevel
+    // the joint is a two-step bevel ladder now (the SPINE polish): dark channel, lit lip inside it
+    if (lx === 0) { px(X, Y, 1, T, sh(-0.40 * sk)); px(X + 1, Y, 1, T, sh(body + 0.16 * sk)); px(X + 2, Y, 1, T, sh(body + 0.05 * sk)); }
+    if (ly === 0) { px(X, Y, T, 1, sh(-0.40 * sk)); px(X, Y + 1, T, 1, sh(body + 0.16 * sk)); px(X, Y + 2, T, 1, sh(body + 0.05 * sk)); }
+    if (lx === PW - 1) { px(X + T - 1, Y, 1, T, sh(body - 0.22 * sk)); px(X + T - 2, Y, 1, T, sh(body - 0.08 * sk)); }
+    if (ly === PH - 1) { px(X, Y + T - 1, T, 1, sh(body - 0.22 * sk)); px(X, Y + T - 2, T, 1, sh(body - 0.08 * sk)); }
     // material dressing — rivets on alternating plate joints only
     if ((mat === 'plate' || mat === 'tread') && lx === 0 && ly === 0 && (pxc + pyc) % 2 === 0) {
-      px(X + 2, Y + 2, 2, 2, sh(0.16)); px(X + 3, Y + 3, 1, 1, sh(-0.22));
+      // ONE bolt, inside this tile only: a painter may never paint outside its own tile (the plate's
+      // other fixings belong to the tiles that own those corners) — locked by stationbake.materials.test.js
+      deckBolt(b, base, X + 4, Y + 4, body, fd);
     }
     if (mat === 'tread') {
       if (n % 2 === 0) {                                           // stamped tread ticks on half the tiles
@@ -1015,6 +1046,8 @@ const StationBake = (() => {
   /* HEX — honeycomb. Two 12×6 cells per tile on a half-cell-offset lattice: flat top and bottom,
      diagonal shoulders, short side walls. Everything else on the station is rectilinear, so the
      non-square lattice alone is what makes this read as a different technology. */
+  /* HEX polished 2026-09-03: each cell takes a lit north-west arc and a shaded south-east one, so the
+     honeycomb reads as embossed rather than drawn. */
   function deckHex(b, base, x, y, X, Y, z, n, fd) {
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
     const sh = d => shade(base, d * fd);
@@ -1054,16 +1087,26 @@ const StationBake = (() => {
     const sk = Math.max(0, DEPTH.deckSeam);                      // board joints ride the same knob
     px(X, Y, T, T, base);
     px(X, Y, T, T, sh(body));
-    px(X, Y, T, 1, sh(body + 0.18 * sk));                        // lit top edge of the board
-    px(X, Y + T - 2, T, 1, sh(body - 0.10 * sk));                // shadow into the gap
-    px(X, Y + T - 1, T, 1, sh(body - 0.50 * sk));                // the gap between boards
+    /* THE BOARD'S OWN LIGHT — a board is not flat: it crowns slightly, so the light falls off toward
+       both edges. Three steps down its 12px width reads as a milled board rather than a stripe. */
+    px(X, Y + 2, T, 5, sh(body + 0.035));
+    px(X, Y + 7, T, 3, sh(body - 0.030));
+    px(X, Y, T, 1, sh(body + 0.20 * sk));                        // lit top edge of the board
+    px(X, Y + 1, T, 1, sh(body + 0.08 * sk));                    // its falloff
+    px(X, Y + T - 2, T, 1, sh(body - 0.14 * sk));                // shadow into the gap
+    px(X, Y + T - 1, T, 1, sh(body - 0.55 * sk));                // the gap between boards
     if (rel === 0) { px(X, Y, 1, T, sh(body - 0.50 * sk)); px(X + 1, Y, 1, T, sh(body + 0.10 * sk)); }   // butt-end seam
     px(X, Y + 3 + (n % 3), T, 1, sh(body - 0.10));               // grain hairlines running with the board
     px(X, Y + 7 + (n % 3), T, 1, sh(body - 0.08));
     if (n % 3 === 0) px(X, Y + 5, T, 1, sh(body + 0.05));
-    if (n % 17 === 4) {                                          // knot
-      px(X + 3 + (n % 4), Y + 4, 4, 3, sh(body - 0.26));
-      px(X + 4 + (n % 4), Y + 5, 2, 1, sh(body - 0.40));
+    if (n % 17 === 4) {                                          // knot — a dark eye with the grain bending round it
+      const kx = X + 3 + (n % 4);
+      px(kx, Y + 4, 4, 3, sh(body - 0.30));
+      px(kx + 1, Y + 5, 2, 1, sh(body - 0.46));
+      px(kx - 1, Y + 3, 6, 1, sh(body - 0.10)); px(kx - 1, Y + 7, 6, 1, sh(body - 0.10));
+      px(kx, Y + 4, 1, 1, sh(body + 0.10));
+    } else if (n % 23 === 7) {                                   // a countersunk floor screw in the board
+      px(X + 5, Y + 5, 3, 3, sh(body - 0.24)); px(X + 6, Y + 6, 1, 1, sh(body + 0.16));
     }
   }
 
@@ -1782,6 +1825,43 @@ const StationBake = (() => {
   /* the foot every recipe shares — a graded skirt of shadow pooling where the wall meets the deck.
      Deliberately NOT scaled all the way out by wallDetail: even a "flat" wall must stay seated on
      the floor, and this band is what seats it. Three hard steps, darkest at the contact line. */
+  /* ================= THE WALL CRAFT HELPERS (2026-09-03 polish pass) =================
+     The three moves that carried the SPINE deck's polish, factored so every recipe gets them and none
+     of them has to re-derive the maths:
+
+       faceGrade — A STANDING FACE IS LIT FROM ABOVE. Every recipe painted its face one flat tone top to
+         bottom, which is a poster of a wall; a real one takes the ceiling light on its upper third and
+         falls away toward the floor. Four hard steps (never a wash — the pixel idiom), lightest at the
+         crown, so the wall gains a vertical read at zero mark cost. This is the single biggest of the
+         three: it is what makes a 30px face look like a surface in a lit room.
+       hairPair — GRAIN IS A PAIR, NOT A LINE. A lighter hairline directly over a darker one is what a
+         rolled or brushed surface does under a raking light; a single-tone comb reads as corduroy.
+       rivetAt — HARDWARE HAS FOUR PARTS: a countersunk well, a domed head lit north-west, the shadow it
+         casts south-east, and a pin. Every recipe here was drawing 1px dots and calling them fixings. */
+  function faceGrade(b, tone, X, topY, h, wd) {
+    const k = Math.max(0, wd);
+    if (k <= 0.001 || h < 6) return;
+    const steps = [[0.00, 0.14], [0.26, 0.05], [0.55, -0.03], [0.78, -0.10]];
+    for (let i = 0; i < steps.length; i++) {
+      const y0 = topY + Math.round(h * steps[i][0]);
+      const y1 = topY + (i + 1 < steps.length ? Math.round(h * steps[i + 1][0]) : h);
+      if (y1 <= y0) continue;
+      b.fillStyle = shade(tone, steps[i][1] * k); b.fillRect(X, y0, T, y1 - y0);
+    }
+  }
+  function hairPair(b, tone, X, y, wd, amt) {
+    const a = (amt == null ? 1 : amt) * Math.max(0, wd);
+    b.fillStyle = shade(tone, -0.05 * a); b.fillRect(X, y, T, 1);
+    b.fillStyle = shade(tone, 0.055 * a); b.fillRect(X, y + 1, T, 1);
+  }
+  function rivetAt(b, tone, x, y, wd) {
+    const k = Math.max(0, wd);
+    b.fillStyle = shade(tone, -0.26 * k); b.fillRect(x - 1, y - 1, 4, 4);   // countersunk well
+    b.fillStyle = shade(tone, 0.10 * k); b.fillRect(x, y, 2, 2);            // the head
+    b.fillStyle = shade(tone, 0.30 * k); b.fillRect(x, y, 1, 1);            // lit north-west crown
+    b.fillStyle = shade(tone, -0.30 * k); b.fillRect(x + 1, y + 1, 1, 1);   // its south-east shadow
+  }
+
   function wallFoot(b, tone, X, footY, wd) {
     b.fillStyle = shade(tone, -0.16 - 0.08 * wd); b.fillRect(X, footY - 4, T, 4);
     b.fillStyle = shade(tone, -0.30 - 0.10 * wd); b.fillRect(X, footY - 2, T, 2);
@@ -1796,18 +1876,20 @@ const StationBake = (() => {
     const wd = wallDet();
     const plate = shade(pal.face, ((n % 4) - 1.5) * 0.03 * wd);
     b.fillStyle = plate; b.fillRect(X, topY, T, h);
-    const topCourse = Math.max(2, Math.min(4, (h / 3) | 0));
-    b.fillStyle = shade(plate, 0.10 * wd); b.fillRect(X, topY, T, topCourse);       // lit top course
+    faceGrade(b, plate, X, topY, h, wd);                                            // the ceiling's light down the face
+    for (let i = 3 + (n % 3); i < h - 4; i += 5) hairPair(b, plate, X, topY + i, wd, 0.8);   // rolled-plate grain
     b.fillStyle = shade(plate, 0.16 * wd); b.fillRect(X, topY, T, 1);               // 1px bright course edge
     wallFoot(b, plate, X, footY, wd);
-    b.fillStyle = shade(pal.face, -0.34 * wd); b.fillRect(X, topY, 1, h);           // per-tile plate seam
+    // the plate seam gets a bevel ladder like the deck's: dark channel, lit lip beside it
+    b.fillStyle = shade(pal.face, -0.42 * wd); b.fillRect(X, topY, 1, h);
+    b.fillStyle = shade(plate, 0.16 * wd); b.fillRect(X + 1, topY, 1, h);
     // BUMPER RAIL — a hard horizontal band ~58% down, lit on top. This is the single biggest
     // legibility win on a tall wall: it gives the eye a line to read height against.
     const rail = topY + Math.round(h * 0.58);
     b.fillStyle = shade(plate, -0.26 * wd); b.fillRect(X, rail, T, 2);
     b.fillStyle = shade(plate, 0.14 * wd); b.fillRect(X, rail, T, 1);
-    b.fillStyle = shade(plate, 0.20 * wd); b.fillRect(X + 2 + (n % 7), topY + 1 + (n % 2), 1, 1);   // rivet
-    if (n % 5 === 0) { b.fillStyle = shade(plate, -0.30 * wd); b.fillRect(X + 4 + (n % 5), topY + 3 + (n % 3), 1, 1); }
+    rivetAt(b, plate, X + 3, topY + 3, wd);                                         // real fixings, top and bottom of the plate
+    rivetAt(b, plate, X + 3, footY - 6, wd);
     if (h >= 14) {
       b.fillStyle = shade(pal.face, -0.30 * wd); b.fillRect(X, topY + ((h * 0.28) | 0), T, 1);      // weld line
       if (room && n % 9 === 0) {                                                     // recessed vent panel
@@ -1826,11 +1908,17 @@ const StationBake = (() => {
     const wd = wallDet();
     const body = shade(pal.face, ((n % 3) - 1) * 0.02 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
+    faceGrade(b, body, X, topY, h, wd);
+    /* A RIB IS ROUND. Four tones across its 4px pitch instead of three — deep channel, lit crest,
+       the crest's own falloff, then the shaded flank — so the section reads as a half-round
+       extrusion rather than a stripe. */
     for (let i = 0; i < T; i += 4) {
-      b.fillStyle = shade(body, -0.34 * wd); b.fillRect(X + i, topY, 1, h);        // deep channel
-      b.fillStyle = shade(body, 0.15 * wd); b.fillRect(X + i + 1, topY, 1, h);     // lit rib edge
-      b.fillStyle = shade(body, -0.10 * wd); b.fillRect(X + i + 3, topY, 1, h);    // rib shadow side
+      b.fillStyle = shade(body, -0.40 * wd); b.fillRect(X + i, topY, 1, h);        // deep channel
+      b.fillStyle = shade(body, 0.22 * wd); b.fillRect(X + i + 1, topY, 1, h);     // lit crest
+      b.fillStyle = shade(body, 0.06 * wd); b.fillRect(X + i + 2, topY, 1, h);     // crest falloff
+      b.fillStyle = shade(body, -0.16 * wd); b.fillRect(X + i + 3, topY, 1, h);    // shaded flank
     }
+    if (h >= 20) for (let rx = 1; rx < T; rx += 4) rivetAt(b, body, X + rx, topY + Math.round(h * 0.20), wd);   // a fixing row across the ribs
     // top and bottom rails cap the ribs so they don't float
     b.fillStyle = shade(body, 0.12 * wd); b.fillRect(X, topY, T, 2);
     b.fillStyle = shade(body, 0.20 * wd); b.fillRect(X, topY, T, 1);
@@ -1846,7 +1934,9 @@ const StationBake = (() => {
     const wd = wallDet();
     const body = shade(pal.face, ((n % 3) - 1) * 0.018 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
-    b.fillStyle = shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);              // tile seam
+    faceGrade(b, body, X, topY, h, wd);
+    b.fillStyle = shade(body, -0.38 * wd); b.fillRect(X, topY, 1, h);              // tile seam
+    b.fillStyle = shade(body, 0.14 * wd); b.fillRect(X + 1, topY, 1, h);           // its lit lip
     const pTop = topY + 2, pH = Math.max(4, h - 6);
     b.fillStyle = shade(body, -0.20 * wd); b.fillRect(X + 2, pTop, T - 4, pH);     // recess
     b.fillStyle = shade(body, 0.06 * wd); b.fillRect(X + 3, pTop + 1, T - 6, pH - 2);
@@ -1855,6 +1945,7 @@ const StationBake = (() => {
     b.fillStyle = shade(body, -0.24 * wd); b.fillRect(X + T - 4, pTop + 1, 1, pH - 2);
     b.fillStyle = shade(body, -0.24 * wd); b.fillRect(X + 3, pTop + pH - 2, T - 6, 1);
     b.fillStyle = shade(body, 0.22 * wd); b.fillRect(X, topY, T, 1);               // trim line along the run
+    rivetAt(b, body, X + 4, pTop + 2, wd); rivetAt(b, body, X + T - 6, pTop + pH - 5, wd);   // the panel's own fixings
     wallFoot(b, body, X, footY, wd);
   }
 
@@ -1883,11 +1974,20 @@ const StationBake = (() => {
     const wd = wallDet();
     const body = shade(pal.face, ((n % 4) - 1.5) * 0.025 * wd);
     b.fillStyle = body; b.fillRect(X, topY, T, h);
+    faceGrade(b, body, X, topY, h, wd);
     b.fillStyle = shade(body, -0.30 * wd); b.fillRect(X, topY, 1, h);
-    const pipe = (px, w) => {                                                        // a round-read pipe
-      b.fillStyle = shade(body, -0.34 * wd); b.fillRect(X + px, topY, w, h);
-      b.fillStyle = shade(body, 0.24 * wd); b.fillRect(X + px + 1, topY, 1, h);    // highlight column
-      b.fillStyle = shade(body, -0.48 * wd); b.fillRect(X + px + w - 1, topY, 1, h);
+    /* A PIPE IS A CYLINDER: dark contact shadow, body, a hot specular column one pixel off the lit
+       edge, then the terminator — plus RINGED COUPLINGS down its length, which is the detail the
+       reference art carries and the thing that says "pipe" rather than "stripe". */
+    const pipe = (px, w) => {
+      b.fillStyle = shade(body, -0.40 * wd); b.fillRect(X + px, topY, w, h);       // shadow side / contact
+      b.fillStyle = shade(body, -0.10 * wd); b.fillRect(X + px + 1, topY, w - 1, h);
+      b.fillStyle = shade(body, 0.30 * wd); b.fillRect(X + px + 1, topY, 1, h);    // specular column
+      b.fillStyle = shade(body, -0.52 * wd); b.fillRect(X + px + w - 1, topY, 1, h);   // terminator
+      for (let cy = topY + 5 + (n % 5); cy < topY + h - 3; cy += 11) {             // couplings
+        b.fillStyle = shade(body, 0.16 * wd); b.fillRect(X + px - 1, cy, w + 2, 2);
+        b.fillStyle = shade(body, -0.34 * wd); b.fillRect(X + px - 1, cy + 2, w + 2, 1);
+      }
     };
     pipe(2 + (n % 2), 3);
     if (n % 3 !== 0) pipe(8, 2);
@@ -1908,6 +2008,7 @@ const StationBake = (() => {
     const wd = wallDet();
     const upper = shade(pal.face, 0.10 * wd);
     b.fillStyle = upper; b.fillRect(X, topY, T, h);                                  // plain plaster above
+    faceGrade(b, upper, X, topY, h, wd * 0.7);                                       // plaster takes the light too
     b.fillStyle = shade(upper, -0.08 * wd); b.fillRect(X, topY, 1, h);
     const railY = topY + Math.round(h * 0.42);
     const boardTop = railY + 2;
@@ -1919,8 +2020,11 @@ const StationBake = (() => {
       b.fillStyle = shade(pal.face, 0.04 * wd); b.fillRect(X + i + 1, boardTop, 1, footY - boardTop);   // lit face
       if (bn % 4 === 0) b.fillStyle = shade(pal.face, -0.18 * wd), b.fillRect(X + i + 1, boardTop + 2 + (bn % 4), 1, 2);  // grain fleck
     }
-    b.fillStyle = shade(pal.face, -0.34 * wd); b.fillRect(X, railY, T, 2);         // chair rail
-    b.fillStyle = shade(pal.face, 0.30 * wd); b.fillRect(X, railY, T, 1);          // lit rail edge
+    // THE CHAIR RAIL IS MOULDING, not a line: a lit top edge, a body, and the shadow it throws on
+    // the boards under it — three steps is what turns a stripe into a piece of trim.
+    b.fillStyle = shade(pal.face, 0.32 * wd); b.fillRect(X, railY - 1, T, 1);      // lit top edge
+    b.fillStyle = shade(pal.face, 0.10 * wd); b.fillRect(X, railY, T, 1);          // the moulding face
+    b.fillStyle = shade(pal.face, -0.40 * wd); b.fillRect(X, railY + 1, T, 1);     // its shadow on the boards
     wallFoot(b, pal.face, X, footY, wd);
   }
 
@@ -2043,15 +2147,18 @@ const StationBake = (() => {
       const body = shade(pal.face, (((cn % 5) - 2) * 0.018 - ci * 0.035) * wd);     // lower courses darker
       const sh = d => shade(body, d * wd);
       px(X, y0, T, y1 - y0, body);
-      px(X, y0, T, 1, sh(0.16));                                                      // lit course lip
-      px(X, y1 - 1, T, 1, sh(-0.30));                                                 // shadowed underside
+      faceGrade(b, body, X, y0, y1 - y0, wd * 0.55);                                  // each course takes its own light
+      px(X, y0, T, 1, sh(0.20));                                                      // lit course lip
+      px(X, y0 + 1, T, 1, sh(0.07));                                                  // its falloff
+      px(X, y1 - 2, T, 1, sh(-0.18));                                                 // the underside's own step
+      px(X, y1 - 1, T, 1, sh(-0.34));                                                 // shadowed underside
       if ((((e.x - ci * 2) % 4) + 4) % 4 === 0) {                                     // staggered butt joint
         px(X, y0, 1, y1 - y0, sh(-0.34));
         px(X + 1, y0, 1, y1 - y0, sh(0.09));
       }
       // rivet row on the lip. Pitch 8 not 6 and lift 0.15 not 0.22: at room scale a tighter,
       // brighter row stops reading as fixings and starts reading as perforation.
-      for (let rx = 4; rx < T; rx += 8) px(X + rx, y0 + 2, 1, 1, sh(0.15));
+      for (let rx = 4; rx < T; rx += 8) rivetAt(b, body, X + rx, y0 + 3, wd * 0.8);
     }
     wallFoot(b, pal.face, X, footY, wd);
   }
@@ -2068,8 +2175,10 @@ const StationBake = (() => {
     const body = shade(pal.face, ((h2(pan, e.y, 'svc') % 5) - 2) * 0.015 * wd);
     const sh = d => shade(body, d * wd);
     px(X, topY, T, h, body);
-    for (let i = 4; i < h - 5; i += 5) px(X, topY + i, T, 1, sh(-0.04));              // faint grain
-    if (lx === 0) { px(X, topY, 1, h, sh(-0.30)); px(X + 1, topY, 1, h, sh(0.08)); }  // panel joint every 4 tiles
+    faceGrade(b, body, X, topY, h, wd);
+    for (let i = 4; i < h - 5; i += 5) hairPair(b, body, X, topY + i, wd, 0.7);        // grain, paired
+    if (lx === 0) { px(X, topY, 1, h, sh(-0.40)); px(X + 1, topY, 1, h, sh(0.14)); }   // panel joint every 4 tiles
+    if (lx === 0 && h >= 20) { rivetAt(b, body, X + 3, topY + 4, wd); rivetAt(b, body, X + 3, footY - 7, wd); }
     const run = topY + Math.round(h * 0.34);                                          // THE SERVICE RUN
     px(X, run, T, 3, sh(-0.20));
     px(X, run, T, 1, sh(-0.34));                                                      // its shadowed top
