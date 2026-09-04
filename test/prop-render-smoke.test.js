@@ -118,4 +118,36 @@ A.ok(checked >= 118, 'walked the whole catalog (' + checked + ' props)');
   A.eq(offenders, [], 'mounting lifts a prop by exactly SURFACE_RISE=8px and does not move it sideways');
 }
 
+/* Exercise the browser silhouette path too: repeated instances share geometry,
+   mounted/flat props do not cast a second deck shadow, and drawing resumes on
+   the caller's context after rendering a mask offscreen. */
+{
+  const previousCreate = document.createElement;
+  let allocations = 0;
+  document.createElement = () => {
+    allocations++;
+    const g = recorder();
+    return { width: 0, height: 0, getContext: () => g };
+  };
+  try {
+    const ctx = recorder(), images = [];
+    ctx.transform = () => {};
+    ctx.drawImage = (mask) => images.push(mask);
+    PS.setCtx(ctx);
+    const f = { t: 'desk', x: 3, y: 4, w: 2, h: 1 };
+    PS.drawShadow(f);
+    const firstAllocations = allocations;
+    PS.drawShadow({ ...f, x: 8, id: 'another-desk' });
+    A.ok(images.length === 4 && images.every(mask => mask === images[0]), 'instances reuse the same silhouette for both shadow layers');
+    A.eq(allocations, firstAllocations, 'cached shadow does not allocate another canvas per frame or instance');
+    const count = images.length;
+    PS.drawShadow(f, 'surface');
+    const flat = PS.CATALOG.find(c => c.flat);
+    PS.drawShadow({ t: flat.id, x: 0, y: 0, w: flat.w, h: flat.h });
+    A.eq(images.length, count, 'mounted items and flat decals do not project deck shadows');
+    PS.draw(f, false);
+    A.ok(ctx.rects.length >= MIN_RECTS, 'mask rendering restores the caller context for subsequent sprites');
+  } finally { document.createElement = previousCreate; }
+}
+
 A.report('prop-render-smoke');

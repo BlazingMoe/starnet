@@ -1756,23 +1756,29 @@ const StationBake = (() => {
         // wall (up:0) contacts the floor at the same inFace line, so seed the cast there either way.
         const inFace = e.room ? NFACE : 5;
         const seam = Y + inFace;
-        const h = e.room ? 14 : 8;                       // rooms throw a taller floor shadow than corridors
+        const h = Math.max(6, Math.round((e.room ? WALL.up : WALL.corUp) * 0.55));                       // rooms throw a taller floor shadow than corridors
         // 4 bands easing 1 → 0 in alpha over the shadow height (raised-cosine-ish falloff, discretized)
-        const bands = 4, prof = [1, 0.62, 0.34, 0.14];
+        const bands = 4, prof = [0.76, 0.48, 0.25, 0.10];
         const bh = Math.max(1, Math.round(h / bands));
         for (let i = 0; i < bands; i++) {
           const a = s * 0.92 * prof[i]; if (a < 0.004) continue;
           b.fillStyle = cool(a); b.fillRect(X, seam + i * bh, T, bh);
         }
+        // A tight occlusion seam anchors the wall; the longer cast above supplies its height.
+        b.fillStyle=cool(s*0.95);b.fillRect(X,seam,T,1);
+        // Structural uprights project narrow fingers beyond the broad wall shadow.
+        if (e.room && ((e.x % 2)+2)%2===0) {
+          b.fillStyle=cool(s*0.25);b.fillRect(X+3,seam+2,3,Math.min(T-2,h));
+        }
       } else if (e.side === 'w') {
         // deepen the west wall foot: two inward bands so the wall base reads shaded (steps in x)
-        const w = e.room ? 6 : 4, bw = Math.max(1, Math.round(w / 2));
+        const w = e.room ? 9 : 5, bw = 2;
         b.fillStyle = cool(s * 0.5); b.fillRect(X, Y, bw, T);
         b.fillStyle = cool(s * 0.22); b.fillRect(X + bw, Y, w - bw, T);
       } else if (e.side === 'e') {
-        const w = e.room ? 6 : 4, bw = Math.max(1, Math.round(w / 2));
-        b.fillStyle = cool(s * 0.5); b.fillRect(X + T - bw, Y, bw, T);
-        b.fillStyle = cool(s * 0.22); b.fillRect(X + T - w, Y, w - bw, T);
+        const w = e.room ? 3 : 2, bw = 1;
+        b.fillStyle = cool(s * 0.40); b.fillRect(X + T - bw, Y, bw, T);
+        b.fillStyle = cool(s * 0.12); b.fillRect(X + T - w, Y, w - bw, T);
       }
     }
   }

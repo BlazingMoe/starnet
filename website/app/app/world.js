@@ -14,6 +14,7 @@
 'use strict';
 
 const World = (() => {
+  let shadowReceiverGeo = null, shadowReceiverPath = null;
   let T = 12;
 
   /* ---------- station + bake cache ---------- */
@@ -5874,9 +5875,25 @@ const World = (() => {
        paints. One pass rather than per-item so a shadow can never land on a neighbour's body: the props
        and bodies are y-sorted and paint OVER this. The synthetic auto-desk casts one too. */
     if (typeof PropSprites !== 'undefined' && PropSprites.drawShadow) {
-      PropSprites.setCtx(ctx);
-      if (geo && geo.props) for (const p of geo.props) PropSprites.drawShadow(p, (station && station.mountOf) ? station.mountOf(p) : null);
-      if (desk && !deskPropId) PropSprites.drawShadow({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, null);
+      ctx.save();
+      try {
+        // Floor-only shadow receiver. Row spans retain holes, door gaps and disconnected rooms.
+        // Reuse the path until geometry changes; no per-frame tile scan.
+        if (typeof Path2D !== 'undefined' && geo && geo.zoneGrid) {
+          if (shadowReceiverGeo !== geo) {
+            shadowReceiverGeo=geo;shadowReceiverPath=new Path2D();
+            for(let yy=0;yy<geo.ROWS;yy++)for(let xx=0;xx<geo.COLS;){
+              if(geo.zoneGrid[yy*geo.COLS+xx]==null){xx++;continue;}
+              const start=xx;while(xx<geo.COLS&&geo.zoneGrid[yy*geo.COLS+xx]!=null)xx++;
+              shadowReceiverPath.rect(start*T,yy*T,(xx-start)*T,T);
+            }
+          }
+          ctx.clip(shadowReceiverPath);
+        }
+        PropSprites.setCtx(ctx);
+        if (geo && geo.props) for (const p of geo.props) PropSprites.drawShadow(p, (station && station.mountOf) ? station.mountOf(p) : null);
+        if (desk && !deskPropId) PropSprites.drawShadow({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, null);
+      } finally { ctx.restore(); }
     }
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();

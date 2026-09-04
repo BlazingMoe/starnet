@@ -11010,11 +11010,46 @@ const PropSprites = (() => {
     commswall: 3, bigscreen: 3, calwall: 2, chartwall: 2, arc_indexwall: 2, weaponrack: 2, weaponrack_r: 2, shelf: 2, rack: 2,
     war_threatcore: 3, bridge_dispatch_pylon: 3, research_corelens: 3, research_trendpillar: 3, pub_outboundchute: 3,
     punchbag: 2, punchbag_r: 2, camerarig: 2, camerarig_r: 2, treasury_token_furnace: 3, monstera: 1, tv: 2, couch: 1 };
+  // Cache only silhouette geometry: work lights and animation never change the shadow.
+  // A sheared, vertically compressed silhouette projects the standing sprite onto the deck.
+  const shadowMasks = new Map();
+  function shadowMask(f) {
+    if (typeof document === 'undefined') return null;
+    const key=[f.t,f.w||1,f.h||1,f.r||0,f.m||0].join('|');
+    if(shadowMasks.has(key))return shadowMasks.get(key);
+    const cv=document.createElement('canvas'), W=(f.w||1)*TILE,H=(f.h||1)*TILE;
+    cv.width=W+32;cv.height=H+56;
+    const g=cv.getContext('2d');if(!g)return null;
+    const previous=ctx, time=now;
+    try {
+      ctx=g;now=0;g.imageSmoothingEnabled=false;
+      const shape={t:f.t,x:16/TILE,y:48/TILE,w:f.w||1,h:f.h||1,r:f.r||0,m:f.m||0};
+      draw(shape,false,null); // first draw also resolves the own-hue outline cache
+      g.clearRect(0,0,cv.width,cv.height);draw(shape,false,null);
+      g.globalCompositeOperation='source-in';g.fillStyle='rgb('+SHADOW_RGB+')';g.fillRect(0,0,cv.width,cv.height);
+    } finally {ctx=previous;now=time;}
+    if(shadowMasks.size>=256)shadowMasks.clear();
+    shadowMasks.set(key,cv);return cv;
+  }
   function drawShadow(f, mounted) {
     if (!ctx) return;
     if ((mounted || f.mount) === 'surface') return;
     const s = spec(f.t); if (s && s.flat) return;
     const X = f.x * TILE, Y = f.y * TILE, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
+    const mask=shadowMask(f);
+    if(mask&&ctx.transform) {
+      const alpha=ctx.globalAlpha;
+      ctx.save();
+      try {
+        ctx.imageSmoothingEnabled=false;
+        ctx.translate(X,Y+H-1);
+        // High north-west key: elevated parts reach farther east and south.
+        ctx.transform(1,0,-0.52,-0.34,0,0);
+        ctx.globalAlpha=alpha*0.11;ctx.drawImage(mask,-15,-48-H-2);
+        ctx.globalAlpha=alpha*0.26;ctx.drawImage(mask,-16,-48-H);
+      } finally {ctx.restore();}
+      return;
+    }
     const reach = 3 + (SHADOW_TALL[f.t] || 0) + ((f.h || 1) >= 2 ? 2 : 0);
     // three nested steps, each smaller and darker, spreading south-east from the footprint's lower half
     const steps = [[0, 0.09], [0.35, 0.11], [0.7, 0.14]];
