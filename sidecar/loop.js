@@ -212,7 +212,18 @@
     return results;
   }
 
-  // Every call gets exactly one result (success / error / timeout / denial) — never thrown.
+  // STOP MEANS STOP (2026-09-04). A cancelled run must not keep dispatching: the model may have issued five
+  // writes/connector calls in one turn, and a STOP after the first used to let the other four execute because
+  // nothing between dispatches read the signal. Checked before EVERY dispatch in both branches; the skipped
+  // call gets the same paired isError result the other skip paths use, so the transcript says it was skipped,
+  // never that it succeeded.
+  const CANCELLED_SKIP = 'skipped: cancelled — the Commander stopped the run before this call ran';
+  function cancelledResult(callId) {
+    return { callId, isError: true, ok: false, content: CANCELLED_SKIP, summary: 'skipped - cancelled', control: null, images: null, parkedPath: null };
+  }
+  const isCancelled = (meta) => !!(meta && meta.signal && meta.signal.aborted);
+
+  // Every call gets exactly one result (success / error / timeout / denial / cancelled skip) — never thrown.
   async function executeCalls(calls, dispatch, capCtx, emit, meta) {
     const results = [];
     let finalControl = null;
@@ -231,6 +242,7 @@
       const settled = await Promise.all(calls.map(async (c) => {
         const t0 = meta.clock ? meta.clock.now() : 0;
         let r;
+        if (isCancelled(meta)) return { c, r: cancelledResult(c.id), ms: 0 };
         try { r = await dispatch(c, capCtx); }
         catch (e) {
           // The host marks a dispatch fatal when it has durably recorded a tool intent but cannot durably
@@ -270,6 +282,11 @@
           agentId: meta.agentId, runId: meta.runId, callId: c.id, ok: false,
           ms: 0, summary: 'skipped — terminal evidence', isError: true
         });
+        continue;
+      }
+      if (isCancelled(meta)) {
+        results.push(cancelledResult(c.id));
+        if (!hidden) emit('agent.tool_result', { agentId: meta.agentId, runId: meta.runId, callId: c.id, ok: false, ms: 0, summary: 'skipped — cancelled', isError: true });
         continue;
       }
       const t0 = meta.clock ? meta.clock.now() : 0;
@@ -733,6 +750,22 @@
       unpricedTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
       if (!unpricedModel) unpricedModel = modelId || '(unknown)';
     }
+    // ONE booking per model ATTEMPT. Every exit of the stream loop calls this — fatal, cancel, and the top of each
+    // retry/compress/fallback re-entry (which used to reset `usage = null` and lose it). The provider bills a
+    // cancelled or retried attempt too (Anthropic's message_start already carries input_tokens), so a stopped
+    // 150k-prompt turn must land in the ledger rather than book $0. Null usage books nothing.
+    function bookUsage(u, modelId) {
+      if (!u || !cost) return null;
+      const c = cost.reconcile(u, modelId);
+      spentUsd += c.usd || 0;
+      spentTokens += (c.tokensIn || 0) + (c.tokensOut || 0);
+      noteUnpriced(modelId, c);
+      emit('agent.cost', {
+        agentId, runId, usd: c.usd || 0, tokensIn: c.tokensIn || 0, tokensOut: c.tokensOut || 0,
+        reasoningTokens: c.reasoningTokens || 0, cachedTokens: c.cachedTokens || 0, model: modelId, reconciled: true
+      });
+      return c;
+    }
     function end(reason, extra) {
       // A3/Lane5: surface WHY the model stopped when it's a truncation/policy stop, ADDITIVELY — on BOTH the return
       // value (index.js gates reflection/study/skills on it) AND the agent.run.end event (the frontend renders a
@@ -1018,6 +1051,7 @@
       const acc = { text: '', toolCalls: {}, reasoning: [] };
       let streamedTextChunks = [];
       let usage = null, fatal = null;
+      let usageModel = model;   // the model that produced `usage` — a fallback swaps `model` before its `continue`
       let recoveries = 0;
       const maxRecoveries = 1 + fallbacks.length;
       let retriesUsed = 0;
@@ -1027,7 +1061,9 @@
       let truncRetries = 0;
       const MAX_TRUNC_RETRIES = 1;
       while (true) {
+        bookUsage(usage, usageModel);   // a re-entry after retry/compress/fallback: book the partial attempt BEFORE the reset
         acc.text = ''; acc.toolCalls = {}; acc.reasoning = []; streamedTextChunks = []; usage = null; lastFinishReason = null;
+        usageModel = model;
         let streamErr = null;
         let sawTruncation = false;
         try {
@@ -1169,16 +1205,7 @@
       if (fatal) {
         // A2 reconcile-on-fatal: if usage arrived before the stream failed, RECORD it before ending 'error' so the
         // ledger/spend reflect tokens the provider will bill — a fatal path must not silently drop billed usage.
-        if (usage && cost) {
-          const partial = cost.reconcile(usage, model);
-          spentUsd += partial.usd || 0;
-          spentTokens += (partial.tokensIn || 0) + (partial.tokensOut || 0);
-          noteUnpriced(model, partial);
-          emit('agent.cost', {
-            agentId, runId, usd: partial.usd || 0, tokensIn: partial.tokensIn || 0, tokensOut: partial.tokensOut || 0,
-            reasoningTokens: partial.reasoningTokens || 0, cachedTokens: partial.cachedTokens || 0, model, reconciled: true
-          });
-        }
+        bookUsage(usage, usageModel);
         emit('agent.run.error', { agentId, runId, message: fatal.message || 'model call failed', transient: !!fatal.retryable });
         return end('error', { failureStage: 'provider_stream', failureCode: fatal.reason || 'provider_failure' });
       }
@@ -1186,6 +1213,7 @@
       // cancellation mid-stream: keep partial text, then stop. A continuation call buffered its opening bytes for
       // overlap filtering; flush only its novel suffix before persisting the partial response.
       if (signal.aborted) {
+        bookUsage(usage, usageModel);   // a cancelled turn is still billed — the ledger must not say $0
         emitContinuationText(acc, streamedTextChunks);
         const cancelledPart = assistantTurn(acc.text, [], acc.reasoning);
         messages.push(cancelledPart);
@@ -1417,7 +1445,7 @@
       }
       let results;
       try {
-        results = await executeCalls(calls, dispatch, capCtx, emit, { agentId, runId, clock, hiddenTools: new Set(o.hiddenTools || []), parallelSafe: (typeof o.parallelSafe === 'function') ? o.parallelSafe : null, turnOutputMax: TURN_OUTPUT_MAX });
+        results = await executeCalls(calls, dispatch, capCtx, emit, { agentId, runId, clock, signal, hiddenTools: new Set(o.hiddenTools || []), parallelSafe: (typeof o.parallelSafe === 'function') ? o.parallelSafe : null, turnOutputMax: TURN_OUTPUT_MAX });
         assertPaired(calls, results); // (7) HARD INVARIANT
       } catch (e) {
         emit('agent.run.error', { agentId, runId, message: String((e && e.message) || e), transient: false });
