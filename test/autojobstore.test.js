@@ -43,6 +43,8 @@ const dlg = {
 global.Dialogue = dlg;
 
 const hn = { calls: [], next: { text: '' }, chat(args) { this.calls.push(args); return Promise.resolve(this.next); } };
+const ledgerCalls = [];
+hn.apiFetch = (url, opts) => { ledgerCalls.push(JSON.parse(opts.body)); return Promise.resolve({ ok: true }); };
 global.Harness = hn;
 
 let scheduled = [];
@@ -187,8 +189,12 @@ global.Onboarding = undefined;
 
     /* APPROVE routes the real cron POST (the same scheduleJob path) then clears the card ---- */
     const firstId = AutoJobStore.pendingList()[0].id;
+    const firstRecId = AutoJobStore.pendingList()[0].recommendationId;
     const ar = await AutoJobStore.acceptPending(firstId);
     A.eq(ar.ok, true, 'acceptPending reports success when the POST succeeds');
+    const adoption = ledgerCalls.find(c => c.id === firstRecId && c.outcome);
+    A.eq(adoption && adoption.outcome.adopted, true, 'new approved routine records adoption separately');
+    A.eq(adoption && adoption.outcome.quality, undefined, 'routine adoption does not invent satisfaction');
     A.eq(scheduled.length, 1, 'approve fires the real POST /api/cron (scheduleJob)');
     A.eq(scheduled[0].name, 'Standup draft', 'the scheduled job carries the approved proposal title');
     A.eq(AutoJobStore.pendingCount(), 1, 'an approved card leaves the ledger');
@@ -280,11 +286,13 @@ global.Onboarding = undefined;
     hn.next = { text: TWO };
     await AutoJobStore.propose({ proactive: true });
     const anyId = AutoJobStore.pendingList()[0].id;
+    const duplicateRecId = AutoJobStore.pendingList()[0].recommendationId;
     const realSched2 = deps.scheduleJob;
     deps.scheduleJob = () => Promise.resolve({ ok: true, duplicate: true });   // the server gate refused it
     AutoJobStore.init(deps);
     const sr = await AutoJobStore.acceptPending(anyId);
     A.eq(sr.duplicate, true, 'a server-reported duplicate is surfaced');
+    A.ok(!ledgerCalls.some(c => c.id === duplicateRecId && c.outcome && c.outcome.adopted), 'duplicate routine retirement does not invent adoption');
     A.ok(!AutoJobStore.pendingList().some(p => p.id === anyId), 'a server-reported duplicate also retires the card (no ghost)');
     deps.scheduleJob = realSched2; boardHere = false;
 

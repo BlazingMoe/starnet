@@ -12329,7 +12329,10 @@ async function handleQuestsRefreshNorthStar(req, res) {
   persistQuestRefresh();
   let minted = 0;
   if (had && decision === 'confirm' && staged.length) minted = await mintQuestRecommendations(staged, 'confirmed-direction');
-  await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+  if (had) {
+    const decided = await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+    if (decided) await recommendationLedger.outcome(decided.id, { adopted: decision === 'confirm' }, Date.now()).catch(swallow('recledger.outcome'));
+  }
   const s = QuestRefresh.normalize(questRefreshState);
   json(200, { ok: true, applied: had, decision: decision, minted: minted, northStar: QuestRefresh.effectiveNorthStar(s), northStarProposed: !!s.proposedNorthStar });
 }
