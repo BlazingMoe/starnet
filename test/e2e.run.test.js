@@ -208,6 +208,23 @@ function boot(port, env, attemptsLeft) {
       A.ok((wire.messages || []).some(m => m && m.role === 'user' && String(m.content).indexOf('[recovered tool result orphan_live_1') >= 0 && String(m.content).indexOf('preserved result') >= 0), 'the provider receives a truthful recovery label with the original result content');
     }
 
+    // The managed StarNet route shares the generic adapter with custom endpoints. Exercise that adapter
+    // through the real run loop too; direct OpenRouter coverage alone missed this recovery gap.
+    {
+      const before = mock.requests.length;
+      const r = await fetch(B + '/api/run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
+        body: JSON.stringify({ provider: 'custom', baseUrl: mock.base, key: 'fixture-only', model: 'test/model', agentId: 'compatible-pair-e2e',
+          messages: [{ role: 'user', content: 'PAIRRECOVERY compatible route' }, { role: 'tool', tool_call_id: '', content: 'PAIRRECOVERY evidence survives' }] })
+      });
+      const raw = await r.text();
+      const evs = raw.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
+      A.ok(evs.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'), 'compatible route recovers malformed tool history through the real sidecar');
+      const wire = mock.requests.slice(before).find(q => (q.messages || []).some(m => m.role === 'user' && m.content === 'PAIRRECOVERY compatible route'));
+      A.ok(wire && wire.messages.some(m => m.role === 'user' && String(m.content).includes('[recovered tool result') && String(m.content).includes('evidence survives')), 'compatible wire retains orphan evidence as labeled recovery text');
+      A.ok(evs.some(e => e.name === 'agent.cost' && e.payload.reconciled === true), 'compatible recovery still emits reconciled cost');
+    }
+
     // TYPED COMPLETION CONTRACT: a clean provider stop without the requested mechanical proof must remain
     // incomplete on both the live event and the durable run row. Model prose cannot promote it.
     {
