@@ -53,6 +53,17 @@ const hypothesis = (...text) => ({text: text.join(' '), chunks:text.map((t,i)=>(
   const result=await client.finish();assert.equal(result.text,'hello world');
   assert.equal(uploads.reduce((a,b)=>a+b,0),16000,'each sample uploaded once');assert.ok(uploads.every(n=>n<=12800));
   assert.ok(updates.some(v=>v.text==='hello world'));backend.close();
+  let openResponse, released=false;
+  sandbox.fetch=(url)=>url.includes('action=open') ? new Promise(resolve=>{openResponse=resolve;}) : (released=true,Promise.resolve({ok:true,json:async()=>({})}));
+  const abandoned=sandbox.api.open({rate:16000});abandoned.cancel();
+  openResponse({ok:true,json:async()=>({id:'late-session'})});await tick();
+  assert.equal(released,true,'cancelling during open releases the eventual server session');
+  let deadline;
+  sandbox.setTimeout=f=>(deadline=f,1);sandbox.clearTimeout=()=>{};
+  sandbox.fetch=(url,opts)=>new Promise((resolve,reject)=>opts.signal.addEventListener('abort',()=>reject(new Error('request timed out'))));
+  const stalled=sandbox.api.open({rate:16000});deadline();await tick();
+  assert.equal(stalled.failed,true,'unresponsive speech connection leaves a recoverable failed state');
+  await assert.rejects(stalled.finish(),/failed/);stalled.cancel();
   console.log('voice-stream.test: streaming correction, final reuse, cancellation, bounds, expiry, and browser transport passed');
 })().catch(e=>{console.error(e);process.exitCode=1});
 
