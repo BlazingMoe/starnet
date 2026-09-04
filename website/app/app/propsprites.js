@@ -167,6 +167,23 @@ const PropSprites = (() => {
   /* ---- furniture micro-helpers (verbatim from v7 sprites.js FURNITURE block) ---- */
   const sh = (x, y, w) => { ctx.globalAlpha = 0.22; px(x, y, w, 2, '#000'); ctx.globalAlpha = 1; };
   const glow = (x, y, w, h, c, a) => { ctx.globalAlpha = a; px(x, y, w, h, c); ctx.globalAlpha = 1; };
+  // Surface marks are authored BEFORE controls and fittings, so screens stay clean.
+  // Short directional strokes read as machining; broad untouched fields carry the form.
+  const machined = (x, y, w, h, c) => {
+    if (w < 7 || h < 3) return;
+    px(x + 1, y + 1, Math.max(2, Math.floor(w * 0.42)), 1, shade(c, 0.055));
+    if (h >= 6) {
+      px(x + Math.floor(w * 0.48), y + h - 2, Math.max(2, Math.floor(w * 0.32)), 1, shade(c, -0.085));
+      px(x + 1, y + h - 2, 1, 1, shade(c, -0.28));
+      px(x + 1, y + h - 3, 1, 1, shade(c, 0.16));
+    }
+    if (w >= 14 && h >= 8) {
+      const sx = x + w - 4;
+      px(sx, y + 2, 1, h - 4, shade(c, -0.22));
+      px(sx + 1, y + 2, 1, h - 4, shade(c, 0.075));
+      px(x + 2, y + 2, 2, 1, shade(c, 0.18));
+    }
+  };
   const box = (x, y, w, h, c) => {              // outlined, shaded casing — 2026-09-03: own-hue outline (LINE resolves to the prop's ink), two-step bevels
     px(x - 1, y - 1, w + 2, h + 2, LINE);
     px(x, y, w, h, c);
@@ -347,6 +364,7 @@ const PropSprites = (() => {
   const topFace = (x, y, w, d, r) => {           // foreshortened top surface, back edge catches light
     px(x - 1, y - 1, w + 2, d + 1, LINE);
     px(x, y, w, d, r.top);
+    if (r !== MAT.fabric && r !== MAT.seat && r !== RAMP.fabric) machined(x + 1, y + 1, w - 2, d - 2, r.top);
     px(x, y, w, 1, r.sheen);
     px(x, y + 1, 5, 1, shade(r.sheen, 0.12));  // west-biased sheen streak
     px(x, y + 1, 1, d - 1, r.lit);
@@ -356,6 +374,7 @@ const PropSprites = (() => {
   const frontFace = (x, y, w, fh, r) => {        // vertical south face under a top surface
     px(x - 1, y, w + 2, fh + 1, LINE);
     px(x, y, w, fh, r.face);
+    if (r !== MAT.fabric && r !== MAT.seat && r !== RAMP.fabric) machined(x + 1, y + 1, w - 2, fh - 2, r.face);
     px(x, y, w, 1, r.lit);                       // catch under the lip
     px(x, y + 1, 1, fh - 1, shade(r.face, 0.08));
     px(x + w - 1, y + 1, 1, fh - 1, r.dk);
@@ -614,7 +633,7 @@ const PropSprites = (() => {
     underAO(x + 6, y + 8, w - 12, 2);
 
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
-    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top);
+    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);
     px(x, y + 2, w, 2, r.face); px(x, y + 4, w, 1, r.dk);
     px(x, y - 1, 1, 5, r.mid); px(x + w - 1, y - 1, 1, 5, r.dk);
     px(x, y + 5, w, 2, r.face); px(x, y + 6, w, 1, r.dk);
@@ -972,7 +991,8 @@ const PropSprites = (() => {
     px(x, top, w, base - top, r.ink);
     px(x + 1, top + 1, w - 2, 2, r.lit);                           // top plane catching the ceiling
     px(x + 2, top + 1, 7, 1, r.hi);                                // one specular run, west
-    px(x + 1, top + 3, w - 2, 1, r.mid);                           // front edge of the top
+    px(x + 1, top + 3, w - 2, 1, r.mid);
+    px(x + w - 6, top + 1, 3, 1, r.face); // brushed interruption in the cabinet crown                           // front edge of the top
     px(x + 1, top + 4, w - 2, base - top - 6, r.ao);               // the cabinet interior, in shade
     px(x + 1, top + 4, 2, base - top - 6, r.face);                 // west rail, lit
     px(x + w - 3, top + 4, 2, base - top - 6, r.dk);               // east rail, shaded
@@ -1082,7 +1102,7 @@ const PropSprites = (() => {
 
     /* ---- one continuous top ---- */
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
-    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top);
+    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);
     px(x, y + 2, w, 2, r.face); px(x, y + 4, w, 1, r.dk);
     px(x + 2, y - 2, 10, 1, r.hi);
     px(x, y - 1, 1, 5, r.mid); px(x + w - 1, y - 1, 1, 5, r.dk);
@@ -1158,7 +1178,7 @@ const PropSprites = (() => {
     /* ---- the slab ---- */
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
     px(x, y - 2, w, 1, r.lit);                                    // the row the ceiling strip reaches
-    px(x, y - 1, w, 3, r.top);                                    // working surface
+    px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);                                    // working surface
     px(x, y + 2, w, 2, r.face);                                   // falling away toward the user
     px(x, y + 4, w, 1, r.dk);                                     // front lip
     px(x + 2, y - 2, 8, 1, r.hi);                                 // west-biased key catch
@@ -1247,7 +1267,7 @@ const PropSprites = (() => {
     underAO(x + 6, y + 8, w - 12, 2);
 
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
-    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top);
+    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);
     px(x, y + 2, w, 2, r.face); px(x, y + 4, w, 1, r.dk);
     px(x + 2, y - 2, 8, 1, r.hi);
     px(x, y - 1, 1, 5, r.mid); px(x + w - 1, y - 1, 1, 5, r.dk);
@@ -1314,7 +1334,7 @@ const PropSprites = (() => {
     underAO(x + 6, y + 8, w - 12, 2);
 
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
-    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top);
+    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);
     px(x, y + 2, w, 2, r.face); px(x, y + 4, w, 1, r.dk);
     px(x + 2, y - 2, 8, 1, r.hi);
     px(x, y - 1, 1, 5, r.mid); px(x + w - 1, y - 1, 1, 5, r.dk);
@@ -2221,7 +2241,7 @@ const PropSprites = (() => {
 
     /* ---- SLAB ---- */
     chamf(x - 1, y - 3, w + 2, 10, r.ink, 2);
-    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top);
+    px(x, y - 2, w, 1, r.lit); px(x, y - 1, w, 3, r.top); machined(x + 2, y - 1, w - 4, 3, r.top);
     px(x, y + 2, w, 2, r.face); px(x, y + 4, w, 1, r.dk);
     px(x, y - 1, 1, 5, r.mid); px(x + w - 1, y - 1, 1, 5, r.dk);
     px(x, y + 5, w, 2, r.face); px(x, y + 6, w, 1, r.dk);

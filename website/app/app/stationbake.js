@@ -1502,7 +1502,7 @@ const StationBake = (() => {
     }
   }
 
-  function paintDeck(b, mat, base, x, y, X, Y, z, n, fd) {
+  function paintDeckRecipe(b, mat, base, x, y, X, Y, z, n, fd) {
     if (mat === 'runner') return deckRunner(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'treadway') return deckTreadway(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'meshway') return deckMeshway(b, base, x, y, X, Y, z, n, fd);
@@ -1516,6 +1516,27 @@ const StationBake = (() => {
     if (mat === 'ceramic') return deckCeramic(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'cargo') return deckCargo(b, base, x, y, X, Y, z, n, fd);
     return deckSlab(b, mat, base, x, y, X, Y, z, n, fd);
+  }
+
+  // Finish belongs to the material, not to the room. Keep it inside the tile and
+  // anchored to world coordinates so refit swatches and chunked decks agree.
+  function paintDeck(b, mat, base, x, y, X, Y, z, n, fd) {
+    paintDeckRecipe(b, mat, base, x, y, X, Y, z, n, fd);
+    if (fd <= 0 || mat === 'turf' || mat === 'plank' || mat === 'grate' || mat === 'meshway' || mat === 'soft') return;
+    const seed = hp(x, y, 317), yy = Y + 3 + seed % 5;
+    if (mat === 'ceramic' || mat === 'resin' || mat === 'tile') {
+      // Broad, quiet glaze instead of scratches on hygienic surfaces.
+      if (seed % 7 === 0) {
+        b.fillStyle = 'rgba(186,212,231,' + (0.035 * fd).toFixed(4) + ')';
+        b.fillRect(X + 2, yy, 7, 2);
+      }
+    } else if (seed % 4 === 0) {
+      // Paired machining stroke: a recessed line and the lip that catches light.
+      b.fillStyle = 'rgba(4,9,16,' + (0.12 * fd).toFixed(4) + ')';
+      b.fillRect(X + 3, yy, 5, 1);
+      b.fillStyle = 'rgba(170,192,211,' + (0.045 * fd).toFixed(4) + ')';
+      b.fillRect(X + 3, yy - 1, 3, 1);
+    }
   }
 
   /* THE ONE DECK PAINTER — every walkable tile in the station, room or corridor, comes through
@@ -2130,7 +2151,7 @@ const StationBake = (() => {
         px(X + 4, topY + 6, 1, footY - topY - 10, sh(-0.36)); px(X + 5, topY + 6, 1, footY - topY - 10, sh(0.05));
         px(X + 3, topY + 12, 4, 3, sh(-0.2)); px(X + 4, topY + 13, 1, 1, sh(0.3));
       } else if (k === 2) {                                                           // an access panel with a status lamp
-        px(X + 2, rail - 9, 8, 6, sh(-0.14)); px(X + 2, rail - 9, 8, 1, sh(0.10)); px(X + 8, rail - 8, 1, 1, '#62ff9e');
+        px(X + 2, rail - 9, 8, 6, sh(-0.14)); px(X + 2, rail - 9, 8, 1, sh(0.10)); px(X + 8, rail - 8, 1, 1, sh(0.22));
       }
     }
   }
@@ -2458,7 +2479,7 @@ const StationBake = (() => {
     veins(fg, pal, w, h, vx, vy, topOf) {
       coursedVein(fg, w, h, vx, vy, {
         ch: STRAKE,
-        crest: 'rgba(226,232,214,0.13)',      // the sky-catch along a plate's top edge
+        crest: 'rgba(172,195,222,0.055)',      // the sky-catch along a plate's top edge
         bed: 'rgba(0,0,0,0.40)', bedH: 2      // the shadow the plate above throws down onto it
       }, topOf);
       const px = boxed(fg, 0, 0, w, h);
@@ -2470,14 +2491,25 @@ const StationBake = (() => {
           const y = r[2] + k * STRAKE + 2;
           for (let wx = courseAt(vx + r[0], 7); wx < vx + r[0] + r[1]; wx += 7) {
             if (wx < vx + r[0]) continue;
-            fg.fillStyle = 'rgba(228,236,220,0.12)'; px(wx - vx, y, 1, 1);
+            fg.fillStyle = 'rgba(182,204,228,0.065)'; px(wx - vx, y, 1, 1);
             fg.fillStyle = 'rgba(0,0,0,0.28)'; px(wx - vx, y + 1, 1, 1);
           }
         }
       }
+      // Recessed service covers belong to the armour, with a dark reveal and a small
+      // cold edge reflection. World-anchored placement keeps chunk seams invisible.
+      for (const run of runs) {
+        for (let wx = courseAt(vx + run[0], 56); wx < vx + run[0] + run[1]; wx += 56) {
+          if (wx < vx + run[0] || wx + 13 > vx + run[0] + run[1]) continue;
+          const xx = wx - vx + 3, yy = run[2] + 4;
+          fg.fillStyle = 'rgba(0,0,0,0.32)'; px(xx, yy, 10, 5);
+          fg.fillStyle = 'rgba(156,180,209,0.055)'; px(xx + 1, yy + 1, 8, 1);
+          fg.fillStyle = 'rgba(0,0,0,0.42)'; px(xx + 7, yy + 2, 2, 1);
+        }
+      }
       // the panel joint's LIT edge — one plate butts against the next and you see the near plate's
       // own edge beside the dark seam. panelSeam paints that seam at x = 5 + 28k, so this sits at 6.
-      fg.fillStyle = 'rgba(220,226,208,0.09)';
+      fg.fillStyle = 'rgba(174,195,220,0.04)';
       for (let x = 6 - (vx % 28); x < w; x += 28) px(x, 0, 1, h);
     }
   };
