@@ -4049,6 +4049,27 @@ const StationBake = (() => {
     L.putImageData(img, 0, 0);
   }
 
+  // Surfaces which may receive interior illumination. Hull skirts and crowns
+  // deliberately have no coverage. Use the same pixel corner cuts as the art.
+  function interiorReceiver() {
+    const cv = canvas(CW, CH), b = translatedContext(cv);
+    b.fillStyle = '#fff';
+    for (const r of G.allRects) b.fillRect(r.x1*T, r.y1*T, (r.x2-r.x1+1)*T, (r.y2-r.y1+1)*T);
+    for (const [x, y, kind] of G.chamfers) {
+      const a = CORNER[kind];
+      eraseSpandrel(b, kind, (x+a.cx)*T, (y+a.cy)*T, T);
+    }
+    // The visible north wall FACE is inside; its cap above topY is outside.
+    for (const e of edges) if (e.side === 'n' && !e.door && !e.open) {
+      const up = Math.max(0, Math.round(e.room ? WALL.up : WALL.corUp));
+      b.fillRect(e.x*T, e.y*T-up, T, up+(e.room ? NFACE : 5));
+    }
+    b.globalCompositeOperation = 'destination-out';
+    for (const [x,y,w,h] of crownRects) b.fillRect(x,y,w,h);
+    b.globalCompositeOperation = 'source-over';
+    return cv;
+  }
+
   function buildLightMap() {
     const lightCv = canvas(CW, CH);
     const L = translatedContext(lightCv);
@@ -4231,6 +4252,15 @@ const StationBake = (() => {
         L.globalCompositeOperation = 'destination-out';
       }
     }
+    // Preserve the original lighting exactly on interior pixels. Outside them,
+    // retain only the fixed ambient exposure: lamps cannot brighten the shell.
+    const interiorCv = interiorReceiver();
+    const exterior = canvas(CW, CH), E = exterior.getContext('2d');
+    E.globalAlpha = LIGHT.ambient; E.drawImage(mask, 0, 0); E.globalAlpha = 1;
+    E.globalCompositeOperation = 'destination-out'; E.drawImage(interiorCv, 0, 0);
+    L.globalCompositeOperation = 'destination-in'; L.drawImage(interiorCv, VX, VY);
+    L.globalCompositeOperation = 'source-over'; L.drawImage(exterior, VX, VY);
+
     // VIEWPORT GLASS — clear the ambient mask fully over every window the wall pass cut, so the
     // live starfield behind the hole reads at its own brightness instead of the interior's 23%.
     // A hard-edged fill, not a gradient: the frame around it is a hard pixel edge too.
@@ -4240,7 +4270,7 @@ const StationBake = (() => {
     ditherLight(L, lightCv.width, lightCv.height);
     const flickers = [];
     for (let i = 0; i < lampPos.length; i += 2) flickers.push(lampPos[i]);
-    return { lightCv, flickers, lamps: lampPos.slice() };   // lamps = EVERY fixture (the overhead pass draws the hanging ones)
+    return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamps = EVERY fixture (the overhead pass draws the hanging ones)
   }
 
   function buildBase() {
@@ -4594,8 +4624,8 @@ const StationBake = (() => {
   function bakeViewport(geo, viewport) {
     if (!setBakeState(geo, viewport)) return blankBake(geo);
     const baseCv = buildBase();
-    const { lightCv, flickers, lamps } = buildLightMap();
-    return { baseCv, lightCv, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
+    const { lightCv, interiorCv, flickers, lamps } = buildLightMap();
+    return { baseCv, lightCv, interiorCv, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
   }
 
   function bake(geo) {

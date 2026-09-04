@@ -5905,8 +5905,12 @@ const World = (() => {
 
     drawOverhead(now);   // the deckhead: pendant fixtures hanging over the room, above everything that walks under them
     ctx.drawImage(cache.lightCv, 0, 0);
-    drawGlows(now);
-    drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
+    ctx.save();
+    try {
+      clipInteriorLight();
+      drawGlows(now);
+      drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
+    } finally { ctx.restore(); }
     drawNavLights(now);   // the hull's running lights at every rounded corner — the one sign of life on the station's outside
     drawDust(now);   // Slice 3: tiny motes drifting through the light pools (world-space, additive, over the glows)
     drawDeskFlashes(now);   // G0.4/G0.8: red distress strobe over a desk whose run just died (additive, with the glows)
@@ -6281,6 +6285,33 @@ const World = (() => {
     vg.addColorStop(1, 'rgba(0,0,0,' + vAlpha(1) + ')');           // r²≈2 (corners)
     ctx.fillStyle = vg; ctx.fillRect(-Math.SQRT2, -Math.SQRT2, 2 * Math.SQRT2, 2 * Math.SQRT2);
     ctx.restore();
+  }
+
+  let interiorClipCanvas = null, interiorClipPath = null;
+  function clipInteriorLight() {
+    const cv = cache && cache.interiorCv;
+    if (!cv || typeof Path2D === 'undefined') return;
+    if (interiorClipCanvas !== cv) {
+      const pixels = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      const path = new Path2D();
+      // Read once per bake, never per frame. Merge equal spans vertically.
+      let active = new Map();
+      for (let y = 0; y <= cv.height; y++) {
+        const next = new Map();
+        if (y < cv.height) for (let x = 0; x < cv.width;) {
+          if (!pixels[(y*cv.width+x)*4+3]) { x++; continue; }
+          const start = x;
+          while (x < cv.width && pixels[(y*cv.width+x)*4+3]) x++;
+          const key = start+','+x, prior = active.get(key);
+          next.set(key, prior || { x:start, y, w:x-start });
+          active.delete(key);
+        }
+        for (const r of active.values()) path.rect(r.x, r.y, r.w, y-r.y);
+        active = next;
+      }
+      interiorClipCanvas = cv; interiorClipPath = path;
+    }
+    ctx.clip(interiorClipPath);
   }
 
   function drawGlows(now) {
