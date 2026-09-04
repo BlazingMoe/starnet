@@ -59,6 +59,7 @@
     const pending = new Map();          // id -> { resolve, reject, timer }
     const notifHandlers = new Map();    // method -> cb[]
     let closed = false;
+    let drainReason = null;
 
     function settle(id, apply) {
       const p = pending.get(id);
@@ -66,6 +67,7 @@
       pending.delete(id);
       if (p.timer) clearTimeout(p.timer);
       apply(p);
+      if (drainReason !== null && pending.size === 0) close(drainReason);
     }
 
     // route ONE inbound JSON-RPC message: response -> pending; notification -> handlers; server request -> reject.
@@ -96,14 +98,14 @@
     if (typeof transport.onMessage === 'function') transport.onMessage(receive);
 
     function request(method, params) {
-      if (closed) return Promise.reject(new Error('mcp client closed'));
+      if (closed || drainReason !== null) return Promise.reject(new Error('mcp client closed'));
       const id = ++nextId;
       const msg = { jsonrpc: JSONRPC, id, method };
       if (params !== undefined) msg.params = params;
       return new Promise((resolve, reject) => {
         const entry = { resolve, reject, timer: null };
         if (timeoutMs > 0) {
-          entry.timer = setTimeout(() => { pending.delete(id); reject(new Error('mcp request timed out: ' + method)); }, timeoutMs);
+          entry.timer = setTimeout(() => { settle(id, p => p.reject(new Error('mcp request timed out: ' + method))); }, timeoutMs);
           if (entry.timer && typeof entry.timer.unref === 'function') entry.timer.unref();   // never keep the host alive
         }
         pending.set(id, entry);
@@ -191,10 +193,18 @@
       if (typeof transport.close === 'function') { try { transport.close(); } catch (e) { onError(e); } }
     }
 
+    // A replacement session may be ready before every old request has received its response.
+    // Let those responses (or their existing timeouts) settle before closing their transport.
+    function drainAndClose(reason) {
+      if (closed) return;
+      drainReason = reason || 'reconnect';
+      if (pending.size === 0) close(drainReason);
+    }
+
     return {
       initialize, listTools, callTool,
       listResources, listResourceTemplates, readResource, listPrompts, getPrompt, supports,
-      request, notify, onNotification, receive, close,
+      request, notify, onNotification, receive, close, drainAndClose,
       isClosed: function () { return closed; },
       get protocolVersion() { return protocolVersion; },
       get serverCapabilities() { return serverCaps; }

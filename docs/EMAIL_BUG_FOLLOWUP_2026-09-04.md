@@ -14,7 +14,7 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
 - That lane handed off after its post-merge gates passed. Its trunk commit `c0a2ca521` was merged
   into this lane without conflicts. Preserve unrelated integration-tree edits.
 
-## Two reproduced gaps repaired here
+## Reproduced gaps repaired here
 
 1. **Managed-compatible tool history.** The generic Chat Completions adapter, used by managed
    StarNet, forwarded an orphan tool result with an empty call id. A local HTTP upstream enforcing
@@ -31,9 +31,18 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
    the message. Missing readback and lost responses retain the draft and say to check AUTOMATION
    before retrying. They cannot claim either success or that nothing was created.
 
+3. **Concurrent connector session recovery (found by the merge gate).** The first post-merge HTTP
+   gate exposed a delayed sibling response being cancelled when the replacement MCP session finished
+   connecting. The candidate merge was backed out before investigation. A deterministic two-caller
+   HTTP reproduction failed before the fix. Retired clients now drain pending replies or their existing
+   timeouts before closing; normal disconnects still close immediately. Both calls recover through one
+   re-initialization. Client lifetime checks cover late responses, refusal of new requests and timeout cleanup.
+
 ## Evidence
 
-- Combined-code pre-merge gates: `npm run test:fast` **707/707** and `npm run test:http` **92/92**, exit 0.
+- Initial combined-code pre-merge gates: `npm run test:fast` **707/707** and `npm run test:http` **92/92**, exit 0.
+  The first post-merge HTTP gate then exposed the MCP race above; that merge was backed out. Final
+  gates must include its repair before integration is considered complete.
 - The live restart proof also passed after incorporating `c0a2ca521`.
 - Before/after local HTTP adapter reproduction: malformed request rejected before; labeled recovery
   accepted afterward, with `Recovered` text and a normal finish.

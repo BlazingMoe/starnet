@@ -2,10 +2,11 @@
 
 ## VERIFIED 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
 
-Own only INBOX routine create/readback and compatible-provider tool-history repair. Existing sample,
+Own INBOX routine create/readback, compatible-provider tool-history repair and the MCP session-drain
+race exposed by the post-merge gate. Existing sample,
 OpenRouter, provider-truth and linked-state branches are already merged; do not merge them again.
 Verified on integrated value-loop code: fast 707/707, HTTP 92/92, live creation/readback and restart.
-Two local gaps repaired; exact managed production error and customer spend still need evidence. Details and residual
+Three local gaps repaired; exact managed production error and customer spend still need evidence. Details and residual
 customer/production dependencies: [EMAIL_BUG_FOLLOWUP_2026-09-04.md](EMAIL_BUG_FOLLOWUP_2026-09-04.md).
 
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
