@@ -26,7 +26,7 @@
       } else if (s.lane === 'shipped') {
         bucket = 'finished'; status = 'Marked shipped by you';
       } else if (s.lastRunOk === true) {
-        bucket = 'finished'; status = 'Run completed — usefulness not yet confirmed';
+        bucket = 'finished'; status = 'Run completed — review result';
       } else if (rows(s.runIds).length) {
         bucket = 'needs-you'; status = 'Run outcome is unconfirmed';
       }

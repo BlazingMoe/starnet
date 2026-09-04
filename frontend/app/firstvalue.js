@@ -62,7 +62,7 @@
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
     el.innerHTML = '<form class="fv-form">' +
       '<p class="fv-lead">Give the station one real source. Get a useful draft to review.</p>' +
-      '<p class="fv-reason">' + esc(proposed.reason) + '</p>' +
+      '<p class="fv-reason">' + esc(ctx.reason || proposed.reason) + '</p>' +
       (proposed.pain ? '<blockquote class="fv-pain">' + esc(proposed.pain.slice(0, 500)) + '</blockquote>' : '') +
       '<div class="fv-options" role="group" aria-label="Choose the first useful result">' + TASKS.map(t => '<button type="button" class="bb fv-option" data-intent="' + t.id + '" aria-pressed="' + (intent === t.id) + '">' + esc(t.name) + '</button>').join('') + '</div>' +
       '<p class="fv-outcome"></p>' +

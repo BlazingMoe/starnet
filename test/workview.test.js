@@ -4,7 +4,7 @@ const V = require('../frontend/app/workview.js');
 const stream = {id:'s',kind:'task',title:'Weekly update',runIds:['r'],lastActiveAt:1};
 assert.equal(V.project({streams:[stream]}).needsYou[0].status, 'Run outcome is unconfirmed');
 assert.equal(V.project({streams:[{...stream,lastRunOk:true}]}).finished.length,1);
-assert.match(V.project({streams:[{...stream,lastRunOk:true}]}).finished[0].status,/not yet confirmed/);
+assert.match(V.project({streams:[{...stream,lastRunOk:true}]}).finished[0].status,/review result/);
 assert.equal(V.project({streams:[{...stream,lane:'shipped'}],channels:{s:{busy:true,runId:'r'}}}).doing.length,1);
 assert.equal(V.project({streams:[stream],channels:{s:{busy:true,runId:null}}}).doing[0].status,'Connecting');
 assert.equal(V.project({streams:[stream],channels:{s:{busy:true,pending:{},runId:'r'}}}).needsYou.length,1);

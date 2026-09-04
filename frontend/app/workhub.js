@@ -96,7 +96,7 @@
       '<p class="muted">Your station changes through recorded goal outcomes. Tools and customization are available from the start.</p></section>'+
       '<section class="wh-group"><h3>WORK THAT COMES BACK TO YOU</h3>'+(cron && cron.jobs.length ? cron.jobs.map(job=>{
         const r=WorkView.routineView(job,cron);return '<article class="wh-card"><b>'+esc(r.title)+'</b><p>'+esc(r.status)+' · '+esc(r.last)+'</p>'+(r.next?'<p>Next: '+esc(date(r.next))+'</p>':'')+
-          '<button class="bb sm" data-term-link="automation">VIEW RESULTS & SCHEDULE</button></article>';
+          (job.lastOutput?'<details><summary>Latest recorded result</summary><p class="wh-prose">'+esc(String(job.lastOutput).slice(0,5000))+'</p></details>':'')+'<button class="bb sm" data-term-link="automation">VIEW RESULTS & SCHEDULE</button></article>';
       }).join(''):'<p class="muted">No recurring work recorded. Use MAKE RECURRING on a useful result to prepare its schedule.</p>')+'</section>'+
       '<section class="wh-group"><h3>WHAT CHANGED YOUR STATION</h3>'+(v.outcomes.length?v.outcomes.map(o=>'<article class="wh-card"><b>'+esc(o.title)+'</b><p>'+esc(o.evidence)+'</p><div class="muted">'+esc(o.verifiedBy==='harness-contract'?'Verified by harness':o.verifiedBy==='commander-confirmed'?'Confirmed by you':'Recorded by you')+' · '+esc(date(o.at))+'</div><button class="bb sm" data-term-link="quests">VIEW GOAL & EVIDENCE</button></article>').join(''):'<p class="muted">No verified outcomes recorded yet. Running tools or spending tokens does not advance this record.</p>')+'</section>'+
       '<section class="wh-group"><h3>WHAT THE STATION LEARNED TO DO DIFFERENTLY</h3>'+(v.receipts.length?v.receipts.map(r=>'<p>'+esc(r.text)+'</p>').join(''):'<p class="muted">No adaptation receipts yet.</p>')+'<button class="bb sm" data-term-link="commander">REVIEW WHAT IT KNOWS ABOUT YOU</button></section>';
@@ -158,7 +158,7 @@
     }
     if(b.dataset.finding) {
       const f=(data('work-discovery').staged || []).find(f=>f.id===b.dataset.finding);if(!f)return;
-      open('start',{findingId:f.id,root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title});return;
+      open('start',{findingId:f.id,root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title,reason:'Suggested from the evidence in your selected folder'});return;
     }
     if(b.hasAttribute('data-projects')){showProjects();return;}
     if(!b.dataset.dismiss && !b.hasAttribute('data-source-save') && !b.dataset.sourceToggle && !b.hasAttribute('data-source-remove') && !b.hasAttribute('data-scan') && !b.hasAttribute('data-refresh')) return;
