@@ -376,6 +376,10 @@ const CRED = { SKYNET_OPENROUTER_KEY: 'sk-or-v1-questrefresh-fake', SKYNET_DEFAU
       A.ok(cRes.ok && cRes.applied, 'the confirm verdict applied');
       A.eq(cRes.minted, 1, 'confirm mints the staged quest batch');
       A.eq(cRes.northStarProposed, false, 'after confirm no proposal is pending');
+      const recs = await (await fetch(B + '/api/recommendations', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
+      const adoptedDirection = (recs.entries || []).find(e => e.surface === 'northstar' && e.title === STAR);
+      A.ok(adoptedDirection && adoptedDirection.outcome.adopted === true, 'confirmed northstar records explicit adoption');
+      A.eq(adoptedDirection && adoptedDirection.outcome.quality, 0, 'northstar confirmation does not invent satisfaction');
       const after = await (await fetch(B + '/api/quests/refresh', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
       A.eq(after.northStar.status, 'adopted', 'the confirmed star reads adopted');
       A.eq(after.northStar.text, STAR, 'the adopted star is the one the Commander confirmed');

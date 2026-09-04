@@ -71,5 +71,41 @@ const A = require('./_assert.js');
   A.ok(marker && marker.sys && marker.error && /retry/i.test(marker.content), 'an unreachable transcript leaves a visible retryable status instead of a blank session');
   A.ok(!I.hasReadableOutput(pending.history), 'the pending status does not poison the next recovery attempt');
 
+  // Exercise the production Workstreams owner: correct IDs must join the durable artifact's runId.
+  const W = require('../frontend/app/workstreams.js');
+  W.init(null); global.Workstreams = W;
+  const success = W.adopt({ id: 'cron-real-success', history: [] });
+  I.foldTurns(success, [{ role: 'assistant', content: 'Real draft' }], 'ok', 'done', true, 1700000000020);
+  A.eq(success.runIds, ['real-success'], 'cron stream prefix is not part of the underlying run ID');
+  A.eq(success.lastRunOk, true, 'an explicit successful cron result settles the real run');
+  const failed = W.adopt({ id: 'cron-real-failed', history: [] });
+  I.foldTurns(failed, [{ role: 'assistant', content: 'Partial draft' }], 'failed', 'error', true, 1700000000021);
+  A.eq(failed.lastRunOk, false, 'failed cron result remains failed despite readable output');
+  const unknown = W.adopt({ id: 'cron-real-unknown', history: [] });
+  I.foldTurns(unknown, [{ role: 'assistant', content: 'Looks successful' }], null, '', true, 1700000000022);
+  A.eq(unknown.lastRunOk, null, 'transcript prose never establishes a successful outcome');
+  A.eq(I.outcomeOfRun({ reason: 'done' }), 'ok', 'durable done is positive completion evidence');
+  A.eq(I.outcomeOfRun({ reason: 'cancelled' }), null, 'a different terminal reason is not assumed successful');
+  A.eq(I.outcomeOfRun({}), null, 'an absent durable reason remains unknown');
+  const legacy = W.adopt({ id: 'cron-legacy', runIds: ['cron-legacy'], history: [{ role: 'assistant', content: 'Already hydrated' }] });
+  const followed = W.adopt({ id: 'cron-followed', runIds: ['cron-followed', 'newer-attended'], lastRunOk: false, history: [{ role: 'assistant', content: 'Newer result' }] });
+  const lastActivity = followed.lastActiveAt;
+  let rereads = 0;
+  global.fetch = async url => {
+    if (url === '/api/cron') return { ok: true, json: async () => ({ jobs: [] }) };
+    if (url.indexOf('/api/runs?') === 0) return { ok: true, json: async () => ({ runs: [
+      { runId: 'legacy', streamId: legacy.id, reason: 'done', ts: 1700000000023 },
+      { runId: 'followed', streamId: followed.id, reason: 'done', ts: 1700000000024 }
+    ] }) };
+    rereads++; throw new Error('existing readable transcripts should not be fetched');
+  };
+  await I.backfill({ sleep: () => Promise.resolve() });
+  A.eq(rereads, 0, 'metadata backfill preserves readable transcript deduplication');
+  A.eq(legacy.runIds, ['legacy'], 'existing hydrated sessions heal legacy run provenance on boot');
+  A.eq(legacy.lastRunOk, true, 'existing hydrated sessions gain proven completed outcome on boot');
+  A.eq(followed.runIds, ['followed', 'newer-attended'], 'historical provenance heals without reordering newer work');
+  A.eq(followed.lastRunOk, false, 'scheduled completion cannot overwrite a newer attended failure');
+  A.eq(followed.lastActiveAt, lastActivity, 'old backfill never rewrites newer activity time');
+
   A.report('cron-session-hydration.test');
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });

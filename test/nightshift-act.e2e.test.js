@@ -212,6 +212,8 @@ async function recommendations(B, headers) {
     const prefs1 = await recommendations(B, headers);
     const keptRec = (prefs1.entries || []).find(e => e.id === 'nightshift:' + runId);
     A.ok(keptRec && keptRec.state === 'completed', 'APPROVE records completion in the shared recommendation ledger');
+    A.eq(keptRec.outcome.adopted, true, 'APPROVE separately records explicit adoption');
+    A.eq(keptRec.outcome.quality, 0, 'APPROVE does not invent a satisfaction rating');
     const keptWeight = prefs1.model && prefs1.model.kinds && prefs1.model.kinds['advance-goal'] && prefs1.model.kinds['advance-goal'].weight;
     A.ok(keptWeight > 0, 'APPROVE raises the effective advance-goal preference');
     try { fs.rmSync(dest, { recursive: true, force: true }); } catch (_) {}
@@ -228,6 +230,7 @@ async function recommendations(B, headers) {
     const prefs2 = await recommendations(B, headers);
     const declinedRec = (prefs2.entries || []).find(e => e.id === 'nightshift:' + runId2);
     A.ok(declinedRec && declinedRec.state === 'declined' && declinedRec.reason === 'bad_quality', 'DENY records a typed negative verdict in the shared recommendation ledger');
+    A.eq(declinedRec.outcome.adopted, false, 'DENY is not adoption');
     const kind2 = prefs2.model && prefs2.model.kinds && prefs2.model.kinds['advance-goal'];
     A.ok(kind2 && kind2.negative >= 1 && kind2.weight < keptWeight, 'DENY lowers the effective advance-goal preference');
     // a verdict was recorded in the ledger too.

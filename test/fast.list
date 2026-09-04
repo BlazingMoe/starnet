@@ -701,3 +701,8 @@ test/free-path-ollama.test.js
 test/process-fault.test.js
 test/tier-model-catalog.test.js
 test/crash-ledger.test.js
+test/workview.test.js
+test/first-value.test.js
+test/effective-toolsets.test.js
+test/discovery-documents.test.js
+test/value-loop-replay.test.mjs
