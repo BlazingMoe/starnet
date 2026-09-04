@@ -3,6 +3,7 @@
 // Durable conversation coordinator. A turn always delegates to the existing runOnce host.
 // Clock, IDs, filesystem and execution are injected to make crash/race behavior testable.
 const { makeDurableJsonStore } = require('./durable-store.js');
+const { swallow, note: failNote } = require('./failopen.js');
 const ACTIVE = new Set(['connecting', 'running', 'waiting for approval', 'stopping']);
 const clone = x => JSON.parse(JSON.stringify(x));
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
@@ -345,7 +346,7 @@ function makeGroupSessions(d) {
           if (current.state !== 'completed') for (const child of state.turns) if (child.parent === t.id && child.state === 'queued') { child.state = 'stopped'; child.reason = 'Parent did not complete'; }
         });
       } catch (e) {
-        await chain.catch(() => {});
+        await chain.catch(swallow('group.turn.event-chain'));
         await update(id, state => {
           const cur = state.turns.find(x => x.id === t.id);
           Object.assign(cur, { state: ac.signal.aborted ? 'stopped' : 'failed', reason: e.message, endedAt: d.now() });
@@ -361,7 +362,7 @@ function makeGroupSessions(d) {
     let failed = false;
     const task = Promise.resolve().then(() => pump(id)).catch(e => { failed = true; d.log('group session ' + id + ': ' + e.message); }).finally(() => {
       workers.delete(id);
-      if (!failed) try { const g = get(id); if (!g.paused && !g.deleting && !haltedGroups.has(id) && g.turns.some(t => t.state === 'queued')) kick(id); } catch (_) { /* deleted group: no work remains */ }
+      if (!failed) try { const g = get(id); if (!g.paused && !g.deleting && !haltedGroups.has(id) && g.turns.some(t => t.state === 'queued')) kick(id); } catch (e) { if (e.status !== 404) failNote('group.worker.rearm', e); }
     });
     workers.set(id, task);
   }
