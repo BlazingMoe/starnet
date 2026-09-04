@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /* Local-only deterministic provider for exercising the real first-value run and deliverable path.
- * Run from the candidate checkout: node dev/value-loop-replay.mjs [--port=8964]
+ * Run from the candidate checkout: node dev/value-loop-replay.mjs [--port=8964] [--resume=<scratchRoot>]
  * Open the printed URL, Work → first draft, paste SAMPLE below or approve the printed source folder.
  * This is labeled fixture evidence, not a model-quality evaluation. No external account is used.
  */
 import http from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, lstatSync, realpathSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { materializeSeedWorkspace, bootSeededSidecar, waitUp } from '../scripts/lib/seed.mjs';
 import { messageContentText } from '../scripts/lib/message-content.mjs';
@@ -15,6 +15,27 @@ import { messageContentText } from '../scripts/lib/message-content.mjs';
 export const MODEL = 'replay/value-loop-fixture';
 export const SAMPLE = 'VALUE_LOOP_FIXTURE — synthetic client notes\nCompleted: homepage draft delivered.\nBlocker: client approval is pending.\nNext step: revise the draft after client feedback.\nOwner and deadline: not recorded.';
 export const DRAFT = '# Weekly client update — replay fixture\n\n## Progress\nThe homepage draft was delivered.\n\n## Blocker\nClient approval is pending.\n\n## Next step\nRevise the draft after client feedback.\n\n## Missing facts\nOwner and deadline were not recorded. The source does not establish a reporting date range.\n\n## Evidence\nSynthetic source: “Completed: homepage draft delivered.” “Blocker: client approval is pending.” “Next step: revise the draft after client feedback.”\n\nThis draft was produced by a deterministic local replay for application verification.\n';
+
+// Read-only validation. A resume must retain the exact station state and source bytes being tested.
+export function validateResume(input) {
+  if (typeof input !== 'string' || !isAbsolute(input)) throw new Error('Resume requires an absolute replay scratch root.');
+  const scratch = resolve(input), workspace = join(scratch, 'workspace'), source = join(scratch, 'client-notes');
+  const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  for (const dir of [scratch, workspace, source]) {
+    const stat = lstatSync(dir);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || !same(realpathSync(dir), dir)) throw new Error('Resume requires real replay folders, not links.');
+  }
+  for (const file of [join(workspace, 'agent.save.json'), join(workspace, 'agent.roster.json'), join(source, 'weekly-notes.md')]) {
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || !same(realpathSync(file), file)) throw new Error('Resume requires real replay state and source files.');
+    if (stat.size > 20 * 1024 * 1024) throw new Error('Resume state exceeds the replay validation limit.');
+  }
+  const roster = JSON.parse(readFileSync(join(workspace, 'agent.roster.json'), 'utf8'));
+  const save = JSON.parse(readFileSync(join(workspace, 'agent.save.json'), 'utf8'));
+  if (!save.doc || !Array.isArray(roster.agents) || !roster.agents.length || roster.agents.some(a => a.model !== MODEL)) throw new Error('Resume requires a station configured for the local replay model.');
+  if (!readFileSync(join(source, 'weekly-notes.md'), 'utf8').includes('VALUE_LOOP_FIXTURE')) throw new Error('Resume source is not the replay fixture.');
+  return { scratch, workspace, source };
+}
 
 export function replayTurn(body) {
   const messages = Array.isArray(body?.messages) ? body.messages : [];
@@ -80,10 +101,15 @@ async function main() {
   // Refuse an occupied port: verification must not quietly attach to somebody else's running station.
   try { const res = await fetch(url, { signal: AbortSignal.timeout(700) }); if (res) throw new Error('PORT_OCCUPIED'); }
   catch (e) { if (e.message === 'PORT_OCCUPIED') throw new Error('Port ' + port + ' is already in use.'); }
-  const scratch = mkdtempSync(join(tmpdir(), 'starnet-value-replay-'));
-  const workspace = join(scratch, 'workspace'), source = join(scratch, 'client-notes');
-  materializeSeedWorkspace(workspace, MODEL);
-  mkdirSync(source); writeFileSync(join(source, 'weekly-notes.md'), SAMPLE + '\n');
+  const resumeArg = process.argv.find(v => v.startsWith('--resume='));
+  let scratch, workspace, source;
+  if (resumeArg) ({ scratch, workspace, source } = validateResume(resumeArg.slice(9)));
+  else {
+    scratch = mkdtempSync(join(tmpdir(), 'starnet-value-replay-'));
+    workspace = join(scratch, 'workspace'); source = join(scratch, 'client-notes');
+    materializeSeedWorkspace(workspace, MODEL);
+    mkdirSync(source); writeFileSync(join(source, 'weekly-notes.md'), SAMPLE + '\n');
+  }
   const mock = await startReplayProvider();
   const child = bootSeededSidecar({ port, model: MODEL, key: 'local-replay-placeholder-not-a-credential', scratchDir: workspace, env: {
     SKYNET_OPENROUTER_BASE: mock.base, STARNET_OPENROUTER_BASE: mock.base,
@@ -96,6 +122,7 @@ async function main() {
   child.once('exit', () => { stop(); });
   if (!await waitUp(url)) { stop(); throw new Error('Seeded sidecar did not start.'); }
   console.log('LOCAL REPLAY FIXTURE — not a production model or quality evaluation');
+  if (resumeArg) console.log('RESUME — existing state and source retained without reseeding.');
   console.log('App: ' + url + '\nSource folder (approve explicitly in app): ' + source + '\nWorkspace: ' + workspace);
   console.log('Sample to paste:\n' + SAMPLE);
   console.log('Stop with Ctrl+C. The scratch workspace is retained for inspection.');
