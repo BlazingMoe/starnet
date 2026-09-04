@@ -515,6 +515,7 @@ async function opensWithin(t, ms) {
       return Promise.resolve({ ok: true, headers: { get: () => 'application/json' }, json: () => Promise.resolve({ text: 'words' }), blob: () => Promise.resolve({ size: 1 }) });
     };
     const t = boot({ audio: true, Audio: AutoEndAudio, fetch: stableVoiceFetch });
+    const timings=[];t.Voice.attachCoordinator({onTiming:value=>timings.push(value)});
     t.sandbox.localStorage.setItem('starnet.liveVoice.localVoice.v1', 'am_onyx');
     t.Voice.setSpeakReplies(true);
     t.Voice.setLocalTts(true);
@@ -526,6 +527,8 @@ async function opensWithin(t, ms) {
     A.eq(requests[0].localVoice, 'am_onyx', 'Local Live snapshots the selected voice when the session begins');
     A.eq(requests[1].localVoice, 'am_onyx', 'a mid-session picker change cannot switch the conversation voice');
     A.eq(requests[1].localEngine, 'local-kokoro', 'the first serving engine is pinned on later turns');
+    await until(()=>timings.length > 0,1000);
+    A.ok(timings.length > 0 && timings.every(v=>Number.isFinite(v.audioStartMs) && v.audioStartMs >= 0), 'latency is emitted only when actual audio playback starts');
     A.ok(requests.every(r => r.local === true), 'the stable-voice requests remain on the built-in Live Voice path');
   }
 
@@ -704,5 +707,12 @@ async function opensWithin(t, ms) {
     A.eq(muted.opened, true, 'the mic RE-OPENS after muting mid-reply (no wedge)');
   }
 
+  {
+    const t = boot({recorder:true, ttsKey:true});
+    const token = t.Voice.replyToken();
+    t.Voice.stopSpeaking();
+    t.Voice.speakChunk('A late chunk must stay silent.', 'agent', {replyToken:token});
+    A.eq(t.Voice.isReplyPending(), false, 'interrupted reply cannot restart from a late model chunk');
+  }
   A.report('voice.button.test');
 })().catch(e => { console.log('FAIL: harness threw — ' + (e && e.stack || e)); process.exit(1); });

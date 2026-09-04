@@ -268,7 +268,7 @@ async function transcribe(buffer, options = {}) {
   let energy = 0;
   for (let i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
   const rms = Math.sqrt(energy / samples.length);
-  if (rms < 0.0025) return '';
+  if (rms < 0.0025) return options.words ? { text: '', chunks: [] } : '';
   const run = async () => {
     checkAbort();
     asrBusy++;
@@ -276,11 +276,12 @@ async function transcribe(buffer, options = {}) {
     try {
       const pipe = await loadAsr();
       checkAbort();
-      const result = await pipe(samples, { chunk_length_s: 20, stride_length_s: 3 });
+      const result = await pipe(samples, { chunk_length_s: 20, stride_length_s: 3,
+        ...(options.words ? { return_timestamps: 'word' } : {}) });
       checkAbort();
       let text = String(result && result.text || '').replace(/\[(?:blank_audio|blank audio|silence|music)\]/ig, '').trim();
       if (rms < 0.006 && /^(?:you|thank you|thanks for watching|the end)[.!]?$/i.test(text)) text = '';
-      return text;
+      return options.words ? { text, chunks: text ? result.chunks || [] : [] } : text;
     } finally {
       lastAsrMs = monotonicMs() - started;
       asrBusy = Math.max(0, asrBusy - 1);

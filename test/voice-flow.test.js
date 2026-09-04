@@ -25,7 +25,7 @@ function harness() {
       boot() { active = true; paused = false; sessionSeq++; context = {sampleRate:16000}; calibratedUntil = 0; },
       take(frames) { recording = true; utteranceSeq++; utterance = frames; utteranceSamples = frames.reduce((n,f)=>n+f.length,0); lastVoicedSamples = utteranceSamples; },
       partial() { requestPartial(utterance, utteranceSeq); },
-      frame: processFrame, transcribe, finishUtterance, togglePause, closeMicrophone,
+      endpointSilenceMs, frame: processFrame, transcribe, finishUtterance, togglePause, closeMicrophone,
       inspect: () => ({recording, transcriptionPending, queued:queuedAudio.length, paused, samples:utteranceSamples})
     }, `;
   vm.runInNewContext(source.replace('return { init, start, end, isActive:', 'return { ' + expose + 'init, start, end, isActive:') + '\nthis.live = VoiceLive;', sandbox);
@@ -39,6 +39,22 @@ const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve(); };
 const audio = () => Array.from({length:8}, () => new Float32Array(1000).fill(0.1));
 
 (async () => {
+  {
+    const h = harness();
+    assert.equal(h.api.endpointSilenceMs('Please do this.',0),800);
+    assert.equal(h.api.endpointSilenceMs('Please do this and',0),1800);
+    assert.equal(h.api.endpointSilenceMs('',0),1200);
+    assert.equal(h.api.endpointSilenceMs('Please do this.',2600),2600);
+  }
+  {
+    const h = harness(); let cancelled=false;
+    const recognizer={failed:false,finish:async()=>{throw new Error('connection dropped');},cancel:()=>{cancelled=true;}};
+    const turn=h.api.transcribe(audio(), undefined, true, recognizer);await flush();
+    assert.ok(cancelled, 'failed stream is released');
+    assert.equal(h.requests.length,1,'original audio is retained for recorded fallback');
+    h.requests[0].resolve('the complete recovered turn');await turn;
+    assert.deepEqual(h.sent,['the complete recovered turn']);
+  }
   {
     const h = harness();
     h.api.take(audio()); h.api.partial();
@@ -95,5 +111,5 @@ const audio = () => Array.from({length:8}, () => new Float32Array(1000).fill(0.1
     h.api.togglePause(); h.frame(.1); h.frame(.1); h.frame(.1);
     assert.equal(h.api.inspect().recording, true, 'resume accepts a fresh utterance');
   }
-  console.log('voice-flow.test.js: 5 behavioral scenarios passed');
+  console.log('voice-flow.test.js: adaptive timing and 6 voice flow scenarios passed');
 })().catch(e => { console.error(e); process.exitCode = 1; });

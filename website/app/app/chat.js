@@ -7995,6 +7995,8 @@ const Chat = (() => {
       if (tail && tail.length <= 14 && ('TASK_QUESTION:'.startsWith(tail) || 'FORK:'.startsWith(tail))) return s.slice(0, nl + 1);
       return s;
     };
+    const speechToken = typeof Voice !== 'undefined' && Voice.replyToken ? Voice.replyToken() : undefined;
+    const speechOpts = { replyToken: speechToken };
     const pushSpeech = (finalize, finalText) => {
       // Ownership is checked again for every chunk. A voice-commanded rebind can happen while an
       // older run is still streaming; none of its late words may leak into the new call owner.
@@ -8002,7 +8004,7 @@ const Chat = (() => {
       const src = speakSafe(finalize ? (finalText || acc) : acc);
       const pending = src.slice(spokenIdx);
       if (!pending) return;
-      if (finalize) { if (pending.trim()) { Voice.speakChunk(pending, name); spokenIdx = src.length; } return; }
+      if (finalize) { if (pending.trim()) { Voice.speakChunk(pending, name, speechOpts); spokenIdx = src.length; } return; }
       let cut = -1;
       if (spokenIdx === 0) {
         // FIRST chunk: get him talking ASAP — flush on the earliest clause boundary (comma/dash/colon/
@@ -8017,10 +8019,12 @@ const Chat = (() => {
         // terminator so a decimal/abbreviation at the buffer edge ("3." / "e.g.") isn't spoken early.
         const re = /[.!?…]+["')\]]?\s/g; let m;
         while ((m = re.exec(pending)) !== null) cut = re.lastIndex;
-        if (cut < 0) { if (pending.length < 200) return; cut = pending.length; }   // runaway guard
+        if (cut < 0) { const clause = /[,;:—–]\s/.exec(pending);
+          if (clause && clause.index >= 24) cut = clause.index + clause[0].length;
+          else { if (pending.length < 100) return; cut = pending.lastIndexOf(' '); if (cut < 1) return; } }   // runaway guard
       }
       const chunk = pending.slice(0, cut);
-      if (chunk.trim()) { Voice.speakChunk(chunk, name); spokenIdx += cut; }
+      if (chunk.trim()) { Voice.speakChunk(chunk, name, speechOpts); spokenIdx += cut; }
     };
     try {
       const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd } = await Harness.chat({
@@ -8369,7 +8373,7 @@ const Chat = (() => {
         pushSpeech(true, finalReply);
         // VOICE-AWARE CHOICES: the choice itself is spoken as a natural question — question text only;
         // the 2-3 options are on-screen chips (reading them out was the "reads every option" glitch).
-        if (voiceQuestion && Voice.speakChunk) Voice.speakChunk('Quick question. ' + voiceQuestion, name);
+        if (voiceQuestion && Voice.speakChunk) Voice.speakChunk('Quick question. ' + voiceQuestion, name, speechOpts);
         Voice.endReply();
       }
       // hands-free voice mode: the run is done — let Voice re-open the mic for the next turn.

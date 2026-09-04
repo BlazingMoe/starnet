@@ -150,6 +150,7 @@ function makeMediaService(options) {
   const fetchFn = o.fetch;
   const edgetts = o.edgetts;
   const localVoice = o.localVoice;
+  const voiceStreams = require('./voice-stream.js').makeVoiceStreams({ localVoice });
   const nativeStt = o.nativeStt;
   const readBody = o.readBody;
   const readBodyBuffer = o.readBodyBuffer;
@@ -643,7 +644,23 @@ function makeMediaService(options) {
 
   function handleLocalVoiceStatus(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(localVoice.status()));
+    res.end(JSON.stringify({ ...localVoice.status(), streaming: true }));
+  }
+
+  async function handleLocalVoiceStream(req, res) {
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const action = query.get('action');
+    let result;
+    try {
+      if (action === 'open') result = voiceStreams.open();
+      else {
+        const bytes = action === 'audio' ? await readBodyBuffer(req, 64000, res) : undefined;
+        result = await voiceStreams.action(query.get('id'), action, bytes);
+      }
+    } catch (e) { result = { error: String(e.message || e) }; }
+    if (res.destroyed || res.writableEnded) return;
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(result));
   }
 
   async function handleLocalVoiceWarm(req, res) {
@@ -653,7 +670,7 @@ function makeMediaService(options) {
     };
     const current = localVoice.status();
     if (!current.available) return json(501, current);
-    localVoice.warm().catch(error => logger.error('[local-voice] warm failed:', (error && error.message) || error));
+    localVoice.warm({ tts: new URL(req.url, 'http://localhost').searchParams.get('tts') !== '0' }).catch(error => logger.error('[local-voice] warm failed:', (error && error.message) || error));
     json(202, current);
   }
 
@@ -703,6 +720,7 @@ function makeMediaService(options) {
     handleLocalVoiceStatus,
     handleLocalVoiceWarm,
     handleLocalVoiceTranscribe,
+    handleLocalVoiceStream,
     ttsFailOpenPolicy,
     sttFailOpenPolicy,
     _internals: { ttsSynthKeyed, sttTranscribe, maybeEvictVoiceCache, voiceCacheDir }

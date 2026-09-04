@@ -22,6 +22,22 @@ refreshed in `acd6eed27` without changing claim verdicts. The first HTTP attempt
 timing assertions (passed alone and in the full retry); earlier fast attempts caught the generated
 website mirror and source record needing refresh. Both are now verified. No merge or desktop build.
 
+Second round (2026-09-04): incremental local PCM sessions in both recording and hands-free modes;
+eight-second ASR windows with retained boundary context; stable/provisional text; adaptive pause option;
+prewarm while the microphone opens; interrupted reply tokens reject late chunks; subsequent speech
+clauses start without waiting for a 200-character sentence. Voice Details measures observed first words,
+last voiced frame to submission, and latest spoken chunk queued to actual playback (unobserved stages remain “—”).
+Fallback retains the original recording when streaming fails. Sessions expire and cap buffered audio.
+
+Live evidence: seeded server port8896, production voice UI and real bundled Whisper, with a generated
+speech PCM fixture injected only at the microphone seam and task submission captured without a provider
+call. Observed live transcript before submission, ordered open/audio/finish requests, the exact final
+“Please show my words while I am speaking. Then send a complete sentence.”, pause/resume, and end.
+Real browser receipt: 25 audio chunks, five recognitions, max window6784ms; first-partial2701ms on this
+heavily loaded shared host. Separate warm engine check first partial583ms. These are different checks,
+not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
+server stopped. Full second-round gates pending serialized handoff from support-mail lane.
+
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
 
 The support report's successful Live Doctor inference and failed sample used different configuration

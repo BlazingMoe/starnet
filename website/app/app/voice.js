@@ -531,7 +531,7 @@ const Voice = (() => {
   // browser path. playbackRate gives the per-personality pacing (Gemini TTS takes no speed param).
   // deep=true disables pitch-preservation, so a sub-1 rate lowers PITCH along with pace — the character-
   // voice register (persona ttsDeep). Vendor-prefixed setters for older engines; all guarded.
-  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell) {
+  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell, onStarted) {
     let url = null, a = null, done = false;
     const cleanup = () => {
       if (url) { try { URL.revokeObjectURL(url); } catch (_) {} url = null; }
@@ -566,7 +566,7 @@ const Voice = (() => {
       if (shell && routeThroughShell(a, shell)) outAnalyser = shAnalyser;
       else if (routeThroughFx(a)) outAnalyser = fxAnalyser;
       else outAnalyser = null;              // dry playback: no tap, so the meter reports nothing rather than lying
-      a.onplay = () => onSpeakStart();
+      a.onplay = () => { onSpeakStart(); if (onStarted) onStarted(); };
       a.onended = endOk;
       // a decode/format error on the neural blob is exactly the "try the browser voice" case — route
       // it to onFail (fallback) rather than treating it as a clean finish (which would go SILENT).
@@ -734,7 +734,9 @@ const Voice = (() => {
         const cfg = ttsConfig();
         const rate = cfg.speed * (job.opts.speedMul || 1);
         // a decode/playback failure on the neural blob → advance (skip this chunk silently). No robotic fallback.
-        playBlob(res.blob, advance, job.opts.volume, advance, rate, cfg.deep, cfg.shell);
+        playBlob(res.blob, advance, job.opts.volume, advance, rate, cfg.deep, cfg.shell, () => {
+          if (job.seq === speakSeq && !job.opts.mutter) coordinatorEvent('onTiming', { audioStartMs: Math.max(0, Date.now() - job.queuedAt) });
+        });
       } else { advance(); }   // 'silent' (no neural audio) or 'skip' (aborted) → play nothing, keep the queue moving
     });
   }
@@ -775,6 +777,7 @@ const Voice = (() => {
     if (!speakReplies) return;
     if (voiceId) activeVoiceId = voiceId;
     opts = opts || {};
+    if (opts.replyToken != null && opts.replyToken !== speakSeq) return;
     const clean = speakable(text);
     let body = opts.mutter ? clean.slice(0, 80) : clean;
     if (!body.trim()) return;
@@ -789,7 +792,7 @@ const Voice = (() => {
     } else {
       pieces = splitForTts(body, TTS_CHUNK_MAX);
     }
-    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, seq: speakSeq, result: null, ac: null }); }
+    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, seq: speakSeq, queuedAt: Date.now(), result: null, ac: null }); }
     pumpSynth(); pumpPlay();
   }
   // signal end-of-reply; the heartbeat (default: re-arm the hands-free loop) fires once the LAST chunk ends.
@@ -1037,6 +1040,7 @@ const Voice = (() => {
   const recorderProvider = (() => {
     let stream = null, mr = null, chunks = [], ac = null;
     let pcmProcessor = null, pcmSink = null, pcmFrames = [], pcmSamples = 0, pcmRate = 0, takeSttMode = 'cloud';
+    let continuous = null;
     let previewPending = false, previewAbort = null, previewSeq = 0, previewLastAt = 0;
     let cb = null, mime = '';
     let aborted = false, delivered = false, hardCapTimer = null;
@@ -1094,8 +1098,14 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     async function transcribeLocalPcm() {
+      const recognizer = continuous; continuous = null;
       const frames = pcmFrames.slice();
       pcmFrames = []; pcmSamples = 0;
+      if (recognizer) {
+        try { if (!recognizer.failed) return await recognizer.finish(); }
+        catch (_) { /* The original capture remains available for the recorded fallback. */ }
+        recognizer.cancel();
+      }
       return transcribeLocalFrames(frames);
     }
     async function transcribeNativePcm() {
@@ -1114,6 +1124,7 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     function requestLocalPreview() {
+      if (continuous && !continuous.failed) return;
       const previewMode = takeSttMode === 'local' || takeSttMode === 'native' ? takeSttMode : classicPreviewMode;
       if (!previewMode || previewPending || delivered || aborted || !cb || !cb.onInterim) return;
       const capturedMs = pcmSamples / Math.max(1, pcmRate || 48000) * 1000;
@@ -1138,6 +1149,7 @@ const Voice = (() => {
       // its container bytes guarantees an honest but useless "local engine needs wav" response. Capture PCM
       // from the same stream and use the local endpoint only when the sidecar proved that is the selected leg.
       if (takeSttMode === 'local') return transcribeLocalPcm();
+      if (continuous) { continuous.cancel(); continuous = null; }
       if (takeSttMode === 'native') return transcribeNativePcm();
       const fmt = fmtFromMime(mime || blob.type || '');
       // desktop: apiKey() is '' (key is in the sidecar env) — send it as a header when we DO have one (browser).
@@ -1186,9 +1198,11 @@ const Voice = (() => {
       });
     }
     async function start(cbs) {
+      if (continuous) continuous.cancel(); continuous = null;
       cb = cbs; chunks = []; pcmFrames = []; pcmSamples = 0; pcmRate = 0; takeSttMode = classicSttMode;
       previewSeq++; previewPending = false; previewAbort = null; previewLastAt = 0;
       aborted = false; delivered = false;
+      if (takeSttMode === 'local' || classicPreviewMode === 'local') fetch('/api/local-voice/warm?tts=0', {method:'POST'}).catch(() => {});
       try {
         // DEAD-BUTTON GUARD: getUserMedia can hang forever if the mic-permission prompt is DISMISSED (not
         // answered) — WebView2 and some browsers never settle the promise. Without a ceiling, `listening`
@@ -1231,11 +1245,18 @@ const Voice = (() => {
               if (samples && samples.length) {
                 pcmFrames.push(new Float32Array(samples));
                 pcmSamples += samples.length;
+                if (continuous) continuous.push(pcmFrames[pcmFrames.length - 1]);
                 requestLocalPreview();
               }
             };
             src.connect(pcmProcessor); pcmProcessor.connect(pcmSink); pcmSink.connect(ac.destination);
             pcmRate = ac.sampleRate || 48000;
+            if (typeof VoiceStream !== 'undefined' && (takeSttMode === 'local' || classicPreviewMode === 'local')) {
+              const seq = previewSeq;
+              continuous = VoiceStream.open({rate: pcmRate, onUpdate: update => {
+                if (seq === previewSeq && !delivered && !aborted && update.text) cb && cb.onInterim && cb.onInterim(update.text);
+              }});
+            }
           }
         } catch (_) { ac = null; }
         mr.start();
@@ -1251,6 +1272,7 @@ const Voice = (() => {
     }
     function abort() {   // hard stop, discard (teardown / barge-in)
       aborted = true;
+      if (continuous) continuous.cancel(); continuous = null;
       if (mr && mr.state !== 'inactive') { try { mr.stop(); } catch (_) {} }
       teardownAudio();
       // deliver an onEnd so endListening() runs its teardown branch; onFinal is suppressed by `aborted`.
@@ -1635,6 +1657,7 @@ const Voice = (() => {
   function isOn() { return !!(speakReplies && canSpeak()); }
 
   return {
+    replyToken: () => speakSeq, isReplyPending: () => draining,
     init, speak, speakChunk, endReply, mutter, ambientLine, setAgent, isOn, setSpeakReplies,
     startListening, stopListening, toggleListen, stopSpeaking,
     toggleVoiceMode, stopConvo, onTurnEnd,

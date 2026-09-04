@@ -5672,3 +5672,6 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
   white-space: pre-wrap; word-break: break-word; user-select: text;
 }
 .bgf-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+
+/* Provisional recognition may still change; confirmed words retain normal contrast. */
+.lv-provisional { opacity: .62; }

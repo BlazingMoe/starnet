@@ -16,6 +16,7 @@ const VoiceLive = (() => {
   let recording = false, utterance = [], utteranceSamples = 0, preRoll = [], transcriptionPending = false, queuedAudio = [];
   let finalTurn = null, paused = false;
   let lastVoicedSamples = 0, partialSnapshot = null;
+  let liveStream = null, streamAvailable = false;
   let utteranceSeq = 0, partialPending = false, partialAbort = null, lastPartialAt = 0, partialText = '';
   let finalAbort = null;
   // Dictation-leg meter tap: a levels-only capture (see openMeterTap) plus the clock that scrolls it.
@@ -31,7 +32,14 @@ const VoiceLive = (() => {
   // Start complete turns on the proven QUICK boundary. A partial that visibly trails off still gets the
   // existing +600ms continuation grace below, and NORMAL/PATIENT remain explicit Commander choices.
   const DEFAULT_TURN_END_MS = 1200;
-  const TURN_END_CHOICES = [DEFAULT_TURN_END_MS, 1800, 2600];
+  const TURN_END_CHOICES = [0, DEFAULT_TURN_END_MS, 1800, 2600];
+  let timing = {}, lastAudioStartMs = null;
+  function markTiming(key, measured = timing) {
+    if (key && measured[key] == null) measured[key] = performance.now();
+    if (measured !== timing) return;
+    const delta = (a, b) => timing[a] != null && timing[b] != null ? Math.max(0, Math.round(timing[b] - timing[a])) + ' ms' : '—';
+    if ($('lv-timing')) $('lv-timing').textContent = 'First words ' + delta('speech', 'words') + ' · Send ' + delta('lastVoice', 'send') + ' · Speech start ' + (lastAudioStartMs == null ? '—' : lastAudioStartMs + ' ms');
+  }
   const PRE_ROLL_MS = 900;
   const MAX_UTTERANCE_MS = 60000;
   const CALIBRATION_FLOOR_CEILING = 0.016;
@@ -148,6 +156,7 @@ const VoiceLive = (() => {
       '<p id="lv-heard" class="lv-heard" aria-live="polite">Speak naturally — the transcript lands in COMMS.</p>',
       '<p id="lv-agent" class="lv-say"></p>',
       '<label class="lv-end-control"><span>TURN END</span><select id="lv-endpoint" class="lv-endpoint" aria-label="Pause before sending your turn">',
+        '<option value="0">AUTO · ADAPTIVE</option>',
         '<option value="1200">QUICK · 1.2S</option>',
         '<option value="1800">NORMAL · 1.8S</option>',
         '<option value="2600">PATIENT · 2.6S</option>',
@@ -155,6 +164,7 @@ const VoiceLive = (() => {
       '<details class="lv-details"><summary>VOICE DETAILS</summary><dl class="lv-rail">',
         '<div class="lv-row"><dt>ROUTE</dt><dd id="lv-route">LOCAL SPEECH · ACTIVE STARNET AGENT</dd></div>',
         '<div class="lv-row lv-row-dl"><dt>SPEECH</dt><dd id="lv-model">LOCAL MODELS: CHECKING</dd></div>',
+        '<div class="lv-row"><dt>LATENCY</dt><dd id="lv-timing" title="First words: detected speech to transcript. Send: last voiced frame to submission. Speech start: latest spoken chunk queued to actual playback.">Speak to measure this turn.</dd></div>',
         '<div class="lv-row"><dt>TASK</dt><dd id="lv-task" class="lv-task">No active task detected.</dd></div>',
       '</dl></details>',
       '<div id="lv-error" class="lv-error" hidden></div>',
@@ -581,11 +591,12 @@ const VoiceLive = (() => {
     }
   }
 
-  function handleTranscript(text) {
+  function handleTranscript(text, measured = timing) {
     const value = String(text || '').trim();
     if (!value) { setState('listening'); return true; }
     // spoken words go to the session this call was opened in, wherever the Commander happens to be browsing
     ensureBoundFocus();
+    markTiming('send', measured);
     caption('user', value);
     caption('agent', '');
     setState('thinking');
@@ -636,6 +647,10 @@ const VoiceLive = (() => {
   }
   // the agent's live output RMS, straight off the tap on its playback chain. Stored, not drawn: the mic
   // frame is the only thing that scrolls the strip (see processFrame), so this just supplies the value.
+  function onTiming(value) {
+    if (!active || !value || !Number.isFinite(value.audioStartMs)) return;
+    lastAudioStartMs = Math.round(value.audioStartMs); markTiming(null);
+  }
   function onOutputLevel(rms) { agentLevel = Math.max(0, +rms || 0); }
   function onState(state) {
     if (!active || state === 'ended') return;
@@ -674,6 +689,7 @@ const VoiceLive = (() => {
   }
 
   function requestPartial(frames, id) {
+    if (liveStream && !liveStream.failed) return;
     if (!active || partialPending || transcriptionPending || !context || frames.length < 8) return;
     const now = performance.now();
     if (now - lastPartialAt < 650) return;
@@ -686,6 +702,7 @@ const VoiceLive = (() => {
     partialAbort = ac;
     postPcm(pcm, ac.signal).then(text => {
       if (!active || partialAbort !== ac || id !== utteranceSeq || !recording || !text) return;
+      markTiming('words');
       partialText = text;
       partialSnapshot = { id, samples: snapshot.samples, text };
       if ($('lv-heard')) $('lv-heard').textContent = text;
@@ -726,13 +743,16 @@ const VoiceLive = (() => {
   }
 
   function endpointSilenceMs(text, baseMs) {
-    // Turn closure is a Commander choice, not a hidden timing guess. The selected pause is the exact base
-    // wait; a visibly unfinished partial gets one bounded extra beat so a correction or spelled-out name
-    // remains attached to the sentence that introduced it.
+    // Auto uses bounded text cues, not a claim that we know the speaker's intent. Explicit pause choices retain their timing.
     let wait = Number.isFinite(baseMs) ? baseMs : DEFAULT_TURN_END_MS;
     const partial = String(text || '').trim().toLowerCase();
     const continues = /[,;:—-]\s*$/.test(partial)
       || /\b(?:and|but|or|so|because|then|like|well|actually|basically|uh|um|hmm|i|i'm|we|to|the|a|an|my|your|that|which|if|when|while|with|for|of)\s*[.!?]?$/.test(partial);
+    if (wait === 0) {
+      if (continues) return 1800;
+      if (/^(yes|no|okay|thanks|stop|cancel)[.!?]?$/.test(partial)) return 650;
+      return /[.!?]$/.test(partial) && partial.split(/\s+/).length >= 3 ? 800 : 1200;
+    }
     if (continues) wait = Math.min(3600, wait + 600);
     return wait;
   }
@@ -743,31 +763,40 @@ const VoiceLive = (() => {
     while (preRoll.length > limit) preRoll.shift();
   }
 
-  async function transcribe(frames, seq = sessionSeq, allowContinue = true) {
+  async function transcribe(frames, seq = sessionSeq, allowContinue = true, recognizer = null, measured = timing) {
     if (!context || !active || seq !== sessionSeq) return;
     if (transcriptionPending) {
       if (queuedAudio.length >= 4) {
+        if (recognizer) recognizer.cancel();
         setTransientError('Speech is arriving faster than it can be transcribed. Please repeat the last turn after the pending turns finish.');
         return;
       }
-      queuedAudio.push({ frames, seq, allowContinue });
+      queuedAudio.push({ frames, seq, allowContinue, recognizer, measured });
       return;
     }
     if (partialAbort) { partialAbort.abort(); partialAbort = null; partialPending = false; }
     const pcm = downsample(frames, context.sampleRate);
-    if (pcm.length < 3200) { setState('listening'); return; }
+    if (pcm.length < 3200) { if (recognizer) recognizer.cancel(); setState('listening'); return; }
     transcriptionPending = true;
     const ac = new AbortController();
     finalAbort = ac;
-    finalTurn = { frames, seq, allowContinue };
+    finalTurn = { frames, seq, allowContinue, recognizer, measured };
     setState('transcribing');
     if (!recording && $('lv-heard')) $('lv-heard').textContent = partialText || 'Finalizing your turn…';
     try {
-      const text = await postPcm(pcm, ac.signal);
+      let text;
+      if (recognizer && !recognizer.failed) {
+        try { const result = await recognizer.finish(); text = result.text; }
+        catch (error) {
+          recognizer.cancel();
+          if (ac.signal.aborted || !active || seq !== sessionSeq || finalAbort !== ac) return;
+          text = await postPcm(pcm, ac.signal);
+        }
+      } else { if (recognizer) recognizer.cancel(); text = await postPcm(pcm, ac.signal); }
       if (!active || seq !== sessionSeq || finalAbort !== ac) return;
       if (!text && !recording && $('lv-heard')) $('lv-heard').textContent = 'No speech detected — still listening.';
       const liveCaption = recording && $('lv-heard') ? $('lv-heard').textContent : null;
-      handleTranscript(text);
+      handleTranscript(text, measured);
       if (liveCaption !== null && $('lv-heard')) $('lv-heard').textContent = liveCaption;
     } catch (error) {
       if (active && seq === sessionSeq && finalAbort === ac && (!error || error.name !== 'AbortError')) {
@@ -778,7 +807,7 @@ const VoiceLive = (() => {
       if (finalAbort === ac) {
         finalAbort = null; finalTurn = null; transcriptionPending = false;
         const next = queuedAudio.shift();
-        if (next) transcribe(next.frames, next.seq, next.allowContinue);
+        if (next) transcribe(next.frames, next.seq, next.allowContinue, next.recognizer, next.measured);
         else if (active && !(typeof Voice !== 'undefined' && Voice.isSpeaking && Voice.isSpeaking())) setState('listening');
       }
     }
@@ -788,7 +817,8 @@ const VoiceLive = (() => {
     if (!recording || !context) return;
     const snapshot = speechSnapshot(utterance);
     const captured = snapshot.frames;
-    const ready = !transcriptionPending && !queuedAudio.length && partialSnapshot &&
+    const recognizer = liveStream; liveStream = null;
+    const ready = !recognizer && !transcriptionPending && !queuedAudio.length && partialSnapshot &&
       partialSnapshot.id === utteranceSeq && partialSnapshot.samples === snapshot.samples ? partialSnapshot.text : '';
     recording = false;
     utterance = []; utteranceSamples = 0; preRoll = []; speechFrames = 0; silenceMs = 0;
@@ -797,7 +827,30 @@ const VoiceLive = (() => {
       partialAbort = null; partialPending = false;
       handleTranscript(ready);
       setState('listening');
-    } else transcribe(captured, sessionSeq, allowContinue);
+    } else transcribe(captured, sessionSeq, allowContinue, recognizer);
+  }
+
+  function beginStream(frames, id) {
+    if (!streamAvailable || typeof VoiceStream === 'undefined' || !context) return;
+    liveStream = VoiceStream.open({ rate: context.sampleRate,
+      onUpdate: update => {
+        if (!active || paused || id !== utteranceSeq || !recording) return;
+        if (update.text) {
+          markTiming('words');
+          partialText = update.text;
+          const el = $('lv-heard');
+          if (el) {
+            el.textContent = '';
+            const stable = document.createElement('span'); stable.textContent = update.stable || '';
+            const partial = document.createElement('span'); partial.className = 'lv-provisional';
+            partial.textContent = (update.stable && update.partial ? ' ' : '') + (update.partial || '');
+            el.appendChild(stable); el.appendChild(partial);
+          }
+        }
+      },
+      onError: () => { if (active && id === utteranceSeq) setTransientError('Continuous recognition paused — using recorded transcription for this turn.'); }
+    });
+    for (const frame of frames) liveStream.push(frame);
   }
 
   function processFrame(event) {
@@ -807,6 +860,7 @@ const VoiceLive = (() => {
     for (let i = 0; i < frame.length; i++) energy += frame[i] * frame[i];
     const rms = Math.sqrt(energy / frame.length);
     const agentTalking = typeof Voice !== 'undefined' && Voice.isSpeaking && Voice.isSpeaking();
+    const replyPending = typeof Voice !== 'undefined' && Voice.isReplyPending && Voice.isReplyPending();
     // ONE CLOCK for the strip. The mic frame is what scrolls it — always, even while the agent holds the
     // turn — so the meter keeps a single steady rate instead of speeding up when a second source (the
     // agent's ~60fps output tap) starts pushing. Whoever holds the turn supplies the VALUE and the colour;
@@ -842,27 +896,32 @@ const VoiceLive = (() => {
         if (finalTurn && finalTurn.allowContinue && !queuedAudio.length &&
             finalTurn.seq === sessionSeq && finalTurn.frames.reduce((n, f) => n + f.length, 0) / context.sampleRate * 1000 < MAX_UTTERANCE_MS) {
           continuation = finalTurn.frames;
+          if (finalTurn.recognizer) finalTurn.recognizer.cancel();
           if (finalAbort) finalAbort.abort();
           finalAbort = null; finalTurn = null; transcriptionPending = false;
         }
         recording = true;
+        timing = { speech: performance.now(), lastVoice: performance.now() };
+        markTiming('speech');
         utteranceSeq++;
         partialText = '';
         partialSnapshot = null;
         utterance = continuation.concat(preRoll);
         utteranceSamples = utterance.reduce((sum, item) => sum + item.length, 0);
         lastVoicedSamples = utteranceSamples;
+        beginStream(utterance, utteranceSeq);
         lastPartialAt = performance.now();
         silenceMs = 0;
-        if (agentTalking && Voice.stopSpeaking) Voice.stopSpeaking();
+        if ((agentTalking || replyPending) && Voice.stopSpeaking) Voice.stopSpeaking();
         setState('hearing');
         if ($('lv-heard')) $('lv-heard').textContent = 'Listening…';
       }
       return;
     }
     utterance.push(frame);
+    if (liveStream) liveStream.push(frame);
     utteranceSamples += frame.length;
-    if (voiced) lastVoicedSamples = utteranceSamples;
+    if (voiced) { lastVoicedSamples = utteranceSamples; timing.lastVoice = performance.now(); }
     silenceMs = voiced ? 0 : silenceMs + frameMs;
     const durationMs = utteranceSamples / context.sampleRate * 1000;
     if (durationMs >= 400) requestPartial(utterance, utteranceSeq);
@@ -902,6 +961,9 @@ const VoiceLive = (() => {
   }
 
   function closeMicrophone() {
+    if (liveStream) { liveStream.cancel(); liveStream = null; }
+    if (finalTurn && finalTurn.recognizer) finalTurn.recognizer.cancel();
+    for (const turn of queuedAudio) if (turn.recognizer) turn.recognizer.cancel();
     if (partialAbort) { partialAbort.abort(); partialAbort = null; }
     if (finalAbort) { finalAbort.abort(); finalAbort = null; }
     partialPending = false; transcriptionPending = false; finalTurn = null; queuedAudio = [];
@@ -1000,6 +1062,7 @@ const VoiceLive = (() => {
   function dictationMeterTick() {
     if (!active || !dictation) return;
     const agentTalking = typeof Voice !== 'undefined' && Voice.isSpeaking && Voice.isSpeaking();
+    const replyPending = typeof Voice !== 'undefined' && Voice.isReplyPending && Voice.isReplyPending();
     if (agentTalking) pushLevel(agentLevel * AGENT_GAIN, AGENT);
     else if (tapAlive()) pushLevel(tapLevel * 14, SELF);
   }
@@ -1041,6 +1104,9 @@ const VoiceLive = (() => {
     if (!active) return;
     paused = !paused;
     if (paused) {
+      if (liveStream) { liveStream.cancel(); liveStream = null; }
+      if (finalTurn && finalTurn.recognizer) finalTurn.recognizer.cancel();
+      for (const turn of queuedAudio) if (turn.recognizer) turn.recognizer.cancel();
       // Pause discards the unfinished take and pending recognition, never sends it accidentally.
       if (partialAbort) partialAbort.abort();
       if (finalAbort) finalAbort.abort();
@@ -1071,7 +1137,7 @@ const VoiceLive = (() => {
     ensurePanel();
     if (active && !retry) { $('live-voice-panel').hidden = false; return; }
     if (retry) finish(true);
-    paused = false;
+    paused = false; timing = {}; lastAudioStartMs = null;
     // Local Live rides on staged offline speech packages, so ASK the sidecar instead of assuming this particular
     // install is intact before opening the microphone. Going live first and failing on the first model import is
     // how this panel used to show users a raw "Cannot find module" string.
@@ -1088,6 +1154,7 @@ const VoiceLive = (() => {
        like a fix for. */
 
     const readiness = await probeAvailability();
+    streamAvailable = !!(readiness && readiness.streaming);
     if (readiness && readiness.probeFailed) {
       $('live-voice-panel').hidden = false;
       setState('offline');
@@ -1144,12 +1211,12 @@ const VoiceLive = (() => {
       // older saved state or API callers; close it before attaching this persistent microphone.
       if (Voice.inVoiceMode && Voice.inVoiceMode() && Voice.stopConvo) Voice.stopConvo();
       if (Voice.setLocalTts) Voice.setLocalTts(true);
-      if (Voice.attachCoordinator) Voice.attachCoordinator({ onState, onAssistant, onOutputLevel });
+      if (Voice.attachCoordinator) Voice.attachCoordinator({ onState, onAssistant, onOutputLevel, onTiming });
     }
     try {
+      fetch('/api/local-voice/warm', { method: 'POST' }).catch(() => {});
       const opened = await openMicrophone(seq);
       if (!opened || !active || seq !== sessionSeq) return;
-      fetch('/api/local-voice/warm', { method: 'POST' }).catch(() => {});
       setState('warming');
       // The hero line is "what you said" — once the mic is genuinely open it goes back to the
       // invitation instead of stalling on the opening message the whole warm-up.
@@ -1395,7 +1462,7 @@ const VoiceLive = (() => {
       if (Voice.inVoiceMode && Voice.inVoiceMode() && Voice.stopConvo) Voice.stopConvo();
       if (Voice.setLocalTts) Voice.setLocalTts(false);
       if (Voice.stopSpeaking) Voice.stopSpeaking();
-      if (Voice.attachCoordinator) Voice.attachCoordinator({ onState, onAssistant, onOutputLevel });
+      if (Voice.attachCoordinator) Voice.attachCoordinator({ onState, onAssistant, onOutputLevel, onTiming });
     }
     try {
       const opened = await openMicrophone(seq);
@@ -1546,7 +1613,7 @@ const VoiceLive = (() => {
          build. Passing false here is what disconnected the picker and let the keyed provider voice speak —
          the identity bug Andrew heard. */
       if (Voice.setLocalTts) Voice.setLocalTts(true);
-      if (Voice.startCoordinator) Voice.startCoordinator({ onState, onAssistant, onOutputLevel, onTranscript: handleTranscript,
+      if (Voice.startCoordinator) Voice.startCoordinator({ onState, onAssistant, onOutputLevel, onTiming, onTranscript: handleTranscript,
         onInterim: text => { if (!paused && text) { caption('user', text); setState('hearing'); } } });
     }
     if (!active || seq !== sessionSeq) return;
