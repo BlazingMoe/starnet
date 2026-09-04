@@ -30,10 +30,17 @@ try {
       const crownAlpha=alpha(x,y-Math.round(StationBake.WALL.up)-2);
       const shellAlpha=alpha(x,(room.y2+1)*tile+3);
       const faceAlpha=alpha(x,y-Math.round(StationBake.WALL.up)+2);
-      return {exteriorChanges,interiorChanges,outsidePixels,crownAlpha,shellAlpha,faceAlpha};
+      const windowDoc=WorldModel.starterDoc();
+      for(const room of Object.values(windowDoc.rooms)) room.wallMat='viewport';
+      const windowGeo=WorldModel.create(windowDoc).projectGeometry();
+      Object.assign(StationBake.LIGHT,saved);
+      const windowBake=StationBake.bake(windowGeo), windowPixels=read(windowBake.lightCv);
+      const paneX=room.x1*tile+tile*3+5, paneY=y-Math.round(StationBake.WALL.up)+8;
+      const windowAlpha=windowPixels[(paneY*windowBake.lightCv.width+paneX)*4+3];
+      return {exteriorChanges,interiorChanges,outsidePixels,crownAlpha,shellAlpha,faceAlpha,windowAlpha};
     } finally {Object.assign(StationBake.LIGHT,saved);}
   })()`);
   console.log(JSON.stringify(result));
-  if(result.exteriorChanges!==0 || result.interiorChanges<100 || result.outsidePixels<100 || result.crownAlpha!==0 || result.shellAlpha!==0 || result.faceAlpha!==255) throw new Error('Interior lighting isolation failed');
+  if(result.exteriorChanges!==0 || result.interiorChanges<100 || result.outsidePixels<100 || result.crownAlpha!==0 || result.shellAlpha!==0 || result.faceAlpha!==255 || result.windowAlpha!==0) throw new Error('Interior lighting isolation failed');
   console.log('interior-light-probe: OK');
 } finally {try{cdp?.ws.close();}catch{} try{proc?.kill();}catch{}}

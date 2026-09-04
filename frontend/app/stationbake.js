@@ -4264,6 +4264,7 @@ const StationBake = (() => {
     // VIEWPORT GLASS — clear the ambient mask fully over every window the wall pass cut, so the
     // live starfield behind the hole reads at its own brightness instead of the interior's 23%.
     // A hard-edged fill, not a gradient: the frame around it is a hard pixel edge too.
+    L.globalCompositeOperation = 'destination-out';
     L.fillStyle = 'rgba(0,0,0,1)';
     for (const v of viewportRects) L.fillRect(v.x, v.y, v.w, v.h);
     L.globalCompositeOperation = 'source-over';
