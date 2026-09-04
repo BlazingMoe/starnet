@@ -17785,6 +17785,7 @@ async function handleLiveDoctor(req, res) {
 // inflight map). Idempotent. Each run's own finally cleans its maps + auto-denies any open consent prompt; hub
 // runs are marked `superseded` first so their (now stale) partial reply isn't delivered after the kill.
 function handleHalt(req, res) {
+  if (typeof groupSessions !== 'undefined') groupSessions.halt().catch(e => console.warn('[groups] halt persistence failed:', e.message));
   const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
   const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
   // EVERY connected channel's hub, not just the two bespoke slots — a Slack/Matrix/Signal run must die on E-STOP too.

@@ -16,6 +16,7 @@ function makeGroupSessions(d) {
   const drafts = new Map();
   const pending = new Map();
   const agentLeases = new Set();
+  const haltedGroups = new Set();
   let ready;
   function read() {
     const r = store.readKey('all');
@@ -104,7 +105,7 @@ function makeGroupSessions(d) {
     await ready;
     const key = identifier(b.key), value = text(b.text).trim();
     if (!value) fail('Write a message');
-    let abort = false;
+    let abort = null;
     await update(id, g => {
       if (g.deleting) fail('Session is being deleted', 409);
       if (g.messages.some(m => m.key === key)) return;
@@ -113,7 +114,7 @@ function makeGroupSessions(d) {
       if (b.interrupt) {
         for (const t of g.turns) {
           if (t.state === 'queued' || t.state === 'held') { t.state = 'stopped'; t.reason = 'Superseded by your correction'; }
-          if (ACTIVE.has(t.state)) { t.state = 'stopping'; t.reason = 'Superseded by your correction'; abort = true; }
+          if (ACTIVE.has(t.state)) { t.state = 'stopping'; t.reason = 'Superseded by your correction'; abort = controllers.get(id); }
         }
         g.paused = false;
       }
@@ -121,40 +122,42 @@ function makeGroupSessions(d) {
       for (const a of ids) turn(g, m.id, a, { independent: !!b.independent, cutoff: b.independent ? m.seq : null });
       if (b.summarize && ids.length > 1) turn(g, m.id, g.leadId, { summary: true });
     });
-    if (abort) controllers.get(id)?.abort();
+    if (abort) abort.abort();
     kick(id);
     return publicGroup(get(id));
   }
   async function configure(id, b) {
     await ready;
-    let abort = false;
+    let abort = null;
     const out = await update(id, g => {
       if (b.revision !== g.revision) fail('Session changed; refresh and try again', 409);
       const ids = members(b.members || g.members), lead = b.leadId || g.leadId;
       if (!ids.includes(lead)) fail('Choose a lead who remains in the group');
       for (const t of g.turns) if (!ids.includes(t.agentId)) {
         if (['queued', 'held'].includes(t.state)) t.state = 'stopped';
-        if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = true; }
+        if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
       }
       g.members = ids; g.leadId = lead;
       if (b.instructions !== undefined) g.instructions = text(b.instructions, 8000);
       if (b.title !== undefined) g.title = text(b.title, 80);
       if (b.maxTurns !== undefined) { if (!Number.isInteger(b.maxTurns) || b.maxTurns < 1 || b.maxTurns > 100) fail('Automatic turns must be 1–100'); g.maxTurns = b.maxTurns; }
     });
-    if (abort) controllers.get(id)?.abort();
+    if (abort) abort.abort();
     return publicGroup(out);
   }
   async function control(id, b) {
     await ready;
-    let abort = false;
+    let abort = null;
     await update(id, (g, s) => {
       if (b.action === 'pause' || b.action === 'delete') {
         g.paused = true;
-        for (const t of g.turns) if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = true; }
+        for (const t of g.turns) if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
         if (b.action === 'delete') { g.deleting = true; for (const t of g.turns) if (['queued', 'held'].includes(t.state)) t.state = 'stopped'; }
       } else if (b.action === 'resume') {
+        haltedGroups.delete(id);
         g.paused = false;
       } else if (b.action === 'continue') {
+        haltedGroups.delete(id);
         g.paused = false;
         for (const t of g.turns) if (t.state === 'held') { t.state = 'queued'; t.allowance = g.turns.filter(x => x.origin === t.origin && x.state !== 'queued' && x.state !== 'held').length; }
       } else if (b.action === 'stop' || b.action === 'retry') {
@@ -168,7 +171,7 @@ function makeGroupSessions(d) {
           const descendants = new Set([target.id]);
           for (const t of g.turns) if (descendants.has(t.parent)) descendants.add(t.id);
           for (const t of g.turns) if (descendants.has(t.id)) {
-            if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = true; }
+            if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
             else if (['queued', 'held'].includes(t.state)) t.state = 'stopped';
           }
         }
@@ -179,7 +182,7 @@ function makeGroupSessions(d) {
         s.templates = s.templates.filter(t => t.id !== tpl.id).concat(tpl);
       } else fail('Unknown group action');
     });
-    if (abort) controllers.get(id)?.abort();
+    if (abort) abort.abort();
     if (b.action !== 'delete') { kick(id); return publicGroup(get(id)); }
     await workers.get(id);
     await update(id, g => { g.deleted = true; delete g.deleting; });
@@ -255,6 +258,7 @@ function makeGroupSessions(d) {
           live();
           let artifact;
           await update(id, state => {
+            if (signal.aborted || state.turns.find(x => x.id === t.id)?.state === 'stopping') fail('Turn stopped');
             artifact = { id: d.id(), name: text(a.title || file.name, 160), content: file.content, hash: file.hash,
               encoding: file.encoding || 'base64', bytes: file.bytes, agentId: t.agentId, runId: t.runId,
               sourcePath: text(a.path, 4096), messageSeq: state.messages.length, createdAt: d.now() };
@@ -273,7 +277,7 @@ function makeGroupSessions(d) {
   async function pump(id) {
     for (;;) {
       let g = get(id);
-      if (g.paused || g.deleting) return;
+      if (g.paused || g.deleting || haltedGroups.has(id)) return;
       let t = g.turns.find(x => x.state === 'queued');
       if (!t) return;
       const count = g.turns.filter(x => x.origin === t.origin && !['queued', 'held', 'stopped'].includes(x.state)).length;
@@ -292,8 +296,14 @@ function makeGroupSessions(d) {
       agentLeases.add(t.agentId);
       const ac = new AbortController(); controllers.set(id, ac);
       const ctx = context(g, t), runId = d.id();
-      try { await update(id, state => Object.assign(state.turns.find(x => x.id === t.id), { state: 'connecting', reason: '', runId, contextCutoff: ctx.cutoff, startedAt: d.now() })); }
+      let claimed = false;
+      try { await update(id, state => {
+        const current = state.turns.find(x => x.id === t.id);
+        if (state.paused || state.deleting || haltedGroups.has(id) || current.state !== 'queued') return;
+        Object.assign(current, { state: 'connecting', reason: '', runId, contextCutoff: ctx.cutoff, startedAt: d.now() }); claimed = true;
+      }); }
       catch (e) { agentLeases.delete(t.agentId); controllers.delete(id); throw e; }
+      if (!claimed) { agentLeases.delete(t.agentId); controllers.delete(id); continue; }
       t = get(id).turns.find(x => x.id === t.id);
       let chain = Promise.resolve(), output = '', error = '', usd = null;
       const emit = (name, p) => {
@@ -348,7 +358,11 @@ function makeGroupSessions(d) {
   }
   function kick(id) {
     if (workers.has(id)) return;
-    const task = Promise.resolve().then(() => pump(id)).catch(e => d.log('group session ' + id + ': ' + e.message)).finally(() => workers.delete(id));
+    let failed = false;
+    const task = Promise.resolve().then(() => pump(id)).catch(e => { failed = true; d.log('group session ' + id + ': ' + e.message); }).finally(() => {
+      workers.delete(id);
+      if (!failed) try { const g = get(id); if (!g.paused && !g.deleting && !haltedGroups.has(id) && g.turns.some(t => t.state === 'queued')) kick(id); } catch (_) { /* deleted group: no work remains */ }
+    });
     workers.set(id, task);
   }
   ready = store.update('all', s => {
@@ -371,6 +385,11 @@ function makeGroupSessions(d) {
     attach: async (id, b) => { await ready; const content = text(b.content, 1400000); const file = d.uploadFile(b.name, content); await update(id, g => { g.artifacts.push({ ...file, id: d.id(), agentId: 'user', messageSeq: g.messages.length, createdAt: d.now() }); }); return publicGroup(get(id)); },
     answer: async (id, b) => { const p = pending.get(b.promptId); if (!p || p.id !== id) fail('Approval is no longer pending', 409); if (!['once', 'deny'].includes(b.decision)) fail('Invalid approval'); p.finish(b.decision); return { ok: true }; },
     idle: async id => { await workers.get(id); },
+    halt: () => {
+      for (const g of Object.values(read().groups)) if (!g.deleted) haltedGroups.add(g.id);
+      for (const ac of controllers.values()) ac.abort();
+      return store.update('all', s => { for (const g of Object.values(s.groups)) if (!g.deleted) { g.paused = true; g.revision++; } return s; });
+    },
     close: () => { for (const ac of controllers.values()) ac.abort(); }
   };
 }

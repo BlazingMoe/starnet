@@ -88,6 +88,32 @@ async function waitFor(fn) { for (let n = 0; n < 100; n++) { if (await fn()) ret
     state = await api.get(g.id); assert.equal(state.paused, true); assert.equal(state.turns.at(-1).state, 'queued');
     const branched = await api.fork(g.id, {}); assert.equal(branched.turns.length, 0); assert.ok(branched.messages.length); assert.equal(branched.artifacts.length, 1);
     await api.control(g.id, { action: 'save-group' }); assert.equal((await api.list()).templates.length, 1);
+    // A single agent cannot start two group turns at once; stopping frees the lease.
+    const one = await api.create({ members: ['agent'] }), two = await api.create({ members: ['agent'] });
+    let unblock;
+    execute = o => new Promise(resolve => { unblock = () => resolve(finish('finished')); o.signal.addEventListener('abort', () => resolve(finish('aborted')), { once: true }); });
+    await api.send(one.id, { key: 'one', text: 'First' });
+    await waitFor(async () => (await api.get(one.id)).turns[0]?.state === 'running');
+    const seenBefore = seen.length;
+    await api.send(two.id, { key: 'two', text: 'Second' });
+    await waitFor(async () => (await api.get(two.id)).turns[0]?.reason?.startsWith('Waiting'));
+    assert.equal(seen.length, seenBefore);
+    execute = async () => finish('second'); unblock();
+    await api.idle(one.id); await api.idle(two.id);
+    assert.equal((await api.get(two.id)).turns[0].state, 'completed');
+    // E-STOP pauses pending turns as well as aborting the live provider request.
+    execute = o => new Promise(resolve => o.signal.addEventListener('abort', () => resolve(finish('stopped')), { once: true }));
+    await api.send(one.id, { key: 'halt', text: 'Long work' });
+    await waitFor(async () => (await api.get(one.id)).turns.at(-1).state === 'running');
+    await api.send(one.id, { key: 'after', text: 'Queued work' });
+    await api.halt(); await api.idle(one.id);
+    const halted = await api.get(one.id);
+    assert.equal(halted.paused, true); assert.equal(halted.turns.at(-1).state, 'queued'); assert.equal(halted.turns.at(-2).state, 'stopped');
+    // Deleting a group with pending work is durable and cannot resurrect on restart.
+    await api.control(one.id, { action: 'delete' });
+    await assert.rejects(api.get(one.id), /not found/);
+    api = makeGroupSessions(deps); await api.ready;
+    await assert.rejects(api.get(one.id), /not found/);
     console.log('group-sessions: routing, idempotency, context, revision cycles, cap, artifacts, independent opinions, interruption, approvals, restart and branches PASS');
   } finally { api?.close(); fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
