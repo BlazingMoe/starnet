@@ -138,8 +138,12 @@ const WorldModel = (() => {
      sole source: add a colour here and it appears in the SURFACE palette's COLOUR row AND as a room floor
      style automatically. */
   const FLOOR_STYLES = {
-    hull:     { base: '#33302a', label: 'HULL' },
-    corridor: { base: '#2c2924', label: 'DECKING' },
+    // 2026-09-02: hull #33302a -> #3c3429, decking #2c2924 -> #342d25. The stock hab is what every
+    // new station boots on and it measured the greyest room in the building (mean chroma 11 on a
+    // furnished floor vs 22 on oak). Same value band, a notch of warmth — the lamp pools finally
+    // have a colour to land on. Every other swatch is untouched.
+    hull:     { base: '#3a3b41', label: 'HULL' },
+    corridor: { base: '#31333a', label: 'DECKING' },
     cobalt:   { base: '#2b3340', label: 'COBALT' },
     rust:     { base: '#3a302a', label: 'RUST' },
     sterile:  { base: '#34383a', label: 'STERILE' },
@@ -201,11 +205,16 @@ const WorldModel = (() => {
     turf:  { label: 'TURF',   pitch: [1, 1], suggest: 'meadow' },
     // v6 CORRIDOR candidates — decks sized and surfaced for a passage rather than a room.
     // See the note above deckRunner in stationbake.js.
+    // 2026-09-03 additions — painters live above paintDeck in stationbake.js
+    diamond: { label: 'DIAMOND', pitch: [1, 1], suggest: null },
+    resin:   { label: 'RESIN',   pitch: [4, 4], suggest: 'sterile' },
+    ceramic: { label: 'CERAMIC', pitch: [3, 3], suggest: 'bone' },
+    cargo:   { label: 'CARGO',   pitch: [3, 2], suggest: 'rust' },
     runner:   { label: 'RUNNER',   pitch: [2, 2], suggest: null },
     treadway: { label: 'TREADWAY', pitch: [3, 2], suggest: null },
     meshway:  { label: 'MESHWAY',  pitch: [3, 3], suggest: null },
   };
-  const MAT_ORDER = ['spine', 'runner', 'treadway', 'meshway', 'plate', 'panel', 'tile', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf'];
+  const MAT_ORDER = ['spine', 'runner', 'treadway', 'meshway', 'plate', 'diamond', 'cargo', 'panel', 'tile', 'ceramic', 'resin', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf'];
 
   /* the WALL material catalog — the deck's opposite number. Walls carry the same two axes as the
      floor (hue × recipe) and read from the same FLOOR_STYLES hue catalog, because a room should be
