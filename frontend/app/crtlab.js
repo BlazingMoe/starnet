@@ -10,7 +10,7 @@
 (function () {
   if (!/[?&]crtlab\b/.test(location.search)) return;
 
-  const CRT_DEFAULTS = { scan: 0.46, pitch: 2, fade: 0.25, glow: 0.07, curve: 0.13, vig: 0.40, over: 1.20, dust: 0.8, aberr: 0.3, grain: 0.16, bloom: 0.2, emit: 0.6, mask: 0.22, bleed: 0.2, roll: 0.12 };
+  const CRT_DEFAULTS = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16, bloom: 0, emit: 0.6, mask: 0, bleed: 0, roll: 0 };
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
