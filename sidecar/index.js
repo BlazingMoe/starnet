@@ -10124,21 +10124,42 @@ async function handleConfigImport(req, res) {
     applied.push('permissions');
   }
   if (want('connectors') && Array.isArray(sec.connectors)) {
-    // upsert each imported connector by id (secrets stripped → they land unconfigured; user re-enters). Preserve
-    // any live secret for an id that already exists so a re-import doesn't wipe a working connector's token.
+    // Upsert each imported connector by id. A live secret is retained only for the exact same HTTP endpoint;
+    // changing the service identity clears every prior credential instead of donating it to the replacement.
     const byId = new Map((connectorConfigs || []).map(c => [c.id, c]));
+    let nextOauth = connectorOauth;
+    const importedIds = [];
     for (const c of sec.connectors) {
       const live = byId.get(c.id);
       const merged = Object.assign({}, c);
-      if (live && live.token) merged.token = live.token;             // keep an existing secret
-      if (live && live.headers) merged.headers = Object.assign({}, c.headers, redactSecretKeep(live.headers, c.headers));
+      const sameService = !!(live && c.transport === live.transport && c.transport === 'http' && sameEndpoint(c.url, live.url));
+      if (!Object.prototype.hasOwnProperty.call(c, 'enabled')) merged.enabled = sameService && live ? live.enabled !== false : false;
+      if (!Object.prototype.hasOwnProperty.call(c, 'oauth')) merged.oauth = sameService && live ? live.oauth === true : false;
+      const sameStdioCommand = !!(live && c.transport === 'stdio' && live.transport === 'stdio' && c.command === live.command);
+      if (!Object.prototype.hasOwnProperty.call(c, 'agentId')) merged.agentId = sameStdioCommand ? String(live.agentId || '') : '';
+      if (!Object.prototype.hasOwnProperty.call(c, 'cwd')) merged.cwd = sameStdioCommand ? String(live.cwd || '') : '';
+      if (!Object.prototype.hasOwnProperty.call(c, 'label')) merged.label = live ? String(live.label || c.id) : c.id;
+      if (sameService && live.token) merged.token = live.token;
+      if (sameService && live.headers) merged.headers = Object.assign({}, c.headers, redactSecretKeep(live.headers, c.headers));
+      const keepOauthGrant = !!(sameService && merged.oauth === true && connectorOauth.byId[c.id]);
+      if (!keepOauthGrant) nextOauth = connectorStateMod.withOauthEntry(connectorStateMod.envelope([...byId.values()], nextOauth), c.id, null).oauth;
+      const needsSecret = Array.isArray(c.redactedFields) && c.redactedFields.length > 0;
+      const hasUsableSecret = !!(merged.token || Object.keys(merged.headers || {}).length || keepOauthGrant);
+      if (needsSecret && !hasUsableSecret) merged.enabled = false;
       byId.set(c.id, merged);
+      importedIds.push(c.id);
     }
-    const priorConfigs = connectorConfigs;
-    connectorConfigs = [...byId.values()];
-    if (!saveConnectorConfigs()) {
-      connectorConfigs = priorConfigs;
+    const nextState = connectorStateMod.envelope([...byId.values()], nextOauth);
+    if (!persistConnectorState(nextState.configs, nextState.oauth)) {
       return json(500, { ok: false, applied, error: 'connector import could not be verified on disk; existing connectors were left unchanged' });
+    }
+    adoptConnectorState(nextState);
+    // Import is live configuration: replace each affected manager row so /api/connectors immediately agrees with
+    // the durable store. A failed handshake remains an honest connector status; it does not roll back the import.
+    for (const id of importedIds) {
+      try { await connectors.remove(id); } catch (e) { failNote('config.import.connector.remove', e); }
+      const cfg = connectorConfigs.find(x => x && x.id === id);
+      if (cfg) { try { await configureConnectorCfg(cfg); } catch (e) { failNote('config.import.connector.configure', e); } }
     }
     applied.push('connectors');
   }
@@ -10173,9 +10194,11 @@ async function handleConfigReset(req, res) {
     case 'roster': agentRoster.clear(); saveAgentRoster(); break;
     case 'dossier': commanderDossier.set(''); break;
     case 'permissions': {
+      // Revoke authority on disk first. If the durable replacement fails, the live grant must remain visible and
+      // active; reporting success and clearing RAM would let it silently resurrect on restart.
+      try { persistAllowlist([], {}); }
+      catch (_) { return json(500, { ok: false, section, error: 'permission reset could not be persisted; existing grants were left unchanged' }); }
       grantsPermanent.clear();
-      for (const k of Object.keys(grantMeta)) delete grantMeta[k];
-      try { persistAllowlist(grantsPermanent, {}); } catch (_) {}
       break;
     }
     case 'connectors': {
@@ -10536,6 +10559,10 @@ async function handleConnectorUpsert(req, res) {
   if (transport === 'http' && !url) return json(400, { error: 'a server URL is required' });
   if (transport === 'stdio' && !command) return json(400, { error: 'a stdio command is required' });
   const agentId = String(body.agentId || (transport === 'stdio' ? (prev.agentId || '') : '')).trim();
+  const sameService = !!(prev && prev.id && transport === prev.transport && (
+    (transport === 'http' && sameEndpoint(url, prev.url)) ||
+    (transport === 'stdio' && command === String(prev.command || '') && agentId === String(prev.agentId || ''))
+  ));
   if (transport === 'stdio') {
     const enabling = body.enabled !== false;
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agentId) || (enabling && !agentRoster.has(agentId))) {
@@ -10562,25 +10589,25 @@ async function handleConnectorUpsert(req, res) {
       return json(400, { ok: false, saved: false, connected: false, code: 'OAUTH_HTTPS_REQUIRED', error: 'custom OAuth connectors require an https:// server URL without embedded credentials' });
     }
   }
-  let args = Array.isArray(prev.args) ? prev.args.slice() : [];
+  let args = sameService && Array.isArray(prev.args) ? prev.args.slice() : [];
   if ('args' in body) {
     if (!Array.isArray(body.args)) return json(400, { error: 'stdio args must be an array' });
     args = body.args.map(a => String(a == null ? '' : a));
   }
-  let env = (prev.env && typeof prev.env === 'object') ? Object.assign({}, prev.env) : {};
+  let env = sameService && prev.env && typeof prev.env === 'object' ? Object.assign({}, prev.env) : {};
   if ('env' in body) {
     if (!body.env || typeof body.env !== 'object' || Array.isArray(body.env)) return json(400, { error: 'stdio env must be an object' });
     env = {};
     for (const k of Object.keys(body.env)) env[k] = String(body.env[k] == null ? '' : body.env[k]);
   }
   // ADDITIVE: optional custom HTTP headers (object of strings) + an optional per-connector timeout (ms).
-  let headers = (prev.headers && typeof prev.headers === 'object') ? Object.assign({}, prev.headers) : {};
+  let headers = sameService && prev.headers && typeof prev.headers === 'object' ? Object.assign({}, prev.headers) : {};
   if ('headers' in body) {
     if (!body.headers || typeof body.headers !== 'object' || Array.isArray(body.headers)) return json(400, { error: 'http headers must be an object' });
     headers = {};
     for (const k of Object.keys(body.headers)) headers[String(k)] = String(body.headers[k] == null ? '' : body.headers[k]);
   }
-  let token = transport === 'http' && !oauth ? (('token' in body && body.token !== '') ? String(body.token) : (prev.token || '')) : '';
+  let token = transport === 'http' && !oauth ? (('token' in body && body.token !== '') ? String(body.token) : (sameService ? (prev.token || '') : '')) : '';
   if (oauth) {
     for (const k of Object.keys(headers)) if (String(k).toLowerCase() === 'authorization') delete headers[k];
   }
@@ -10608,7 +10635,7 @@ async function handleConnectorUpsert(req, res) {
     token: token,   // a blank token keeps the saved one for HTTP only; catalog-specific header keys move above
     command: transport === 'stdio' ? command : '',
     args: transport === 'stdio' ? args : [],
-    cwd: transport === 'stdio' ? String(body.cwd || prev.cwd || '') : '',
+    cwd: transport === 'stdio' ? String(body.cwd || (sameService ? prev.cwd : '') || '') : '',
     env: transport === 'stdio' ? env : {},
     agentId: transport === 'stdio' ? agentId : '',
     headers: transport === 'http' ? headers : {},
@@ -10620,7 +10647,7 @@ async function handleConnectorUpsert(req, res) {
   // ordinary HTTP and transactionally deletes the now-dormant grant. OAuth tokens never coexist in cfg.token.
   if (oauth) cfg.oauth = true;
   let nextState = connectorStateMod.upsertConfig(connectorStateMod.envelope(connectorConfigs, connectorOauth), cfg);
-  if (!oauth) nextState = connectorStateMod.withOauthEntry(nextState, id, null);
+  if (!oauth || !sameService) nextState = connectorStateMod.withOauthEntry(nextState, id, null);
   if (!persistConnectorState(nextState.configs, nextState.oauth)) {
     return json(500, { ok: false, saved: false, connected: false, error: 'connector configuration could not be saved' });
   }

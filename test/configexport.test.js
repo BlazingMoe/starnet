@@ -25,7 +25,17 @@ const env = C.buildExport({
   roster: [{ agentId: 'lead', name: 'Lead', model: 'x/y', provider: 'openrouter', role: 'boss', system: 'SECRET PROMPT' }],
   dossier: 'the commander block',
   permissions: ['fs.write:workspace', 'shell.exec:*'],
-  connectors: [{ id: 'gh', url: 'https://mcp.example/api?token=SEKRET', headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' } }],
+  connectors: [{
+    id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET',
+    headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' }, hasToken: true,
+    enabled: false, oauth: true, label: 'GitHub'
+  }, {
+    id: 'stdio-sec', transport: 'stdio', command: 'node',
+    args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok'],
+    env: { ACCESS: 'ENV_SECRET_WITH_INNOCENT_NAME' }, agentId: 'lead', cwd: 'C:/work', enabled: false
+  }, {
+    id: 'bad-url', transport: 'http', url: 'https://bad host/mcp?opaque=MALFORMED_URL_SECRET'
+  }],
   notifyPrefs: { runComplete: true, sound: false }
 }, { now: 123, app: 'StarNet' });
 
@@ -47,12 +57,29 @@ const c = env.sections.connectors[0];
 eq(c.id, 'gh', 'connector id kept');
 ok(!('token' in (c.headers || {})), 'no token key leaks into exported headers');
 eq(c.headers.Authorization, undefined, 'Authorization header value redacted');
-eq(c.headers['X-Foo'], 'ok', 'a non-secret header value is preserved');
+eq(c.headers['X-Foo'], undefined, 'all custom header values are excluded because arbitrary names can carry credentials');
 eq(c.configured, true, 'connector marked configured (so import can prompt re-entry)');
-ok(c.redactedFields.indexOf('Authorization') >= 0, 'Authorization listed as a redacted field');
+ok(c.redactedFields.indexOf('header:Authorization') >= 0, 'Authorization listed as a redacted field');
+ok(c.redactedFields.indexOf('header:X-Foo') >= 0, 'even a custom header name is listed for re-entry');
 ok(c.redactedFields.indexOf('url:auth') >= 0, 'the token-bearing url is flagged url:auth');
+ok(c.redactedFields.indexOf('token') >= 0, 'a bearer token marker is retained without its value');
 eq(c.url, 'https://mcp.example/api', 'the url is stripped of its token query');
-ok(JSON.stringify(env).indexOf('SEKRET') < 0 && JSON.stringify(env).indexOf('Bearer abc') < 0, 'NO connector secret appears anywhere in the envelope');
+eq(c.enabled, false, 'disabled state is exported');
+eq(c.oauth, true, 'OAuth mode is exported');
+const stdio = env.sections.connectors[1];
+eq(stdio.agentId, 'lead', 'Safe Cell owner is exported');
+eq(stdio.cwd, 'C:/work', 'stdio working directory is exported');
+eq(stdio.enabled, false, 'disabled stdio connector stays disabled in the export');
+eq(stdio.env.ACCESS, undefined, 'stdio environment values are excluded regardless of variable name');
+ok(stdio.redactedFields.indexOf('env:ACCESS') >= 0, 'excluded environment variable is named for re-entry');
+ok(stdio.args.some(x => x === '--api-token=<redacted>'), 'inline secret argument is scrubbed');
+ok(stdio.args.some(x => x === '<redacted>'), 'value following a secret flag is scrubbed');
+ok(stdio.args.some(x => /access_token=%3Credacted%3E/.test(x)), 'secret URL argument is scrubbed');
+const exportBytes = JSON.stringify(env);
+for (const secret of ['SEKRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
+  ok(exportBytes.indexOf(secret) < 0, 'connector secret excluded: ' + secret);
+}
+eq(env.sections.connectors[2].url, '<redacted>', 'an invalid URL is excluded because its auth material cannot be parsed safely');
 
 // ---- round-trip: parseImport recovers the non-secret config ----
 const p = C.parseImport(env);
@@ -62,8 +89,18 @@ eq(p.sections.budget.perRun, 2, 'budget round-trips');
 eq(p.sections.fallback.models.length, 2, 'fallback round-trips');
 eq(p.sections.roster[0].model, 'x/y', 'roster metadata round-trips');
 eq(p.sections.permissions.allow.length, 2, 'permissions round-trip');
-ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 1, 'the redacted connector surfaces exactly one re-enter-your-key prompt');
+ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 3, 'all redacted connectors surface re-enter-your-key prompts');
 eq(p.secretsNeeded[0].id, 'gh', 'the secretsNeeded prompt names the connector');
+eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
+eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');
+eq(p.sections.connectors[1].agentId, 'lead', 'Safe Cell owner round-trips');
+eq(p.sections.connectors[1].cwd, 'C:/work', 'working directory round-trips');
+
+// Old schema-1 exports omitted operational fields. Their absence must survive parsing so the live importer can
+// preserve an existing row or choose a disabled default for a new connector instead of activating it.
+const legacyConnector = C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'old', transport: 'http', url: 'https://old.example/mcp' }] } }).sections.connectors[0];
+eq(Object.prototype.hasOwnProperty.call(legacyConnector, 'enabled'), false, 'legacy missing enabled remains distinguishable from enabled=true');
+eq(Object.prototype.hasOwnProperty.call(legacyConnector, 'oauth'), false, 'legacy missing oauth remains distinguishable from oauth=false');
 
 // ---- validation: budget clamps out junk; fallback is cleaned + capped at 8 ----
 const badBudget = C.parseImport({ starnetExport: 1, sections: { budget: { perRun: -5, perDay: 'oops', global: 10 } } });

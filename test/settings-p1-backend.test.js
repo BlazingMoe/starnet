@@ -27,7 +27,7 @@ ok(!/collectExportSnapshot[\s\S]{0,900}runtimeKeys/.test(src), 'P1-7: the export
 // import writes through the SAME durable stores (not a bypass)
 ok(/handleConfigImport[\s\S]{0,2600}saveBudgetOverrides\(\)/.test(src), 'P1-7: import persists budget through its durable store');
 ok(/handleConfigImport[\s\S]{0,3200}saveAgentRoster\(\)/.test(src), 'P1-7: import persists roster through its durable store');
-ok(/handleConfigImport[\s\S]{0,4200}saveConnectorConfigs\(\)/.test(src), 'P1-7: import persists connectors through its durable store');
+ok(/handleConfigImport[\s\S]{0,6200}persistConnectorState\(nextState\.configs, nextState\.oauth\)/.test(src), 'P1-7: import transactionally persists connector config and OAuth state');
 ok(/handleConfigReset[\s\S]{0,2200}unknown or non-resettable section/.test(src), 'P1-7: reset rejects an unknown section');
 
 // ---- P1-9 advanced runtime knobs: env > saved > default ----
