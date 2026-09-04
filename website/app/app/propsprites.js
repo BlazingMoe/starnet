@@ -354,7 +354,9 @@ const PropSprites = (() => {
       if (n - Math.floor(n) > 0.82) px(cx2 + i, cy2, 1, 1, r2.dk);
     }
   };
+  let buildingShadowSilhouette = false;
   const shadow2 = (x, y, w) => {                 // soft 2-step contact shadow ON the floor line y
+    if (buildingShadowSilhouette) return; // contact belongs on the deck, never inside a projected silhouette
     const alpha = ctx.globalAlpha;
     ctx.globalAlpha = alpha * 0.09; px(x - 1, y - 1, w + 3, 4, '#000');
     ctx.globalAlpha = alpha * 0.18; px(x, y, w, 2, '#000');
@@ -436,6 +438,8 @@ const PropSprites = (() => {
     if(w<5||h<3)return;
     px(x,y,w,h,r.face);
     px(x,y,w,1,r.mid); px(x,y+1,Math.max(2,Math.floor(w*.6)),1,r.top);
+    // A short machined catch, rather than a bright stripe across the whole panel.
+    px(x+1,y,Math.min(3,w-3),1,r.lit);
     px(x+w-1,y+1,1,h-1,r.dk); px(x,y+h-1,w,1,r.ao);
     if(h>5){px(x+1,y+2,1,h-4,r.top);px(x+2,y+h-3,Math.min(4,w-3),1,r.dk);}
   };
@@ -443,6 +447,8 @@ const PropSprites = (() => {
   const equipmentApron = (x,y,w,r) => {
     px(x,y,w,3,r.ink);px(x+1,y,w-2,1,r.mid);
     px(x+2,y+1,w-4,1,r.face);
+    // Matte isolation gasket beneath the steel fascia; no specular highlight.
+    px(x+2,y+2,w-4,1,r.ao);
     for(const dx of [2,w-4]){px(x+dx,y+1,2,1,r.lit);px(x+dx,y+2,2,1,r.dk);}
     px(x+Math.floor(w/2)-2,y+1,4,1,r.ao);
   };
@@ -11020,14 +11026,14 @@ const PropSprites = (() => {
     const cv=document.createElement('canvas'), W=(f.w||1)*TILE,H=(f.h||1)*TILE;
     cv.width=W+32;cv.height=H+56;
     const g=cv.getContext('2d');if(!g)return null;
-    const previous=ctx, time=now;
+    const previous=ctx, time=now, previousSilhouette=buildingShadowSilhouette;
     try {
-      ctx=g;now=0;g.imageSmoothingEnabled=false;
+      ctx=g;now=0;buildingShadowSilhouette=true;g.imageSmoothingEnabled=false;
       const shape={t:f.t,x:16/TILE,y:48/TILE,w:f.w||1,h:f.h||1,r:f.r||0,m:f.m||0};
       draw(shape,false,null); // first draw also resolves the own-hue outline cache
       g.clearRect(0,0,cv.width,cv.height);draw(shape,false,null);
       g.globalCompositeOperation='source-in';g.fillStyle='rgb('+SHADOW_RGB+')';g.fillRect(0,0,cv.width,cv.height);
-    } finally {ctx=previous;now=time;}
+    } finally {ctx=previous;now=time;buildingShadowSilhouette=previousSilhouette;}
     if(shadowMasks.size>=256)shadowMasks.clear();
     shadowMasks.set(key,cv);return cv;
   }

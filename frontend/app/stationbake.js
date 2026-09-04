@@ -1990,6 +1990,10 @@ const StationBake = (() => {
     const gTop = topY + 3, gH = Math.max(3, h - 9);
     b.clearRect(X + 1, gTop, T - 1, gH);                     // THE HOLE — 1px left mullion kept per tile
     viewportRects.push({ x: X + 1, y: gTop, w: T - 1, h: gH });
+    // Transparent cold glass: the actual sky stays visible behind a restrained edge catch.
+    b.fillStyle = 'rgba(92,145,167,0.035)'; b.fillRect(X+1,gTop,T-1,gH);
+    b.fillStyle = 'rgba(163,199,211,0.10)'; b.fillRect(X+1,gTop,1,gH);
+    b.fillStyle = 'rgba(163,199,211,0.07)'; b.fillRect(X+2,gTop,T-3,1);
     // frame: bright sill under the glass, shaded head above, mullion at the tile seam
     b.fillStyle = shade(body, -0.40 * wd); b.fillRect(X, gTop - 1, T, 1);          // head shadow
     b.fillStyle = shade(body, 0.26 * wd); b.fillRect(X, gTop + gH, T, 2);          // lit sill
