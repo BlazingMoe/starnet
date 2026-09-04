@@ -42,6 +42,7 @@
     const code = error && error.code;
     const raw = String((error && error.message) || '');
     if (/^connector HTTP \d{3}(?: — [a-z0-9_.-]{1,64})?$/i.test(raw)) return raw;
+    if (raw === 'connector HTTP redirect refused — update the configured endpoint directly') return raw;
     return 'connector JSON-RPC error' + (code != null ? ' (' + String(code).slice(0, 24) + ')' : '');
   }
 
