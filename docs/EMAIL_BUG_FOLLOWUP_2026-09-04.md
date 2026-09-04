@@ -11,8 +11,8 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
   status (`756ebec88`) are already integrated. This lane extends pairing coverage, not their branches.
 - `agent/value-loop-0904` owns first-value/discovery, work presentation and recurring-session
   transcript metadata. Coordination confirmed no overlap with INBOX creation or provider adapters.
-- Hold this lane's trunk merge until that lane finishes its post-merge gates. Merge current trunk
-  into this lane first, never rebase. Preserve unrelated integration-tree edits.
+- That lane handed off after its post-merge gates passed. Its trunk commit `c0a2ca521` was merged
+  into this lane without conflicts. Preserve unrelated integration-tree edits.
 
 ## Two reproduced gaps repaired here
 
@@ -33,6 +33,8 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
 
 ## Evidence
 
+- Combined-code pre-merge gates: `npm run test:fast` **707/707** and `npm run test:http` **92/92**, exit 0.
+- The live restart proof also passed after incorporating `c0a2ca521`.
 - Before/after local HTTP adapter reproduction: malformed request rejected before; labeled recovery
   accepted afterward, with `Recovered` text and a normal finish.
 - Provider adapter assertions: OpenRouter 64; compatible 79, including strict pair validation,
