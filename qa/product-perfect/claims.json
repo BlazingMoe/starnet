@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "1f5b491c97e3896bd4cea5f9c05898ba82d9cf40",
+    "sourceCommit": "0f43b98b5153e1fe9a69773b061b2916a5158b01",
     "pathSetSha256": "2b7cbf80ad078c2725bc3712c7f3822f5b3ac61b46d51ae1ff6deabf15892290",
     "files": [
       {
@@ -503,8 +503,8 @@
       },
       {
         "path": "frontend/app/propsprites.js",
-        "bytes": 754523,
-        "sha256": "a28dd3d34838d8149b6d596858d2404d994043c5d8f777bdd5ad694e899abab8"
+        "bytes": 756178,
+        "sha256": "eb885fb4cd0cbbc3f433331a1f7362d3376c26e8dae22b708f9209a1bda2661f"
       },
       {
         "path": "frontend/app/prospect.js",
@@ -733,8 +733,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 323596,
-        "sha256": "5d564f427f81a04ec78e8011499134d31253af1cec14f656a074e101244e14cb"
+        "bytes": 323958,
+        "sha256": "962b8f8f73f41963d1c23b11c1d3f44f4ce6039bb7ef25fed08cb4204ca60b53"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -963,8 +963,8 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 717537,
-        "sha256": "12e92fea42de0c9a7e509da48287f5fbd5d8093b0b558e49aff60f6e2166e835"
+        "bytes": 718388,
+        "sha256": "16981d25b2b956a020027efc7f44e9261f6b403b7833746eb76f6aad179b953f"
       },
       {
         "path": "frontend/app/worldmodel.js",
