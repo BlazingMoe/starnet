@@ -5604,17 +5604,65 @@ async function handleScoutDecide(req, res) {
    authority: a finding is an offer, and only the Commander's accept turns it into work (propose-and-confirm).
    The personalization PAUSE gates the whole engine — a paused station scans nothing and stages nothing. */
 const DISCOVERY_FILE = path.join(WORKSPACES, 'discovery.state.json');
+const DiscoveryDocuments = require('./discovery-documents.js');
+function isDocumentSourceAuthorized(root) {
+  return blessedRoots().some(approved => { const rel = path.relative(approved, root); return !rel || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel)); });
+}
+const documentDiscovery = DiscoveryDocuments.makeDocumentDiscovery({ fsp, path, isBlessed: isDocumentSourceAuthorized,
+  hash: text => crypto.createHash('sha256').update(text).digest('hex') });
 const DISCOVERY_TICK_MS = Math.max(60 * 1000, Number(process.env.SKYNET_ENV_DISCOVERY_TICK_MS) || 15 * 60 * 1000);
 let discoveryState = (() => { try { const o = loadResilient(DISCOVERY_FILE, 'discovery'); return Discovery.normalize(o && o.state); } catch (_) { return Discovery.normalize(null); } })();
 function persistDiscovery() { try { saveResilient(DISCOVERY_FILE, { v: 1, state: discoveryState }); } catch (e) { console.warn('[discovery] state persist failed:', (e && e.message) || e); } }
 let discoveringNow = false;
+let documentSourceRevision = 0;
+function activeDocumentSource() {
+  return discoveryState.sources.find(s => s.enabled && isDocumentSourceAuthorized(s.root)) || null;
+}
+function pruneDocumentFindings() {
+  const source = activeDocumentSource();
+  const before = discoveryState.staged.length;
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || (source && f.root === source.root));
+  return before !== discoveryState.staged.length;
+}
+async function scanDocumentSource(now, force) {
+  const source = activeDocumentSource();
+  const revision = documentSourceRevision;
+  pruneDocumentFindings();
+  if (!source) return { fired: false, binding: discoveryState.sources.length ? 'source-paused-or-revoked' : 'no-document-source' };
+  if (!force && source.lastScanAt && now - source.lastScanAt < Discovery.ROOT_SCAN_GAP_MS) return { fired: false, binding: 'source-fresh' };
+  const scanned = await documentDiscovery.scan(source, now);
+  // Selection or pause may change while filesystem IO is in flight. Never publish that stale scan.
+  const currentSource = activeDocumentSource();
+  if (revision !== documentSourceRevision || !currentSource || currentSource.root !== source.root || !personalizationStore.read().enabled) return { fired: false, binding: 'source-changed-or-paused' };
+  currentSource.lastScanAt = now;
+  currentSource.status = scanned.ok ? (scanned.findings.length ? 'evidence-found' : scanned.reason) : scanned.reason;
+  // Findings represent the CURRENT selected documents. Deleted/edited evidence must disappear on rescan.
+  const current = new Set(scanned.findings.map(f => f.fingerprint));
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || current.has(f.fingerprint));
+  let staged = 0;
+  for (const finding of scanned.findings) {
+    if (!Discovery.eligible(discoveryState, finding)) continue;
+    discoveryState = Discovery.stage(discoveryState, finding, { now });
+    staged++;
+    await recommendationLedger.record({ id: 'discovery:' + finding.fingerprint.slice(0, 100),
+      surface: 'discovery', kind: finding.kind, title: finding.title, target: finding.root,
+      evidence: finding.evidence.map((e, i) => ({ id: 'document-' + i, type: 'quote', quote: e.path + ':' + e.line + ': ' + e.quote })),
+      readiness: { ready: true, reasons: [] }, projectId: finding.root, modelVersion: 'document-discovery-v1',
+      expiresAt: now + Discovery.FINDING_TTL_MS }, now).catch(swallow('recledger.document-record'));
+  }
+  discoveryState = Discovery.note(discoveryState, { outcome: staged ? 'scanned' : 'none',
+    reason: scanned.reason || (staged ? 'recent document evidence' : 'unchanged or previously decided evidence'),
+    title: 'Weekly client update' }, { now });
+  return { fired: true, staged, status: currentSource.status, files: scanned.files || 0, limited: !!scanned.limited };
+}
 async function runDiscoveryCycle(opts) {
   opts = opts || {};
   const now = Date.now();
   discoveryState = Discovery.sweep(discoveryState, now);   // expiries first, so the shelf read stays truthful
+  const documents = await scanDocumentSource(now, !!opts.force);
   const roots = blessedRoots();
   const d = Discovery.decide(discoveryState, { now: now, roots: roots, force: !!opts.force });
-  if (!d.fire) { persistDiscovery(); return { ok: true, fired: false, binding: d.binding }; }
+  if (!d.fire) { persistDiscovery(); return { ok: true, fired: documents.fired, binding: d.binding, documents }; }
   const declinedIdx = buildDeclinedIndex('agent');
   let staged = 0;
   for (const root of d.roots) {
@@ -5658,7 +5706,7 @@ async function runDiscoveryCycle(opts) {
     }
   }
   persistDiscovery();
-  return { ok: true, fired: true, scanned: d.roots.length, staged: staged };
+  return { ok: true, fired: true, scanned: d.roots.length, staged: staged, documents };
 }
 let discoveryTimer = null;
 function discoveryTick(force) {
@@ -5685,6 +5733,7 @@ function handleDiscoveryGet(req, res) {
   // to mutate in memory only, so expired findings + their ledger notes resurrected on the next restart.
   const _preSweepStaged = discoveryState.staged.length;
   discoveryState = Discovery.sweep(discoveryState, Date.now());
+  pruneDocumentFindings();
   if (discoveryState.staged.length !== _preSweepStaged) persistDiscovery();
   const roots = (() => { try { return blessedRoots(); } catch (_) { return []; } })();
   const d = Discovery.decide(discoveryState, { now: Date.now(), roots: roots });
@@ -5694,6 +5743,7 @@ function handleDiscoveryGet(req, res) {
     enabled: String(process.env.SKYNET_ENV_DISCOVERY || '') !== '0' && personalizationStore.read().enabled,
     personalizationEnabled: personalizationStore.read().enabled,
     rootsBlessed: roots.length,
+    sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
     binding: d.fire ? 'due' : d.binding,
     staged: discoveryState.staged,
     ledger: discoveryState.ledger.slice(-20),
@@ -5710,12 +5760,52 @@ async function handleDiscoveryDecide(req, res) {
   if (!decision) return json(400, { ok: false, error: 'decision must be accept|dismiss' });
   const item = discoveryState.staged.find(f => f.id === id) || null;
   if (!item) return json(200, { ok: false, error: 'unknown id' });
+  if (item.kind === 'client-update' && decision === 'accept') {
+    const source = activeDocumentSource();
+    const revision = documentSourceRevision;
+    if (!source || source.root !== item.root || !personalizationStore.read().enabled) return json(409, { ok: false, error: 'source paused or revoked; scan again after enabling it' });
+    const fresh = await documentDiscovery.scan(source, Date.now());
+    if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint)) {
+      discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
+      persistDiscovery();
+      return json(409, { ok: false, error: 'source evidence changed; scan again before starting this work' });
+    }
+  }
   discoveryState = decision === 'accept' ? Discovery.accept(discoveryState, id, { now: Date.now() }) : Discovery.dismiss(discoveryState, id, { now: Date.now() });
   await recommendationLedger.verdict('discovery:' + item.fingerprint.slice(0, 100),
     decision === 'accept' ? 'accepted' : 'declined',
     decision === 'accept' ? 'accepted' : String(body.reason || 'not_relevant'), Date.now()).catch(swallow('recledger.verdict', null));
   persistDiscovery();
   json(200, { ok: true, item: item });
+}
+
+// Explicit opt-in to one bounded source. This never modifies grantsPermanent or execution permissions.
+function handleDiscoverySourcesGet(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ ok: true, sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
+    approvedRoots: blessedRoots(), policy: DiscoveryDocuments.POLICY }));
+}
+async function handleDiscoverySourcesPost(req, res) {
+  const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  let body;
+  try { body = JSON.parse(await readBody(req, 1 << 14)); } catch (_) { return json(400, { ok: false, error: 'bad json' }); }
+  if (!body || typeof body !== 'object') return json(400, { ok: false, error: 'source settings required' });
+  let sources;
+  if (body.remove === true) sources = [];
+  else if (body.enabled === false && !body.root) sources = discoveryState.sources.map(s => ({ ...s, enabled: false, status: 'paused' }));
+  else {
+    if (body.enabled !== true && body.enabled !== false) return json(400, { ok: false, error: 'enabled must be true or false' });
+    let root;
+    try { root = await documentDiscovery.canonicalRoot(body.root); } catch (e) { return json(400, { ok: false, error: e.message }); }
+    sources = [{ id: 'client-update', kind: 'client-update', root, enabled: body.enabled, lookbackDays: 7, lastScanAt: 0, status: body.enabled ? 'not-scanned' : 'paused' }];
+  }
+  // Save before publishing success; unlike best-effort tick persistence, a settings write must not lie.
+  const next = Discovery.normalize({ ...discoveryState, sources });
+  next.staged = next.staged.filter(f => f.kind !== 'client-update');
+  try { saveResilient(DISCOVERY_FILE, { v: 1, state: next }); } catch (_) { return json(500, { ok: false, error: 'could not persist source settings' }); }
+  discoveryState = next;
+  documentSourceRevision++;
+  return json(200, { ok: true, sources: discoveryState.sources, grantsChanged: false });
 }
 // POST /api/discovery/scan — the Commander's own SCAN NOW: forces one cycle past cooldown/freshness. Still
 // refuses while paused (the pause is authority) and while a cycle is already in flight (honest 'busy').
@@ -8775,6 +8865,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/scout/telemetry', h: handleScoutTelemetry },
   // ENVIRONMENT DISCOVERY: findings from the Commander's own blessed roots (verbatim citations, no model spend)
   { m: 'GET', exact: '/api/discovery', h: handleDiscoveryGet },
+  { m: 'GET', exact: '/api/discovery/sources', h: handleDiscoverySourcesGet },
+  { m: 'POST', exact: '/api/discovery/sources', h: handleDiscoverySourcesPost },
   { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
   { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
