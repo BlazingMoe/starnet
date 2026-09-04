@@ -43,17 +43,34 @@ const write = (rel, s) => writeFileSync(join(ROOT, rel), s);
 /* ---------- the edits, each one written so re-running is a no-op ---------------------------------
    Every entry answers three questions: is it already done, what exactly changes, and did the change
    actually land. `done` is checked against the file on disk, never against whether we just wrote it. */
-const NAV_LINK_PAGES = [
-  ...readdirSync(join(ROOT, 'website/docs')).filter(f => f.endsWith('.html')).map(f => 'website/docs/' + f),
+// Every docs page, RECURSIVELY — docs/guides/ (the Field Manual) is one level deeper and carries the
+// same topnav. A flat readdir here silently dropped that whole family once the guides landed.
+function htmlUnder(rel) {
+  const out = [];
+  for (const f of readdirSync(join(ROOT, rel), { withFileTypes: true })) {
+    if (f.isDirectory()) out.push(...htmlUnder(rel + '/' + f.name));
+    else if (f.name.endsWith('.html')) out.push(rel + '/' + f.name);
+  }
+  return out.sort();
+}
+export const NAV_LINK_PAGES = [
+  ...htmlUnder('website/docs'),
   // The legal pages are the family that got missed last time. They carry the same topnav and the
   // same deleted link; the _*.nocredits.html variants deliberately do NOT (they stop being used the
   // moment pricing is live, so a link there would only ever be dead).
   'website/legal/terms.html',
   'website/legal/privacy.html'
 ];
-const NAV_ANCHOR = '<a href="../index.html#download">DOWNLOAD</a>';
-const NAV_LINK = '<a href="../pricing.html">PRICING</a>';
-const NAV_INSERT = NAV_LINK + '\n    ';
+// scripts/website-shell.mjs now stamps the topnav (with the PRICING link, marked data-pricing-link so
+// the flag can also govern it on pages that DO load site.js). Depth varies (../ vs ../../), so the
+// predicates match the nav markup by shape, not by one literal string — but still the NAV markup
+// specifically: legal/terms.html cites ../pricing.html in the body of clause 2, which must not count.
+const NAV_ANCHOR_RE = /<a href="((?:\.\.\/)+)index\.html#download">DOWNLOAD<\/a>/;
+const NAV_LINK_RE = /<a href="(?:\.\.\/)+pricing\.html"(?: class="on")?(?: data-pricing-link)?>PRICING<\/a>/;
+const navInsert = (up) => `<a href="${up}pricing.html" data-pricing-link>PRICING</a>\n    `;
+// The pre-credits cache key. "Done" means the key has moved past it — any later polish pass that
+// re-busts the cache must not read as "still needs the credits bust" and get rolled back to it.
+const PRE_CREDITS_SITE_SCRIPT = /<script src="site\.js\?v=20260(?:7|80[0-9]|810)[^"]*"><\/script>/;
 const CREDITS_SITE_SCRIPT = '<script src="site.js?v=20260811-credits-live"></script>';
 
 const EDITS = [
@@ -83,7 +100,7 @@ const EDITS = [
   ...['website/index.html', 'website/pricing.html'].map((file) => ({
     file,
     what: 'cache-bust site.js so returning visitors receive the live Credits flags',
-    done: (s) => s.includes(CREDITS_SITE_SCRIPT),
+    done: (s) => /<script src="site\.js\?v=[^"]+"><\/script>/.test(s) && !PRE_CREDITS_SITE_SCRIPT.test(s),
     apply: (s) => s.replace(/<script src="site\.js\?v=[^"]+"><\/script>/, CREDITS_SITE_SCRIPT),
     can: (s) => /<script src="site\.js\?v=[^"]+"><\/script>/.test(s)
   })),
@@ -95,9 +112,9 @@ const EDITS = [
     // that as "nav link already restored" — this script would have skipped the one page whose link
     // matters most and reported success. A `done` predicate that can be satisfied by unrelated text
     // is worse than no predicate: it fails silently and in the safe-looking direction.
-    done: (s) => s.includes(NAV_LINK),
-    apply: (s) => s.replace(NAV_ANCHOR, NAV_INSERT + NAV_ANCHOR),
-    can: (s) => s.includes(NAV_ANCHOR)
+    done: (s) => NAV_LINK_RE.test(s),
+    apply: (s) => s.replace(NAV_ANCHOR_RE, (m, up) => navInsert(up) + m),
+    can: (s) => NAV_ANCHOR_RE.test(s)
   }))
 ];
 

@@ -81,13 +81,25 @@ A.ok(!/UNRECOGNISED/.test(golive.out),
 
 const done = Number(/already live\s*:\s*(\d+)/.exec(golive.out)[1]);
 const todo = Number(/to change\s*:\s*(\d+)/.exec(golive.out)[1]);
-A.eq(done + todo, 18, 'the go-live plan still covers all 18 edits (3 flags + 2 cache keys + 13 topnav links)');
-if (!live) A.eq(done, 0, 'with the tier held, none of the go-live edits are applied yet');
 
-// Every docs and legal page is enumerated. The last hand-run of this checklist fixed the docs family
-// and missed the legal family; a count is what catches a family being dropped.
-const docsPages = fs.readdirSync(path.join(ROOT, 'website', 'docs')).filter(f => f.endsWith('.html'));
-A.eq(docsPages.length + 2, 13, 'the topnav edits cover every docs page plus BOTH legal pages');
+// Every docs page (recursively — docs/guides/ is a second level with the same topnav) and BOTH legal
+// pages are enumerated. The last hand-run of this checklist fixed the docs family and missed the legal
+// family; a count derived from the tree is what catches a family being dropped. The 5 = 3 flags +
+// 2 cache keys.
+function htmlUnder(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(f =>
+    f.isDirectory() ? htmlUnder(path.join(dir, f.name)) : (f.name.endsWith('.html') ? [path.join(dir, f.name)] : []));
+}
+const docsPages = htmlUnder(path.join(ROOT, 'website', 'docs'));
+A.ok(docsPages.some(p => /[\\/]guides[\\/]/.test(p)), 'the enumeration reaches docs/guides/ (the Field Manual family)');
+A.eq(done + todo, 5 + docsPages.length + 2,
+  'the go-live plan covers every edit: 3 flags + 2 cache keys + a topnav link on every docs page and BOTH legal pages');
+if (!live) A.eq(done, 0, 'with the tier held, none of the go-live edits are applied yet');
+for (const f of ['terms.html', 'privacy.html']) {
+  const src = fs.readFileSync(path.join(ROOT, 'website', 'legal', f), 'utf8');
+  A.eq(/<a href="\.\.\/pricing\.html"[^>]*>PRICING<\/a>/.test(src), live,
+    'website/legal/' + f + ' carries a PRICING topnav link exactly when pricing is live');
+}
 
 /* ---- 4. refusals, which are the only behaviour that matters when something is wrong -------------- */
 const combo = run('go-live-credits.mjs', ['--apply', '--no-probe']);
