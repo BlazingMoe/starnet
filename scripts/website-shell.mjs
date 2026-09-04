@@ -88,14 +88,13 @@ function topbar(page) {
   const h = (u) => is404 ? '/' + u : here(u);
   const active = (u) => (page === u || (u.endsWith('index.html') && page.startsWith(posix.dirname(u) + '/') && !page.startsWith('docs/guides/') ) ? ' class="on"' : '');
   const fm = page.startsWith('docs/guides/') ? ' class="on"' : '';
-  const dc = (page.startsWith('docs/') && !page.startsWith('docs/guides/')) ? ' class="on"' : '';
+  const dc = page.startsWith('docs/') ? ' class="on"' : '';
   const pr = page === 'pricing.html' ? ' class="on"' : '';
   return `<header class="topbar" id="topbar">
   <a class="brand" href="${root || '#top'}">STARNET TERMLINK</a>
   <nav class="topnav" aria-label="Site">
     <a href="${root}#station">WHAT IT IS</a>
     <a href="${root}#difference">FEATURES</a>
-    <a href="${h('docs/guides/index.html')}"${fm}>FIELD MANUAL</a>
     <a href="${h('docs/index.html')}"${dc}>DOCS</a>
     <a href="${h('pricing.html')}"${pr} data-pricing-link${LOADS_SITE_JS.includes(page) ? ' hidden' : ''}>PRICING</a>
     <a href="${root}#download">DOWNLOAD</a>
@@ -140,7 +139,6 @@ function footer(page) {
     <a href="${RELEASES}" target="_blank" rel="noopener">RELEASES</a>
     <a href="${here('pricing.html')}" data-pricing-link${LOADS_SITE_JS.includes(page) ? ' hidden' : ''}>PRICING</a>
     <a href="${here('docs/index.html')}">DOCS</a>
-    <a href="${here('docs/guides/index.html')}">FIELD MANUAL</a>
     <a href="${here('docs/help.html')}">HELP</a>
     <a href="${GITHUB}/issues" target="_blank" rel="noopener">COMMUNITY</a>
     <a href="${here('legal/privacy.html')}">PRIVACY</a>
