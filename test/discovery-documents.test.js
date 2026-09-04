@@ -7,6 +7,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const D = require('../sidecar/discovery.js');
 const { makeDocumentDiscovery, POLICY } = require('../sidecar/discovery-documents.js');
+const FailOpen = require('../sidecar/failopen.js');
 
 (async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-doc-discovery-'));
@@ -65,6 +66,25 @@ const { makeDocumentDiscovery, POLICY } = require('../sidecar/discovery-document
     assert.ok(bounded.bytes <= POLICY.maxTotalBytes);
     assert.ok(bounded.findings[0].evidence.length <= POLICY.maxEvidence);
     assert.equal(bounded.limited, true);
+    const warnings = [], originalWarn = console.warn;
+    const countBefore = FailOpen.counts();
+    try {
+      console.warn = (...args) => warnings.push(args.join(' '));
+      const unavailableFile = makeDocumentDiscovery({ fsp: { ...fsp, open: async () => { throw new Error('PRIVATE-PATH-AND-SECRET'); } }, path,
+        hash: s => crypto.createHash('sha256').update(s).digest('hex'), isBlessed: r => r === root });
+      const missingFiles = await unavailableFile.scan(source, now + 10000);
+      assert.equal(missingFiles.findings.length, 0);
+      assert.equal(missingFiles.limited, true);
+      const unavailableDirectory = makeDocumentDiscovery({ fsp: { ...fsp, opendir: async () => { throw new Error('PRIVATE-PATH-AND-SECRET'); } }, path,
+        hash: s => crypto.createHash('sha256').update(s).digest('hex'), isBlessed: r => r === root });
+      const missingDirectory = await unavailableDirectory.scan(source, now + 10000);
+      assert.equal(missingDirectory.findings.length, 0);
+      assert.equal(missingDirectory.limited, true);
+      assert.ok(FailOpen.counts()['discovery.documents.file-read'] > (countBefore['discovery.documents.file-read'] || 0));
+      assert.ok(FailOpen.counts()['discovery.documents.directory-read'] > (countBefore['discovery.documents.directory-read'] || 0));
+      assert.ok(warnings.length);
+      assert.equal(warnings.some(line => line.includes('PRIVATE-PATH-AND-SECRET') || line.includes(root)), false, 'failure diagnostics contain no source paths or OS error text');
+    } finally { console.warn = originalWarn; }
     console.log('discovery-documents: extraction, freshness, durable shape, decline, bounds and junction checks passed');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
