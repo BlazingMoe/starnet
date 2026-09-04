@@ -117,6 +117,7 @@ test/loop.tool-images.test.js
 test/loop.turn-budget.test.js
 test/loop.provider-recovery.test.js
 test/loop.failure-recovery.test.js
+test/loop.stop-means-stop.test.js
 test/output-continuation.test.js
 test/compaction.test.js
 test/compaction-summarizer.test.js
@@ -135,6 +136,7 @@ test/cloudsave-refusal.test.js
 test/cloudsave-unknown.test.js
 test/freshstart.test.js
 test/unreachable-browser-mode.test.js
+test/harness.cancel-truth.test.js
 test/desktop-fresh-start-contract.test.js
 test/cloudsave-unload.test.js
 test/fullscreen.test.js
@@ -620,6 +622,8 @@ test/mcp.resources-prompts.test.js
 test/mcp.transport.test.js
 test/mcp.stdio.test.js
 test/mcp.schema-lifecycle.test.js
+test/mcp.manager-race.test.js
+test/mcp.manager-auth-race.test.js
 test/mcp.orphan-recovery.test.js
 test/mcp.catalog.test.js
 test/mcp.oauth.test.js
@@ -696,3 +700,4 @@ test/loop-verdict.test.js
 test/free-path-ollama.test.js
 test/process-fault.test.js
 test/tier-model-catalog.test.js
+test/crash-ledger.test.js

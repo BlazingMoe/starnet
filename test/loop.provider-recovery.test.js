@@ -264,7 +264,11 @@ const openCtx = () => ({ canRun: () => true, canUse: () => ({ ok: true }), agent
     const err = seq.find(e => e.name === 'agent.run.error');
     A.eq(err.payload.transient, true, 'a truncation is transient');
     A.ok(/truncated in transit/.test(err.payload.message), 'the error names the truncation plainly');
-    A.ok(Math.abs(res.usd - 0.002) < 1e-9, 'the billed tokens are recorded — a truncated turn is never free');
+    // BOTH attempts streamed usage and BOTH are billed by the provider: 2 x (1000 in * $1/M + 500 out * $2/M).
+    // (Before 2026-09-04 the retry `continue` reset the first attempt's usage to null and only the second was
+    // booked — the exact partial-usage leak the stop-means-stop lane closed; see loop.stop-means-stop.test.js.)
+    A.ok(Math.abs(res.usd - 0.004) < 1e-9, 'the billed tokens of EVERY attempt are recorded — a truncated turn is never free: ' + res.usd);
+    A.eq(seq.filter(e => e.name === 'agent.cost' && e.payload.reconciled).length, 2, 'one reconciled booking per attempt, never a duplicate');
   }
 
   // (4-inert) BACKWARD COMPATIBILITY: a provider that never sets `truncated` — or never emits a done event at

@@ -50,7 +50,12 @@ function makeProcessFaultHandler(deps) {
   const now = typeof deps.now === 'function' ? deps.now : function () { return null; };   // clock is INJECTED (lint-determinism); index.js passes Date.now
   const keepAlive = !!deps.keepAlive;
   const delayMs = (typeof deps.delayMs === 'number' && deps.delayMs >= 0) ? deps.delayMs : DEFAULT_DELAY_MS;
-  let fault = null;   // { kind, message, at, exiting } — set ONCE; the first fault wins, later ones only surface
+  // CRASH-LOOP BREAKER (crash-ledger.js): optional. When injected, every fault exit is recorded durably and, if
+  // this is the THRESHOLD-th fault inside the window, the process is HELD alive in degraded mode instead of
+  // exiting — a deterministic boot-time throw must not become an infinite exit/respawn loop behind the shell
+  // watchdog (2026-09-03 audit). A breaker that throws is contained: the exit policy then proceeds as before.
+  const breaker = deps.breaker && typeof deps.breaker.record === 'function' ? deps.breaker : null;
+  let fault = null;   // { kind, message, at, exiting, loop? } — set ONCE; the first fault wins, later ones only surface
 
   function onUncaught(err) {
     try { surface('uncaughtException', err); } catch (e) { log('uncaughtException: surface hook failed (policy continues): ' + summarize(e)); }   // the surface must never mask the fault policy
@@ -61,6 +66,18 @@ function makeProcessFaultHandler(deps) {
       log('uncaughtException: process marked DEGRADED but kept alive (UNCAUGHT_KEEP_SERVING is set — test opt-out)');
       return { action: 'degraded-kept-alive' };
     }
+    if (breaker) {
+      let verdict = null;
+      try { verdict = breaker.record({ code: 1, summary: fault.message }); } catch (e) { log('uncaughtException: crash ledger failed (exit policy continues): ' + summarize(e)); }
+      if (verdict && verdict.tripped) {
+        let loop = null;
+        try { loop = typeof breaker.state === 'function' ? breaker.state() : null; } catch (_) { loop = null; }
+        fault.exiting = false;
+        fault.loop = loop || { count: verdict.count, tripped: true };
+        log('uncaughtException: CRASH LOOP — ' + verdict.count + ' fault exit(s) inside the window; holding this process alive in DEGRADED mode instead of exiting again (health 503 carries the reason; read routes keep serving)');
+        return { action: 'crash-loop-held', count: verdict.count };
+      }
+    }
     log('uncaughtException: state is unproven — health flipped to DEGRADED; exiting(1) in ' + delayMs + 'ms so the shell watchdog restarts a clean process');
     schedule(function () {
       try { release(); } catch (e) { log('uncaughtException: release hook failed: ' + summarize(e)); }
@@ -69,7 +86,21 @@ function makeProcessFaultHandler(deps) {
     return { action: 'exit-scheduled', delayMs: delayMs };
   }
 
-  return { onUncaught: onUncaught, fault: function () { return fault; }, isBenign: isBenign };
+  return { onUncaught: onUncaught, fault: function () { return fault; }, isBenign: isBenign, healthLine: function () { return healthLine(fault); } };
 }
 
-module.exports = { makeProcessFaultHandler, summarize, isBenign, DEFAULT_DELAY_MS, BENIGN_CODES };
+/* The one /api/health body for a faulted process (null → 'ok'). A held crash loop names the LOOP first, because
+   that is the actionable truth; a single fault names the exception. Both start with "degraded: " so the
+   frontend's "degraded"/"crash-loop" match is one prefix test. */
+function healthLine(fault) {
+  if (!fault) return 'ok';
+  if (fault.loop) {
+    const l = fault.loop;
+    const mins = Math.max(1, Math.round((Number(l.windowMs) || 600000) / 60000));
+    const n = Number(l.count) || 0;
+    return 'degraded: crash-loop: ' + n + ' fault' + (n === 1 ? '' : 's') + ' in ' + mins + 'm — last: ' + fault.message;
+  }
+  return 'degraded: ' + fault.kind + ': ' + fault.message;
+}
+
+module.exports = { makeProcessFaultHandler, healthLine, summarize, isBenign, DEFAULT_DELAY_MS, BENIGN_CODES };

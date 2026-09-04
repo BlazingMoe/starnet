@@ -6181,11 +6181,44 @@ const Chat = (() => {
     // fire the next continuation. (The user resumes it explicitly with /goal resume.)
     if (typeof GoalLoop !== 'undefined') { const g = goalOf(activeWs); if (g && GoalLoop.isActive(g)) { GoalLoop.pause(g, 'you stopped the run'); persistGoal(); } }
     if (typeof Channels !== 'undefined' && Channels.clearPending) Channels.clearPending(id, Date.now());   // a pending approval is moot once stopped
-    const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} }   // aborts the fetch → reader throws → send()'s catch
-    const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
-    if (rid && typeof Harness !== 'undefined' && Harness.cancel) Harness.cancel(rid);   // server-side kill (belt-and-suspenders)
     status('stopping…'); updateControls();
     if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
+    const localAbort = () => { const ac = aborters.get(id); if (ac) { try { ac.abort(); } catch (_) {} } };   // aborts the fetch → reader throws → send()'s catch
+    const rid = (typeof Channels !== 'undefined') ? Channels.runIdOf(id) : null;
+    // STOP MEANS STOP (2026-09-04): the local fetch is torn down only AFTER the sidecar confirmed the kill. A
+    // swallowed /api/cancel failure used to render a clean "RUN STOPPED" while the run kept burning server-side;
+    // now a refused/unreachable cancel keeps this stream live and un-stopped and SAYS so (stopFailed). No run id
+    // yet (the run.start beat has not landed) = nothing to kill server-side, so the local abort stands alone.
+    if (rid && typeof Harness !== 'undefined' && Harness.cancel) {
+      Promise.resolve(Harness.cancel(rid)).then(v => { if (v && v.ok) localAbort(); else stopFailed(id, v); }, e => stopFailed(id, { ok: false, error: (e && e.message) || String(e), transport: true }));
+    } else localAbort();
+  }
+
+  // The sidecar did NOT confirm the stop: un-flag the stream (never mark it stopped on a claim the harness can't
+  // back), leave the run streaming, and print the friendly transport verdict measured the same way send()'s catch
+  // does (Harness.pingEngine → Friendly.friendlyError), so a dead service reads LINK DOWN and a refused stop names
+  // its status. STOP stays available — the Commander can press it again.
+  function stopFailed(id, v) {
+    interrupted.delete(id);
+    const alive = (typeof Harness !== 'undefined' && Harness.pingEngine) ? Promise.resolve(Harness.pingEngine()).catch(() => null) : Promise.resolve(null);
+    alive.then(engineAlive => {
+      const reason = (v && v.error) || 'no answer from the station';
+      const verdict = (v && v.transport && typeof Friendly !== 'undefined')
+        ? Friendly.friendlyError(new Error(reason), null, { engineAlive: engineAlive }).userMessage
+        : reason;
+      if (activeWs && activeWs.id === id) {
+        localLine('⚠ STOP was not confirmed by the station — the run may still be working. ' + verdict);
+        status(isBusy() ? 'stopping… not confirmed' : 'online'); updateControls();
+      }
+    });
+  }
+
+  // The sidecar did NOT record that this approval card is on screen: the fail-closed auto-deny timer keeps
+  // running against a prompt it cannot prove anyone saw. Keep the card pending (it IS pending) and warn the
+  // Commander to answer now rather than let it silently deny.
+  function consentAckFailed(ws, ev, v) {
+    if (!isActiveWs(ws)) return;
+    localLine('⚠ The station did not confirm it saw this approval card (' + ((v && v.error) || 'no answer') + '). Answer it now — an unseen prompt auto-denies on a timer.');
   }
 
   // TYPE-AHEAD — a message typed while the stream is busy is QUEUED, not dropped, and auto-sent in order as the
@@ -8049,7 +8082,7 @@ const Chat = (() => {
         // a background stream fires the global clickable toast + rail marker (backgroundPermissionNotify). Both
         // paths then ACK the sidecar (consentAck) that the prompt is human-visible, earning the paused run its
         // one bounded extension of the fail-closed auto-deny timer.
-        onPermission: ev => { Channels.setPending(ws.id, { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId); } catch (_) {} },
+        onPermission: ev => { Channels.setPending(ws.id, { promptId: ev.promptId, agentId: ev.agentId || ws.agentId, tool: ev.tool, argsSummary: ev.argsSummary, runId: Channels.runIdOf(ws.id) }, Date.now()); walkToDesk(); if (isActiveWs(ws)) { breakLive(); permissionRow(ev, ws); renderPresence(); } else { backgroundPermissionNotify(ev, ws); } try { Promise.resolve(Harness.consentAck(Channels.runIdOf(ws.id), ev.promptId)).then(v => { if (!(v && v.ok)) consentAckFailed(ws, ev, v); }, e => consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) })); } catch (e) { consentAckFailed(ws, ev, { ok: false, error: (e && e.message) || String(e) }); } },
         // the lead's team.summon tool asked the station to create a worker: run the REAL summon (App.summonForRequest
         // → the Recruitment Bay's own summonAgent), then ack with the new id so the lead can delegate to it. The id
         // resolves only after the roster POST lands (App awaits it), so the lead's next team.dispatch finds the worker.

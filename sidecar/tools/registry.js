@@ -189,6 +189,9 @@
       if (call.parseError) return errResult('invalid tool arguments: ' + call.parseError);
       const tool = tools[call.name];
       if (!tool) return errResult('unknown tool: ' + call.name);
+      // STOP MEANS STOP: an already-aborted run signal is refused at the door. childAbort below only THREADS an
+      // aborted signal into the child — a tool that ignores ctx.signal would still run to completion.
+      if (ctx.signal && ctx.signal.aborted) return errResult('skipped: cancelled — the run was stopped before ' + call.name + ' ran', 'skipped - cancelled');
 
       // User-control authority is a host hardline and runs before capability/consent. Full
       // Access, cached approvals, model wording, or a lying external tool annotation cannot

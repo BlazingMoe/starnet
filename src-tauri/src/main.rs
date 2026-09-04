@@ -67,6 +67,107 @@ struct AppState {
     // Flipped true the instant the app starts exiting, so the guardian thread stops
     // respawning the sidecar during an intentional quit.
     shutting_down: AtomicBool,
+    // Crash-loop memory for the guardian (see spawn_guardian): consecutive unexpected sidecar exits,
+    // the backoff in force, and the HALTED verdict the frontend reads via starnet_sidecar_status.
+    guardian: Mutex<GuardianStatus>,
+}
+
+/// What the guardian knows about the sidecar's exit history. Serialized verbatim to the frontend
+/// (STATION DATA UNREACHABLE screen) so a halted crash loop is shown as such, never as a generic
+/// "not answering".
+#[derive(Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuardianStatus {
+    /// true once the guardian gave up respawning (cap reached). Cleared by a user restart.
+    halted: bool,
+    /// unexpected exits inside the current crash window (reset once a child stays up).
+    consecutive_crashes: u32,
+    /// the most recent child exit code (None = killed by signal / unknown).
+    last_exit_code: Option<i32>,
+    /// wall-clock ms of that exit.
+    last_exit_at_ms: Option<u64>,
+    /// backoff currently in force before the next respawn, in ms (None = no delay pending).
+    next_respawn_in_ms: Option<u64>,
+    /// one human line: why the guardian is holding off / halted.
+    reason: Option<String>,
+}
+
+/// After this many unexpected exits inside GUARDIAN_CRASH_WINDOW the guardian stops respawning.
+const GUARDIAN_MAX_CONSECUTIVE_CRASHES: u32 = 6;
+const GUARDIAN_CRASH_WINDOW: Duration = Duration::from_secs(10 * 60);
+const GUARDIAN_MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Exit codes that mean the sidecar CHOSE to stop and expects a clean respawn — never a crash:
+/// 0 = graceful shutdown (SIGTERM / gracefulShutdown), 75 = recovery / START FRESH restart request
+/// (sidecar/index.js handleWorkspaceRecovery + handleWorkspaceStartFresh exit 75 after the ack).
+fn sidecar_exit_is_intentional(code: Option<i32>) -> bool {
+    matches!(code, Some(0) | Some(75))
+}
+
+/// Exponential backoff before the n-th consecutive crash respawn: 1s, 2s, 4s, 8s, 16s, 30s (cap).
+fn guardian_backoff(consecutive_crashes: u32) -> Duration {
+    let n = consecutive_crashes.max(1) - 1;
+    let secs = 1u64.checked_shl(n.min(10)).unwrap_or(GUARDIAN_MAX_BACKOFF.as_secs());
+    Duration::from_secs(secs).min(GUARDIAN_MAX_BACKOFF)
+}
+
+#[cfg(test)]
+mod guardian_cap_tests {
+    use super::*;
+
+    #[test]
+    fn backoff_doubles_from_one_second_and_caps_at_thirty() {
+        assert_eq!(guardian_backoff(0), Duration::from_secs(1));
+        assert_eq!(guardian_backoff(1), Duration::from_secs(1));
+        assert_eq!(guardian_backoff(2), Duration::from_secs(2));
+        assert_eq!(guardian_backoff(3), Duration::from_secs(4));
+        assert_eq!(guardian_backoff(5), Duration::from_secs(16));
+        assert_eq!(guardian_backoff(6), GUARDIAN_MAX_BACKOFF);
+        assert_eq!(guardian_backoff(40), GUARDIAN_MAX_BACKOFF);
+        assert_eq!(guardian_backoff(u32::MAX), GUARDIAN_MAX_BACKOFF);
+    }
+
+    #[test]
+    fn intentional_exits_never_count_as_crashes() {
+        assert!(sidecar_exit_is_intentional(Some(0)));
+        assert!(sidecar_exit_is_intentional(Some(75)));
+        assert!(!sidecar_exit_is_intentional(Some(1)));
+        assert!(!sidecar_exit_is_intentional(Some(73)));
+        assert!(!sidecar_exit_is_intentional(Some(74)));
+        assert!(!sidecar_exit_is_intentional(None));
+    }
+
+    #[test]
+    fn cap_is_reached_on_the_sixth_crash_inside_the_window() {
+        let mut count = 0u32;
+        let mut halted = false;
+        for _ in 0..GUARDIAN_MAX_CONSECUTIVE_CRASHES {
+            count = count.saturating_add(1);
+            if count >= GUARDIAN_MAX_CONSECUTIVE_CRASHES {
+                halted = true;
+            }
+        }
+        assert!(halted);
+        assert_eq!(count, 6);
+        assert!(GUARDIAN_CRASH_WINDOW >= Duration::from_secs(60));
+    }
+
+    #[test]
+    fn guardian_status_serializes_camel_case_for_the_frontend() {
+        let g = GuardianStatus {
+            halted: true,
+            consecutive_crashes: 6,
+            last_exit_code: Some(73),
+            last_exit_at_ms: Some(1),
+            next_respawn_in_ms: None,
+            reason: Some("crash-loop".to_string()),
+        };
+        let json = serde_json::to_string(&g).expect("serializes");
+        assert!(json.contains("\"halted\":true"));
+        assert!(json.contains("\"consecutiveCrashes\":6"));
+        assert!(json.contains("\"lastExitCode\":73"));
+        assert!(json.contains("\"reason\":\"crash-loop\""));
+    }
 }
 
 /// Serializes user-driven recovery commands and keeps the guardian paused until every return path
@@ -1387,15 +1488,33 @@ fn project_root(app: &tauri::AppHandle) -> PathBuf {
 }
 
 /// Block (briefly) until the sidecar is accepting connections, or give up.
-fn wait_for_port(port: u16, timeout: Duration) -> bool {
+/// Wait for the sidecar's loopback port, but bail EARLY when the child we are waiting on has already exited —
+/// a sidecar that refuses its workspace (exit 73) or throws at boot (exit 1) used to pin the
+/// caller for the full 25s timeout per attempt, which made every crash loop 25s slower to notice
+/// and blocked the guardian thread meanwhile. Returns `(listening, exited)` where `exited` is
+/// `Some(code)` if the child died before the port opened (`code` None = signal/unknown).
+fn wait_for_port_or_exit(
+    port: u16,
+    timeout: Duration,
+    sidecar: Option<&Mutex<Option<Child>>>,
+) -> (bool, Option<Option<i32>>) {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            return true;
+            return (true, None);
+        }
+        if let Some(lock) = sidecar {
+            if let Ok(mut guard) = lock.lock() {
+                if let Some(child) = guard.as_mut() {
+                    if let Ok(Some(status)) = child.try_wait() {
+                        return (false, Some(status.code()));
+                    }
+                }
+            }
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    false
+    (false, None)
 }
 
 /// Resolve the Node runtime. Packaged builds ship one via Tauri externalBin;
@@ -1797,13 +1916,20 @@ fn spawn_sidecar(state: &AppState) -> bool {
                 if let Ok(mut guard) = state.sidecar.lock() {
                     *guard = Some(child);
                 }
-                let listening = wait_for_port(state.port, Duration::from_secs(25));
+                let (listening, exited) =
+                    wait_for_port_or_exit(state.port, Duration::from_secs(25), Some(&state.sidecar));
                 log_startup(
                     &state.startup_log,
-                    format!(
-                        "spawn_sidecar pid={pid} port={} listening={listening}",
-                        state.port
-                    ),
+                    match exited {
+                        Some(code) => format!(
+                            "spawn_sidecar pid={pid} port={} listening=false exited_before_listening code={:?}",
+                            state.port, code
+                        ),
+                        None => format!(
+                            "spawn_sidecar pid={pid} port={} listening={listening}",
+                            state.port
+                        ),
+                    },
                 );
                 return listening;
             }
@@ -1919,6 +2045,21 @@ fn spawn_guardian(app: AppHandle) {
         // hammering a permanently-blocked node (audit 0.2: recover even from the None state, but
         // bounded). Reset to 0 whenever the sidecar is confirmed alive.
         let mut consecutive_failures: u32 = 0;
+        // CRASH-LOOP CAP (2026-09-03 audit). The crash path used to respawn IMMEDIATELY and FOREVER: a
+        // sidecar that exits deterministically at boot (corrupt store, bad env, stale workspace-owner
+        // claim → exit 73; uncaught boot throw → exit 1) became an infinite kill/respawn loop and the
+        // window only ever said "unreachable". Now each UNEXPECTED exit inside GUARDIAN_CRASH_WINDOW is
+        // counted, respawns back off exponentially (1s,2s,4s,…,30s), and after
+        // GUARDIAN_MAX_CONSECUTIVE_CRASHES the guardian HALTS: it stops respawning, writes one clear line
+        // to startup.log and records the verdict in AppState.guardian (read by starnet_sidecar_status)
+        // so the frontend can say so. Intentional exits (0 graceful, 75 recovery/START FRESH) never count.
+        // A user RESTART (starnet_restart_sidecar) clears the halt. The sidecar's own breaker
+        // (sidecar/crash-ledger.js) normally trips first — at the 3rd fault in 10m it holds itself
+        // alive DEGRADED — so this cap is the backstop for exits the sidecar cannot ledger (a throw
+        // before its handler is installed, a bad node binary).
+        let mut first_crash_at: Option<Instant> = None;
+        let mut next_attempt_at: Option<Instant> = None;
+        let mut last_counted_pid: Option<u32> = None;
         loop {
             std::thread::sleep(Duration::from_secs(3));
             let Some(state) = app.try_state::<AppState>() else {
@@ -1940,13 +2081,27 @@ fn spawn_guardian(app: AppHandle) {
             // first-run spawn failure left the app permanently dead with no background recovery.
             let mut needs_respawn = false;
             let mut from_none = false;
+            // Some(pid, code) when a child is found exited; the pid lets us count each exit ONCE even
+            // though the dead child stays in the slot while we back off / after a halt.
+            let mut exited: Option<(u32, Option<i32>)> = None;
             if let Ok(mut guard) = st.sidecar.lock() {
                 match guard.as_mut() {
                     Some(child) => {
-                        if let Ok(Some(_status)) = child.try_wait() {
+                        if let Ok(Some(status)) = child.try_wait() {
                             needs_respawn = true; // (a) crashed
+                            exited = Some((child.id(), status.code()));
                         } else {
                             consecutive_failures = 0; // alive and running
+                            first_crash_at = None;
+                            next_attempt_at = None;
+                            if let Ok(mut g) = st.guardian.lock() {
+                                if g.consecutive_crashes != 0 || g.halted || g.next_respawn_in_ms.is_some() {
+                                    g.consecutive_crashes = 0;
+                                    g.halted = false;
+                                    g.next_respawn_in_ms = None;
+                                    g.reason = None;
+                                }
+                            }
                         }
                     }
                     None => {
@@ -1961,14 +2116,104 @@ fn spawn_guardian(app: AppHandle) {
                     break;
                 }
                 // Back off the never-came-up case: after a few quick tries, poll far less often so a
-                // genuinely blocked node doesn't burn a core. A crash-respawn (Some, exited) always
-                // gets an immediate attempt — that path had a working node moments ago.
+                // genuinely blocked node doesn't burn a core.
                 if from_none && consecutive_failures >= 5 {
                     // Slow path: ~30s between attempts once we've clearly failed to launch repeatedly.
                     if consecutive_failures % 10 != 0 {
                         consecutive_failures = consecutive_failures.saturating_add(1);
                         continue;
                     }
+                }
+                // (a) classify the exit exactly once per child.
+                if let Some((pid, code)) = exited {
+                    // A user restart (starnet_restart_sidecar) clears the shared halt/count; mirror that
+                    // into the thread-local crash window so the next crash starts a fresh count.
+                    let (halted, shared_count) = st
+                        .guardian
+                        .lock()
+                        .map(|g| (g.halted, g.consecutive_crashes))
+                        .unwrap_or((false, 0));
+                    if shared_count == 0 {
+                        first_crash_at = None;
+                    }
+                    if last_counted_pid != Some(pid) {
+                        last_counted_pid = Some(pid);
+                        if sidecar_exit_is_intentional(code) {
+                            first_crash_at = None;
+                            next_attempt_at = None;
+                            if let Ok(mut g) = st.guardian.lock() {
+                                g.consecutive_crashes = 0;
+                                g.halted = false;
+                                g.last_exit_code = code;
+                                g.last_exit_at_ms = Some(now_ms());
+                                g.next_respawn_in_ms = None;
+                                g.reason = None;
+                            }
+                            log_startup(
+                                &st.startup_log,
+                                format!("watchdog: sidecar stopped on purpose (code {code:?}) — respawning"),
+                            );
+                        } else {
+                            let now = Instant::now();
+                            let window_expired = first_crash_at
+                                .map(|t| now.duration_since(t) > GUARDIAN_CRASH_WINDOW)
+                                .unwrap_or(true);
+                            let mut count = if window_expired { 0 } else { shared_count };
+                            if window_expired {
+                                first_crash_at = Some(now);
+                            }
+                            count = count.saturating_add(1);
+                            if count >= GUARDIAN_MAX_CONSECUTIVE_CRASHES {
+                                let reason = format!(
+                                    "crash-loop: the station service exited {count} times in {} minutes (last exit code {code:?}); the guardian stopped restarting it. Use RESTART STATION SERVICE to try again, or quit StarNet fully and reopen it.",
+                                    GUARDIAN_CRASH_WINDOW.as_secs() / 60
+                                );
+                                log_startup(
+                                    &st.startup_log,
+                                    format!("watchdog: HALTED — {reason} (see the sidecar lines above for the fault)"),
+                                );
+                                eprintln!("[starnet] watchdog halted: {reason}");
+                                if let Ok(mut g) = st.guardian.lock() {
+                                    g.halted = true;
+                                    g.consecutive_crashes = count;
+                                    g.last_exit_code = code;
+                                    g.last_exit_at_ms = Some(now_ms());
+                                    g.next_respawn_in_ms = None;
+                                    g.reason = Some(reason);
+                                }
+                                next_attempt_at = None;
+                                continue;
+                            }
+                            let backoff = guardian_backoff(count);
+                            next_attempt_at = Some(now + backoff);
+                            log_startup(
+                                &st.startup_log,
+                                format!(
+                                    "watchdog: sidecar exited unexpectedly (code {code:?}) — crash {count}/{GUARDIAN_MAX_CONSECUTIVE_CRASHES} in window; respawning in {}s",
+                                    backoff.as_secs()
+                                ),
+                            );
+                            if let Ok(mut g) = st.guardian.lock() {
+                                g.halted = false;
+                                g.consecutive_crashes = count;
+                                g.last_exit_code = code;
+                                g.last_exit_at_ms = Some(now_ms());
+                                g.next_respawn_in_ms = Some(backoff.as_millis() as u64);
+                                g.reason = Some(format!(
+                                    "station service exited unexpectedly (code {code:?}) — restart {count} of {GUARDIAN_MAX_CONSECUTIVE_CRASHES} in {}s",
+                                    backoff.as_secs()
+                                ));
+                            }
+                        }
+                    } else if halted {
+                        continue; // capped: the dead child stays put until the user restarts
+                    }
+                    if let Some(t) = next_attempt_at {
+                        if Instant::now() < t {
+                            continue; // still inside the backoff
+                        }
+                    }
+                    next_attempt_at = None;
                 }
                 log_startup(
                     &st.startup_log,
@@ -1978,6 +2223,9 @@ fn spawn_guardian(app: AppHandle) {
                         "watchdog: sidecar exited unexpectedly — respawning"
                     },
                 );
+                if let Ok(mut g) = st.guardian.lock() {
+                    g.next_respawn_in_ms = None;
+                }
                 if spawn_sidecar(st) {
                     consecutive_failures = 0;
                 } else {
@@ -3418,6 +3666,23 @@ fn starnet_restart_sidecar(state: State<AppState>) -> Result<bool, String> {
         &st.startup_log,
         "restart: user requested a station service restart",
     );
+    // A user restart is an explicit "try again": clear the guardian's crash-loop halt and count so a
+    // fresh window starts. If the sidecar keeps dying, the cap simply re-arms.
+    if let Ok(mut g) = st.guardian.lock() {
+        if g.halted || g.consecutive_crashes != 0 {
+            log_startup(
+                &st.startup_log,
+                format!(
+                    "restart: clearing guardian crash-loop state (halted={} crashes={})",
+                    g.halted, g.consecutive_crashes
+                ),
+            );
+        }
+        g.halted = false;
+        g.consecutive_crashes = 0;
+        g.next_respawn_in_ms = None;
+        g.reason = None;
+    }
     // Take the child out under the lock, terminate it after releasing (spawn_sidecar re-takes the lock).
     let prior = st.sidecar.lock().ok().and_then(|mut g| g.take());
     if let Some(mut child) = prior {
@@ -3522,6 +3787,19 @@ fn starnet_start_fresh(
     })
 }
 
+/// What the crash guardian knows about the sidecar (read by the STATION DATA UNREACHABLE screen).
+/// Pure read of AppState.guardian — no probe, no side effect — so a HALTED crash loop is shown as
+/// exactly that instead of a generic "not answering".
+#[tauri::command]
+fn starnet_sidecar_status(state: State<AppState>) -> GuardianStatus {
+    state
+        .inner()
+        .guardian
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 fn starnet_lifecycle_status(state: State<AppState>) -> LifecycleView {
     let preferences = lifecycle_preferences_snapshot(state.inner());
@@ -3622,6 +3900,7 @@ fn main() {
             starnet_autostart_status,
             starnet_set_autostart,
             starnet_lifecycle_status,
+            starnet_sidecar_status,
             starnet_restart_sidecar,
             starnet_start_fresh,
             starnet_set_start_minimized,
@@ -3678,6 +3957,7 @@ fn main() {
                 close_exit_pending: AtomicBool::new(false),
                 recovery_in_progress: AtomicBool::new(false),
                 shutting_down: AtomicBool::new(false),
+                guardian: Mutex::new(GuardianStatus::default()),
             };
             // Before spawning OUR sidecar: terminate any orphan sidecars left behind by a
             // hard-killed previous shell (Drop/ExitRequested never ran there). Multiple live

@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "e33914cb2b517674072b92a07f94d36c82e384f4",
+    "sourceCommit": "4e658221da42df4f7c7642399198e8d1dd252480",
     "pathSetSha256": "2b7cbf80ad078c2725bc3712c7f3822f5b3ac61b46d51ae1ff6deabf15892290",
     "files": [
       {
@@ -63,8 +63,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 371034,
-        "sha256": "4504abf1b0fd5a1ec8b332164960d73a45b51aa6491e15932a88472b83d3485e"
+        "bytes": 373040,
+        "sha256": "84251df377122fd9d93303577c4fd7b7fff4e10a7906be3ce5eb2783c4ebc369"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -143,8 +143,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 623965,
-        "sha256": "9d5e3312147c1d7ebf3681c3c6e6a64f41a5d07f7f4027b944223fb9ce8e89fe"
+        "bytes": 626582,
+        "sha256": "71348dc4f28f06b2965e3bd4ef71451920f9319f59d9e3d15f346a3f475719b9"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -303,8 +303,8 @@
       },
       {
         "path": "frontend/app/harness.js",
-        "bytes": 80461,
-        "sha256": "cf52311ad6a58dcd12c6b062373144dbba51c39096755f1aebaadb61518ed0e1"
+        "bytes": 81646,
+        "sha256": "105fe4776759b2f4f9fc387df502a1f48f4d87c82bf2157e717f5aa484f06842"
       },
       {
         "path": "frontend/app/hint.js",
@@ -893,8 +893,8 @@
       },
       {
         "path": "frontend/app/windows/connectors.js",
-        "bytes": 111117,
-        "sha256": "14b06c1877e85958546b59571962bda2320c6e32a35c86ff96df61df5e4691c4"
+        "bytes": 111409,
+        "sha256": "22fd6b924262ac5afd70fd787fb0008d0769443331ff23cbf00dd22dd59e267d"
       },
       {
         "path": "frontend/app/windows/logbook.js",

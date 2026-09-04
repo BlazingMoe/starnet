@@ -218,7 +218,13 @@
     async function connect(c) {
       if (c.reconnectTimer != null) { try { clearTimeoutImpl(c.reconnectTimer); } catch (_) {} c.reconnectTimer = null; }
       if (c.connecting) { closeResources(c.connecting.client, c.connecting.transport, 'superseded'); c.connecting = null; }
-      if (c.client) { closeResources(c.client, c.transport, 'reconnect'); c.client = null; c.transport = null; }
+      // DRAIN, DON'T KILL. A reconnect used to close the old client immediately, which REJECTED every sibling
+      // call still in flight on it ("mcp client closed: reconnect") — so when two calls hit an expired session
+      // together, the first one's recovery turned the second's honest 404/401 into an unrelated failure. The old
+      // connection is detached now and closed only once this attempt settles; a sibling's reply arrives as what
+      // the server actually said, and that sibling joins the shared reconnect on its own.
+      const drained = c.client ? { client: c.client, transport: c.transport } : null;
+      c.client = null; c.transport = null;
       const epoch = bumpEpoch(c);
       const isCurrent = () => conns.get(c.id) === c && c._epoch === epoch;
       const attempt = { epoch: epoch, transport: null, client: null };
@@ -231,8 +237,8 @@
         // A provider throw falls back to the static token; an empty result connects tokenless so an expired/signed-out
         // connector surfaces an HONEST 401/error (visible + reloadable), never a crash or a silently-frozen stale token.
         let liveToken = c.token;
-        if (typeof c.tokenProvider === 'function') { try { const t = await c.tokenProvider(); if (t != null) liveToken = String(t); } catch (_) {} }
-        if (!isCurrent()) return { ok: false, state: 'down', toolCount: 0, superseded: true };
+        if (typeof c.tokenProvider === 'function') { const got = await resolveToken(c, false); if (got.token != null) liveToken = got.token; }
+        if (!isCurrent()) { if (drained) closeResources(drained.client, drained.transport, 'reconnect'); return { ok: false, state: 'down', toolCount: 0, superseded: true }; }
         attempt.transport = makeTransport({
           transport: c.transportKind,
           url: c.url,
@@ -290,6 +296,7 @@
         }
         if (!isCurrent()) {
           closeResources(attempt.client, attempt.transport, 'superseded');
+          if (drained) closeResources(drained.client, drained.transport, 'reconnect');
           return { ok: false, state: 'down', toolCount: 0, superseded: true };
         }
         c.connecting = null;
@@ -305,8 +312,10 @@
         c.authRequired = false;                                 // the server accepted this credential — auth truth restored
         c._callFails = 0;
         setState(c, 'up');
+        if (drained) closeResources(drained.client, drained.transport, 'reconnect');
         return { ok: true, state: 'up', toolCount: tools.length, resourceCount: resources.length, promptCount: prompts.length };
       } catch (e) {
+        if (drained) closeResources(drained.client, drained.transport, 'reconnect');
         closeResources(attempt.client, attempt.transport, 'connect failed');
         if (!isCurrent()) return { ok: false, state: 'down', toolCount: 0, superseded: true };
         if (c.connecting === attempt) c.connecting = null;
@@ -317,10 +326,10 @@
           // failure mode). Honest terminal state; sign-in / a token edit reconfigures and recovers.
           c.authRequired = true;
           setState(c, 'error', authDetail(c));
-        } else {
-          setState(c, 'error', (e && e.message) || String(e));
-          scheduleReconnect(c);                                 // a failed (re)connect backs off and retries (bounded)
+          return { ok: false, state: 'error', toolCount: 0, error: c.detail, authRequired: true };
         }
+        setState(c, 'error', (e && e.message) || String(e));
+        scheduleReconnect(c);                                   // a failed (re)connect backs off and retries (bounded)
         return { ok: false, state: 'error', toolCount: 0, error: c.detail };
       }
     }
@@ -481,17 +490,48 @@
       return true;
     }
 
+    /* SINGLE-FLIGHT (RE)CONNECT (2026-09-04, GitHub #5 residue). Two tool calls that 401 together used to each
+       `await connect(c)`: the second connect SUPERSEDED the first (closing its half-built client), caller A woke
+       to state 'connecting', fell through to markAuthRequired, and that teardown killed B's attempt too — a
+       freshly refreshed, perfectly VALID grant was reported as "reauthentication required". Every caller that
+       wants "make this connector live again" now joins the ONE in-flight connect and reads its shared result. */
+    function sharedConnect(c) {
+      if (c.lazyConnectPromise) return c.lazyConnectPromise;
+      const work = connect(c);
+      c.lazyConnectPromise = work;
+      work.then(() => { if (c.lazyConnectPromise === work) c.lazyConnectPromise = null; },
+                () => { if (c.lazyConnectPromise === work) c.lazyConnectPromise = null; });
+      return work;
+    }
+
+    /* TOKEN PROVIDER OUTCOME. The host's provider may hand back a plain string (legacy) or a typed outcome
+       `{ token, refreshError: { kind: 'invalid_grant'|'network'|'other', message } }` — the host never throws
+       for a failed refresh, it returns the freshest token it still has. A throw (any) is normalised to `other`
+       with a null token so connect() falls back to the static token exactly as before. Kind matters in the
+       401 call path: only `invalid_grant` is the server saying the GRANT is dead; a network miss keeps the old
+       token and backs off, it is NOT a reauth prompt. */
+    async function resolveToken(c, force) {
+      if (typeof c.tokenProvider !== 'function') return { token: null, refreshError: null };
+      try {
+        const got = await c.tokenProvider(force === true);
+        if (got != null && typeof got === 'object') {
+          const err = got.refreshError && typeof got.refreshError === 'object' ? got.refreshError : null;
+          return { token: got.token == null ? null : String(got.token), refreshError: err ? { kind: String(err.kind || 'other'), message: String(err.message || '') } : null };
+        }
+        return { token: got == null ? null : String(got), refreshError: null };
+      } catch (e) {
+        const kind = (e && (e.code === 'invalid_grant' || e.kind === 'invalid_grant')) ? 'invalid_grant' : ((e && (e.code === 'network' || e.kind === 'network')) ? 'network' : 'other');
+        return { token: null, refreshError: { kind: kind, message: (e && e.message) || String(e) } };
+      }
+    }
+
     async function ensureLive(c) {
       if (c.client && c.state === 'up' && !lifecycleExpired(c)) return c;
       if (c.client) recycle(c, 'stdio lifecycle recycle');
       if (c.lazyConnectPromise) { await c.lazyConnectPromise; return c; }
-      const work = connect(c);
-      c.lazyConnectPromise = work;
-      try {
-        const result = await work;
-        if (!result || !result.ok) throw new Error((result && result.error) || 'connector failed to start');
-        return c;
-      } finally { if (c.lazyConnectPromise === work) c.lazyConnectPromise = null; }
+      const result = await sharedConnect(c);
+      if (!result || !result.ok) throw new Error((result && result.error) || 'connector failed to start');
+      return c;
     }
 
     /* connector_required (beginner seam Lane 1): a tool call that needs a connector which is not wired is
@@ -528,28 +568,66 @@
        simply have expired mid-session — tokenProvider(true) refreshes on the server's word, not the local
        clock); a second 401 is a dead credential and flips the connector to the honest reauth state instead of
        counting toward "unreachable". Non-401 failures keep the consecutive-failure net unchanged. */
+    const SESSION_404 = /^connector HTTP 404\b/;
+    function toolStillPublished(c, toolName) {
+      if (!(c.tools || []).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is no longer published by the current server');
+    }
     async function httpCall(c, toolName, args, isRetry) {
+      const epochAtCall = c._epoch;
       try {
         const r = await c.client.callTool(toolName, args || {});
         c._callFails = 0;
         return r;
       } catch (e) {
-        if (AUTH_401.test((e && e.message) || '')) {
-          if (!isRetry && typeof c.tokenProvider === 'function') {
-            let refreshed = true;
-            // a failed forced refresh leaves the SAME rejected bearer — retrying with it is pointless, so a
-            // provider throw skips the retry and falls straight through to the honest reauth state.
-            try { await c.tokenProvider(true); } catch (e) { refreshed = false; }
-            if (refreshed) await connect(c);
-            if (refreshed && c.client && c.state === 'up') {
-              // the fresh credential was ACCEPTED — this is not an auth outage. Retry once; a vanished tool is
-              // its own honest error, not a reauth prompt.
-              if (!(c.tools || []).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is no longer published by the current server');
-              return httpCall(c, toolName, args, true);
-            }
+        const msg = (e && e.message) || '';
+        if (AUTH_401.test(msg)) {
+          const reauthError = () => new Error('connector "' + c.id + '" needs reauthentication — the server rejected its credential (HTTP 401); sign in to it again');
+          const reconnectedSince = () => c._epoch !== epochAtCall && c.client && c.state === 'up';
+          if (isRetry || typeof c.tokenProvider !== 'function') { markAuthRequired(c); throw reauthError(); }
+          // ANOTHER caller already reconnected this connector since our call left (the epoch moved and it is up
+          // again): our 401 was answered by the OLD bearer. Retry on the live connection — no second refresh
+          // (OAuth 2.1 rotates refresh tokens; a needless rotation is how the loser used to lose).
+          if (reconnectedSince()) { toolStillPublished(c, toolName); return httpCall(c, toolName, args, true); }
+          const got = await resolveToken(c, true);
+          const kind = got.refreshError && got.refreshError.kind;
+          if (kind === 'invalid_grant') { markAuthRequired(c); throw reauthError(); }   // the AS said the GRANT is dead
+          if (kind) {
+            // the refresh could not REACH the authorization server (or failed for a non-grant reason): the grant is
+            // not known dead, so this is an outage, not a reauth prompt. Honest error + bounded backoff; the
+            // reconnect timer re-runs the refresh on its next attempt.
+            bumpEpoch(c); teardown(c); c.tools = []; c.resources = []; c.prompts = [];
+            setState(c, 'error', 'sign-in refresh failed (' + kind + ') — the server rejected the current token and the refresh could not complete; retrying');
+            scheduleReconnect(c);
+            throw new Error('connector "' + c.id + '" could not refresh its sign-in (' + kind + '); retrying shortly');
           }
-          markAuthRequired(c);
-          throw new Error('connector "' + c.id + '" needs reauthentication — the server rejected its credential (HTTP 401); sign in to it again');
+          if (reconnectedSince()) { toolStillPublished(c, toolName); return httpCall(c, toolName, args, true); }
+          const r = await sharedConnect(c);
+          if (c.client && c.state === 'up') {
+            // the fresh credential was ACCEPTED — this is not an auth outage. Retry once; a vanished tool is its
+            // own honest error, not a reauth prompt.
+            toolStillPublished(c, toolName);
+            return httpCall(c, toolName, args, true);
+          }
+          // the SHARED reconnect settled somewhere other than up. Only ITS OWN 401 handshake is auth truth; a
+          // superseded attempt (a concurrent Reload/configure) or a plain connect failure already recorded its
+          // honest state and must not be rewritten as "reauthentication required".
+          if ((r && r.authRequired) || c.authRequired) { markAuthRequired(c); throw reauthError(); }
+          throw e;
+        }
+        /* SESSION EXPIRY. A streamable-HTTP server answers a request carrying a stale `Mcp-Session-Id` with HTTP
+           404 and the spec's remedy is: start a new session (re-initialize). Counting that toward the
+           consecutive-failure net flipped a healthy connector to "unreachable" after three idle-expired calls.
+           ONE re-initialize (a fresh transport = no session id) + retry; a second 404 is a real miss and falls
+           through to the ordinary failure accounting below. */
+        if (SESSION_404.test(msg) && !isRetry) {
+          const failsBefore = c._callFails || 0;
+          if (!(c._epoch !== epochAtCall && c.client && c.state === 'up')) await sharedConnect(c);
+          if (c.client && c.state === 'up') {
+            c._callFails = failsBefore;   // a re-initialize is not a successful CALL — a persistent 404 still accrues
+            toolStillPublished(c, toolName);
+            return httpCall(c, toolName, args, true);
+          }
+          throw e;
         }
         if (CALL_FAIL_LIMIT > 0) {
           c._callFails = (c._callFails || 0) + 1;

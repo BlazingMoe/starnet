@@ -842,9 +842,16 @@ const Harness = (() => {
     } catch (e) { return []; }
   }
 
+  // STOP MEANS STOP (2026-09-04): the answer is the SIDECAR's, never assumed. { ok:true } only when POST /api/cancel
+  // came back 2xx; a refused status or a thrown fetch is { ok:false, error, status?, transport? } so the caller keeps
+  // the UI in "stopping…" and says so — a swallowed failure here read as a clean stop while the run kept burning.
   async function cancel(runId) {
-    if (!runId) return;
-    try { await fetch('/api/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }) }); } catch (_) {}
+    if (!runId) return { ok: false, error: 'no run id' };
+    try {
+      const r = await fetch('/api/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }) });
+      if (!r.ok) return { ok: false, error: 'the station refused the stop (http ' + r.status + ')', status: r.status };
+      return { ok: true };
+    } catch (e) { return { ok: false, error: (e && e.message) || String(e), transport: true }; }
   }
 
   // E-STOP: stop EVERY in-flight run on the sidecar in one call — browser runs AND any messaging-hub/Telegram
@@ -880,10 +887,16 @@ const Harness = (() => {
   // EL-11 FIX 1c: attest to the sidecar that a live permission.prompt is now RENDERED to a human (the active
   // consent card, or the global background toast + rail marker). Earns the run's paused consent ONE bounded
   // extension of the fail-closed auto-deny timer — a deny on a prompt nobody saw is a consent violation.
-  // Fire-and-forget; a stale id is a harmless no-op on the sidecar.
+  // A stale id is a harmless no-op on the sidecar. The RESULT is honest: { ok:true } only on a 2xx; a refused status
+  // or a thrown fetch returns { ok:false, error } so the caller can warn that the extension was NOT earned (the
+  // fail-closed auto-deny timer is still running against a card the station cannot prove anyone saw).
   async function consentAck(runId, promptId) {
-    if (!runId || !promptId) return;
-    try { await fetch('/api/consent/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId }) }); } catch (_) {}
+    if (!runId || !promptId) return { ok: false, error: 'no run/prompt id' };
+    try {
+      const r = await fetch('/api/consent/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId }) });
+      if (!r.ok) return { ok: false, error: 'the station refused the ack (http ' + r.status + ')', status: r.status };
+      return { ok: true };
+    } catch (e) { return { ok: false, error: (e && e.message) || String(e), transport: true }; }
   }
 
   // answer a live in-turn clarify card (a brief.ask riding the permission.prompt channel): the answer TEXT

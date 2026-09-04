@@ -32,6 +32,7 @@ test/e2e.worker-access.test.js
 test/e2e.pathtrust.test.js
 test/e2e.subagent-background.test.js
 test/e2e.mcp-connector.test.js
+test/e2e.mcp-session-expiry.test.js
 test/e2e.idempotency.test.js
 test/e2e.acceptance-nudge.test.js
 test/e2e.connector-readback.test.js
