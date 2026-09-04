@@ -4,7 +4,7 @@ const Ledger = require('./recommendation-ledger.js');
 
 function finite(v, fallback) { return Number.isFinite(Number(v)) ? Number(v) : fallback; }
 function clamp01(v) { return Math.max(0, Math.min(1, finite(v, 0))); }
-function positive(e) { return e.state === 'completed' || e.outcome.adopted || e.outcome.quality > 0; }
+function positive(e) { return e.outcome.adopted === true; }
 function terminal(e) { return e.state === 'completed' || e.state === 'declined'; }
 function round(v) { return Math.round(finite(v, 0) * 10000) / 10000; }
 
@@ -14,7 +14,7 @@ function surfaceMetrics(rows) {
   for (const e of rows) (out[e.surface || 'unknown'] || (out[e.surface || 'unknown'] = [])).push(e);
   for (const key of Object.keys(out)) {
     const r = out[key];
-    out[key] = { shown: r.length, adoptionRate: round(rate(r, positive)), completionRate: round(rate(r, e => e.state === 'completed')), declineRate: round(rate(r, e => e.state === 'declined')) };
+    out[key] = { shown: r.length, adoptionRate: round(rate(r, positive)), completionRate: round(rate(r, e => e.state === 'completed')), satisfactionRate: round(rate(r, e => e.outcome.quality > 0)), declineRate: round(rate(r, e => e.state === 'declined')) };
   }
   return out;
 }
@@ -55,7 +55,7 @@ function evaluate(raw, opts) {
   const replay = Ledger.replay({ entries: rows }, opts.now != null ? { now: opts.now } : undefined);
   return {
     sampleSize: rows.length, decided: decided.length,
-    adoptionRate: round(rate(rows, positive)), completionRate: round(rate(rows, e => e.state === 'completed')),
+    adoptionRate: round(rate(rows, positive)), satisfactionRate: round(rate(rows, e => e.outcome.quality > 0)), completionRate: round(rate(rows, e => e.state === 'completed')),
     precisionAt3: slateCount ? round(precision / slateCount) : null,
     counterfactualRegret: slateCount ? round(regret / slateCount) : null,
     calibrationBrier: brier == null ? null : round(brier),
