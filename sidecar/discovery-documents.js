@@ -8,7 +8,7 @@ const PRIVATE_NAME = /(^\.|(?:^|[-_. ])(?:secrets?|credentials?|passwords?|token
 const SECRET_TEXT = /-----BEGIN [^-]*PRIVATE KEY-----|\b(?:api[_ -]?key|access[_ -]?token|password|secret|aws_access_key_id|aws_secret_access_key|authorization)["']?\s*[:=]\s*\S+|\b(?:sk-[a-zA-Z0-9_-]{16,}|gh[pousr]_[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16})/i;
 const RELEVANT = /\b(?:completed?|delivered?|milestone|blocker|blocked|next steps?|deadline|decision|action item|progress|status)\b/i;
 
-function makeDocumentDiscovery({ fsp, path, hash, isBlessed }) {
+function makeDocumentDiscovery({ fsp, path, hash, isBlessed, canScan = () => true }) {
   const same = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
   async function canonicalRoot(input) {
     if (typeof input !== 'string' || !input.trim() || !path.isAbsolute(input)) throw new Error('Select an approved absolute folder path.');
@@ -29,7 +29,7 @@ function makeDocumentDiscovery({ fsp, path, hash, isBlessed }) {
     const since = now - POLICY.lookbackDays * 86400000;
     while (queue.length && entries < POLICY.maxEntries && files < POLICY.maxFiles && bytes < POLICY.maxTotalBytes) {
       const { dir, depth } = queue.shift();
-      if (!isBlessed(root)) return { ok: false, reason: 'source-unavailable-or-revoked', findings: [] };
+      if (!isBlessed(root) || !canScan(root)) return { ok: false, reason: 'source-unavailable-or-revoked', findings: [] };
       let handle;
       try {
         // Recheck a queued directory at use, not merely when it was discovered.
@@ -52,7 +52,7 @@ function makeDocumentDiscovery({ fsp, path, hash, isBlessed }) {
             const stat = await fsp.lstat(target);
             if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || stat.size > POLICY.maxFileBytes || stat.mtimeMs < since || stat.mtimeMs > now + 60000) continue;
             if (bytes + stat.size > POLICY.maxTotalBytes) { limited = true; continue; }
-            if (!isBlessed(root) || !same(await fsp.realpath(target), target)) continue;
+            if (!isBlessed(root) || !canScan(root) || !same(await fsp.realpath(target), target)) continue;
             file = await fsp.open(target, 'r');
             const opened = await file.stat();
             if (opened.ino !== stat.ino || opened.dev !== stat.dev || opened.size > POLICY.maxFileBytes) continue;
@@ -76,7 +76,7 @@ function makeDocumentDiscovery({ fsp, path, hash, isBlessed }) {
       } catch (_) { /* inaccessible directory contributes no evidence */ }
     }
     limited = limited || queue.length > 0 || entries >= POLICY.maxEntries || files >= POLICY.maxFiles || bytes >= POLICY.maxTotalBytes;
-    if (!isBlessed(root)) return { ok: false, reason: 'source-unavailable-or-revoked', findings: [] };
+    if (!isBlessed(root) || !canScan(root)) return { ok: false, reason: 'source-unavailable-or-revoked', findings: [] };
     evidence.sort((a, b) => b.modifiedAt - a.modifiedAt || a.path.localeCompare(b.path));
     const selected = evidence.slice(0, POLICY.maxEvidence);
     if (!selected.length) return { ok: true, reason: 'no-recent-client-update-evidence', findings: [], files, bytes, limited };
