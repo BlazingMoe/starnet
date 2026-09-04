@@ -88,3 +88,5 @@ test/routing.persist.e2e.test.js
 test/run-recovery.api.test.js
 test/routing.sample.e2e.test.js
 test/route-honesty.e2e.test.js
+test/effective-toolsets.e2e.test.js
+test/discovery-documents.http.test.js

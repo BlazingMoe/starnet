@@ -700,3 +700,7 @@ test/loop-verdict.test.js
 test/free-path-ollama.test.js
 test/process-fault.test.js
 test/crash-ledger.test.js
+test/workview.test.js
+test/first-value.test.js
+test/effective-toolsets.test.js
+test/discovery-documents.test.js
