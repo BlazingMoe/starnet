@@ -5836,6 +5836,9 @@ function nightshiftDecideLearn(agentId, runId, useful) {
   if (!arch) return;   // not a night-shift act (or already reaped) → nothing to learn
   if (learning) {
     recommendationLedger.verdict('nightshift:' + String(runId || ''), useful ? 'completed' : 'declined', useful ? 'completed' : 'bad_quality', Date.now()).catch(swallow('recledger.verdict'));
+    // This is the Commander's explicit KEEP/DISCARD, unlike the preceding machine completion.
+    // Record adoption separately; keeping a file does not invent a satisfaction rating.
+    recommendationLedger.outcome('nightshift:' + String(runId || ''), { adopted: useful === true }, Date.now()).catch(swallow('recledger.outcome'));
   }
   try { recordAutonomy({ ts: Date.now(), source: 'nightshift', kind: 'note', agentId: String(agentId || ''), runId: String(runId || ''), reason: useful ? 'approved' : 'denied', detail: { phase: 'verdict', archetype: arch, useful: !!useful } }); } catch (_) {}
   try { delete nightshiftActs[String(runId || '')]; saveResilient(NIGHTSHIFT_ACTS_FILE, { v: 1, acts: nightshiftActs }); } catch (_) {}   // decided once
