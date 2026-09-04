@@ -428,6 +428,25 @@ const PropSprites = (() => {
   const keyEdge = (x, y, w, h, a) => { ctx.globalAlpha = a == null ? 0.22 : a; px(x, y, w, h, KEY); ctx.globalAlpha = 1; };
   const rimEdge = (x, y, w, h, a) => { ctx.globalAlpha = a == null ? 0.24 : a; px(x, y, w, h, SKY); ctx.globalAlpha = 1; };
 
+  // Equipment finish: cold rolled steel with a satin face and a bright machined edge.
+  // Scoped to workstation/capability bodies; upholstery and decorative furniture keep their ramps.
+  const EQUIPMENT = { ink:'#26313b', ao:'#111922', dk:'#29343e', face:'#475560', top:'#647580', mid:'#7b8c95', lit:'#a6b5bc', hi:'#c9d4d7', sheen:'#dde5e5', spec:'#dde5e5' };
+  const INSTRUMENT = { ink:'#1b242e', ao:'#0e141c', dk:'#222f3b', face:'#33434e', top:'#4b5d69', mid:'#697f8b', lit:'#8fa4af', hi:'#b5c6cd', sheen:'#d2dfe3', spec:'#d2dfe3' };
+  const panelFinish = (x,y,w,h,r) => {
+    if(w<5||h<3)return;
+    px(x,y,w,h,r.face);
+    px(x,y,w,1,r.mid); px(x,y+1,Math.max(2,Math.floor(w*.6)),1,r.top);
+    px(x+w-1,y+1,1,h-1,r.dk); px(x,y+h-1,w,1,r.ao);
+    if(h>5){px(x+1,y+2,1,h-4,r.top);px(x+2,y+h-3,Math.min(4,w-3),1,r.dk);}
+  };
+  const captiveBolt = (x,y,r) => {px(x,y,2,2,r.ao);px(x,y,2,1,r.lit);px(x+1,y+1,1,1,r.dk);};
+  const equipmentApron = (x,y,w,r) => {
+    px(x,y,w,3,r.ink);px(x+1,y,w-2,1,r.mid);
+    px(x+2,y+1,w-4,1,r.face);
+    for(const dx of [2,w-4]){px(x+dx,y+1,2,1,r.lit);px(x+dx,y+2,2,1,r.dk);}
+    px(x+Math.floor(w/2)-2,y+1,4,1,r.ao);
+  };
+
   /* ============ ORIENTATION ============
      Props were authored facing ONE way — south — because that is what the v3/v4 law bakes in: a
      foreshortened TOP face over a south-facing FRONT face, under ONE fixed light (warm KEY high and
@@ -458,6 +477,7 @@ const PropSprites = (() => {
     const pair = (a, b) => { if (a && b && a !== b) { m[a] = b; m[b] = a; } };
     for (const k in RAMP) pair(RAMP[k].lit, RAMP[k].dk);
     for (const k in MAT) pair(MAT[k].lit, MAT[k].dk);
+    pair(EQUIPMENT.lit, EQUIPMENT.dk); pair(INSTRUMENT.lit, INSTRUMENT.dk);
     pair(KEY, SKY);
     return m;
   })();
@@ -617,7 +637,7 @@ const PropSprites = (() => {
        ⛔ ANY PROP WIDER THAN ~3 TILES IS A HORIZON UNLESS YOU BREAK ITS RHYTHM. The bank is split
           into three bays by full-height dividers, and the bays carry UNLIKE kit — glass, a bar-graph
           readout, a switch matrix. Three identical screens would be a wall, not a console. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
     const G = ACC.work;
 
     shadow2(x + 1, y + h - 1, w - 2);
@@ -642,6 +662,7 @@ const PropSprites = (() => {
     for (let i = 0; i < 8; i++) { px(x + 3 + i * 4, y + 7, 2, 1, r.ao); px(x + 3 + i * 4, y + 6, 2, 1, r.mid); }
 
     /* ---- THE BANK: one casting, three bays split by full-height dividers ---- */
+    equipmentApron(x, y + 5, w, r);
     const bX = x + 1, bW = w - 2, bT = y - 11;
     px(bX + 1, bT, bW - 2, 1, b.ink);
     px(bX, bT + 1, bW, 8, b.ink);
@@ -979,7 +1000,7 @@ const PropSprites = (() => {
           five identical rows are a radiator grille.
        ⛔ The LEDs are the smallest thing on the prop, never the subject. Green = up, one amber drive
           light per blade, and they only bloom when the room is actually working. */
-    const r = MAT.steel, b = MAT.slate, on = !!(f && f.work);
+    const r = EQUIPMENT, b = INSTRUMENT, on = !!(f && f.work);
     const base = y + h, top = y - 14;
 
     shadow2(x + 1, base - 1, w - 2);
@@ -1002,6 +1023,7 @@ const PropSprites = (() => {
     px(x + 2, base - 3, w - 4, 1, r.ao);                           // plinth
     px(x + 2, base - 4, w - 4, 1, r.mid);
 
+    captiveBolt(x + 1, top + 2, r); captiveBolt(x + w - 3, top + 2, r);
     /* ---- FIVE BLADES, each its own slab, falling off down the stack ---- */
     const tones = [r.top, r.top, r.face, r.face, r.dk];
     for (let i = 0; i < 5; i++) {
@@ -1084,7 +1106,7 @@ const PropSprites = (() => {
        ⛔ THE TWO STATIONS MUST BE UNLIKE — a screen-and-keyboard post at one end, a stacked terminal
           with a bar-graph at the other. Two of the same thing reads as a repeated tile.
        ⛔ FOUR LEGS, and the middle pair carries a stretcher rail, or a bench this long sags visually. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
     const G = ACC.work;
 
     shadow2(x + 1, y + h - 1, w - 2);
@@ -1114,11 +1136,12 @@ const PropSprites = (() => {
     px(x + 31, y - 2, 1, 7, r.ink); px(x + 32, y - 2, 1, 7, r.mid);
 
     /* ---- STATION A (west): screen on a stand + keyboard ---- */
+    equipmentApron(x, y + 5, w, r);
     const mX = x + 2, mW = 12, mT = y - 13;
     px(mX + 5, y - 4, 2, 3, b.face); px(mX + 5, y - 4, 1, 3, b.top);
     chamf(mX + 2, y - 2, 8, 2, b.ink, 1); px(mX + 3, y - 1, 6, 1, b.top);
     chamf(mX - 1, mT - 1, mW + 2, 11, b.ink, 2);
-    px(mX, mT, mW, 9, b.face);
+    panelFinish(mX, mT, mW, 9, b);
     px(mX, mT, mW, 1, b.lit); px(mX + 1, mT, 4, 1, b.hi);
     px(mX, mT + 1, 1, 7, b.top); px(mX + mW - 1, mT + 1, 1, 7, b.dk);
     inset(mX + 1, mT + 1, mW - 2, 7, '#070f0b');
@@ -1160,7 +1183,7 @@ const PropSprites = (() => {
        ⛔ CHAIR CHANGES ONLY. The v42 pass rebuilt the whole workstation off the reference and Andrew
           pulled it back: the desk was already right, and reworking things that are already approved
           is how a session burns an hour for nothing. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
 
     shadow2(x + 1, y + h - 1, w - 2);
     deckPlate(x - 1, y + 8, w + 2, h - 8);
@@ -1192,6 +1215,8 @@ const PropSprites = (() => {
     px(x + 1, y + 7, w - 2, 1, r.dk);
     for (const dx of [x + 3, x + 16]) px(dx, y + 7, 5, 1, r.face);
 
+    equipmentApron(x, y + 5, w, r);
+
     /* ---- SMALL PC: closed tower at the west end ---- */
     const pX = x + 1, pY = y - 9;
     chamf(pX - 1, pY - 1, 8, 10, b.ink, 1);
@@ -1211,7 +1236,7 @@ const PropSprites = (() => {
     px(mX + 5, y - 4, 2, 3, b.face); px(mX + 5, y - 4, 1, 3, b.top);   // neck
     chamf(mX + 2, y - 2, 8, 2, b.ink, 1); px(mX + 3, y - 1, 6, 1, b.top);
     chamf(mX - 1, mT - 1, mW + 2, 12, b.ink, 2);
-    px(mX, mT, mW, 10, b.face);
+    panelFinish(mX, mT, mW, 10, b);
     px(mX, mT, mW, 1, b.lit); px(mX + 1, mT, 5, 1, b.hi);
     px(mX, mT + 1, 1, 8, b.top); px(mX + mW - 1, mT + 1, 1, 8, b.dk);
     rimEdge(mX + mW - 1, mT + 2, 1, 6, 0.18);
@@ -1252,7 +1277,7 @@ const PropSprites = (() => {
        slab underneath is the same piece of furniture in every one of them.
        ⛔ TWO SCREENS MUST NOT BE ONE WIDE SCREEN. A visible gap plus separate bezels and a crossbar
           spanning them is the read; butt them together and it is a single panel with a seam. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
 
     shadow2(x + 1, y + h - 1, w - 2);
     deckPlate(x - 1, y + 8, w + 2, h - 8);
@@ -1284,7 +1309,7 @@ const PropSprites = (() => {
       const mX = x + 1 + k * 12, mW = 10, mT = y - 14;
       px(mX + 4, y - 6, 2, 2, b.face);                              // each screen's own neck
       chamf(mX - 1, mT - 1, mW + 2, 11, b.ink, 2);
-      px(mX, mT, mW, 9, b.face);
+      panelFinish(mX, mT, mW, 9, b);
       px(mX, mT, mW, 1, b.lit); px(mX + 1, mT, 3, 1, b.hi);
       px(mX, mT + 1, 1, 7, b.top); px(mX + mW - 1, mT + 1, 1, 7, b.dk);
       inset(mX + 1, mT + 1, mW - 2, 7, '#070f0b');
@@ -1318,7 +1343,7 @@ const PropSprites = (() => {
           wedge stepping in one pixel per row is a drawing surface angled toward the user.
        ⛔ ITS ACCENT IS MAGENTA (ACC.lounge), not the workstation green — the one prop in COMPUTE that
           makes pictures should not glow the same colour as the ones that make text. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
     const P = ACC.lounge;
 
     shadow2(x + 1, y + h - 1, w - 2);
@@ -1344,11 +1369,12 @@ const PropSprites = (() => {
     for (const dx of [x + 3, x + 16]) px(dx, y + 7, 5, 1, r.face);
 
     /* ---- WIDE SCREEN pushed to the back of the desk ---- */
+    equipmentApron(x, y + 5, w, r);
     const mX = x + 5, mW = 15, mT = y - 13;
     px(mX + 6, y - 4, 3, 3, b.face); px(mX + 6, y - 4, 1, 3, b.top);
     chamf(mX + 3, y - 2, 9, 2, b.ink, 1); px(mX + 4, y - 1, 7, 1, b.top);
     chamf(mX - 1, mT - 1, mW + 2, 11, b.ink, 2);
-    px(mX, mT, mW, 9, b.face);
+    panelFinish(mX, mT, mW, 9, b);
     px(mX, mT, mW, 1, b.lit); px(mX + 1, mT, 5, 1, b.hi);
     px(mX, mT + 1, 1, 7, b.top); px(mX + mW - 1, mT + 1, 1, 7, b.dk);
     inset(mX + 1, mT + 1, mW - 2, 7, '#0d0710');
@@ -2224,7 +2250,7 @@ const PropSprites = (() => {
           the instrument case runs on MAT.slate so it reads as a separate casting bolted down.
        ⛔ PHYSICAL CONTROLS ARE WHAT SAY "CONSOLE": two dials, a toggle bank, a knurled grip. They
           cost four rows and they do more than any amount of screen. */
-    const r = MAT.steel, b = MAT.slate, s = MAT.seat, on = !!f.work, ph = f.x || 0;
+    const r = EQUIPMENT, b = INSTRUMENT, s = MAT.seat, on = !!f.work, ph = f.x || 0;
     const G = ACC.work;
 
     shadow2(x + 1, y + h - 1, w - 2);
@@ -2250,6 +2276,7 @@ const PropSprites = (() => {
     for (let i = 0; i < 5; i++) { px(x + 3 + i * 4, y + 7, 2, 1, r.ao); px(x + 3 + i * 4, y + 6, 2, 1, r.mid); }
 
     /* ---- THE INSTRUMENT BANK: its own casting, raised across the back ---- */
+    equipmentApron(x, y + 5, w, r);
     const bX = x + 1, bW = w - 2, bT = y - 11;
     px(bX + 1, bT, bW - 2, 1, b.ink);
     px(bX, bT + 1, bW, 8, b.ink);
@@ -2879,7 +2906,7 @@ const PropSprites = (() => {
        ⛔ CMY INK CHANNELS ARE THE TELL. Nothing else in the catalog carries cyan+magenta+yellow side
           by side. ⛔ THE LENS reuses the strongbox's concentric-ring "aperture" language.
        ⛔ MAGENTA (ACC.lounge) is this capability's colour: pictures never glow the same green as text. */
-    const r = MAT.steel, b = MAT.slate, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, b = INSTRUMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h;
     const P = ACC.lounge, C = ACC.data, Y2 = ACC.flow;
     const cx = x + Math.round(w / 2);
@@ -2893,7 +2920,7 @@ const PropSprites = (() => {
 
     /* ---- BODY, drawn FIRST: everything else is painted into its faces ---- */
     px(x + 1, DECK, w - 2, base - DECK - 2, r.ink);
-    px(x + 2, PAN + PANH, w - 4, base - PAN - PANH - 4, r.face);
+    panelFinish(x + 2, PAN + PANH, w - 4, base - PAN - PANH - 4, r);
     px(x + 2, PAN + PANH, 1, base - PAN - PANH - 4, r.mid);
     px(x + w - 3, PAN + PANH, 1, base - PAN - PANH - 4, r.dk);
 
@@ -3709,7 +3736,7 @@ const PropSprites = (() => {
        ⛔ A DOOR MUST BE THICK. The disc is a proud plug: a lit top-left rim, a dark under-rim, a cast
           shadow onto the frame below-right, and a recessed reveal it sits inside. That thickness is
           what makes it a pressure door instead of a drawn circle. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, cx = x + Math.round(w / 2) - 3, cy = y + 11, R = 9;
 
     shadow2(x + 2, base - 1, w - 4);
@@ -3729,6 +3756,7 @@ const PropSprites = (() => {
     px(x + 2, base - 5, w - 4, 1, r.mid);
 
     /* ---- HINGE COLUMN, west: three barrels with real top/bottom shading ---- */
+    captiveBolt(x + w - 5, y + 1, r); captiveBolt(x + w - 5, base - 8, r);
     for (const hy of [y + 1, y + 9, y + 16]) {
       px(x - 3, hy, 4, 5, r.ink);
       px(x - 2, hy + 1, 3, 3, r.face);
@@ -3871,7 +3899,7 @@ const PropSprites = (() => {
        ⛔ EACH PANEL IS RECESSED: dark well, lit lip above, contents inside. Four of those stacked is
           the whole composition — no panel repeats another's treatment.
        ⛔ Brass lives on the FEET only. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, top = y - 8;
     const G = ACC.work;
     const cx = x + Math.round(w / 2);
@@ -3884,14 +3912,14 @@ const PropSprites = (() => {
     px(x + 1, top, w - 2, 1, r.ink);
     px(x, top + 1, w, 4, r.ink);
     px(x + 1, top + 1, w - 2, 2, r.lit);
-    px(x + 2, top + 1, 4, 1, r.hi);
+    px(x + 2, top + 1, 4, 1, r.hi); captiveBolt(x + w - 4, top + 1, r);
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
 
     /* ---- CARCASS ---- */
     const bTop = top + 5;
     px(x, bTop, w, base - bTop - 2, r.ink);
-    px(x + 1, bTop, w - 2, base - bTop - 4, r.face);
+    panelFinish(x + 1, bTop, w - 2, base - bTop - 4, r);
     px(x + 1, bTop, 1, base - bTop - 4, r.mid);
     px(x + w - 2, bTop, 1, base - bTop - 4, r.dk);
 
@@ -4383,7 +4411,7 @@ const PropSprites = (() => {
           edge, on every single row. Shade it top-to-bottom and it is a painted stripe.
        ⛔ THE DATA BANDS MUST MOVE THROUGH the column, not blink in place: a band that scrolls says
           "something is being read"; a blinking LED says "a light is on". */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, top = y - 8;
     const M = ACC.mem;
     const cx = x + Math.round(w / 2);
@@ -4396,7 +4424,7 @@ const PropSprites = (() => {
     px(x + 1, top, w - 2, 1, r.ink);
     px(x, top + 1, w, 4, r.ink);
     px(x + 1, top + 1, w - 2, 2, r.lit);
-    px(x + 2, top + 1, 4, 1, r.hi);
+    px(x + 2, top + 1, 4, 1, r.hi); captiveBolt(x + w - 4, top + 1, r);
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
     px(x + 4, top + 3, 4, 1, on ? M : shade(M, -0.62));
@@ -4470,7 +4498,7 @@ const PropSprites = (() => {
        board whose own top surface shows in front of it. ⛔ Binders were tried here and cut: coloured
        book spines turn a bolted equipment rack into library furniture, and this prop is FILES the
        capability, not files the stationery. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, top = base - 26;
     const G = ACC.work;
     /* the row budget: top+0..4 cap top plane · +5 cap face · +6 the well's ceiling
@@ -6815,7 +6843,7 @@ const PropSprites = (() => {
           is what stops two 1x2 violet props reading as the same object.
        ⛔ ONE PATCH LEAD hanging off the frame does more than any amount of surface detail — it is the
           only thing on the prop that is not a straight line, and the eye goes to it. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, top = y - 8;
     const M = ACC.mem, D = ACC.data;
 
@@ -7241,7 +7269,7 @@ const PropSprites = (() => {
           shadow and the FAR wall catches it. The bright arc lives on the rim, on the lit side only.
        The bowl is rasterised per pixel through a rotated ellipse test, so every edge lands on the
        world grid — canvas arcs antialias into mud at 24px. */
-    const r = MAT.steel, b = MAT.slate, active = !!(f && f.work);
+    const r = EQUIPMENT, b = INSTRUMENT, active = !!(f && f.work);
     const cx = x + Math.round(w / 2), cy = y + 9;
     const RX = 10, RY = 7, A = -0.62;                             // aperture radii + tilt (aimed up-west)
     const ca = Math.cos(A), sa = Math.sin(A);
@@ -7255,7 +7283,7 @@ const PropSprites = (() => {
     px(bx - 2, by + 5, 14, 3, r.ink);                             // splayed foot
     px(bx - 1, by + 6, 12, 1, r.face); px(bx - 1, by + 6, 4, 1, r.mid);
     px(bx, by, 10, 6, r.ink);                                     // pedestal body
-    px(bx + 1, by + 1, 8, 4, r.face);
+    panelFinish(bx + 1, by + 1, 8, 4, r);
     px(bx + 1, by + 1, 8, 1, r.mid);
     px(bx + 1, by + 1, 1, 4, r.top); px(bx + 8, by + 1, 1, 4, r.dk);
     px(bx + 2, by + 3, 6, 1, r.ao); px(bx + 2, by + 2, 6, 1, r.top);
@@ -7387,7 +7415,7 @@ const PropSprites = (() => {
           deck in every gap. A filled taper is a traffic cone.
        ⛔ The bracing has to be a consistent zig-zag, not random struts — the eye reads the RHYTHM as
           structure. Break the rhythm and it is scaffolding that fell over. */
-    const r = MAT.steel, active = !!(f && f.work);
+    const r = EQUIPMENT, active = !!(f && f.work);
     const cx = x + Math.round(w / 2), base = y + h;
 
     shadow2(x + 3, base - 1, w - 6);
@@ -7397,7 +7425,7 @@ const PropSprites = (() => {
     /* ---- equipment box at the foot: this is where the electronics live ---- */
     const bx = cx - 6, by = base - 10;
     px(bx, by, 12, 8, r.ink);
-    px(bx + 1, by + 1, 10, 6, r.face);
+    panelFinish(bx + 1, by + 1, 10, 6, r);
     px(bx + 1, by + 1, 10, 1, r.mid);                             // top plane
     px(bx + 1, by + 1, 1, 6, r.top); px(bx + 10, by + 1, 1, 6, r.dk);
     for (let i = 0; i < 3; i++) px(bx + 2, by + 3 + i, 5, 1, i % 2 ? r.dk : r.ao);   // louvres
@@ -7454,7 +7482,7 @@ const PropSprites = (() => {
           against a near-black groove, or at 12px wide it is a grey box with a light in it.
        ⛔ HEAT LIVES WHERE THE HEAT IS — the glow belongs INSIDE the drum, not washed over the casing.
           A beacon glowing through its own metal is a lamp shaped like a beacon. */
-    const r = MAT.steel, active = !!(f && f.work);
+    const r = EQUIPMENT, active = !!(f && f.work);
     const cx = x + Math.round(w / 2), base = y + h;
     const G = ACC.data;
 
@@ -7464,7 +7492,7 @@ const PropSprites = (() => {
 
     /* ---- BASE: widest at the deck, stepped in twice ---- */
     px(x, base - 8, w, 8, r.ink);
-    px(x + 1, base - 7, w - 2, 6, r.face);
+    panelFinish(x + 1, base - 7, w - 2, 6, r);
     px(x + 1, base - 7, w - 2, 1, r.mid);
     px(x + 1, base - 7, 1, 6, r.top); px(x + w - 2, base - 7, 1, 6, r.dk);
     px(x + 2, base - 5, w - 4, 1, r.ao); px(x + 2, base - 6, w - 4, 1, r.mid);   // service seam
@@ -7510,12 +7538,12 @@ const PropSprites = (() => {
        ⛔ NO GLOW HALO. The brightness lives INSIDE the lens as a hot white centre; it never bleeds
           onto the casing.
        ⛔ THE EYE STILL TELLS THE TRUTH: unbound = dead grey lens, offline = dull ember, online = hot. */
-    const r = MAT.steel, br = MAT.brass;
+    const r = EQUIPMENT, br = MAT.brass;
     const bound = !!(f && f.bound), state = (f && f.state) || 'unbound', fired = !!(f && f.fired);
     const live = bound && state === 'online', err = state === 'error';
     const RED = ACC.alert, G = ACC.work, D = ACC.data;
     const base = y + h, cx = x + Math.round(w / 2);
-    const FACE = '#1a1f24', DARK = '#0d1114';
+    const FACE = '#293744', DARK = '#121c26';
 
     /* ---- the whole vertical plan, stated once ---- */
     const topY  = y - 10;   // handle
@@ -7617,7 +7645,7 @@ const PropSprites = (() => {
           read by OUTLINE (a hammer head, a wrench fork, a driver shaft), never by detail.
        ⛔ o.fired / o.bad drive a pulse when shell or verify actually runs — green for a pass, red for
           a fail. The bench must never claim work the harness has not done. */
-    const r = MAT.steel, b = MAT.slate, br = MAT.brass, on = !!f.work;
+    const r = EQUIPMENT, b = INSTRUMENT, br = MAT.brass, on = !!f.work;
     const fired = f && f.fired, bad = f && f.bad;
     const G = ACC.work, R2 = ACC.alert;
 
@@ -7644,6 +7672,8 @@ const PropSprites = (() => {
     px(x, y + 5, w, 1, r.face);
 
     /* ---- PEGBOARD tool wall ---- */
+    equipmentApron(x, y + 3, w, r);
+    px(x + 2,y,7,1,r.dk); px(x + 3,y - 1,5,1,r.top);
     const pT = y - 15, pH = 11;
     px(x + 1, pT, w - 2, pH, r.ink);
     px(x + 2, pT + 1, w - 4, pH - 2, b.ao);
@@ -8023,7 +8053,7 @@ const PropSprites = (() => {
           needs and give nothing back.
        ⛔ THE HANDLE IS WHAT MAKES IT A CART. Without it this is a tiny cabinet and it duplicates the
           core; with it, it is the only wheeled thing in the family. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h;
     const M = ACC.mem;
 
@@ -8041,7 +8071,7 @@ const PropSprites = (() => {
     px(x + 1, y - 1, w - 2, 10, r.ink);
     px(x + 2, y, w - 4, 2, r.lit);                                 // lit top plane
     px(x + 3, y, 3, 1, r.hi);
-    px(x + 2, y + 2, w - 4, 6, r.face);
+    panelFinish(x + 2, y + 2, w - 4, 6, r);
     px(x + 2, y + 2, 1, 6, r.mid); px(x + w - 3, y + 2, 1, 6, r.dk);
 
     /* ---- THREE COUNTABLE BLADES ---- */
@@ -8448,7 +8478,7 @@ const PropSprites = (() => {
           floating; the reference has them and my versions ended at a flat bottom edge.
        ⛔ The glowing channel is ONE tall unbroken run with a hot core and a dark housing — not a
           stack of little LEDs. It is the only emissive on the prop and it does all the work. */
-    const r = MAT.steel, br = MAT.brass, on = !!(f && f.work);
+    const r = EQUIPMENT, br = MAT.brass, on = !!(f && f.work);
     const base = y + h, top = y - 7;
     const G = ACC.work;
 
@@ -8460,7 +8490,7 @@ const PropSprites = (() => {
     px(x, top + 1, w, 5, r.ink);
     px(x + 1, top, w - 2, 1, r.ink);                                // chamfer
     px(x + 1, top + 1, w - 2, 2, r.lit);                            // the plane we look down on
-    px(x + 2, top + 1, 4, 1, r.hi);                                 // specular chip, west
+    px(x + 2, top + 1, 4, 1, r.hi); captiveBolt(x + w - 4, top + 1, r);                                 // specular chip, west
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
     px(x + 3, top + 3, w - 6, 1, on ? G : shade(G, -0.62));       // indicator slot in the cap
@@ -8469,7 +8499,7 @@ const PropSprites = (() => {
     /* ---- BODY ---- */
     const bTop = top + 6;
     px(x, bTop, w, base - bTop - 2, r.ink);
-    px(x + 1, bTop + 1, w - 2, base - bTop - 4, r.face);
+    panelFinish(x + 1, bTop + 1, w - 2, base - bTop - 4, r);
     px(x + 1, bTop + 1, 1, base - bTop - 4, r.mid);                 // lit west return
     px(x + w - 2, bTop + 1, 1, base - bTop - 4, r.dk);
 
