@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/voice-live.js'), 'utf8');
 
 function harness() {
-  const nodes = new Map(), requests = [], sent = [], stops = [], interruptions = [];
+  const nodes = new Map(), requests = [], sent = [], stops = [], interruptions = [], streams = [];
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, { textContent: '', value: '', dataset: {}, hidden: false,
       style: { setProperty() {} }, setAttribute(k, v) { this[k] = v; }, classList: { toggle() {}, add() {}, remove() {} } });
@@ -16,6 +16,7 @@ function harness() {
     document: { getElementById: node, addEventListener() {}, querySelectorAll: () => [] },
     window: {}, navigator: {}, localStorage: { getItem: () => null },
     performance: { now: () => now }, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
+    VoiceStream: {open:hooks=>{streams.push(hooks);return {push(){},cancel(){}};}},
     Voice: { isSpeaking: () => false, stopSpeaking() { interruptions.push('speech'); } },
     Chat: { isBusy:()=>true, stopActive:()=>stops.push('cancel'), sendOrQueue: text => { sent.push(text); return { state: 'sent' }; } },
     fetch: (url, opts) => new Promise(resolve => requests.push({ url, opts, resolve: text => resolve({ ok: true, json: async () => ({ text }) }) }))
@@ -25,13 +26,14 @@ function harness() {
       boot() { active = true; paused = false; sessionSeq++; context = {sampleRate:16000}; calibratedUntil = 0; },
       take(frames) { recording = true; utteranceSeq++; utterance = frames; utteranceSamples = frames.reduce((n,f)=>n+f.length,0); lastVoicedSamples = utteranceSamples; },
       partial() { requestPartial(utterance, utteranceSeq); },
+      stream(frames, text) {streamAvailable = true;beginStream(frames, utteranceSeq, text);},
       handleTranscript, endpointSilenceMs, frame: processFrame, transcribe, finishUtterance, togglePause, closeMicrophone,
       inspect: () => ({recording, transcriptionPending, queued:queuedAudio.length, paused, samples:utteranceSamples})
     }, `;
   vm.runInNewContext(source.replace('return { init, start, end, isActive:', 'return { ' + expose + 'init, start, end, isActive:') + '\nthis.live = VoiceLive;', sandbox);
   const api = sandbox.live._test;
   api.boot();
-  return { api, requests, sent, stops, interruptions, node, tick: () => { now += 1000; }, frame: level => {
+  return { api, requests, sent, stops, interruptions, streams, node, tick: () => { now += 1000; }, frame: level => {
     now += 128; api.frame({inputBuffer:{getChannelData:()=>new Float32Array(2048).fill(level)}});
   } };
 }
@@ -39,6 +41,13 @@ const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve(); };
 const audio = () => Array.from({length:8}, () => new Float32Array(1000).fill(0.1));
 
 (async () => {
+  {
+    const h=harness();h.api.take(audio());
+    h.node('lv-heard').textContent='Keep this complete first phrase';
+    h.api.stream(audio(),'Keep this complete first phrase');
+    h.streams[0].onUpdate({text:'Keep this',stable:'',partial:'Keep this'});
+    assert.equal(h.node('lv-heard').textContent,'Keep this complete first phrase','continued recognition does not rewind the visible caption');
+  }
   {
     const h = harness();h.frame(.1);h.frame(.1);h.frame(.1);
     assert.equal(h.interruptions.length,1,'speech onset interrupts even before the old reply has audio');

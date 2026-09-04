@@ -837,12 +837,14 @@ const VoiceLive = (() => {
     } else transcribe(captured, sessionSeq, allowContinue, recognizer);
   }
 
-  function beginStream(frames, id) {
+  function beginStream(frames, id, retainedText = '') {
     if (!streamAvailable || typeof VoiceStream === 'undefined' || !context) return;
     liveStream = VoiceStream.open({ rate: context.sampleRate,
       onUpdate: update => {
         if (!active || paused || id !== utteranceSeq || !recording) return;
         if (update.text) {
+          if (retainedText && update.text.length < retainedText.length) return;
+          retainedText = '';
           markTiming('words');
           partialText = update.text;
           const el = $('lv-heard');
@@ -898,30 +900,32 @@ const VoiceLive = (() => {
       if (speechFrames >= 3) {
         // Speech resumed before the final transcript returned: this was a thinking pause, not a new
         // request. Cancel the stale result and extend the original audio instead of submitting half a thought.
-        let continuation = [];
+        let continuation = [], resumedText = '', resumedTiming = null;
         if (finalTurn && finalTurn.allowContinue && !queuedAudio.length &&
             finalTurn.seq === sessionSeq && finalTurn.frames.reduce((n, f) => n + f.length, 0) / context.sampleRate * 1000 < MAX_UTTERANCE_MS) {
           continuation = finalTurn.frames;
+          resumedText = partialText; resumedTiming = finalTurn.measured;
           if (finalTurn.recognizer) finalTurn.recognizer.cancel();
           if (finalAbort) finalAbort.abort();
           finalAbort = null; finalTurn = null; transcriptionPending = false;
         }
         recording = true;
-        timing = { speech: performance.now(), lastVoice: performance.now() };
+        timing = resumedTiming || { speech: performance.now() };
+        timing.lastVoice = performance.now();
         markTiming('speech');
         utteranceSeq++;
-        partialText = '';
+        partialText = resumedText;
         partialSnapshot = null;
         utterance = continuation.concat(preRoll);
         utteranceSamples = utterance.reduce((sum, item) => sum + item.length, 0);
         lastVoicedSamples = utteranceSamples;
-        beginStream(utterance, utteranceSeq);
+        beginStream(utterance, utteranceSeq, resumedText);
         lastPartialAt = performance.now();
         silenceMs = 0;
         // Invalidate the old reply even if its first audio is still being generated.
         if (typeof Voice !== 'undefined' && Voice.stopSpeaking) Voice.stopSpeaking();
         setState('hearing');
-        if ($('lv-heard')) $('lv-heard').textContent = 'Listening…';
+        if ($('lv-heard')) $('lv-heard').textContent = resumedText || 'Listening…';
       }
       return;
     }
