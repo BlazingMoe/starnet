@@ -117,7 +117,7 @@ const GroupChat = (() => {
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
       #gc-files,#gc-preview{padding:0 12px}#gc-files .bb{display:block;margin:5px 0!important;text-align:left;overflow-wrap:anywhere}#gc-preview{white-space:pre-wrap;overflow-wrap:anywhere}#gc-preview a{color:var(--ph)}
       .gc-picker{min-width:0}.gc-picker>.key-input{display:block;width:100%;box-sizing:border-box;margin:0 0 12px}
-      .gc-picker-choices{max-height:35vh;overflow:auto}.gc-picker-choices .set-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--ph-faint);overflow-wrap:anywhere}.gc-picker label[hidden]{display:none}.gc-picker input[type=checkbox]{flex:0 0 auto;margin:0}
+      .gc-picker-choices{max-height:35vh;overflow:auto}.gc-agent-choice{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;box-sizing:border-box;text-align:left;padding:10px 12px;margin:0;border:0;border-bottom:1px solid var(--ph-faint);border-left:2px solid transparent;border-radius:0;background:transparent;color:var(--text);font:inherit;cursor:pointer;overflow-wrap:anywhere}.gc-agent-choice[aria-pressed=true]{border-left-color:var(--ph);background:var(--ph-faint);color:var(--ph)}.gc-agent-choice:hover{background:var(--panel2);color:var(--ph-bright)}.gc-agent-choice[hidden]{display:none}.gc-agent-state{flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
       .gc-picker .gc-selection{margin:10px 0;color:var(--ph-dim);font-size:12px;letter-spacing:1px;text-transform:uppercase}.gc-picker>p{margin:8px 0;font-size:14px;line-height:1.35;color:var(--ph-dim)}.gc-picker>[role=alert]:empty{display:none}
       .gc-picker-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 0;border-top:1px solid var(--ph-faint)}
       .gc-picker details{border-top:1px solid var(--ph-faint);padding:4px 0}.gc-picker details label{display:block;margin:6px 0;color:var(--ph-dim);font-size:13px}.gc-picker details input,.gc-picker details select{width:100%;margin:0 0 8px;box-sizing:border-box}.gc-picker select option{background:var(--panel2)}
@@ -262,25 +262,36 @@ const GroupChat = (() => {
     const close = () => StationUI.closeTerm('group-agents');
     const search = h('input', { type: 'search', class: 'key-input', placeholder: 'Find an agent', 'aria-label': 'Find an agent' }); dialog.append(search);
     const title = h('input', { type: 'text', class: 'key-input', maxlength: '80', 'aria-label': 'Group title', value: existing?.title || origin?.title || 'Group chat' });
-    const checks = [];
-    const choices = h('div', { class: 'gc-picker-choices' }); dialog.append(choices);
+    const chosen = new Set(existing ? existing.members : [origin?.agentId || 'agent']);
+    const choices = h('div', { class: 'gc-picker-choices', role: 'group', 'aria-label': 'Select agents' }); dialog.append(choices);
     for (const a of roster) {
-      const box = h('input', { type: 'checkbox', value: a.id }); box.checked = existing ? existing.members.includes(a.id) : a.id === (origin?.agentId || 'agent');
       const display = a.name + (roster.filter(r => r.name === a.name).length > 1 ? ' (' + a.id + ')' : '');
-      const label = h('label', { class: 'set-row' }); label.append(box, document.createTextNode(' ' + display)); choices.append(label); checks.push(box);
+      const row = h('button', { type: 'button', class: 'gc-agent-choice', 'aria-label': display,
+        'data-agent-id': a.id, 'data-agent-name': display.toLowerCase(),
+        onclick: () => { if (chosen.has(a.id)) chosen.delete(a.id); else chosen.add(a.id); options(); } });
+      row.append(h('span', {}, display), h('span', { class: 'gc-agent-state', 'aria-hidden': 'true' })); choices.append(row);
     }
-    search.addEventListener('input', () => { for (const label of choices.children) label.hidden = !label.textContent.toLowerCase().includes(search.value.toLowerCase()); });
+    search.addEventListener('input', () => { for (const row of choices.children) row.hidden = !row.dataset.agentName.includes(search.value.toLowerCase()); });
     const count = h('div', { class: 'gc-selection', 'aria-live': 'polite' }); dialog.append(count);
     const lead = h('select', { class: 'fbc-sel', 'aria-label': 'Group lead' });
-    function options() { const previous = lead.value; lead.replaceChildren(); for (const c of checks.filter(c => c.checked)) lead.append(h('option', { value: c.value }, name(c.value))); if ([...lead.options].some(o => o.value === previous)) lead.value = previous; const n = checks.filter(c => c.checked).length; count.textContent = n + (n === 1 ? ' agent selected' : ' agents selected'); }
-    for (const c of checks) c.addEventListener('change', options); options(); if (existing) lead.value = existing.leadId;
+    function options() {
+      const previous = lead.value; lead.replaceChildren();
+      for (const row of choices.children) {
+        const selected = chosen.has(row.dataset.agentId);
+        row.setAttribute('aria-pressed', String(selected)); row.lastElementChild.textContent = selected ? 'Added' : '';
+        if (selected) lead.append(h('option', { value: row.dataset.agentId }, name(row.dataset.agentId)));
+      }
+      if ([...lead.options].some(o => o.value === previous)) lead.value = previous;
+      const n = chosen.size; count.textContent = n + (n === 1 ? ' agent selected' : ' agents selected');
+    }
+    options(); if (existing) lead.value = existing.leadId;
     const settings = h('details'); settings.append(h('summary', {}, 'Session settings'), h('label', {}, 'Session name'), title, h('label', {}, 'Default responder'), lead);
     dialog.append(h('p', {}, 'Selected agents can see this conversation and its shared files.'));
     const errors = h('p', { role: 'alert' }); dialog.append(errors);
     const footer = h('div', { class: 'gc-picker-footer' });
-    footer.append(button('Done', async () => {
+    footer.append(button('ADD', async () => {
       try {
-        const data = { members: checks.filter(c => c.checked).map(c => c.value), leadId: lead.value, title: title.value };
+        const data = { members: roster.filter(a => chosen.has(a.id)).map(a => a.id), leadId: lead.value, title: title.value };
         const g = await api(existing ? { op: 'configure', id: existing.id, revision: existing.revision, ...data } : { op: 'create', ...(origin ? { id: origin.id, history: origin.history, originalAgentId: origin.agentId } : {}), ...data });
         adopt(g); save(); close(); active = null; App.openWorkstream(g.id); if (typeof Chat !== 'undefined') Chat.load(Workstreams.get(g.id));
       } catch (e) { errors.textContent = e.message; }
