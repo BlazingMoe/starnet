@@ -867,7 +867,6 @@ const VoiceLive = (() => {
     for (let i = 0; i < frame.length; i++) energy += frame[i] * frame[i];
     const rms = Math.sqrt(energy / frame.length);
     const agentTalking = typeof Voice !== 'undefined' && Voice.isSpeaking && Voice.isSpeaking();
-    const replyPending = typeof Voice !== 'undefined' && Voice.isReplyPending && Voice.isReplyPending();
     // ONE CLOCK for the strip. The mic frame is what scrolls it — always, even while the agent holds the
     // turn — so the meter keeps a single steady rate instead of speeding up when a second source (the
     // agent's ~60fps output tap) starts pushing. Whoever holds the turn supplies the VALUE and the colour;
@@ -919,7 +918,8 @@ const VoiceLive = (() => {
         beginStream(utterance, utteranceSeq);
         lastPartialAt = performance.now();
         silenceMs = 0;
-        if ((agentTalking || replyPending) && Voice.stopSpeaking) Voice.stopSpeaking();
+        // Invalidate the old reply even if its first audio is still being generated.
+        if (typeof Voice !== 'undefined' && Voice.stopSpeaking) Voice.stopSpeaking();
         setState('hearing');
         if ($('lv-heard')) $('lv-heard').textContent = 'Listening…';
       }
@@ -1069,7 +1069,6 @@ const VoiceLive = (() => {
   function dictationMeterTick() {
     if (!active || !dictation) return;
     const agentTalking = typeof Voice !== 'undefined' && Voice.isSpeaking && Voice.isSpeaking();
-    const replyPending = typeof Voice !== 'undefined' && Voice.isReplyPending && Voice.isReplyPending();
     if (agentTalking) pushLevel(agentLevel * AGENT_GAIN, AGENT);
     else if (tapAlive()) pushLevel(tapLevel * 14, SELF);
   }

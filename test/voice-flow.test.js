@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/voice-live.js'), 'utf8');
 
 function harness() {
-  const nodes = new Map(), requests = [], sent = [], stops = [];
+  const nodes = new Map(), requests = [], sent = [], stops = [], interruptions = [];
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, { textContent: '', value: '', dataset: {}, hidden: false,
       style: { setProperty() {} }, setAttribute(k, v) { this[k] = v; }, classList: { toggle() {}, add() {}, remove() {} } });
@@ -16,7 +16,7 @@ function harness() {
     document: { getElementById: node, addEventListener() {}, querySelectorAll: () => [] },
     window: {}, navigator: {}, localStorage: { getItem: () => null },
     performance: { now: () => now }, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
-    Voice: { isSpeaking: () => false, stopSpeaking() {} },
+    Voice: { isSpeaking: () => false, stopSpeaking() { interruptions.push('speech'); } },
     Chat: { isBusy:()=>true, stopActive:()=>stops.push('cancel'), sendOrQueue: text => { sent.push(text); return { state: 'sent' }; } },
     fetch: (url, opts) => new Promise(resolve => requests.push({ url, opts, resolve: text => resolve({ ok: true, json: async () => ({ text }) }) }))
   };
@@ -31,7 +31,7 @@ function harness() {
   vm.runInNewContext(source.replace('return { init, start, end, isActive:', 'return { ' + expose + 'init, start, end, isActive:') + '\nthis.live = VoiceLive;', sandbox);
   const api = sandbox.live._test;
   api.boot();
-  return { api, requests, sent, stops, node, tick: () => { now += 1000; }, frame: level => {
+  return { api, requests, sent, stops, interruptions, node, tick: () => { now += 1000; }, frame: level => {
     now += 128; api.frame({inputBuffer:{getChannelData:()=>new Float32Array(2048).fill(level)}});
   } };
 }
@@ -39,6 +39,10 @@ const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve(); };
 const audio = () => Array.from({length:8}, () => new Float32Array(1000).fill(0.1));
 
 (async () => {
+  {
+    const h = harness();h.frame(.1);h.frame(.1);h.frame(.1);
+    assert.equal(h.interruptions.length,1,'speech onset interrupts even before the old reply has audio');
+  }
   {
     const h = harness();
     h.api.handleTranscript('stop speaking');
