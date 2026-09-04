@@ -62,87 +62,6 @@ const PropSprites = (() => {
     return out;
   };
 
-
-  /* ================= HUE-SHIFTED SHADING FOR PROPS (2026-09-03 polish) =================
-     Every prop derives its bevels, insets, sheens and shadows from a few base tones through U.shade,
-     which lerps to white or black — so a desk's shadow side was the same hue with less light, and its
-     highlight the same hue washed grey. Painted pixel art hue-shifts: shadow travels cool (toward
-     blue-violet) and gains saturation; light travels warm (toward yellow) and thins. This is the same
-     helper the station bake uses, at exactly U.shade's lightness, so every tone relationship the
-     props were authored on survives; only the colour of the step changes. Cached per (hex, f). */
-  const HUE = { darkTo: 250, darkRot: 34, darkSat: 0.18, lightTo: 50, lightRot: 26, lightSat: 0.08 };
-  const _shadeCache = new Map();
-  const _hsl = (r, g, b) => {
-    r /= 255; g /= 255; b /= 255;
-    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
-    if (mx === mn) return [0, 0, l];
-    const d = mx - mn, sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
-    let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-    return [h / 6, sat, l];
-  };
-  const _rgb = (h, sat, l) => {
-    if (sat <= 0) { const v = Math.round(l * 255); return [v, v, v]; }
-    const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat, p = 2 * l - q;
-    const f = t => { t = ((t % 1) + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
-    return [Math.round(f(h + 1 / 3) * 255), Math.round(f(h) * 255), Math.round(f(h - 1 / 3) * 255)];
-  };
-  function shade(hex, f) {
-    if (!f || typeof hex !== 'string' || hex.length !== 7 || hex[0] !== '#') return U.shade(hex, f);
-    const key = hex + '|' + Math.round(f * 1000);
-    const hit = _shadeCache.get(key);
-    if (hit) return hit;
-    const nn = parseInt(hex.slice(1), 16);
-    let r = (nn >> 16) & 255, g = (nn >> 8) & 255, b = nn & 255;
-    if (f >= 0) { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; }
-    else { r *= (1 + f); g *= (1 + f); b *= (1 + f); }
-    let out;
-    const hsl = _hsl(r, g, b), l = hsl[2];
-    if (l > 0.02 && l < 0.98) {
-      const dark = f < 0, amt = Math.min(1, Math.abs(f));
-      const to = dark ? HUE.darkTo : HUE.lightTo, cap = amt * (dark ? HUE.darkRot : HUE.lightRot);
-      let h = hsl[1] < 0.02 ? to : hsl[0] * 360, sat = hsl[1] < 0.02 ? 0 : hsl[1];
-      const d = ((to - h + 540) % 360) - 180;
-      h += Math.max(-cap, Math.min(cap, d));
-      sat = Math.max(0, Math.min(1, sat + (dark ? amt * HUE.darkSat : -amt * HUE.lightSat) * (hsl[1] < 0.02 ? 0.5 : 1)));
-      const c = _rgb(((h % 360) + 360) % 360 / 360, sat, l);
-      out = '#' + ((1 << 24) | (c[0] << 16) | (c[1] << 8) | c[2]).toString(16).slice(1);
-    } else {
-      out = '#' + ((1 << 24) | (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)).toString(16).slice(1);
-    }
-    if (_shadeCache.size > 20000) _shadeCache.clear();
-    _shadeCache.set(key, out);
-    return out;
-  }
-
-  /* ================= OWN-HUE OUTLINES (2026-09-03 polish) =================
-     Every prop ringed itself in the one universal LINE (#161d22), a near-black soot that Andrew called
-     out on the dish ("LESS black on the edges") and the prop-art recipe forbids: the outline is a dark
-     tint of the object's OWN hue. The F.* functions cannot be re-authored one by one for this, so the
-     outline is resolved at the primitive: the first frame a prop type draws, px() tallies the hues it
-     paints (skipping the line itself, near-black and near-white), and from then on every LINE pixel of
-     that type paints in an ink derived from its dominant hue at L 0.11. A grey machine stays grey-ink;
-     a teal couch gets a teal-black edge. Cached per catalog id, so it costs one frame of counting. */
-  const _ink = new Map();            // prop id -> ink hex
-  let _inkTally = null;              // { id, h: Float64Array(12), s: number }
-  const inkFor = id => _ink.get(id) || LINE;
-  function inkBegin(id) { if (!_ink.has(id)) _inkTally = { id, bins: new Float64Array(12), n: 0 }; }
-  function inkNote(c) {
-    if (!_inkTally || typeof c !== 'string' || c.length !== 7 || c === LINE) return;
-    const nn = parseInt(c.slice(1), 16);
-    const [h, sat, l] = _hsl((nn >> 16) & 255, (nn >> 8) & 255, nn & 255);
-    if (l < 0.10 || l > 0.90 || sat < 0.12) return;
-    _inkTally.bins[Math.floor(h * 12) % 12] += sat; _inkTally.n++;
-  }
-  function inkEnd() {
-    const t = _inkTally; _inkTally = null;
-    if (!t) return;
-    let best = -1, bi = 0;
-    for (let i = 0; i < 12; i++) if (t.bins[i] > best) { best = t.bins[i]; bi = i; }
-    if (t.n < 4 || best <= 0) { _ink.set(t.id, LINE); return; }
-    const c = _rgb((bi + 0.5) / 12, 0.42, 0.11);
-    _ink.set(t.id, '#' + ((1 << 24) | (c[0] << 16) | (c[1] << 8) | c[2]).toString(16).slice(1));
-  }
-
   /* ---- core primitives (verbatim from v7 sprites.js) ---- */
   /* px is the ONE primitive nearly every prop's fill routes through, which is what lets a MIRRORED
      view re-light itself from a single hook: a horizontal flip moves a prop's lit west facets onto
@@ -150,13 +69,12 @@ const PropSprites = (() => {
      (LSWAP, below the ramps). Nothing sets MIRROR except a deliberately mirrored draw.
      ORDER MATTERS: the mirror swap picks a DIFFERENT AUTHORED tone, then the chroma dial grades
      whatever tone was picked — grading first would hand LSWAP a colour that is not in its table. */
-  let _curId = null;
-  const px = (x, y, w, h, c) => { if (_inkTally) inkNote(c); if (c === LINE && _curId) c = inkFor(_curId); ctx.fillStyle = chromaOf((MIRROR && LSWAP[c]) || c); ctx.fillRect(x, y, w, h); };
+  const px = (x, y, w, h, c) => { ctx.fillStyle = chromaOf((MIRROR && LSWAP[c]) || c); ctx.fillRect(x, y, w, h); };
   const blink = (period, phase) => ((now / period + (phase || 0)) % 1) < 0.5;
   const flick = (period, phase) => Math.sin(now / period + (phase || 0) * 7);
   const scrCols = ['#62ff9e', '#3fd07c', '#7adfb0', '#2fa863'];
   // Workstations west of world zero carry a negative x phase. JS remainder keeps the dividend's sign, so during
-  // the first seconds after launch the old expression indexed scrCols[-N] and handed undefined to shade().
+  // the first seconds after launch the old expression indexed scrCols[-N] and handed undefined to U.shade().
   // That exception killed REFIT's first animation frame; enough uptime (or DONE + reopen) made the phase positive
   // and the floor mysteriously returned. Normalize the index into [0,n) for every world coordinate and uptime.
   const scr = (ph) => {
@@ -167,32 +85,30 @@ const PropSprites = (() => {
   /* ---- furniture micro-helpers (verbatim from v7 sprites.js FURNITURE block) ---- */
   const sh = (x, y, w) => { ctx.globalAlpha = 0.22; px(x, y, w, 2, '#000'); ctx.globalAlpha = 1; };
   const glow = (x, y, w, h, c, a) => { ctx.globalAlpha = a; px(x, y, w, h, c); ctx.globalAlpha = 1; };
-  const box = (x, y, w, h, c) => {              // outlined, shaded casing — 2026-09-03: own-hue outline (LINE resolves to the prop's ink), two-step bevels
-    px(x - 1, y - 1, w + 2, h + 2, LINE);
+  const box = (x, y, w, h, c) => {              // outlined, shaded casing
+    px(x - 1, y - 1, w + 2, h + 2, '#06090c');
     px(x, y, w, h, c);
-    px(x, y, w, 1, shade(c, 0.36));                                  // lit top edge
-    if (h > 5) px(x, y + 1, w, 1, shade(c, 0.14));                   // its falloff
-    px(x, y + h - 1, w, 1, shade(c, -0.5));                          // shaded bottom edge
-    if (h > 5) px(x, y + h - 2, w, 1, shade(c, -0.22));              // its rise
-    px(x + w - 1, y + 1, 1, h - 2, shade(c, -0.30));                 // shade side
-    px(x, y + 1, 1, h - 2, shade(c, 0.14));                          // lit side
+    px(x, y, w, 1, U.shade(c, 0.28));
+    px(x, y + h - 1, w, 1, U.shade(c, -0.4));
+    px(x + w - 1, y + 1, 1, h - 2, U.shade(c, -0.22));
+    px(x, y + 1, 1, h - 2, U.shade(c, 0.08));
   };
   const inset = (x, y, w, h, c) => {            // recessed panel / screen
-    px(x, y, w, h, shade(c, -0.6));
+    px(x, y, w, h, U.shade(c, -0.6));
     px(x + 1, y + 1, w - 2, h - 2, c);
-    px(x + 1, y + 1, w - 2, 1, shade(c, -0.3));
+    px(x + 1, y + 1, w - 2, 1, U.shade(c, -0.3));
   };
   const bevel = (x, y, w, h, c) => {            // box + inner 3-tone face
     box(x, y, w, h, c);
-    px(x + 1, y + 1, w - 2, h - 2, shade(c, 0.10));
-    px(x + 1, y + 1, w - 2, 1, shade(c, 0.30));
-    px(x + 1, y + 2, 1, h - 4, shade(c, 0.18));
-    px(x + w - 2, y + 2, 1, h - 4, shade(c, -0.18));
-    px(x + 1, y + h - 2, w - 2, 1, shade(c, -0.32));
+    px(x + 1, y + 1, w - 2, h - 2, U.shade(c, 0.10));
+    px(x + 1, y + 1, w - 2, 1, U.shade(c, 0.30));
+    px(x + 1, y + 2, 1, h - 4, U.shade(c, 0.18));
+    px(x + w - 2, y + 2, 1, h - 4, U.shade(c, -0.18));
+    px(x + 1, y + h - 2, w - 2, 1, U.shade(c, -0.32));
   };
   const seamH = (x, y, w, c) => {               // recessed panel seam (shadow+catch)
-    px(x, y, w, 1, shade(c, -0.45));
-    px(x, y + 1, w, 1, shade(c, 0.14));
+    px(x, y, w, 1, U.shade(c, -0.45));
+    px(x, y + 1, w, 1, U.shade(c, 0.14));
   };
   const rivets = (x, y, w, h, lc, dc) => {      // 4 corner rivets, lit top / dark base
     px(x, y, 1, 1, lc); px(x + w - 1, y, 1, 1, lc);
@@ -346,18 +262,17 @@ const PropSprites = (() => {
     px(x - 1, y - 1, w + 2, d + 1, LINE);
     px(x, y, w, d, r.top);
     px(x, y, w, 1, r.sheen);
-    px(x, y + 1, 5, 1, shade(r.sheen, 0.12));  // west-biased sheen streak
+    px(x, y + 1, 5, 1, U.shade(r.sheen, 0.12));  // west-biased sheen streak
     px(x, y + 1, 1, d - 1, r.lit);
     px(x + w - 1, y + 1, 1, d - 1, r.dk);
-    px(x, y + d - 1, w, 1, shade(r.top, -0.16)); // front lip of the top
+    px(x, y + d - 1, w, 1, U.shade(r.top, -0.16)); // front lip of the top
   };
   const frontFace = (x, y, w, fh, r) => {        // vertical south face under a top surface
     px(x - 1, y, w + 2, fh + 1, LINE);
     px(x, y, w, fh, r.face);
     px(x, y, w, 1, r.lit);                       // catch under the lip
-    px(x, y + 1, 1, fh - 1, shade(r.face, 0.08));
+    px(x, y + 1, 1, fh - 1, U.shade(r.face, 0.08));
     px(x + w - 1, y + 1, 1, fh - 1, r.dk);
-    if (fh > 4) px(x, y + fh - 2, w, 1, shade(r.face, -0.16));   // the AO's rise (2026-09-03 polish)
     px(x, y + fh - 1, w, 1, r.ao);               // floor-line ambient occlusion
   };
   const leg = (x, y, lh, r) => {                 // one 2px leg: lit west column, dark east, foot pad
@@ -427,7 +342,7 @@ const PropSprites = (() => {
      LSWAP holds only tones whose meaning is genuinely east/west: each ramp's lit (west) <-> dk
      (east) column, and the warm west KEY <-> the cool east SKY. `sheen` (a NORTH back-edge catch),
      `ao` (downward), `top` and `face` are axis-neutral under a horizontal flip and stay put.
-     KNOWN LIMIT: a facet painted as shade(r.face, +k) rather than r.lit is a runtime colour with
+     KNOWN LIMIT: a facet painted as U.shade(r.face, +k) rather than r.lit is a runtime colour with
      no table entry, so it keeps its original hand — the dominant read (silhouette, top face, front
      face, emissives) is unaffected. Props drawing through raw ctx path ops set fillStyle directly,
      which px() never sees; those are excluded from mirroring (NO_MIRROR) until authored. */
@@ -470,12 +385,12 @@ const PropSprites = (() => {
     }
   };
   const knurl = (x, y, w, h, c) => {             // machined grip texture on a dial / handle
-    for (let i = 0; i < w; i += 2) px(x + i, y, 1, h, shade(c, -0.32));
+    for (let i = 0; i < w; i += 2) px(x + i, y, 1, h, U.shade(c, -0.32));
   };
   const dial = (x, y, c, ang) => {               // 3x3 control knob with a pointer mark
-    px(x, y, 3, 3, LINE); px(x, y, 3, 1, shade(c, 0.20)); px(x + 1, y + 1, 1, 1, shade(c, -0.32));
+    px(x, y, 3, 3, LINE); px(x, y, 3, 1, U.shade(c, 0.20)); px(x + 1, y + 1, 1, 1, U.shade(c, -0.32));
     const dx = Math.round(Math.cos(ang)), dy = Math.round(Math.sin(ang));
-    px(x + 1 + dx, y + 1 + dy, 1, 1, shade(c, 0.44));   // a soft catch, not a white speck (reads as noise)
+    px(x + 1 + dx, y + 1 + dy, 1, 1, U.shade(c, 0.44));   // a soft catch, not a white speck (reads as noise)
   };
   const codeRow = (x, y, wmax, seed, c, hot) => {  // one scrolling line of code on a screen
     const k = (seed + Math.floor(now / 380)) % 6;
@@ -494,14 +409,14 @@ const PropSprites = (() => {
     // centre plot / right tile column) instead of uniform noise. Idle keeps phosphor; f.work drives gain.
     const r = RAMP.steel, ph = (f && f.x) || 0, on = !!(f && f.work);
     const py = y - 12, pH = 18;                                  // panel rides y-12..y+5, pylons carry it down
-    const dc = (c, k) => shade(c, on ? 0 : (k == null ? -0.5 : k));   // idle dims content, never kills it
+    const dc = (c, k) => U.shade(c, on ? 0 : (k == null ? -0.5 : k));   // idle dims content, never kills it
     shadow2(x + 6, y + h - 1, w - 12);
     // TWO PYLONS + A CROSS-TIE. Without the tie a 96px panel reads as balanced on two loose sticks.
     for (const mx of [x + 14, x + w - 22]) {
       px(mx - 1, y + 4, 10, 8, LINE);
       px(mx, y + 5, 8, 6, r.face);
       px(mx, y + 5, 8, 1, r.lit); keyEdge(mx + 1, y + 5, 5, 1, 0.16);
-      px(mx, y + 5, 1, 6, shade(r.face, 0.08)); px(mx + 7, y + 5, 1, 6, r.dk);
+      px(mx, y + 5, 1, 6, U.shade(r.face, 0.08)); px(mx + 7, y + 5, 1, 6, r.dk);
       rimEdge(mx + 7, y + 5, 1, 6, 0.20);
       px(mx + 3, y + 5, 2, 6, r.ao);                             // cable channel routed up the pylon
       chamf(mx - 4, y + h - 4, 16, 4, LINE, 1);                  // splayed base shoe
@@ -510,7 +425,7 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.30; px(mx - 4, y + h, 16, 1, '#000'); ctx.globalAlpha = 1;
     }
     px(x + 22, y + 7, w - 44, 2, LINE);
-    px(x + 22, y + 8, w - 44, 1, shade(r.face, 0.06));         // cross-tie between the pylons
+    px(x + 22, y + 8, w - 44, 1, U.shade(r.face, 0.06));         // cross-tie between the pylons
     cable(x + 17, y + 6, x + 13, y + h - 4, 2.6);                // feed lead sagging down the west pylon
     // HEAVY CHAMFERED CARCASS — 3px cuts, big enough to read as machined at this width
     chamf(x - 1, py - 1, w + 2, pH + 2, LINE, 3);
@@ -519,13 +434,13 @@ const PropSprites = (() => {
     px(x, py + 3, 1, pH - 6, r.lit); px(x + w - 1, py + 3, 1, pH - 6, r.dk);
     rimEdge(x + w - 1, py + 3, 1, pH - 6, 0.22);                 // cool sky bounce down the shade flank
     px(x + 3, py + pH - 1, w - 6, 1, r.ao);
-    wear(x + 2, py + 1, w - 4, pH - 2, 5, shade(r.face, -0.10));
-    for (const sxx of [x + 3, x + w - 4]) { px(sxx, py + 1, 1, 1, shade(r.top, 0.30)); px(sxx, py + pH - 2, 1, 1, r.ao); }
+    wear(x + 2, py + 1, w - 4, pH - 2, 5, U.shade(r.face, -0.10));
+    for (const sxx of [x + 3, x + w - 4]) { px(sxx, py + 1, 1, 1, U.shade(r.top, 0.30)); px(sxx, py + pH - 2, 1, 1, r.ao); }
     // STEPPED BEZEL: an intermediate face set back from the carcass, then the glass well cut into it.
     // Two steps is what sells depth on a big panel; one step reads as a sticker on a plate.
-    px(x + 2, py + 2, w - 4, pH - 5, shade(r.face, -0.30));
-    px(x + 2, py + 2, w - 4, 1, shade(r.face, -0.55));         // the step's top face lies in its own shadow
-    px(x + 2, py + pH - 4, w - 4, 1, shade(r.face, 0.10));
+    px(x + 2, py + 2, w - 4, pH - 5, U.shade(r.face, -0.30));
+    px(x + 2, py + 2, w - 4, 1, U.shade(r.face, -0.55));         // the step's top face lies in its own shadow
+    px(x + 2, py + pH - 4, w - 4, 1, U.shade(r.face, 0.10));
     const gx = x + 4, gy = py + 4, gw = w - 8, gh = pH - 9;      // 88 x 9 of actual glass
     px(gx - 1, gy - 1, gw + 2, gh + 2, '#050a08');
     px(gx, gy, gw, gh, on ? '#08171c' : '#071012');              // glass ground — never dead black
@@ -533,7 +448,7 @@ const PropSprites = (() => {
     px(gx, gy, gw, 2, on ? '#0b2630' : '#08181e');
     let tw = gx + 2;
     for (const k of [5, 3, 7, 4]) { px(tw, gy, k, 1, dc(ACC.data, -0.55)); tw += k + 2; }   // "STATION FEED"
-    px(gx + 2, gy + 1, 22, 1, dc(shade(ACC.data, -0.45), -0.6));  // subtitle rule under the title
+    px(gx + 2, gy + 1, 22, 1, dc(U.shade(ACC.data, -0.45), -0.6));  // subtitle rule under the title
     for (let i = 0; i < 3; i++)
       px(gx + gw - 8 + i * 3, gy, 2, 1, blink(700 + i * 210, i + ph) ? dc(i === 2 ? ACC.flow : ACC.work, -0.5) : '#123028');
     px(gx, gy + 2, gw, 1, '#0a1c1f');                            // rule separating header from the body
@@ -541,7 +456,7 @@ const PropSprites = (() => {
     const lx = gx + 2, ly = gy + 4;
     for (let i = 0; i < 5; i++) {
       const v = 4 + ((U.hash('bs' + i) + Math.floor(now / 900 + i)) % 12);
-      px(lx, ly + i, 4, 1, dc(shade(ACC.data, -0.5), -0.6));   // row label stub
+      px(lx, ly + i, 4, 1, dc(U.shade(ACC.data, -0.5), -0.6));   // row label stub
       px(lx + 5, ly + i, v, 1, dc(i === 2 ? ACC.flow : ACC.work, -0.58));
     }
     px(lx - 1, ly - 1, 20, 1, '#12262a');                        // table header rule
@@ -559,7 +474,7 @@ const PropSprites = (() => {
       i ? ctx.lineTo(cx0 + i, yy) : ctx.moveTo(cx0 + i, yy);
     }
     ctx.stroke();
-    ctx.strokeStyle = on ? ACC.data : shade(ACC.data, -0.55); ctx.beginPath();
+    ctx.strokeStyle = on ? ACC.data : U.shade(ACC.data, -0.55); ctx.beginPath();
     for (let i = 0; i < cw0; i++) {
       const yy = mid + Math.sin(now / 300 + i * 0.30 + ph) * (on ? 3.0 : 1.6);
       i ? ctx.lineTo(cx0 + i, yy) : ctx.moveTo(cx0 + i, yy);
@@ -573,7 +488,7 @@ const PropSprites = (() => {
     for (let i = 0; i < 3; i++) {
       const ty = gy + 3 + i * 2;
       px(rx0, ty, 18, 1, '#0d2126');
-      px(rx0, ty, 3, 1, dc(shade(ACC.data, -0.35), -0.6));     // tile label
+      px(rx0, ty, 3, 1, dc(U.shade(ACC.data, -0.35), -0.6));     // tile label
       const fw = 3 + Math.floor((1 + Math.sin(now / 640 + i * 1.7 + ph)) * (on ? 5.4 : 2.2));
       px(rx0 + 4, ty, fw, 1, dc(i === 1 ? ACC.flow : ACC.work, -0.6));
       px(rx0 + 4 + fw, ty, 1, 1, on ? '#dffaff' : '#20423a');    // gauge head
@@ -640,9 +555,9 @@ const PropSprites = (() => {
     px(sx - 1, sy - 1, sw + 2, sh + 2, '#050b07');
     if (on) {
       const sc = scr(ph);
-      px(sx, sy, sw, sh, shade(sc, -0.68));
-      px(sx, sy, sw, 1, shade(sc, 0.28));
-      for (let j = 0; j < 2; j++) px(sx + 1, sy + 1 + j, 2 + ((j * 3 + Math.floor(now / 520)) % (sw - 4)), 1, shade(sc, 0.12));
+      px(sx, sy, sw, sh, U.shade(sc, -0.68));
+      px(sx, sy, sw, 1, U.shade(sc, 0.28));
+      for (let j = 0; j < 2; j++) px(sx + 1, sy + 1 + j, 2 + ((j * 3 + Math.floor(now / 520)) % (sw - 4)), 1, U.shade(sc, 0.12));
       scanl(sx, sy, sw, sh, 0.18); bloom(sx, sy, sw, sh, sc, 0.16);
     } else { px(sx, sy, sw, sh, '#0a120d'); px(sx, sy, 3, 1, '#16231b'); }
 
@@ -651,7 +566,7 @@ const PropSprites = (() => {
     px(gx - 1, bT + 3, bayW - 1, 6, '#050b07');
     for (let i = 0; i < bayW - 3; i++) {
       const v = 1 + Math.floor((1 + Math.sin(now / 260 + i * 0.8 + ph)) * (on ? 1.4 : 0.5));
-      px(gx + i, bT + 7 - v, 1, v, on ? shade(G, 0.10) : shade(G, -0.62));
+      px(gx + i, bT + 7 - v, 1, v, on ? U.shade(G, 0.10) : U.shade(G, -0.62));
     }
     if (on) bloom(gx, bT + 4, bayW - 3, 4, G, 0.16);
 
@@ -659,7 +574,7 @@ const PropSprites = (() => {
     const mx = bX + 2 + bayW * 2;
     for (let ry = 0; ry < 2; ry++) for (let rx = 0; rx < 5; rx++)
       px(mx + rx * 2, bT + 4 + ry * 2, 1, 1, blink(600 + rx * 130, rx + ry) ? (rx === 4 ? ACC.flow : G) : '#16241c');
-    px(mx, bT + 8, bayW - 3, 1, on ? shade(G, -0.20) : shade(G, -0.66));
+    px(mx, bT + 8, bayW - 3, 1, on ? U.shade(G, -0.20) : U.shade(G, -0.66));
     if (on) { bloom(mx, bT + 4, bayW - 3, 5, G, 0.14); spill(bX + 1, bT + 9, bW - 2, scr(ph), 0.16, 4); }
 
     /* ---- CONTROLS on the working surface ---- */
@@ -683,7 +598,7 @@ const PropSprites = (() => {
     px(x + 8, y + h - 7, w - 16, 5, r.face);
     px(x + 8, y + h - 7, w - 16, 1, r.lit); keyEdge(x + 9, y + h - 7, 8, 1, 0.16);
     for (let i = 0; i < 5; i++) px(x + 11 + i * 5, y + h - 6, 1, 4, r.ao);   // flutes
-    px(x + 8, y + h - 7, 1, 5, shade(r.face, 0.08)); px(x + w - 9, y + h - 7, 1, 5, r.dk);
+    px(x + 8, y + h - 7, 1, 5, U.shade(r.face, 0.08)); px(x + w - 9, y + h - 7, 1, 5, r.dk);
     rimEdge(x + w - 9, y + h - 7, 1, 5, 0.20);
     px(x + 8, y + h - 3, w - 16, 1, r.ao);
     underAO(x + 4, y + h - 9, w - 8, 2);                           // dark gap under the overhanging slab
@@ -691,7 +606,7 @@ const PropSprites = (() => {
     chamf(x - 1, y + h - 13, w + 2, 6, LINE, 2);
     px(x, y + h - 12, w, 4, r.face);
     px(x, y + h - 12, w, 1, r.lit); keyEdge(x + 2, y + h - 12, 12, 1, 0.15);
-    px(x, y + h - 11, 1, 3, shade(r.face, 0.08)); px(x + w - 1, y + h - 11, 1, 3, r.dk);
+    px(x, y + h - 11, 1, 3, U.shade(r.face, 0.08)); px(x + w - 1, y + h - 11, 1, 3, r.dk);
     rimEdge(x + w - 1, y + h - 11, 1, 3, 0.20);
     px(x, y + h - 9, w, 1, r.ao);
     inset(x + 5, y + h - 11, 10, 2, '#0a1a20');                    // control strip (kept beat)
@@ -704,8 +619,8 @@ const PropSprites = (() => {
     px(x + 2, y + 1, w - 4, 1, r.sheen); keyEdge(x + 2, y + 1, 10, 1, 0.28);
     px(x, y + 3, 1, h - 17, r.lit); px(x + w - 1, y + 3, 1, h - 17, r.dk);
     rimEdge(x + w - 1, y + 3, 1, h - 17, 0.20);
-    px(x + 2, y + h - 13, w - 4, 1, shade(r.top, -0.18));        // front lip of the top
-    wear(x + 1, y + 2, w - 2, h - 15, 3, shade(r.top, -0.08));
+    px(x + 2, y + h - 13, w - 4, 1, U.shade(r.top, -0.18));        // front lip of the top
+    wear(x + 1, y + 2, w - 2, h - 15, 3, U.shade(r.top, -0.08));
     // PROJECTION WELL sunk into the slab, ringed by real emitter studs
     const wx = x + 4, wy = y + 3, ww = w - 8, wh = h - 17;
     inset(wx, wy, ww, wh, '#081820');
@@ -734,7 +649,7 @@ const PropSprites = (() => {
     px(hcx - 8, hcy - 1, 16, 2, ACC.data);                         // main ring/hull bar
     px(hcx - 1, hcy - 6, 2, 12, ACC.data);                         // spine
     px(hcx - 5, hcy - 5, 10, 1, '#9aeaff');                        // upper deck, brighter
-    px(hcx - 4, hcy + 5, 8, 1, shade(ACC.data, -0.2));           // lower deck in the cone's shadow
+    px(hcx - 4, hcy + 5, 8, 1, U.shade(ACC.data, -0.2));           // lower deck in the cone's shadow
     px(hcx - 9, hcy - 1, 1, 1, '#cdf4ff'); px(hcx + 8, hcy - 1, 1, 1, '#cdf4ff');  // wing tips
     ctx.globalAlpha = gA * 0.4;
     ctx.strokeStyle = ACC.data; ctx.lineWidth = 1;
@@ -769,10 +684,10 @@ const PropSprites = (() => {
     px(x + 10, y - 8, 4, h + 6, r.face);
     px(x + 10, y - 8, 1, h + 6, r.lit); px(x + 13, y - 8, 1, h + 6, r.dk);
     rimEdge(x + 13, y - 6, 1, h + 2, 0.18);
-    px(x + 10, y + h - 5, 4, 1, shade(r.face, -0.32));         // cast seam where the neck enters the foot
+    px(x + 10, y + h - 5, 4, 1, U.shade(r.face, -0.32));         // cast seam where the neck enters the foot
     cable(x + 14, y - 6, x + 17, y + h - 3, 2.2);                // loom sagging down the shade side
     px(x + 3, y - 8, w - 6, 2, LINE);                            // crossbar the lower heads hang from
-    px(x + 4, y - 8, w - 8, 1, shade(r.face, 0.10)); keyEdge(x + 4, y - 8, 6, 1, 0.18);
+    px(x + 4, y - 8, w - 8, 1, U.shade(r.face, 0.10)); keyEdge(x + 4, y - 8, 6, 1, 0.18);
     // one shared head routine: chamfered bezel, recessed glass, falloff bloom, light spilling below it
     const head = (hx, hy, hw, hh, kind, idx) => {
       const dead = (U.hash('scr' + x + idx) % 7) === 0;           // kept: one unit runs diagnostics
@@ -791,20 +706,20 @@ const PropSprites = (() => {
              sy + (U.hash('su' + idx + k + Math.floor(now / 150)) % sh), 1, 1, '#3a5a50');
         px(sx, sy + sh - 1, sw, 1, '#16241f');
       } else if (kind === 0) {                                    // code column
-        for (let j = 0; j < sh; j++) codeRow(sx, sy + j, sw, j * 2 + idx + Math.floor(ph), shade(acc, on ? 0 : -0.5), on ? '#eaffe8' : '#2c4a38');
-        px(sx + (Math.floor(now / 300) % (sw - 1)), sy + sh - 1, 1, 1, blink(400, ph) ? '#eaffe8' : shade(acc, -0.6));
+        for (let j = 0; j < sh; j++) codeRow(sx, sy + j, sw, j * 2 + idx + Math.floor(ph), U.shade(acc, on ? 0 : -0.5), on ? '#eaffe8' : '#2c4a38');
+        px(sx + (Math.floor(now / 300) % (sw - 1)), sy + sh - 1, 1, 1, blink(400, ph) ? '#eaffe8' : U.shade(acc, -0.6));
       } else if (kind === 1) {                                    // bar histogram
         for (let i = 0; i < sw; i += 2) {
           const v = 1 + Math.floor((1 + Math.sin(now / 300 + i * 0.8 + idx + ph)) * (on ? 1.4 : 0.6));
-          px(sx + i, sy + sh - v, 1, v, shade(acc, on ? 0 : -0.5));
+          px(sx + i, sy + sh - v, 1, v, U.shade(acc, on ? 0 : -0.5));
         }
-        px(sx, sy + sh - 1, sw, 1, shade(acc, -0.55));          // baseline
+        px(sx, sy + sh - 1, sw, 1, U.shade(acc, -0.55));          // baseline
       } else {                                                    // wide status trace + lamp row
-        px(sx, sy, sw, 1, shade(acc, on ? -0.2 : -0.62));       // header rule
+        px(sx, sy, sw, 1, U.shade(acc, on ? -0.2 : -0.62));       // header rule
         for (let i = 0; i < sw; i++)
-          px(sx + i, sy + 2 - Math.round(Math.max(0, Math.sin(now / 200 + i * 0.55 + ph))), 1, 1, shade(acc, on ? 0 : -0.5));
+          px(sx + i, sy + 2 - Math.round(Math.max(0, Math.sin(now / 200 + i * 0.55 + ph))), 1, 1, U.shade(acc, on ? 0 : -0.5));
         for (let i = 0; i < 4; i++)
-          px(sx + 1 + i * 3, sy + sh - 1, 2, 1, blink(800, i + ph) ? shade(on ? ACC.flow : ACC.flow, on ? 0 : -0.5) : '#2c3a32');
+          px(sx + 1 + i * 3, sy + sh - 1, 2, 1, blink(800, i + ph) ? U.shade(on ? ACC.flow : ACC.flow, on ? 0 : -0.5) : '#2c3a32');
       }
       scanl(sx, sy, sw, sh, on ? 0.16 : 0.24);
       bloom(sx, sy, sw, sh, acc, (dead ? 0.07 : 0.15) * g0);
@@ -814,8 +729,8 @@ const PropSprites = (() => {
     head(x + 5, y - 14, 14, 6, 2, 2);                             // wide status head crowning the column
     head(x, y - 1, 11, 6, 0, 0);                                  // code head, west — hangs INSIDE the tile
     head(x + 13, y - 1, 11, 6, 1, 1);                             // chart head, east
-    px(x + 9, y - 9, 6, 1, shade(r.face, -0.35));               // yoke pad under the top head
-    px(x + 8, y + 6, 8, 1, LINE); px(x + 9, y + 6, 6, 1, shade(r.face, 0.08));   // clamp yoke: pair -> column
+    px(x + 9, y - 9, 6, 1, U.shade(r.face, -0.35));               // yoke pad under the top head
+    px(x + 8, y + 6, 8, 1, LINE); px(x + 9, y + 6, 6, 1, U.shade(r.face, 0.08));   // clamp yoke: pair -> column
   };
 
   F.tank = (x, y, w, h, f) => {
@@ -831,7 +746,7 @@ const PropSprites = (() => {
     px(x + 1, y + 9, w - 2, 2, r.face);
     px(x + 1, y + 9, w - 2, 1, r.lit); keyEdge(x + 2, y + 9, 7, 1, 0.16);
     px(x + 1, y + 11, 3, 1, r.ao); px(x + w - 4, y + 11, 3, 1, r.ao);   // feet
-    px(x + w - 7, y + 9, 5, 2, shade(r.face, -0.2));                  // pump housing
+    px(x + w - 7, y + 9, 5, 2, U.shade(r.face, -0.2));                  // pump housing
     px(x + w - 6, y + 10, 1, 1, blink(1000, ph) ? '#2ee6c8' : '#143028'); // pump LED (kept beat)
     cable(x + w - 3, y + 9, x + w + 1, y + 11, 1.6);
     // CURVED GLASS: draw the body column by column so the flanks darken toward the silhouette
@@ -839,16 +754,16 @@ const PropSprites = (() => {
     for (let i = 0; i < w; i++) {
       const t = Math.abs((i + 0.5) / w - 0.5) * 2;                 // 0 at the centre, 1 at the flanks
       const k = -0.10 - t * t * 0.42 + (on ? 0.06 : -0.06);        // flanks roll off into the silhouette
-      px(x + i, gTop, 1, 5, shade('#155a54', k));                // clear water just under the surface
-      px(x + i, gTop + 5, 1, 5, shade('#0f4444', k));            // mid depth
-      px(x + i, gTop + 10, 1, gh - 10, shade('#0a2c2e', k));     // murk at the bottom
+      px(x + i, gTop, 1, 5, U.shade('#155a54', k));                // clear water just under the surface
+      px(x + i, gTop + 5, 1, 5, U.shade('#0f4444', k));            // mid depth
+      px(x + i, gTop + 10, 1, gh - 10, U.shade('#0a2c2e', k));     // murk at the bottom
     }
-    px(x, gTop, w, 1, shade('#2a6a62', 0.15));                    // the water line seen through the glass
+    px(x, gTop, w, 1, U.shade('#2a6a62', 0.15));                    // the water line seen through the glass
     for (let i = 0; i < 4; i++) {                                   // caustics rippling across the bottom
       const cwid = 3 + (i % 2), cxp = x + 2 + ((i * 6 + Math.floor(now / 240 + ph)) % (w - 6));
       glow(cxp, gBot - 2, cwid, 1, aqua, (on ? 0.22 : 0.12) - i * 0.02);
     }
-    px(x + 1, gTop + 1, 1, gh - 2, shade(aqua, -0.45));           // lit west glass edge
+    px(x + 1, gTop + 1, 1, gh - 2, U.shade(aqua, -0.45));           // lit west glass edge
     px(x + w - 2, gTop + 1, 1, gh - 2, '#08201f');                  // dark east glass edge
     rimEdge(x + w - 2, gTop + 2, 1, gh - 5, 0.20);
     glow(x + 3, gTop + 2, 2, gh - 5, '#bffff2', 0.16);              // specular streak on the curve (kept)
@@ -869,7 +784,7 @@ const PropSprites = (() => {
     chamf(x - 1, y - 11, w + 2, 5, LINE, 1);
     px(x, y - 10, w, 3, r.top);
     px(x, y - 10, w, 1, r.sheen); keyEdge(x + 1, y - 10, 8, 1, 0.28);
-    px(x, y - 8, w, 1, shade(r.top, -0.22));                      // front lip of the rim
+    px(x, y - 8, w, 1, U.shade(r.top, -0.22));                      // front lip of the rim
     for (let i = 0; i < 3; i++) px(x + 3 + i * ((w - 7) >> 1), y - 10, 1, 1, '#5a8a80');  // cap bolts (kept)
     px(x + 2, y - 8, w - 4, 1, '#2a6a62');                          // liquid surface under the rim
     bloom(x + 2, y - 8, w - 4, 1, aqua, (0.30 + 0.16 * Math.sin(now / 500 + ph)) * (on ? 1 : 0.7));
@@ -898,8 +813,8 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.28; px(bx + s * 6 - 3, y + h, 8, 1, '#000'); ctx.globalAlpha = 1;
     }
     px(x + (w >> 1) - 12, y + 8, 24, 1, LINE);                     // cross-brace tying the legs together
-    px(x + (w >> 1) - 12, y + 8, 24, 1, shade(r.face, 0.04));
-    px(x + (w >> 1) - 3, y + 5, 6, 2, shade(r.face, -0.2));      // hinge block under the board
+    px(x + (w >> 1) - 12, y + 8, 24, 1, U.shade(r.face, 0.04));
+    px(x + (w >> 1) - 3, y + 5, 6, 2, U.shade(r.face, -0.2));      // hinge block under the board
     // aluminium frame — light on the crown, cool on the shade flank, corner brackets at all four corners
     chamf(x - 1, bt - 1, w + 2, bh + 2, LINE, 2);
     chamf(x, bt, w, bh, r.face, 2);
@@ -907,12 +822,12 @@ const PropSprites = (() => {
     px(x, bt + 2, 1, bh - 4, r.lit); px(x + w - 1, bt + 2, 1, bh - 4, r.dk);
     rimEdge(x + w - 1, bt + 2, 1, bh - 4, 0.22);
     for (const cx0 of [x + 1, x + w - 3]) {
-      px(cx0, bt + 1, 2, 2, shade(r.top, 0.22)); px(cx0, bt + bh - 3, 2, 2, r.ao);
+      px(cx0, bt + 1, 2, 2, U.shade(r.top, 0.22)); px(cx0, bt + bh - 3, 2, 2, r.ao);
     }
     // THE SHEET — matte, top-lit. Three broad value steps top-to-bottom is all a matte surface gets;
     // any specular streak here would make it read as glass.
     const sx = x + 3, sy = bt + 2, sw = w - 6, sh = bh - 6;
-    px(sx - 1, sy - 1, sw + 2, sh + 2, shade(r.face, -0.45));    // the sheet sits proud of the frame
+    px(sx - 1, sy - 1, sw + 2, sh + 2, U.shade(r.face, -0.45));    // the sheet sits proud of the frame
     px(sx, sy, sw, sh, '#c6dccb');
     px(sx, sy, sw, 2, '#dcefe0');                                  // ceiling strip raking the top
     keyEdge(sx, sy, sw, 1, 0.13);
@@ -921,7 +836,7 @@ const PropSprites = (() => {
     wear(sx + 1, sy + 1, sw - 2, sh - 2, 4 + (ph % 2), '#bcd2c1');  // ghosts of old, badly-erased marker
     px(sx + 24, sy + 3, 8, 3, '#bfd6c5');                          // one broad eraser smudge
     // CONTENT — a real working board: a two-node flow at the left, a bulleted list, a small bar chart.
-    px(sx + 2, sy + 1, 12, 1, ink.red); px(sx + 2, sy + 2, 8, 1, shade(ink.red, 0.25));  // heading + rule
+    px(sx + 2, sy + 1, 12, 1, ink.red); px(sx + 2, sy + 2, 8, 1, U.shade(ink.red, 0.25));  // heading + rule
     px(sx + 2, sy + 5, 7, 4, '#c6dccb'); rr(sx + 2, sy + 5, 7, 4, ink.blue);               // node A
     px(sx + 3, sy + 6, 5, 2, '#c6dccb');
     px(sx + 14, sy + 5, 7, 4, '#c6dccb'); rr(sx + 14, sy + 5, 7, 4, ink.blue);             // node B
@@ -941,7 +856,7 @@ const PropSprites = (() => {
     px(sx + 21, sy + 1, 1, 1, '#b8452e'); px(sx + 33, sy + 8, 1, 1, '#3a6aa0');            // bare magnets
     // marker tray bolted across the frame's bottom rail
     px(x + 3, bt + bh - 3, w - 6, 3, LINE);
-    px(x + 4, bt + bh - 2, w - 8, 2, shade(r.face, 0.08));
+    px(x + 4, bt + bh - 2, w - 8, 2, U.shade(r.face, 0.08));
     px(x + 4, bt + bh - 2, w - 8, 1, r.lit); keyEdge(x + 5, bt + bh - 2, w - 12, 1, 0.13);
     px(x + 7, bt + bh - 3, 5, 1, ink.red); px(x + 14, bt + bh - 3, 5, 1, ink.blue);
     px(x + 21, bt + bh - 3, 4, 1, '#2c8a5a'); px(x + 28, bt + bh - 3, 4, 2, '#8a98a8');    // markers + eraser block
@@ -985,15 +900,15 @@ const PropSprites = (() => {
     for (let i = 0; i < 5; i++) {
       const by = top + 5 + i * 3, t = tones[i];
       px(x + 3, by, w - 6, 2, t);                                  // the blade face
-      px(x + 3, by, w - 6, 1, shade(t, 0.26));                   // its own top catch
+      px(x + 3, by, w - 6, 1, U.shade(t, 0.26));                   // its own top catch
       px(x + 3, by + 2, w - 6, 1, r.ao);                           // the REVEAL between units
-      px(x + 4, by + 1, 4, 1, shade(t, -0.34));                  // drive bay slot
-      px(x + w - 7, by, 2, 2, shade(t, 0.14));                   // pull handle
-      px(x + w - 7, by, 2, 1, shade(t, 0.40));
+      px(x + 4, by + 1, 4, 1, U.shade(t, -0.34));                  // drive bay slot
+      px(x + w - 7, by, 2, 2, U.shade(t, 0.14));                   // pull handle
+      px(x + w - 7, by, 2, 1, U.shade(t, 0.40));
       // status: green pair = up, one amber = disk activity
-      px(x + 9, by + 1, 1, 1, blink(420 + i * 130, i) ? ACC.work : shade(ACC.work, -0.66));
-      px(x + 11, by + 1, 1, 1, blink(420 + i * 130, i + 1) ? ACC.work : shade(ACC.work, -0.66));
-      px(x + 13, by + 1, 1, 1, blink(210, i * 1.7) ? ACC.flow : shade(ACC.flow, -0.7));
+      px(x + 9, by + 1, 1, 1, blink(420 + i * 130, i) ? ACC.work : U.shade(ACC.work, -0.66));
+      px(x + 11, by + 1, 1, 1, blink(420 + i * 130, i + 1) ? ACC.work : U.shade(ACC.work, -0.66));
+      px(x + 13, by + 1, 1, 1, blink(210, i * 1.7) ? ACC.flow : U.shade(ACC.flow, -0.7));
       if (on) bloom(x + 9, by + 1, 5, 1, ACC.work, 0.14);
     }
     if (on) spill(x + 3, base - 4, w - 6, ACC.work, 0.10, 3);      // the stack pools light onto the deck
@@ -1012,15 +927,15 @@ const PropSprites = (() => {
     rimEdge(x + cw - 2, topY + 1, 1, botY - topY - 3, 0.22);          // cool sky bounce down the shade flank
     px(x + 1, topY, cw - 4, (botY - 1) - topY, r.face);               // front chassis
     px(x + 1, topY, 1, (botY - 1) - topY, r.lit);                     // west sheen column
-    px(x + 2, topY, cw - 5, 1, shade(r.face, 0.14));
+    px(x + 2, topY, cw - 5, 1, U.shade(r.face, 0.14));
     // chamfered cap we look down onto
     chamf(x, topY - 4, cw - 2, 4, LINE, 1);
     px(x + 1, topY - 3, cw - 4, 3, r.top);
     px(x + 1, topY - 3, cw - 4, 1, r.sheen); keyEdge(x + 1, topY - 3, 4, 1, 0.30);
-    px(x + 1, topY - 1, cw - 4, 1, shade(r.top, -0.18));            // cap front lip
-    px(x + 2, topY - 3, 1, 1, shade(r.sheen, 0.30)); px(x + cw - 5, topY - 3, 1, 1, r.dk);
+    px(x + 1, topY - 1, cw - 4, 1, U.shade(r.top, -0.18));            // cap front lip
+    px(x + 2, topY - 3, 1, 1, U.shade(r.sheen, 0.30)); px(x + cw - 5, topY - 3, 1, 1, r.dk);
     // rail posts framing the rack units
-    px(x + 2, topY + 1, 1, (botY - 3) - topY, shade(r.face, 0.20));
+    px(x + 2, topY + 1, 1, (botY - 3) - topY, U.shade(r.face, 0.20));
     px(x + cw - 4, topY + 1, 1, (botY - 3) - topY, r.dk);
     // 5 rack units: blade body, status LED, label, link light, vent slot
     for (let u = 0; u < 5; u++) {
@@ -1041,7 +956,7 @@ const PropSprites = (() => {
     }
     // PSU strip at the base + the hazard ticks that mark it as bolted hardware
     px(x + 3, botY - 3, cw - 7, 2, '#161d24');
-    px(x + 3, botY - 3, cw - 7, 1, shade(r.face, -0.10));
+    px(x + 3, botY - 3, cw - 7, 1, U.shade(r.face, -0.10));
     const psu = blink(1300, ph);
     px(x + 4, botY - 2, 2, 1, psu ? '#ff9d2e' : '#33241a');
     if (psu) bloom(x + 4, botY - 2, 2, 1, '#ff9d2e', 0.20);
@@ -1103,7 +1018,7 @@ const PropSprites = (() => {
     const sx = mX + 2, sy = mT + 2, sw = mW - 4;
     if (on) {
       const sc = scr(ph);
-      px(sx, sy, sw, 5, shade(sc, -0.72));
+      px(sx, sy, sw, 5, U.shade(sc, -0.72));
       for (let j = 0; j < 4; j++) codeRow(sx, sy + j, sw, j * 2 + Math.floor(ph), sc, '#eaffe8');
       scanl(sx, sy, sw, 5, 0.20); bloom(sx, sy, sw, 5, sc, 0.16);
       spill(mX + 1, y - 4, mW - 2, sc, 0.18, 5);
@@ -1125,10 +1040,10 @@ const PropSprites = (() => {
     px(tX + 2, tT + 5, tW - 4, 3, '#050b07');
     for (let i = 0; i < tW - 5; i++) {
       const v = 1 + Math.floor((1 + Math.sin(now / 240 + i * 0.9 + ph)) * (on ? 1.0 : 0.4));
-      px(tX + 3 + i, tT + 8 - v, 1, v, on ? shade(G, 0.10) : shade(G, -0.62));
+      px(tX + 3 + i, tT + 8 - v, 1, v, on ? U.shade(G, 0.10) : U.shade(G, -0.62));
     }
     if (on) { bloom(tX + 2, tT + 5, tW - 4, 3, G, 0.18); spill(tX + 1, y - 2, tW - 2, G, 0.14, 4); }
-    px(tX + 2, y - 1, 3, 1, blink(700) ? ACC.flow : shade(ACC.flow, -0.66));
+    px(tX + 2, y - 1, 3, 1, blink(700) ? ACC.flow : U.shade(ACC.flow, -0.66));
 
   };
 
@@ -1178,10 +1093,10 @@ const PropSprites = (() => {
     px(pX, pY + 1, 1, 7, b.top); px(pX + 5, pY + 1, 1, 7, b.dk);
     px(pX + 1, pY + 2, 4, 1, b.ao); px(pX + 1, pY + 1, 4, 1, b.mid);   // optical slot + lit sill
     for (let i = 0; i < 3; i++) px(pX + 1, pY + 4 + i * 2, 4, 1, b.ao);
-    px(pX + 4, pY + 3, 1, 1, on ? ACC.work : shade(ACC.work, -0.66));
+    px(pX + 4, pY + 3, 1, 1, on ? ACC.work : U.shade(ACC.work, -0.66));
     if (on) {
       bloom(pX + 4, pY + 3, 1, 1, ACC.work, 0.26);
-      px(pX + 1, pY + 8, 1, 1, blink(280, ph) ? ACC.flow : shade(ACC.flow, -0.6));
+      px(pX + 1, pY + 8, 1, 1, blink(280, ph) ? ACC.flow : U.shade(ACC.flow, -0.6));
     }
 
     /* ---- PC SCREEN on a stand ---- */
@@ -1197,9 +1112,9 @@ const PropSprites = (() => {
     inset(mX + 1, mT + 1, mW - 2, 8, '#070f0b');
     if (on) {
       const sc = scr(ph);
-      px(sx, sy, sw, 6, shade(sc, -0.74));
+      px(sx, sy, sw, 6, U.shade(sc, -0.74));
       for (let j = 0; j < 5; j++) codeRow(sx, sy + j, sw, j * 2 + Math.floor(ph), sc, '#eaffe8');
-      px(sx + (Math.floor(now / 300) % (sw - 2)), sy + 5, 1, 1, blink(400, ph) ? '#eaffe8' : shade(sc, -0.6));
+      px(sx + (Math.floor(now / 300) % (sw - 2)), sy + 5, 1, 1, blink(400, ph) ? '#eaffe8' : U.shade(sc, -0.6));
       scanl(sx, sy, sw, 6, 0.20);
       bloom(sx, sy, sw, 6, sc, 0.17);
       spill(mX + 1, y - 4, mW - 2, sc, 0.20, 5);
@@ -1269,7 +1184,7 @@ const PropSprites = (() => {
       const sx = mX + 2, sy = mT + 2, sw = mW - 4;
       if (on) {
         const sc = scr(ph + k * 3);
-        px(sx, sy, sw, 5, shade(sc, -0.72));
+        px(sx, sy, sw, 5, U.shade(sc, -0.72));
         for (let j = 0; j < 4; j++) codeRow(sx, sy + j, sw, j * 2 + Math.floor(ph) + k * 5, sc, '#eaffe8');
         scanl(sx, sy, sw, 5, 0.20);
         bloom(sx, sy, sw, 5, sc, 0.16);
@@ -1332,11 +1247,11 @@ const PropSprites = (() => {
     inset(mX + 1, mT + 1, mW - 2, 7, '#0d0710');
     const sx = mX + 2, sy = mT + 2, sw = mW - 4;
     if (on) {
-      px(sx, sy, sw, 5, shade(P, -0.74));
-      px(sx, sy, sw, 1, shade(P, 0.14));                          // canvas title bar
+      px(sx, sy, sw, 5, U.shade(P, -0.74));
+      px(sx, sy, sw, 1, U.shade(P, 0.14));                          // canvas title bar
       for (let j = 0; j < 3; j++) {                                 // colour swatch row + strokes
         const rw = 3 + ((j * 4 + Math.floor(now / 700)) % (sw - 6));
-        px(sx + 1, sy + 2 + j, rw, 1, shade(P, 0.10 - j * 0.14));
+        px(sx + 1, sy + 2 + j, rw, 1, U.shade(P, 0.10 - j * 0.14));
       }
       for (let k = 0; k < 4; k++) px(sx + sw - 5 + k, sy + 1, 1, 1, [P, '#ffd34a', '#4ad9ff', '#41ff8a'][k]);
       scanl(sx, sy, sw, 5, 0.18);
@@ -1357,11 +1272,11 @@ const PropSprites = (() => {
     if (on) {
       for (let k = 0; k < 3; k++) {
         const t = ((now / 900) + k / 3) % 1;
-        px(x + 6 + Math.floor(t * (w - 13)), y + 2 + (k % 2), 1, 1, shade(P, 0.30));
+        px(x + 6 + Math.floor(t * (w - 13)), y + 2 + (k % 2), 1, 1, U.shade(P, 0.30));
       }
       bloom(x + 5, y + 2, w - 10, 2, P, 0.14);
     }
-    px(x + 4, y + 4, 2, 1, on ? P : shade(P, -0.66));             // tablet status lamp
+    px(x + 4, y + 4, 2, 1, on ? P : U.shade(P, -0.66));             // tablet status lamp
     px(x + w - 6, y + 1, 4, 1, b.ink);                              // stylus in its cradle
     px(x + w - 5, y + 1, 2, 1, r.lit);
 
@@ -1384,9 +1299,9 @@ const PropSprites = (() => {
     chamf(x + 1, y - 6, 11, 4, LINE, 1);
     chamf(x + 2, y - 5, 9, 3, r.top, 1);
     px(x + 3, y - 5, 7, 1, r.sheen); keyEdge(x + 3, y - 5, 4, 1, 0.30);   // warm key on the water lid
-    px(x + 6, y - 5, 1, 3, shade(r.top, -0.26));              // lid seam
-    px(x + 9, y - 5, 1, 1, shade(r.top, 0.34));               // hinge catch (soft, not a white speck)
-    px(x + 2, y - 3, 9, 1, shade(r.top, -0.24));              // front lip of the cap
+    px(x + 6, y - 5, 1, 3, U.shade(r.top, -0.26));              // lid seam
+    px(x + 9, y - 5, 1, 1, U.shade(r.top, 0.34));               // hinge catch (soft, not a white speck)
+    px(x + 2, y - 3, 9, 1, U.shade(r.top, -0.24));              // front lip of the cap
     // brew ALCOVE — a real hole cut into the column. Cutting a void into the mass is worth more at 12px
     // than any amount of surface detail: it gives the prop an interior.
     inset(x + 4, y + 1, 5, 7, '#0a0f12');
@@ -1400,7 +1315,7 @@ const PropSprites = (() => {
     if (blink(400)) px(x + 6, y + 2, 1, 1, '#3e5e58');          // drip stream (kept)
     px(x + 4, y + 8, 5, 1, '#241c14'); px(x + 5, y + 8, 2, 1, '#3a2c20');   // drip tray + old stain (kept)
     // control strip. The lamp is 1px, so it earns its read from FALLOFF, not brightness.
-    px(x + 4, y, 5, 1, shade(r.face, -0.34));
+    px(x + 4, y, 5, 1, U.shade(r.face, -0.34));
     px(x + 4, y, 1, 1, rdy ? ACC.work : '#1c2a22');
     px(x + 6, y, 1, 1, '#222c32'); px(x + 8, y, 1, 1, '#222c32');   // buttons (kept)
     if (rdy) { bloom(x + 4, y, 1, 1, ACC.work, 0.34); spill(x + 4, y + 1, 5, ACC.work, 0.10, 3); }
@@ -1496,13 +1411,13 @@ const PropSprites = (() => {
     px(x + 3, y + 7, 3, 1, '#161f1a'); px(x + 3, y + 8, 1, 1, '#121a16');   // dead glass keeps a reflection
     px(x + 8, y + 6, 2, 1, '#222c32'); px(x + 8, y + 7, 2, 1, '#222c32');   // vent slits
     px(x + 8, y + 9, 1, 1, '#2a1414');                          // dead power LED
-    wear(x + 1, y + 5, 9, 5, 4, shade(r.face, -0.14));
+    wear(x + 1, y + 5, 9, 5, 4, U.shade(r.face, -0.14));
     // top CRT, smaller and shoved askew so the stack looks dumped, not shelved
     chamf(x + 2, y - 4, 9, 9, LINE, 1);
     px(x + 3, y - 3, 7, 7, r.top);
     px(x + 3, y - 3, 7, 1, r.sheen); keyEdge(x + 3, y - 3, 4, 1, 0.28);
     px(x + 9, y - 2, 1, 5, r.dk); rimEdge(x + 9, y - 2, 1, 5, 0.22);
-    px(x + 3, y + 3, 7, 1, shade(r.top, -0.30));
+    px(x + 3, y + 3, 7, 1, U.shade(r.top, -0.30));
     const st = flick(70, x) > 0.55;                             // intermittent static burst (kept)
     inset(x + 4, y - 2, 5, 5, st ? '#16281f' : '#0c1114');
     px(x + 5, y - 1, 3, 1, st ? '#2e5a44' : '#141d18');         // idle is never a black hole
@@ -1528,7 +1443,7 @@ const PropSprites = (() => {
       for (let sx = 0; sx < w; sx++) {
         const s = Math.round(Math.sin((sx / w) * Math.PI) * 1.6);
         px(x + sx, yy + s, 1, 1, c);
-        px(x + sx, yy + s + 1, 1, 1, shade(c, -0.52));         // each strand's own underside shadow
+        px(x + sx, yy + s + 1, 1, 1, U.shade(c, -0.52));         // each strand's own underside shadow
       }
     }
     // gaffer tape crossings pinning the loom to the deck — painted flat, with a peeling corner
@@ -1545,7 +1460,7 @@ const PropSprites = (() => {
     // the PACKET: one live datum running the loom. Flat light on a flat prop — a bloom ring, no rise.
     const pxp = x + 1 + Math.round((now / 14) % (w - 5));
     bloom(pxp, y + 6, 3, 1, ACC.data, 0.34);
-    px(pxp, y + 6, 3, 1, shade(ACC.data, -0.10));
+    px(pxp, y + 6, 3, 1, U.shade(ACC.data, -0.10));
   };
 
   F.hazardpad = (x, y, w, h, f) => {   // v4 hazard decal (2x1) — pure deck PAINT, walk-over, zero rise
@@ -1593,9 +1508,9 @@ const PropSprites = (() => {
     px(x + 2, y + 7, 8, 4, r.face);
     px(x + 2, y + 7, 1, 4, r.lit); px(x + 9, y + 7, 1, 4, r.dk);
     rimEdge(x + 9, y + 7, 1, 4, 0.22);                               // cool bounce down the shade flank
-    px(x + 2, y + 9, 8, 1, shade(r.face, -0.40));                  // barrel band
+    px(x + 2, y + 9, 8, 1, U.shade(r.face, -0.40));                  // barrel band
     px(x + 2, y + 10, 8, 1, r.ao);
-    wear(x + 2, y + 7, 8, 4, 3, shade(r.face, -0.14));
+    wear(x + 2, y + 7, 8, 4, 3, U.shade(r.face, -0.14));
     // FOLIAGE = a tight COLUMN of upright blades. Shape is the whole job at 12px: this is the only plant in
     // the batch that reads as a vertical tower, which is how it stays tellable from monstera/bonsai/flytrap.
     const BL = [[3, 9, -2, 1], [4, 13, -1, 2], [5, 18, 0, 2], [7, 14, 2, 2], [8, 10, 3, 1]];
@@ -1631,7 +1546,7 @@ const PropSprites = (() => {
     px(x + 1, y - 3, 9, 10, '#0e1a1c');                              // tank void, never dead black
     px(x + 1, y - 4, 9, 2, r.top); px(x + 2, y - 4, 7, 1, r.sheen);  // sealed lid casting we look down on
     keyEdge(x + 2, y - 4, 5, 1, 0.28);
-    px(x + 1, y - 2, 9, 1, shade(r.top, -0.34));                   // lid underside AO onto the glass
+    px(x + 1, y - 2, 9, 1, U.shade(r.top, -0.34));                   // lid underside AO onto the glass
     px(x + 1, y - 2, 1, 10, '#31424a');                              // west pane catches the strip
     px(x + 2, y - 2, 1, 4, '#223036');
     px(x + 9, y - 2, 1, 10, '#142024'); rimEdge(x + 9, y - 2, 1, 10, 0.20);   // cool sky down the shade pane
@@ -1659,8 +1574,8 @@ const PropSprites = (() => {
     // The emitter is INLAID in the deck (2 rows, no rise) because agents walk straight over this tile; the
     // pet itself is light, so it never gets a contact shadow.
     px(x + 3, y + 8, 6, 2, '#0a0e11');
-    px(x + 4, y + 8, 4, 1, '#1a232a'); px(x + 4, y + 9, 4, 1, shade('#1a232a', 0.26));
-    px(x + 5, y + 8, 2, 1, blink(900, ph + x) ? ACC.data : shade(ACC.data, -0.55));   // emitter eye (kept)
+    px(x + 4, y + 8, 4, 1, '#1a232a'); px(x + 4, y + 9, 4, 1, U.shade('#1a232a', 0.26));
+    px(x + 5, y + 8, 2, 1, blink(900, ph + x) ? ACC.data : U.shade(ACC.data, -0.55));   // emitter eye (kept)
     bloom(x + 4, y + 8, 4, 2, ACC.data, 0.16);                       // light pooling on the deck plating
     const bob = Math.round(Math.sin(now / 900 + ph + x) * 2);
     const sway = Math.round(Math.sin(now / 700 + ph + x + 1.3));
@@ -1695,11 +1610,11 @@ const PropSprites = (() => {
     // way to the footprint bottom (mount:'surface' seats a prop by its own contact line — see draw()).
     px(x + 3, y + 9, 6, 3, LINE);                                    // base disc, sitting ON the surface
     px(x + 4, y + 10, 4, 1, r.top); keyEdge(x + 4, y + 10, 3, 1, 0.24);
-    px(x + 4, y + 11, 4, 1, shade(r.face, -0.34));
+    px(x + 4, y + 11, 4, 1, U.shade(r.face, -0.34));
     rimEdge(x + 7, y + 10, 1, 2, 0.18);
     px(x + 5, y + 6, 2, 4, LINE); px(x + 5, y + 7, 1, 3, r.lit); px(x + 6, y + 7, 1, 3, r.dk);   // stem
     px(x + 3, y + 5, 6, 2, LINE); px(x + 4, y + 5, 4, 1, r.top); keyEdge(x + 4, y + 5, 3, 1, 0.22);
-    px(x + 4, y + 6, 4, 1, shade(r.face, -0.34));                  // cradle ring the sphere seats into
+    px(x + 4, y + 6, 4, 1, U.shade(r.face, -0.34));                  // cradle ring the sphere seats into
     // the sphere seats DOWN into the cradle now (it used to float two rows clear of the old stub arm)
     const cxp = x + 5.5, cyp = y - 0.5;
     for (let q = y - 6; q <= y + 5; q++) for (let p = x + 1; p <= x + 10; p++) {
@@ -1733,11 +1648,11 @@ const PropSprites = (() => {
     px(x + 2, y + 3, 8, 1, r.top); keyEdge(x + 2, y + 3, 5, 1, 0.26);
     px(x + 2, y + 4, 1, 6, r.lit); px(x + 9, y + 4, 1, 6, r.dk); rimEdge(x + 9, y + 4, 1, 6, 0.22);
     px(x + 2, y + 5, 8, 1, '#a03448');                               // one carnival trim band, all it needs
-    px(x + 2, y + 6, 8, 1, shade('#a03448', -0.45));
+    px(x + 2, y + 6, 8, 1, U.shade('#a03448', -0.45));
     px(x + 2, y + 10, 8, 1, r.ao);
     px(x + 3, y + 7, 1, 2, '#0c1013'); px(x + 3, y + 7, 1, 1, r.sheen);      // coin slot
     px(x + 7, y + 7, 2, 2, '#caa84a'); px(x + 7, y + 7, 1, 1, '#e8d070');    // brass crank
-    px(x + 4, y + 8, 3, 2, '#0a0e11'); px(x + 4, y + 8, 3, 1, shade(r.face, 0.18));   // prize flap
+    px(x + 4, y + 8, 3, 2, '#0a0e11'); px(x + 4, y + 8, 3, 1, U.shade(r.face, 0.18));   // prize flap
     // GLASS DOME — a real dome, not a box lid; the round crown over a square cabinet IS the silhouette
     for (let j = 0; j < 8; j++) {
       const hw = j < 1 ? 2 : j < 2 ? 3 : 4;
@@ -1817,7 +1732,7 @@ const PropSprites = (() => {
        ⛔ THE TWO FACES ARE ONE BODY OF WATER. No steel rail between them; one authored blue ramp
           runs from the far edge of the surface down to the gravel, and the WATERLINE is the only
           marker — a real feature of a tank rather than a seam across the middle of the prop.
-       ⛔ AUTHOR THE BLUES, never shade() a mid tone upward: shade() desaturates as it lightens, so
+       ⛔ AUTHOR THE BLUES, never U.shade() a mid tone upward: shade() desaturates as it lightens, so
           the lit top of the tank comes out grey and reads as a tank missing its water.
        ⛔ THE HOOD IS ONE ROW. Stacked hardware over the glass reads as a half-empty tank.
        ⛔ GRAVEL BELONGS AT THE BOTTOM — in plan there is no bottom to put it at, which is another
@@ -1848,15 +1763,15 @@ const PropSprites = (() => {
     underAO(x + 5, y + 10, w - 10, 1);
     chamf(x + 1, y + 5, w - 2, 6, EDGE, 1);
     // ⛔ the stand stays UNDER the tank in value, or the prop reads as two stacked boxes
-    px(x + 2, y + 5, w - 4, 2, shade(r.face, -0.26));        // cabinet TOP plane, proud of the tank
-    px(x + 2, y + 5, 1, 2, shade(r.face, 0.04)); keyEdge(x + 2, y + 5, 1, 2, 0.14);
+    px(x + 2, y + 5, w - 4, 2, U.shade(r.face, -0.26));        // cabinet TOP plane, proud of the tank
+    px(x + 2, y + 5, 1, 2, U.shade(r.face, 0.04)); keyEdge(x + 2, y + 5, 1, 2, 0.14);
     px(x + w - 3, y + 5, 1, 2, r.ao);
-    px(x + 2, y + 7, w - 4, 3, shade(r.face, -0.40));        // and its short front face
-    px(x + 2, y + 7, w - 4, 1, shade(r.face, -0.24));
-    px(x + 2, y + 7, 1, 3, shade(r.face, -0.30)); px(x + w - 3, y + 7, 1, 3, r.ao);
+    px(x + 2, y + 7, w - 4, 3, U.shade(r.face, -0.40));        // and its short front face
+    px(x + 2, y + 7, w - 4, 1, U.shade(r.face, -0.24));
+    px(x + 2, y + 7, 1, 3, U.shade(r.face, -0.30)); px(x + w - 3, y + 7, 1, 3, r.ao);
     rimEdge(x + w - 3, y + 7, 1, 3, 0.20);
     px(x + (w >> 1) - 1, y + 7, 1, 3, '#141a1e');              // cabinet door seam
-    px(x + (w >> 1) + 1, y + 8, 2, 1, shade(r.face, 0.26));  // door pull
+    px(x + (w >> 1) + 1, y + 8, 2, 1, U.shade(r.face, 0.26));  // door pull
     px(x + 2, y + 9, w - 4, 1, r.ao);
 
     chamf(x - 1, tt - 1, w + 2, 18, EDGE, 1);                  // THE GLASS BOX
@@ -1903,7 +1818,7 @@ const PropSprites = (() => {
       const c = spec[2], L = spec[3], d = east ? 1 : -1;
       const nx = x + 3 + Math.round((east ? t : 2 - t) * (w - 9));
       const fy = COL + spec[4] + Math.round(1.2 * Math.sin(now / 1900 + spec[0] + ph));
-      const back = shade(c, 0.20), belly = shade(c, -0.42), fin = shade(c, -0.16);
+      const back = U.shade(c, 0.20), belly = U.shade(c, -0.42), fin = U.shade(c, -0.16);
       for (let i = 0; i <= L - 1; i++) {                       // body: a lit back over a shaded belly
         px(nx - d * i, fy, 1, 1, back);
         px(nx - d * i, fy + 1, 1, 1, belly);
@@ -1928,12 +1843,12 @@ const PropSprites = (() => {
       px(x + 2 + j, COL + j, 5 - (j >> 1), 1, '#dff4ff');
       ctx.globalAlpha = 1;
     }
-    px(x + 1, BOT, w - 2, 1, shade(r.face, -0.34));          // the tank's base frame on the cabinet
+    px(x + 1, BOT, w - 2, 1, U.shade(r.face, -0.34));          // the tank's base frame on the cabinet
 
     /* ================= HOOD: ONE row on the north rim, and the one cold tube ================= */
     chamf(x - 1, tt - 1, w + 2, 3, EDGE, 1);
     px(x, tt, w, 1, r.top);                                    // the hood, near edge-on from up here
-    px(x + 1, tt, 1, 1, shade(r.face, 0.20));                // WEST RAIL
+    px(x + 1, tt, 1, 1, U.shade(r.face, 0.20));                // WEST RAIL
     px(x + w - 2, tt, 1, 1, r.dk); rimEdge(x + w - 2, tt, 1, 1, 0.20);
     px(x + 2, tt + 1, w - 4, 1, '#d6f2ff');                    // the tube, right on the tank's rim
     bloom(x + 2, tt + 1, w - 4, 1, cold, 0.16);                // ⛔ a fat bloom bleaches the water below
@@ -1954,7 +1869,7 @@ const PropSprites = (() => {
     //      table" — survived only as a slot. The roll is now a 4px PERPENDICULAR offset off a true
     //      RACETRACK capsule (semicircular ends, straight sides), which is the plan shape of a real
     //      poker table, and felt owns the top surface again.
-    //   2. The pedestal was drawn with shade(rail, +0.46). Lightening a NEAR-BLACK desaturates it
+    //   2. The pedestal was drawn with U.shade(rail, +0.46). Lightening a NEAR-BLACK desaturates it
     //      toward grey, so the base rendered as brushed steel under a black oval. Dark materials need
     //      AUTHORED lit tones (LEA_MID/LEA_LIT below) — never a large positive shade().
     //   3. Five near-white board cards, two seat stacks, a five-colour chip tray and four pot stacks all
@@ -2068,7 +1983,7 @@ const PropSprites = (() => {
         if (lw + 1 < w - i * 2) px(x + i + lw + (j & 1), rtop + j, 1, 1, feltLit);
         if (lw > 2) px(x + i + lw - 2 + ((j + 1) & 1), rtop + j, 1, 1, felt);
       }
-      if (j >= 11) px(x + i, rtop + j, w - i * 2, 1, shade(felt, -0.20));   // bed darkens into the near rail
+      if (j >= 11) px(x + i, rtop + j, w - i * 2, 1, U.shade(felt, -0.20));   // bed darkens into the near rail
     }
     // NO betting line. It was tried and cut: the felt is ten rows deep, so an inner ring degenerates into
     // two long horizontal bars across the bed that out-shout the cards — and the racetrack read is already
@@ -2093,9 +2008,9 @@ const PropSprites = (() => {
       const pxx = x + 35 + s * 3, hgt = [3, 4, 2][s], base = y + 6;
       const c = s === 1 ? '#8e4433' : '#a08a4e';
       px(pxx, base - hgt + 1, 3, hgt, feltDk);
-      px(pxx, base - hgt, 2, hgt, shade(c, -0.16));
-      px(pxx, base - hgt, 2, 1, shade(c, 0.26));
-      px(pxx, base - 1, 2, 1, shade(c, -0.40));
+      px(pxx, base - hgt, 2, hgt, U.shade(c, -0.16));
+      px(pxx, base - hgt, 2, 1, U.shade(c, 0.26));
+      px(pxx, base - 1, 2, 1, U.shade(c, -0.40));
     }
     px(x + 10, y + 5, 3, 2, feltDk);
     px(x + 10, y + 4, 2, 1, '#b0a996'); px(x + 10, y + 5, 2, 1, '#7d7768');   // dealer button, west of the board
@@ -2116,7 +2031,7 @@ const PropSprites = (() => {
     const bt = y - 10, bh = 19;                                   // hangs y-10..y+8 — 3px of air under it
     ctx.globalAlpha = 0.20; px(x + 2, bt + 3, w, bh, '#000'); ctx.globalAlpha = 1;   // cast on the bulkhead
     for (const lx of [x + 6, x + 34, x + w - 9]) {                // wall lugs — no legs, nothing meets the floor
-      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, shade(r.top, 0.20));
+      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, U.shade(r.top, 0.20));
       rimEdge(lx + 1, bt - 2, 1, 3, 0.18);
     }
     chamf(x - 1, bt - 1, w + 2, bh + 2, LINE, 2);
@@ -2124,47 +2039,47 @@ const PropSprites = (() => {
     px(x + 2, bt, w - 4, 1, r.top); keyEdge(x + 2, bt, 16, 1, 0.28);   // warm ceiling strip along the crown
     px(x, bt + 2, 1, bh - 4, r.lit); px(x + w - 1, bt + 2, 1, bh - 4, r.dk);
     rimEdge(x + w - 1, bt + 2, 1, bh - 4, 0.22);                  // cool sky bounce down the shade side
-    px(x + 2, bt + bh - 2, w - 4, 1, shade(r.face, -0.26));
+    px(x + 2, bt + bh - 2, w - 4, 1, U.shade(r.face, -0.26));
     px(x + 2, bt + bh - 1, w - 4, 1, r.ao);                       // shallow underside, NOT a floor line
     // CONDUIT RAIL — the only element that crosses all three stations
     px(x + 2, bt + 2, w - 4, 2, '#0e1a17');
-    px(x + 2, bt + 2, w - 4, 1, shade(r.face, -0.42));
+    px(x + 2, bt + 2, w - 4, 1, U.shade(r.face, -0.42));
     for (let i = 0; i < 4; i++) {                                 // junction boxes at the station seams
       const jx = x + 4 + i * 17;
-      px(jx, bt + 1, 4, 4, LINE); px(jx + 1, bt + 2, 2, 2, shade(r.face, 0.10));
+      px(jx, bt + 1, 4, 4, LINE); px(jx + 1, bt + 2, 2, 2, U.shade(r.face, 0.10));
       px(jx + 1, bt + 2, 2, 1, r.lit);
     }
     const run = w - 13;
     const pkx = x + 4 + Math.round((now / (on ? 5 : 9) + ph * 20) % run);
     px(pkx, bt + 3, 5, 1, ACC.data); bloom(pkx, bt + 3, 5, 1, ACC.data, on ? 0.34 : 0.20);
     const tkx = x + 4 + Math.round((now / 12 + 90 + ph * 13) % run);
-    px(tkx, bt + 3, 3, 1, shade(ACC.data, -0.34)); bloom(tkx, bt + 3, 3, 1, ACC.data, 0.12);
+    px(tkx, bt + 3, 3, 1, U.shade(ACC.data, -0.34)); bloom(tkx, bt + 3, 3, 1, ACC.data, 0.12);
     // WEST — PATCH BAY: cable() sag is what sells this as wiring instead of a printed grid
     const bx0 = x + 3;
     inset(bx0, bt + 5, 18, 12, '#111a18');
     for (let rj = 0; rj < 3; rj++) for (let c = 0; c < 6; c++) {
       const jx = bx0 + 2 + c * 3, jy = bt + 7 + rj * 3;
-      px(jx, jy, 2, 2, '#0a1210'); px(jx, jy, 2, 1, shade(r.face, -0.16));
-      px(jx, jy + 1, 1, 1, shade(r.face, 0.06));
+      px(jx, jy, 2, 2, '#0a1210'); px(jx, jy, 2, 1, U.shade(r.face, -0.16));
+      px(jx, jy + 1, 1, 1, U.shade(r.face, 0.06));
     }
     const cords = [[0, 0, 3, 1, ACC.work], [1, 2, 4, 0, ACC.data], [2, 1, 5, 2, ACC.flow]];
     for (let i = 0; i < 3; i++) {
       const cd = cords[i];
-      cable(bx0 + 2 + cd[0] * 3, bt + 8 + cd[1] * 3, bx0 + 2 + cd[2] * 3, bt + 8 + cd[3] * 3, 2.4, shade(cd[4], -0.58));
+      cable(bx0 + 2 + cd[0] * 3, bt + 8 + cd[1] * 3, bx0 + 2 + cd[2] * 3, bt + 8 + cd[3] * 3, 2.4, U.shade(cd[4], -0.58));
       const liveJ = blink(900, i * 0.4);                          // the plug lights as its channel carries
-      px(bx0 + 2 + cd[0] * 3, bt + 7 + cd[1] * 3, 2, 2, liveJ ? cd[4] : shade(cd[4], -0.66));
+      px(bx0 + 2 + cd[0] * 3, bt + 7 + cd[1] * 3, 2, 2, liveJ ? cd[4] : U.shade(cd[4], -0.66));
       if (liveJ) bloom(bx0 + 2 + cd[0] * 3, bt + 7 + cd[1] * 3, 2, 2, cd[4], 0.20);
     }
     // CENTRE — QUEUE GLASS. Messages march EAST and one clears off the end; idle keeps phosphor, never a hole.
     const qx = x + 23, qw = 30, qy = bt + 5, qh = 12;
     inset(qx, qy, qw, qh, '#06100f');
-    px(qx + 1, qy + 1, qw - 2, qh - 2, shade(ACC.data, on ? -0.80 : -0.88));
+    px(qx + 1, qy + 1, qw - 2, qh - 2, U.shade(ACC.data, on ? -0.80 : -0.88));
     const off = Math.floor((now / (on ? 26 : 60)) % 6);
     for (let rj = 0; rj < 4; rj++) for (let k = -1; k < 6; k++) {
       const cxp = qx + 2 + k * 6 + off + (rj & 1);
       if (cxp < qx + 1 || cxp + 4 > qx + qw - 1) continue;
       const head = ((k + rj * 2) % 3) === 0;
-      px(cxp, qy + 2 + rj * 2, 4, 1, head ? shade(ACC.data, 0.10) : shade(ACC.data, -0.46));
+      px(cxp, qy + 2 + rj * 2, 4, 1, head ? U.shade(ACC.data, 0.10) : U.shade(ACC.data, -0.46));
     }
     const disp = (now % 1800) / 1800;                             // one message clears the queue every 1.8s
     if (disp < 0.30) {
@@ -2182,15 +2097,15 @@ const PropSprites = (() => {
       const up = blink(700 + i * 210, i * 0.6);
       px(chx + 1, cy, 1, 1, up ? ACC.work : '#14291f');
       if (up) bloom(chx + 1, cy, 1, 1, ACC.work, 0.22);
-      px(chx + 3, cy, 5, 1, shade(r.face, 0.12));               // channel name plate
-      px(chx + 3, cy + 1, 4, 1, shade(r.face, -0.34));
+      px(chx + 3, cy, 5, 1, U.shade(r.face, 0.12));               // channel name plate
+      px(chx + 3, cy + 1, 4, 1, U.shade(r.face, -0.34));
       for (let b = 0; b < 3; b++) {                               // signal meter, jittering
         const lvl = 1 + Math.floor((1 + Math.sin(now / 240 + i * 1.7 + b)) * (on ? 0.9 : 0.45));
-        px(chx + 9 + b, cy + 1 - (lvl - 1), 1, lvl, shade(ACC.data, b < 2 ? 0 : -0.3));
+        px(chx + 9 + b, cy + 1 - (lvl - 1), 1, lvl, U.shade(ACC.data, b < 2 ? 0 : -0.3));
       }
     }
-    rivets(x + 2, bt + 1, w - 4, bh - 2, shade(r.top, 0.22), r.ao);
-    wear(x + 2, bt + 1, w - 4, bh - 2, 6, shade(r.face, -0.10));
+    rivets(x + 2, bt + 1, w - 4, bh - 2, U.shade(r.top, 0.22), r.ao);
+    wear(x + 2, bt + 1, w - 4, bh - 2, 6, U.shade(r.face, -0.10));
   };
 
   F.console = (x, y, w, h, f) => {
@@ -2243,11 +2158,11 @@ const PropSprites = (() => {
     px(sx - 1, sy - 1, sw + 2, sh + 2, '#050b07');
     if (on) {
       const sc = scr(ph);
-      px(sx, sy, sw, sh, shade(sc, -0.68));
-      px(sx, sy, sw, 1, shade(sc, 0.28));
+      px(sx, sy, sw, sh, U.shade(sc, -0.68));
+      px(sx, sy, sw, 1, U.shade(sc, 0.28));
       for (let j = 0; j < 2; j++) {
         const rw = 3 + ((j * 4 + Math.floor(now / 520)) % (sw - 5));
-        px(sx + 1, sy + 1 + j, rw, 1, shade(sc, 0.12));
+        px(sx + 1, sy + 1 + j, rw, 1, U.shade(sc, 0.12));
       }
       for (let i = 0; i < sw - 2; i++)                              // a live trace along the bottom
         px(sx + 1 + i, sy + sh - 1 - Math.round(Math.max(0, Math.sin(now / 190 + i * 0.8))), 1, 1, ACC.data);
@@ -2262,7 +2177,7 @@ const PropSprites = (() => {
     /* ---- the bank's own readout strip, east of the glass ---- */
     for (let i = 0; i < 8; i++) {
       const v = 1 + Math.floor((1 + Math.sin(now / 260 + i * 0.9 + ph)) * (on ? 1.0 : 0.4));
-      px(bX + 15 + i, bT + 7 - v, 1, v, on ? shade(G, 0.10) : shade(G, -0.62));
+      px(bX + 15 + i, bT + 7 - v, 1, v, on ? U.shade(G, 0.10) : U.shade(G, -0.62));
     }
     if (on) bloom(bX + 15, bT + 5, 8, 3, G, 0.16);
 
@@ -2303,7 +2218,7 @@ const PropSprites = (() => {
     rimEdge(x + w - 2, bT + 2, 1, bH - 5, 0.20);
     for (let i = 0; i < 5; i++) {                                   // the ribbed field, 4 rows only
       const rx = x + 3 + i * 4;
-      px(rx, bT + 4, 2, 4, shade(ST, 0.14));                      // the rib's lit crown
+      px(rx, bT + 4, 2, 4, U.shade(ST, 0.14));                      // the rib's lit crown
       px(rx + 2, bT + 4, 1, 4, ST_D);                               // the valley beside it
     }
 
@@ -2311,7 +2226,7 @@ const PropSprites = (() => {
     for (const by of [bT + 1, bT + 8]) {
       px(x + 1, by, w - 2, 2, ST_D);
       px(x + 1, by, w - 2, 1, ST_L); keyEdge(x + 2, by, 8, 1, 0.18);
-      px(x + 1, by + 2, w - 2, 1, shade(ST_DK, -0.40));
+      px(x + 1, by + 2, w - 2, 1, U.shade(ST_DK, -0.40));
       for (let i = 0; i < 3; i++) px(x + 4 + i * 7, by + 1, 1, 1, ST_HI);   // three rivets, not six
     }
 
@@ -2320,7 +2235,7 @@ const PropSprites = (() => {
     px(hx, y - 4, 5, 6, ST_DK);
     px(hx, y - 4, 5, 1, ST_HI); px(hx, y - 3, 5, 2, ST_L); px(hx, y - 1, 5, 1, ST_D);
     px(hx + 2, y, 1, 2, '#151b20');                                 // the lock recess
-    px(hx, y + 2, 5, 1, shade(ST_DK, -0.40));
+    px(hx, y + 2, 5, 1, U.shade(ST_DK, -0.40));
 
     /* ---- SKIDS + floor line ---- */
     px(x + 1, y + h - 3, w - 2, 1, '#090c0f');
@@ -2332,17 +2247,17 @@ const PropSprites = (() => {
     chamf(x, y - 9, w, 8, ST, 2);
     px(x + 1, y - 9, w - 2, 1, ST_HI); keyEdge(x + 2, y - 9, 9, 1, 0.26);
     for (let i = 1; i < 4; i++) {                                   // ribs crossing the lid
-      px(x + 1, y - 8 + i * 2, w - 2, 1, shade(ST, -0.20));
-      px(x + 1, y - 7 + i * 2, w - 2, 1, shade(ST, 0.08));
+      px(x + 1, y - 8 + i * 2, w - 2, 1, U.shade(ST, -0.20));
+      px(x + 1, y - 7 + i * 2, w - 2, 1, U.shade(ST, 0.08));
     }
     px(x, y - 9, 1, 8, ST_L); px(x + w - 1, y - 9, 1, 8, ST_DK);
     rimEdge(x + w - 1, y - 8, 1, 6, 0.20);
-    px(x + 1, y - 2, w - 2, 1, shade(ST_DK, -0.30));              // the rebate under the lip
+    px(x + 1, y - 2, w - 2, 1, U.shade(ST_DK, -0.30));              // the rebate under the lip
     for (const s of [0, 1]) {                                       // lid corner caps
       const cx0 = s ? x + w - 3 : x + 1;
       px(cx0, y - 9, 2, 1, ST_L); px(cx0, y - 8, 2, 1, ST_DK);
     }
-    wear(x + 2, y - 8, w - 4, 6, 4, shade(ST, -0.14));
+    wear(x + 2, y - 8, w - 4, 6, 4, U.shade(ST, -0.14));
   };
 
   F.fabricator = (x, y, w, h, f) => { // v4 apparel fabricator (3x2) — a framed gantry BAY, a feed line, an out-hopper
@@ -2358,7 +2273,7 @@ const PropSprites = (() => {
     underAO(x + 5, y + 15, w - 10, 2);
     // OUT hopper on the plate — a 3x2 machine needs a visible in-end and out-end, not one big shape
     chamf(x + 12, y + 16, 12, 6, LINE, 1);
-    px(x + 13, y + 17, 10, 4, shade(r.face, -0.18));
+    px(x + 13, y + 17, 10, 4, U.shade(r.face, -0.18));
     px(x + 13, y + 17, 10, 1, r.face); keyEdge(x + 14, y + 17, 6, 1, 0.14);
     px(x + 13, y + 20, 10, 1, r.ao);
     px(x + 15, y + 18, 6, 2, '#d8d0c0'); px(x + 15, y + 18, 6, 1, '#ece4d6');   // folded output
@@ -2367,7 +2282,7 @@ const PropSprites = (() => {
     chamf(x - 1, y + 9, w + 2, 7, LINE, 2);
     px(x, y + 10, w, 4, r.face);
     px(x, y + 10, w, 1, r.lit); keyEdge(x + 1, y + 10, w - 5, 1, 0.15);
-    px(x, y + 11, 1, 3, shade(r.face, 0.08)); px(x + w - 1, y + 11, 1, 3, r.dk);
+    px(x, y + 11, 1, 3, U.shade(r.face, 0.08)); px(x + w - 1, y + 11, 1, 3, r.dk);
     rimEdge(x + w - 1, y + 11, 1, 3, 0.20);
     px(x, y + 13, w, 1, r.ao);
     inset(x + 3, y + 11, w - 14, 2, '#10161a');
@@ -2375,7 +2290,7 @@ const PropSprites = (() => {
       const pw = 1 + Math.floor(((now / 900) % 1) * (w - 17));
       px(x + 4, y + 11, pw, 1, '#ff9d2e');
       bloom(x + 4, y + 11, pw, 1, '#ff9d2e', 0.16);
-    } else px(x + 4, y + 11, 2, 1, shade('#ff9d2e', -0.66));   // parked head still reads as a bar, not a dead slot
+    } else px(x + 4, y + 11, 2, 1, U.shade('#ff9d2e', -0.66));   // parked head still reads as a bar, not a dead slot
     px(x + w - 8, y + 11, 2, 2, (blink(400) && on) ? ACC.work : '#2a3a30');   // run light (kept 400)
     px(x + w - 5, y + 11, 1, 1, blink(900) ? ACC.flow : '#33291a');           // heater light (kept 900)
     // the chamfered casing top dominates
@@ -2384,25 +2299,25 @@ const PropSprites = (() => {
     px(x + 2, y - 3, w - 4, 1, r.sheen); keyEdge(x + 2, y - 3, 10, 1, 0.30);
     px(x, y - 1, 1, 9, r.lit); px(x + w - 1, y - 1, 1, 9, r.dk);
     rimEdge(x + w - 1, y - 1, 1, 9, 0.20);
-    px(x + 2, y + 8, w - 4, 1, shade(r.top, -0.18));
-    wear(x + 2, y + 5, w - 4, 3, 3, shade(r.top, -0.10));
-    px(x + 1, y + 1, 3, 5, shade(r.top, -0.26)); px(x + 1, y + 1, 3, 1, shade(r.top, 0.10)); // access hatch
+    px(x + 2, y + 8, w - 4, 1, U.shade(r.top, -0.18));
+    wear(x + 2, y + 5, w - 4, 3, 3, U.shade(r.top, -0.10));
+    px(x + 1, y + 1, 3, 5, U.shade(r.top, -0.26)); px(x + 1, y + 1, 3, 1, U.shade(r.top, 0.10)); // access hatch
     px(x + 2, y + 3, 1, 1, r.sheen);
-    for (let i = 0; i < 3; i++) { px(x + w - 5, y + 1 + i * 2, 3, 1, r.ao); px(x + w - 5, y + 2 + i * 2, 3, 1, shade(r.top, 0.08)); }
+    for (let i = 0; i < 3; i++) { px(x + w - 5, y + 1 + i * 2, 3, 1, r.ao); px(x + w - 5, y + 2 + i * 2, 3, 1, U.shade(r.top, 0.08)); }
     // PRINT BAY: a heavy frame around the bed, so the window reads as a machine cavity and not a sticker
     const bx = x + 6, by = y - 1, bw = w - 14, bh = 6;
     px(bx - 2, by - 2, bw + 4, bh + 4, LINE);
-    px(bx - 1, by - 1, bw + 2, bh + 2, shade(r.face, -0.34));
-    px(bx - 1, by - 1, bw + 2, 1, shade(r.top, 0.10));
-    px(bx - 1, by - 1, 1, bh + 2, shade(r.top, 0.06)); px(bx + bw, by - 1, 1, bh + 2, shade(r.top, -0.40));
-    px(bx - 1, by + bh, bw + 2, 1, shade(r.top, -0.44));
+    px(bx - 1, by - 1, bw + 2, bh + 2, U.shade(r.face, -0.34));
+    px(bx - 1, by - 1, bw + 2, 1, U.shade(r.top, 0.10));
+    px(bx - 1, by - 1, 1, bh + 2, U.shade(r.top, 0.06)); px(bx + bw, by - 1, 1, bh + 2, U.shade(r.top, -0.40));
+    px(bx - 1, by + bh, bw + 2, 1, U.shade(r.top, -0.44));
     px(bx, by, bw, bh, on ? '#20282e' : '#161d22');            // bed plate — idle keeps a little sheen, never a hole
-    px(bx, by, bw, 1, shade(r.face, -0.5));                  // recess shadow at the back of the well
-    px(bx, by + 1, bw, 1, shade(r.top, -0.05));              // gantry rail
+    px(bx, by, bw, 1, U.shade(r.face, -0.5));                  // recess shadow at the back of the well
+    px(bx, by + 1, bw, 1, U.shade(r.top, -0.05));              // gantry rail
     if (on) {
       const hd = bx + 1 + Math.floor((now / 120) % (bw - 3));  // moving print head (kept 120)
-      px(bx, by + 3, bw, 3, shade('#ff9d2e', -0.55));        // laid-down material
-      for (let i = 0; i < bw; i += 2) px(bx + i, by + 4, 1, 1, shade('#ff9d2e', -0.30));
+      px(bx, by + 3, bw, 3, U.shade('#ff9d2e', -0.55));        // laid-down material
+      for (let i = 0; i < bw; i += 2) px(bx + i, by + 4, 1, 1, U.shade('#ff9d2e', -0.30));
       bloom(bx, by + 3, bw, 3, '#ff9d2e', 0.12 + 0.05 * Math.sin(now / 300 + ph));
       px(hd, by + 1, 2, 4, '#8a98a8'); px(hd, by + 1, 2, 1, '#b6c2ce');   // carriage
       px(hd, by + 5, 2, 1, '#ffd9a0');                         // molten thread at the nozzle
@@ -2415,12 +2330,12 @@ const PropSprites = (() => {
     }
     // filament spool on the west flank + the feed tube arcing into the bay — plumbing is what says "machine"
     chamf(x - 3, y + 1, 7, 7, LINE, 1);
-    px(x - 2, y + 2, 5, 5, shade(r.face, -0.10)); px(x - 2, y + 2, 5, 1, r.lit);
+    px(x - 2, y + 2, 5, 5, U.shade(r.face, -0.10)); px(x - 2, y + 2, 5, 1, r.lit);
     rimEdge(x + 2, y + 3, 1, 4, 0.18);
-    px(x - 1, y + 3, 3, 3, '#c98a3a'); px(x - 1, y + 3, 3, 1, shade('#c98a3a', 0.22));
+    px(x - 1, y + 3, 3, 3, '#c98a3a'); px(x - 1, y + 3, 3, 1, U.shade('#c98a3a', 0.22));
     px(x, y + 4, 1, 1, '#10161a');                             // hub
     const spin = Math.floor(now / 200) % 4;                    // rotation tell (kept 200)
-    if (on) px(x - 1 + (spin % 3), y + (spin < 2 ? 3 : 5), 1, 1, shade('#c98a3a', 0.34));
+    if (on) px(x - 1 + (spin % 3), y + (spin < 2 ? 3 : 5), 1, 1, U.shade('#c98a3a', 0.34));
     cable(x + 2, y + 3, bx + 2, by + 1, -2.2, '#2a2118');
   };
 
@@ -2432,7 +2347,7 @@ const PropSprites = (() => {
     cable(x + w - 4, y + 14, x + w + 2, y + h - 3, 2.2);
     // candle tray on the plate — the vat's visible OUTPUT
     chamf(x + 3, y + 16, 15, 6, LINE, 1);
-    px(x + 4, y + 17, 13, 4, shade(r.face, -0.18)); px(x + 4, y + 17, 13, 1, r.face);
+    px(x + 4, y + 17, 13, 4, U.shade(r.face, -0.18)); px(x + 4, y + 17, 13, 1, r.face);
     keyEdge(x + 5, y + 17, 8, 1, 0.14);
     px(x + 4, y + 20, 13, 1, r.ao);
     for (const c3 of [[x + 5, y + 18, 3], [x + 8, y + 17, 4], [x + 11, y + 18, 3]]) {
@@ -2446,8 +2361,8 @@ const PropSprites = (() => {
     px(x + 1, y + 3, 2, 12, r.lit); keyEdge(x + 1, y + 4, 1, 9, 0.18);
     px(x + w - 3, y + 3, 2, 12, r.dk); rimEdge(x + w - 3, y + 4, 1, 9, 0.22);
     px(x + 2, y + 14, w - 4, 1, r.ao);
-    px(x + 1, y + 8, w - 2, 1, shade(r.face, -0.30));        // welded hoop
-    px(x + 1, y + 9, w - 2, 1, shade(r.face, 0.10));
+    px(x + 1, y + 8, w - 2, 1, U.shade(r.face, -0.30));        // welded hoop
+    px(x + 1, y + 9, w - 2, 1, U.shade(r.face, 0.10));
     knurl(x + 4, y + 5, 8, 1, r.face);
     // BURNER: firelight leaks from the seam under the drum and is hottest at the pilot, not a uniform bar
     const heat = on ? 0.52 + 0.26 * Math.sin(now / 250 + ph) : 0.15;
@@ -2459,8 +2374,8 @@ const PropSprites = (() => {
     bloom(x + 5, y + 11, w - 10, 1, '#ff9d2e', heat * 0.20);
     for (let i = 0; i < (w - 6) / 4; i++) px(x + 3 + i * 4, y + 13, 2, 1, i % 2 ? '#caa84a' : '#28323a'); // hazard (kept)
     px(x + w - 7, y + 10, 5, 5, LINE);                         // temp gauge (kept)
-    px(x + w - 6, y + 11, 3, 3, '#1b2226'); px(x + w - 6, y + 11, 3, 1, shade(r.face, 0.14));
-    px(x + w - 5 + (on ? 1 : 0), y + 12, 1, 1, on ? ACC.flow : shade(ACC.flow, -0.55));  // needle swings hot
+    px(x + w - 6, y + 11, 3, 3, '#1b2226'); px(x + w - 6, y + 11, 3, 1, U.shade(r.face, 0.14));
+    px(x + w - 5 + (on ? 1 : 0), y + 12, 1, 1, on ? ACC.flow : U.shade(ACC.flow, -0.55));  // needle swings hot
     // the OVAL RIM + molten pool dominate: dark body below the surface, light climbing UP the far wall
     const cx2 = x + w / 2, cy2 = y + 3;
     ctx.save();
@@ -2487,7 +2402,7 @@ const PropSprites = (() => {
     px(x + 6 + Math.floor((now / 500) % (w - 14)), cy2 - 1, 2, 1, '#fff4dd');  // shimmer (kept)
     const stx = x + 7 + Math.floor((0.5 + 0.5 * Math.sin(now / 1300 + ph)) * (w - 15));  // stirrer sweep (kept)
     px(stx, cy2 - 4, 1, 5, '#8a98a8'); px(stx, cy2 - 4, 1, 1, '#aab8c8'); px(stx + 1, cy2 - 3, 1, 3, '#3e4a54');
-    px(stx - 1, cy2 + 1, 3, 1, '#f0c890'); px(stx - 2, cy2 + 2, 5, 1, shade('#f0c890', -0.35));  // wake
+    px(stx - 1, cy2 + 1, 3, 1, '#f0c890'); px(stx - 2, cy2 + 2, 5, 1, U.shade('#f0c890', -0.35));  // wake
     ctx.restore();
     // stirrer GANTRY bridging the basin — the paddle hangs off it instead of floating over the wax
     px(x + 4, y - 4, w - 8, 2, LINE); px(x + 5, y - 4, w - 10, 1, r.top);
@@ -2541,12 +2456,12 @@ const PropSprites = (() => {
     px(cx0, cy0 - 2, cw, 1, WD_LIT); keyEdge(cx0 + 1, cy0 - 2, 7, 1, 0.26);   // the proud top edge
     px(cx0 - 1, cy0 + 1, 1, ch - 2, WD_LIT); px(cx0 + cw, cy0 + 1, 1, ch - 2, WD_DK);
     rimEdge(cx0 + cw, cy0 + 1, 1, ch - 2, 0.20);
-    px(cx0 - 1, cy0 + ch, cw + 2, 1, shade(WD_DK, -0.20));         // the frame's bottom rail, in shade
+    px(cx0 - 1, cy0 + ch, cw + 2, 1, U.shade(WD_DK, -0.20));         // the frame's bottom rail, in shade
     px(cx0, cy0, cw, ch, LIN);                                       // PRIMED LINEN — the light ground
     px(cx0, cy0, cw, 1, LIN_LIT);                                    // the top of the weave takes the key
-    px(cx0, cy0, 1, ch, shade(LIN, 0.05)); px(cx0 + cw - 1, cy0, 1, ch, LIN_DK);
-    for (let i = 0; i < 3; i++) px(cx0 + 1, cy0 + 4 + i * 5, cw - 2, 1, shade(LIN, -0.06));   // weave
-    px(cx0, cy0 + ch - 1, cw, 1, shade(LIN, -0.16));               // the ledge's shadow on the linen
+    px(cx0, cy0, 1, ch, U.shade(LIN, 0.05)); px(cx0 + cw - 1, cy0, 1, ch, LIN_DK);
+    for (let i = 0; i < 3; i++) px(cx0 + 1, cy0 + 4 + i * 5, cw - 2, 1, U.shade(LIN, -0.06));   // weave
+    px(cx0, cy0 + ch - 1, cw, 1, U.shade(LIN, -0.16));               // the ledge's shadow on the linen
     // ---- THE PICTURE. Dark pigment on the light ground, in both states. Idle is a charcoal LAY-IN
     // (horizon, a figure blocked in, a couple of construction lines); working paints it in, top-down.
     // It is a PORTRAIT easel, so the lay-in is a bust: head, neck, then shoulders spreading wider than
@@ -2554,47 +2469,47 @@ const PropSprites = (() => {
     // piece next to a bottle — on a 20px canvas the shoulder line is the only cue that says "a person".
     const PG = '#4b4034', PG2 = '#6d6152';
     px(cx0 + 7, cy0 + 3, 5, 5, PG);                                  // head
-    px(cx0 + 8, cy0 + 2, 3, 1, shade(PG, -0.20));                  // crown
-    px(cx0 + 8, cy0 + 8, 3, 2, shade(PG, 0.10));                   // neck
+    px(cx0 + 8, cy0 + 2, 3, 1, U.shade(PG, -0.20));                  // crown
+    px(cx0 + 8, cy0 + 8, 3, 2, U.shade(PG, 0.10));                   // neck
     // shoulders — TAPERED, and they must not touch the canvas edges. A first draft ran them 13px wide
     // at a constant width and the bust read as a dark BAR under a blob: a rectangle spanning the picture
     // is a horizon, not a body. Widening row by row, with linen left either side, is what makes it read.
     for (let j = 0; j < 5; j++) px(cx0 + 8 - j - 1, cy0 + 10 + j, 5 + (j + 1) * 2, 1, PG);
     px(cx0 + 6, cy0 + 10, 7, 1, PG2);                                // the lit top of the shoulder line
-    px(cx0 + 6, cy0 + 12, 2, 3, shade(PG, -0.18)); px(cx0 + 11, cy0 + 12, 2, 3, shade(PG, -0.18));
-    px(cx0 + 1, cy0 + 9, 5, 1, shade(LIN, -0.20));                 // the ground line, BEHIND the sitter
-    px(cx0 + cw - 6, cy0 + 9, 5, 1, shade(LIN, -0.20));
-    px(cx0 + 2, cy0 + 6, 3, 1, shade(LIN, -0.14));                 // two construction marks, still showing
-    px(cx0 + cw - 5, cy0 + 5, 3, 1, shade(LIN, -0.14));
+    px(cx0 + 6, cy0 + 12, 2, 3, U.shade(PG, -0.18)); px(cx0 + 11, cy0 + 12, 2, 3, U.shade(PG, -0.18));
+    px(cx0 + 1, cy0 + 9, 5, 1, U.shade(LIN, -0.20));                 // the ground line, BEHIND the sitter
+    px(cx0 + cw - 6, cy0 + 9, 5, 1, U.shade(LIN, -0.20));
+    px(cx0 + 2, cy0 + 6, 3, 1, U.shade(LIN, -0.14));                 // two construction marks, still showing
+    px(cx0 + cw - 5, cy0 + 5, 3, 1, U.shade(LIN, -0.14));
     if (on) {
       // THE REVEAL PAINTS THE PICTURE, IT DOES NOT ERASE IT. A first version filled every revealed row
       // edge-to-edge with ACC.lounge, so "working" replaced the portrait with a flat magenta flag and
       // the face survived only as a peach square floating in it. The reveal now lays a muted BACKDROP
       // and then re-stamps the same head/neck/shoulder geometry in painted tones over it — same shapes
       // as the lay-in, in colour, which is what finishing a canvas actually looks like.
-      const BKD = '#6b4257', SKN = '#f0c69c', HAIR = '#3a2430', GRB = shade(ACC.lounge, -0.34);
+      const BKD = '#6b4257', SKN = '#f0c69c', HAIR = '#3a2430', GRB = U.shade(ACC.lounge, -0.34);
       const rev = (now / 2400) % 1, rh = Math.max(1, Math.min(ch - 2, Math.floor((ch - 2) * rev) + 1));
       const done = (ry, rhh) => Math.max(0, Math.min(rhh, rh - (ry - cy0 - 1)));   // rows of a band painted
       for (let j = 0; j < rh; j++)                                   // the backdrop wash, warm at the top
-        px(cx0 + 1, cy0 + 1 + j, cw - 2, 1, shade(BKD, 0.14 * (1 - j / ch)));
+        px(cx0 + 1, cy0 + 1 + j, cw - 2, 1, U.shade(BKD, 0.14 * (1 - j / ch)));
       let d = done(cy0 + 2, 1); if (d) px(cx0 + 8, cy0 + 2, 3, d, HAIR);            // crown
       d = done(cy0 + 3, 5); if (d) { px(cx0 + 7, cy0 + 3, 5, d, SKN);               // head
-        px(cx0 + 7, cy0 + 3, 1, d, shade(SKN, -0.22)); px(cx0 + 7, cy0 + 3, 5, 1, HAIR); }
+        px(cx0 + 7, cy0 + 3, 1, d, U.shade(SKN, -0.22)); px(cx0 + 7, cy0 + 3, 5, 1, HAIR); }
       if (rh > 5) { px(cx0 + 8, cy0 + 5, 1, 1, '#2a1a24'); px(cx0 + 10, cy0 + 5, 1, 1, '#2a1a24'); }
-      d = done(cy0 + 8, 2); if (d) px(cx0 + 8, cy0 + 8, 3, d, shade(SKN, -0.16));  // neck
+      d = done(cy0 + 8, 2); if (d) px(cx0 + 8, cy0 + 8, 3, d, U.shade(SKN, -0.16));  // neck
       for (let j = 0; j < 5; j++)                                    // shoulders, in the sitter's garment
-        if (done(cy0 + 10 + j, 1)) px(cx0 + 8 - j - 1, cy0 + 10 + j, 5 + (j + 1) * 2, 1, j ? GRB : shade(GRB, 0.22));
+        if (done(cy0 + 10 + j, 1)) px(cx0 + 8 - j - 1, cy0 + 10 + j, 5 + (j + 1) * 2, 1, j ? GRB : U.shade(GRB, 0.22));
       // the wet edge — the only bright pixel this prop ever shows, and it exists only while a row is wet
       if (rh < ch - 2) px(cx0 + 1, cy0 + 1 + rh, cw - 2, 1, blink(120, ph) ? '#ffe4f6' : ACC.lounge);
       bloom(cx0 + 1, cy0 + 1, cw - 2, rh, ACC.lounge, 0.09);
     } else {
-      px(cx0 + cw - 3, cy0 + ch - 3, 1, 1, blink(1600, ph) ? shade(ACC.flow, -0.30) : '#8d8474');   // a pin
+      px(cx0 + cw - 3, cy0 + ch - 3, 1, 1, blink(1600, ph) ? U.shade(ACC.flow, -0.30) : '#8d8474');   // a pin
     }
     // ---- PAINT LEDGE bolted across the front legs, with the tools on it
     chamf(x + 5, y + 12, w - 10, 5, LINE, 1);
     px(x + 6, y + 13, w - 12, 3, WD); px(x + 6, y + 13, w - 12, 1, WD_LIT);
     keyEdge(x + 7, y + 13, 8, 1, 0.15);
-    px(x + 6, y + 15, w - 12, 1, shade(WD_DK, -0.20));
+    px(x + 6, y + 15, w - 12, 1, U.shade(WD_DK, -0.20));
     // TOOLS. Both of these must clear the canvas: a first pass stood the brush jar at x+7 and hooked the
     // palette at x+w-15, and since the canvas face spans cx0..cx0+cw (x+8 .. x+28) BOTH were painted
     // straight over the picture. The canvas owns the middle; the tools get the two clear side strips.
@@ -2608,10 +2523,10 @@ const PropSprites = (() => {
     // PALETTE lying on the ledge, east of the canvas and BELOW its bottom rail
     chamf(x + w - 12, y + 11, 11, 5, LINE, 1);
     chamf(x + w - 11, y + 12, 9, 3, '#9d8a6c', 1); px(x + w - 11, y + 12, 9, 1, '#bda887');
-    px(x + w - 5, y + 13, 2, 1, shade('#9d8a6c', -0.44));          // the thumb hole
+    px(x + w - 5, y + 13, 2, 1, U.shade('#9d8a6c', -0.44));          // the thumb hole
     for (const dab of [[x + w - 10, ACC.lounge], [x + w - 8, ACC.data], [x + w - 6, ACC.flow]])
-      px(dab[0], y + 12, 1, 1, shade(dab[1], -0.20));
-    px(x + 12, y + 15, 1, 1, shade(ACC.lounge, -0.20)); px(x + 17, y + 15, 1, 1, shade(ACC.data, -0.20));
+      px(dab[0], y + 12, 1, 1, U.shade(dab[1], -0.20));
+    px(x + 12, y + 15, 1, 1, U.shade(ACC.lounge, -0.20)); px(x + 17, y + 15, 1, 1, U.shade(ACC.data, -0.20));
     if (on) spill(x + 8, y + 12, w - 16, ACC.lounge, 0.18, 4);       // the wet canvas throws colour down
   };
 
@@ -2623,7 +2538,7 @@ const PropSprites = (() => {
     const top = y + 2, bh = h - 4;                            // belt bed sits between two rails
     // bed: dark recessed channel
     rr(x - 1, top - 1, w + 2, bh + 2, LINE);
-    px(x, top, w, bh, shade(r.face, -0.3));
+    px(x, top, w, bh, U.shade(r.face, -0.3));
     px(x, top, w, 1, r.ao);
     // moving tread: diagonal cleats scrolling east (matches conveyor.js direction)
     const off = Math.floor(now / 110) % 6;
@@ -2632,7 +2547,7 @@ const PropSprites = (() => {
       px(cx, top + 1, 1, bh - 2, r.lit);                     // cleat lit face
       px(cx + 1, top + 1, 1, bh - 2, r.dk);                  // cleat shadow
     }
-    px(x, top + 1, w, 1, shade(r.top, -0.10));             // subtle bed sheen over the tread
+    px(x, top + 1, w, 1, U.shade(r.top, -0.10));             // subtle bed sheen over the tread
     // side RAILS (raised guide walls, lit top / dark inner)
     px(x - 1, y + 1, w + 2, 2, LINE); px(x - 1, y + h - 3, w + 2, 2, LINE);
     px(x, y + 1, w, 1, r.sheen); px(x, y + 2, w, 1, r.lit);  // north rail
@@ -2649,7 +2564,7 @@ const PropSprites = (() => {
     px(x + 1, y + h - 2, 1, 3, r.dk);
     px(x + 2 + (Math.floor(now / 150) % 3), y + h + 1, 1, 1, ACC.work); // drive pulse
     glow(x + 2, y + h, 4, 1, ACC.work, 0.25);
-    wear(x + 1, top + 1, w - 2, bh - 2, 5, shade(r.face, -0.4));
+    wear(x + 1, top + 1, w - 2, bh - 2, 5, U.shade(r.face, -0.4));
   };
 
   F.intake = (x, y, w, h, f) => {
@@ -2687,7 +2602,7 @@ const PropSprites = (() => {
     px(x + 1, y + h - 6, w - 2, 1, r.ao);
     inset(x + 4, y + h - 10, w - 8, 4, '#231d12');
     for (let i = 0; i < w - 10; i++)
-      if ((i + Math.floor(now / 160)) % 4 === 0) px(x + 5 + i, y + h - 9, 1, 2, act ? '#ffe27a' : shade(ACC.flow, -0.5));
+      if ((i + Math.floor(now / 160)) % 4 === 0) px(x + 5 + i, y + h - 9, 1, 2, act ? '#ffe27a' : U.shade(ACC.flow, -0.5));
     if (act) bloom(x + 5, y + h - 9, w - 10, 2, ACC.flow, 0.18);
 
     /* ---- MACHINE SHOULDER: the top surface the hopper is bolted through ---- */
@@ -2698,7 +2613,7 @@ const PropSprites = (() => {
     px(x, y + h - 17, 1, 5, r.lit); px(x + w - 1, y + h - 17, 1, 5, r.dk);
     rimEdge(x + w - 1, y + h - 17, 1, 5, 0.20);
     px(x + 2, y + h - 12, w - 4, 1, r.ao);
-    wear(x + 2, y + h - 17, w - 4, 5, 4, shade(r.top, -0.10));
+    wear(x + 2, y + h - 17, w - 4, 5, 4, U.shade(r.top, -0.10));
     for (let i = 0; i < 3; i++) {                                  // hazard chevrons aiming AT the throat
       const cx0 = x + 2 + i * 2;
       px(cx0, y + h - 15, 1, 1, '#caa84a'); px(cx0 + 1, y + h - 14, 1, 1, '#caa84a');
@@ -2720,7 +2635,7 @@ const PropSprites = (() => {
         px(tx0 - 1, yy, 1, 1, r.mid);                              // the rim rolling into the throat
         px(tx0, yy, tw, 1, '#150f0a');
         if (((j + Math.floor(now / 200)) % 3) === 0)
-          px(tx0, yy, tw, 1, act ? '#ffe27a' : shade(ACC.flow, -0.30));
+          px(tx0, yy, tw, 1, act ? '#ffe27a' : U.shade(ACC.flow, -0.30));
       }
     }
     if (act || cyc > 0.86) bloom(x + 4, y - 4, 16, 9, ACC.flow, act ? 0.20 + 0.06 * Math.sin(now / 300) : 0.10);
@@ -2729,7 +2644,7 @@ const PropSprites = (() => {
     /* ---- cyan SIGNAL MAST: the station is LISTENING ---- */
     const ax = x + w - 3, ping = blink(640, ph);
     px(ax, y + 2, 1, 10, r.dk); px(ax - 1, y + 2, 3, 1, r.lit); px(ax, y + 7, 1, 1, r.sheen);
-    px(ax, y + 1, 1, 1, ping ? '#7df0ff' : shade(ACC.data, -0.55));
+    px(ax, y + 1, 1, 1, ping ? '#7df0ff' : U.shade(ACC.data, -0.55));
     if (ping) bloom(ax, y + 1, 1, 1, ACC.data, 0.34);
   };
 
@@ -2766,7 +2681,7 @@ const PropSprites = (() => {
     px(x + 1, y + h - 6, w - 2, 1, r.ao);
     inset(x + 4, y + h - 10, w - 8, 4, '#08130f');
     for (let i = 0; i < w - 10; i++)
-      if ((i + Math.floor(now / 150)) % 4 === 0) px(x + 5 + i, y + h - 9, 1, 2, act ? '#7df0c8' : shade(ACC.work, -0.5));
+      if ((i + Math.floor(now / 150)) % 4 === 0) px(x + 5 + i, y + h - 9, 1, 2, act ? '#7df0c8' : U.shade(ACC.work, -0.5));
     if (act) bloom(x + 5, y + h - 9, w - 10, 2, '#5ad1b3', 0.18);
 
     /* ---- MACHINE SHOULDER ---- */
@@ -2777,7 +2692,7 @@ const PropSprites = (() => {
     px(x, y + h - 17, 1, 5, r.lit); px(x + w - 1, y + h - 17, 1, 5, r.dk);
     rimEdge(x + w - 1, y + h - 17, 1, 5, 0.20);
     px(x + 2, y + h - 12, w - 4, 1, r.ao);
-    wear(x + 2, y + h - 17, w - 4, 4, 3, shade(r.top, -0.10));
+    wear(x + 2, y + h - 17, w - 4, 4, 3, U.shade(r.top, -0.10));
 
     /* ---- OUT-TRAY sunk into the west of the shoulder, with a lit sill ---- */
     chamf(x + 1, y + h - 18, 10, 6, EDGE, 1);
@@ -2789,13 +2704,13 @@ const PropSprites = (() => {
     for (let k = 0; k < 12; k++) {
       const rx = x + 9 + k, ry = y + 11 - k;
       px(rx - 1, ry, 1, 1, EDGE); px(rx + 7, ry, 1, 1, EDGE);
-      px(rx, ry, 7, 1, k % 2 ? shade(r.face, -0.06) : r.face);
+      px(rx, ry, 7, 1, k % 2 ? U.shade(r.face, -0.06) : r.face);
       px(rx, ry, 1, 1, r.hi);                                      // north rail, catching the key
       px(rx + 1, ry, 1, 1, r.mid);
       px(rx + 6, ry, 1, 1, r.ao);                                  // south rail, in its own shade
       px(rx + 5, ry, 1, 1, r.dk);
       if ((((k - st) % 4) + 4) % 4 === 0) {                         // dispatch bars climbing the ramp
-        px(rx + 2, ry, 3, 1, act ? '#7df0c8' : shade(ACC.work, -0.45));
+        px(rx + 2, ry, 3, 1, act ? '#7df0c8' : U.shade(ACC.work, -0.45));
         if (act) bloom(rx + 2, ry, 3, 1, '#5ad1b3', 0.16);
       }
     }
@@ -2806,10 +2721,10 @@ const PropSprites = (() => {
     px(x + 17, y - 4, 5, 1, r.sheen); keyEdge(x + 17, y - 4, 3, 1, 0.28);
     px(x + 16, y - 2, 1, 3, r.lit); px(x + 22, y - 2, 1, 3, r.dk); rimEdge(x + 22, y - 2, 1, 3, 0.20);
     inset(x + 17, y - 3, 5, 4, '#06100e');
-    px(x + 18, y - 2, 3, 2, act ? '#7df0c8' : (cyc > 0.86 ? shade(ACC.work, -0.2) : '#0e1a16'));
+    px(x + 18, y - 2, 3, 2, act ? '#7df0c8' : (cyc > 0.86 ? U.shade(ACC.work, -0.2) : '#0e1a16'));
     bloom(x + 18, y - 2, 3, 2, '#5ad1b3', act ? 0.34 + 0.10 * Math.sin(now / 260) : 0.08);
     px(x + 19, y - 7, 1, 3, r.dk); px(x + 18, y - 7, 3, 1, r.lit);   // uplink whip
-    px(x + 19, y - 8, 1, 1, act ? '#7df0c8' : (blink(720, ph + 1) ? ACC.work : shade(ACC.work, -0.6)));
+    px(x + 19, y - 8, 1, 1, act ? '#7df0c8' : (blink(720, ph + 1) ? ACC.work : U.shade(ACC.work, -0.6)));
     if (act) bloom(x + 19, y - 8, 1, 1, '#5ad1b3', 0.34);
 
     /* ---- THE UNCOLLECTED-CRATE STACK (G2.3). f.crates comes from the ReturnStore ledger: real runs,
@@ -2880,7 +2795,7 @@ const PropSprites = (() => {
             as a lid laid on the machine. ---- */
     for (let j = 0; j < 5; j++) {
       const i = j ? 1 : 2;
-      px(x + i, DECK + j, w - i * 2, 1, shade(r.face, -0.12 + j * 0.05));
+      px(x + i, DECK + j, w - i * 2, 1, U.shade(r.face, -0.12 + j * 0.05));
     }
     px(x + 2, DECK + 1, 2, 4, r.mid);                                // WEST RAIL, end to end
     px(x + w - 3, DECK + 1, 1, 4, r.dk); rimEdge(x + w - 3, DECK + 1, 1, 4, 0.16);
@@ -2891,7 +2806,7 @@ const PropSprites = (() => {
     if (on) {
       px(x + 7, DECK + 2, w - 14, 2, '#8f8a7e');
       px(x + 7, DECK + 2, w - 14, 1, '#a8a294');
-      px(x + 9, DECK + 3, w - 18, 1, shade(P, -0.28));
+      px(x + 9, DECK + 3, w - 18, 1, U.shade(P, -0.28));
     }
 
     /* ---- THE RAKED PREVIEW PANEL: a trapezoid, narrow at the far edge and wide at the near one.
@@ -2901,12 +2816,12 @@ const PropSprites = (() => {
       const i = inset(j);
       px(x + i, PAN + j, w - i * 2, 1, r.ink);
     }
-    px(x + inset(0) + 1, PAN, w - (inset(0) + 1) * 2, 1, on ? P : shade(P, -0.60));   // lit top bezel
+    px(x + inset(0) + 1, PAN, w - (inset(0) + 1) * 2, 1, on ? P : U.shade(P, -0.60));   // lit top bezel
     if (on) bloom(x + inset(0) + 1, PAN, w - (inset(0) + 1) * 2, 1, P, 0.14);
     const gx = x + 4, gy = PAN + 1, gw = w - 8, gh = 5;
     px(gx - 1, gy - 1, gw + 2, gh + 2, '#0a0612');
     for (const sx2 of [gx - 1, gx + gw])                             // the bezel's colour down the rake
-      px(sx2, gy, 1, gh, on ? shade(P, -0.42) : shade(P, -0.72));
+      px(sx2, gy, 1, gh, on ? U.shade(P, -0.42) : U.shade(P, -0.72));
     if (on) {
       /* the generated picture — five big shapes, nothing finer */
       const sky = ['#8a3f8f', '#a4499b', '#c05aa6', '#d97ab4'];
@@ -2932,14 +2847,14 @@ const PropSprites = (() => {
 
     /* ---- the PROJECTOR SLIT under the panel's chin ---- */
     px(cx - 3, PAN + PANH, 6, 2, b.ink);
-    px(cx - 2, PAN + PANH, 4, 1, on ? shade(P, -0.20) : shade(P, -0.66));
-    px(cx - 1, PAN + PANH, 2, 1, on ? '#ffd0f4' : shade(P, -0.50));
+    px(cx - 2, PAN + PANH, 4, 1, on ? U.shade(P, -0.20) : U.shade(P, -0.66));
+    px(cx - 1, PAN + PANH, 2, 1, on ? '#ffd0f4' : U.shade(P, -0.50));
     if (on) bloom(cx - 2, PAN + PANH, 4, 1, P, 0.26);
 
     /* ---- STATUS LEDS: magenta, cyan, yellow ---- */
     for (let i = 0; i < 3; i++)
-      px(x + 3 + i * 2, y + 7, 1, 1, on ? [P, C, Y2][i] : shade([P, C, Y2][i], -0.70));
-    px(x + w - 6, y + 7, 2, 1, on ? P : shade(P, -0.70));
+      px(x + 3 + i * 2, y + 7, 1, 1, on ? [P, C, Y2][i] : U.shade([P, C, Y2][i], -0.70));
+    px(x + w - 6, y + 7, 2, 1, on ? P : U.shade(P, -0.70));
 
     /* ---- CHECKER SWATCH PANEL + CMY INK CHANNELS ---- */
     const pY = y + 9;
@@ -2954,7 +2869,7 @@ const PropSprites = (() => {
       const col = [C, P, Y2][i], ix = x + 9 + i * 2;
       px(ix, pY + 1, 1, 3, b.ao);
       const lvl = 1 + Math.floor((1 + Math.sin(now / 900 + i * 2.1)) * (on ? 0.9 : 0.4));
-      px(ix, pY + 4 - lvl, 1, lvl, on ? col : shade(col, -0.62));
+      px(ix, pY + 4 - lvl, 1, lvl, on ? col : U.shade(col, -0.62));
     }
 
     /* ---- THE LENS: concentric rings around a hot core ---- */
@@ -2968,10 +2883,10 @@ const PropSprites = (() => {
       else if (d > R - 1.3) c = nl < -0.3 ? r.lit : nl < 0.25 ? r.mid : r.dk;
       else if (d > R - 2.0) c = r.ao;
       else if (d > R - 2.9) c = nl < -0.3 ? r.mid : nl < 0.25 ? r.face : r.dk;
-      else c = on ? shade(P, -0.34) : shade(P, -0.72);
+      else c = on ? U.shade(P, -0.34) : U.shade(P, -0.72);
       px(lx2 + dx, ly2 + dy, 1, 1, c);
     }
-    px(lx2 - 1, ly2 - 1, 2, 2, on ? '#ffd0f4' : shade(P, -0.55));
+    px(lx2 - 1, ly2 - 1, 2, 2, on ? '#ffd0f4' : U.shade(P, -0.55));
     if (on) bloom(lx2 - 2, ly2 - 2, 4, 4, P, 0.32 + 0.08 * Math.sin(now / 760));
 
     /* ---- PRINT SLOT across the bottom, with a sheet emerging when it is working ---- */
@@ -2982,13 +2897,13 @@ const PropSprites = (() => {
     if (on) {
       px(x + 6, oY + 3, w - 12, 2, '#e8e2d6');                       // the print coming out
       px(x + 6, oY + 3, w - 12, 1, '#fffaf0');
-      px(x + 8, oY + 4, w - 16, 1, shade(P, 0.10));
+      px(x + 8, oY + 4, w - 16, 1, U.shade(P, 0.10));
     }
     /* ---- PLINTH: magenta bars either side, then feet ---- */
     px(x + 2, base - 6, w - 4, 3, r.ink);
     px(x + 3, base - 5, w - 6, 1, r.top);
-    px(x + 3, base - 5, 5, 1, on ? P : shade(P, -0.70));
-    px(x + w - 8, base - 5, 5, 1, on ? P : shade(P, -0.70));
+    px(x + 3, base - 5, 5, 1, on ? P : U.shade(P, -0.70));
+    px(x + w - 8, base - 5, 5, 1, on ? P : U.shade(P, -0.70));
     px(x + 1, base - 3, w - 2, 1, r.mid); px(x + 2, base - 2, w - 4, 1, r.ao);
     px(x, base - 2, 4, 2, r.ink); px(x + w - 4, base - 2, 4, 2, r.ink);
     px(x + 1, base - 2, 1, 1, C); px(x + 2, base - 2, 1, 1, Y2);
@@ -3008,7 +2923,7 @@ const PropSprites = (() => {
     const bt = y - 10, bh = 21;                                   // the board overdraws north of its tile
     ctx.globalAlpha = 0.18; px(x + 2, bt + 3, w, bh, '#000'); ctx.globalAlpha = 1;   // cast on the bulkhead
     for (const lx of [x + 5, x + w - 7]) {                        // wall lugs it hangs off
-      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, shade(r.top, 0.20));
+      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, U.shade(r.top, 0.20));
       rimEdge(lx + 1, bt - 2, 1, 3, 0.18);
     }
     // chamfered slate carcass — 2px corner cuts so the frame reads as machined, not as a lozenge
@@ -3017,13 +2932,13 @@ const PropSprites = (() => {
     px(x + 2, bt, w - 4, 1, r.top); keyEdge(x + 2, bt, 11, 1, 0.28);          // warm ceiling strip on the crown
     px(x, bt + 2, 1, bh - 4, r.lit); px(x + w - 1, bt + 2, 1, bh - 4, r.dk);
     rimEdge(x + w - 1, bt + 2, 1, bh - 4, 0.22);                              // cool sky bounce, shade side
-    for (const rx of [x + 2, x + w - 3]) { px(rx, bt + 2, 1, 1, shade(r.top, 0.30)); px(rx, bt + bh - 3, 1, 1, r.ao); }
+    for (const rx of [x + 2, x + w - 3]) { px(rx, bt + 2, 1, 1, U.shade(r.top, 0.30)); px(rx, bt + bh - 3, 1, 1, r.ao); }
     // recessed cork well: y-8 .. y+6, with a marker tray shelf under it
     inset(x + 2, bt + 2, w - 4, 15, '#131a15');
     px(x + 3, bt + 3, w - 6, 13, '#182219');                                  // cork ground, warmer than the frame
     wear(x + 3, bt + 3, w - 6, 13, 6, '#1f2a20');                             // old pin holes
     px(x + 2, bt + 17, w - 4, 1, r.ao);
-    px(x + 3, bt + 18, w - 6, 2, shade(r.face, 0.08));                      // marker tray
+    px(x + 3, bt + 18, w - 6, 2, U.shade(r.face, 0.08));                      // marker tray
     px(x + 3, bt + 18, w - 6, 1, r.lit); keyEdge(x + 4, bt + 18, w - 9, 1, 0.13);
     px(x + 5, bt + 19, 5, 1, '#b8452e'); px(x + 12, bt + 19, 4, 1, '#caa84a');// a marker + a chalk stub in the tray
     // PHOSPHOR HEADER — the terminal face names the surface and prints the open count as a number, so the
@@ -3164,12 +3079,12 @@ const PropSprites = (() => {
           const gc = '#f3c94a', gd = '#a8842a';
           px(tx + 1, sy + 1, 3, 2, gc);                                      // cup
           px(tx, sy + 1, 1, 1, gd); px(tx + 4, sy + 1, 1, 1, gd);            // handles
-          px(tx + 1, sy + 1, 1, 2, shade(gc, 0.30));                       // lit west flank
+          px(tx + 1, sy + 1, 1, 2, U.shade(gc, 0.30));                       // lit west flank
           px(tx + 3, sy + 1, 1, 2, gd);                                      // shaded east flank
           px(tx + 2, sy + 3, 1, 2, gd);                                      // stem
-          px(tx + 1, sy + 5, 3, 1, gc); px(tx + 1, sy + 5, 3, 1, shade(gc, -0.10));
+          px(tx + 1, sy + 5, 3, 1, gc); px(tx + 1, sy + 5, 3, 1, U.shade(gc, -0.10));
           px(tx + 1, sy + 6, 3, 1, '#1a1206');                               // contact shade on the plank
-          if (blink(1100, (i + s) * 0.3)) px(tx + 2, sy + 1, 1, 1, shade(gc, 0.40)); // slow glint, not a white speck
+          if (blink(1100, (i + s) * 0.3)) px(tx + 2, sy + 1, 1, 1, U.shade(gc, 0.40)); // slow glint, not a white speck
           bloom(tx + 1, sy + 1, 3, 2, gc, 0.16);
         } else if (won === 0 && s === 0 && i === 1 && blink(1700, 0)) {
           px(tx + 2, sy + 3, 1, 1, '#2a3138');                               // one dust mote: nothing earned yet
@@ -3215,10 +3130,10 @@ const PropSprites = (() => {
     chamf(x, y + 1, w, 5, r.top, 1);
     px(x + 1, y + 1, w - 2, 1, r.sheen); keyEdge(x + 1, y + 1, 4, 1, 0.26);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 1, y + 5, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 5, w - 2, 1, U.shade(r.top, -0.18));
     // recessed lane well — casing stays steel, the identity is the light in the channel
     px(x + 1, y + 2, w - 2, 3, '#101a1e'); px(x + 1, y + 2, w - 2, 1, '#0a1216');
-    const dim = shade(c, -0.55), lc = on ? shade(c, 0.22) : shade(c, -0.12);
+    const dim = U.shade(c, -0.55), lc = on ? U.shade(c, 0.22) : U.shade(c, -0.12);
     px(x + 1, y + 3, 5, 1, dim);                                // trunk in
     px(x + 6, y + 2, 5, 1, dim); px(x + 6, y + 4, 5, 1, dim);   // the two branches
     px(x + 6, y + 3, 1, 1, lc);                                 // split node
@@ -3228,7 +3143,7 @@ const PropSprites = (() => {
     const pyp = t < 0.5 ? y + 3 : (alt ? y + 4 : y + 2);
     px(pxp, pyp, 2, 1, '#c8f4e6'); bloom(pxp, pyp, 2, 1, c, on ? 0.40 : 0.24);
     px(x + w, y + 2, 2, 1, alt ? dim : lc); px(x + w, y + 6, 2, 1, alt ? lc : dim);   // nozzle tips
-    px(x + 2, y + 7, 1, 1, blink(360, ph) ? '#7df0c8' : shade(c, -0.55));           // routing LED
+    px(x + 2, y + 7, 1, 1, blink(360, ph) ? '#7df0c8' : U.shade(c, -0.55));           // routing LED
     if (on) glow(x, y + 1, w, 5, c, 0.10);
   };
 
@@ -3249,30 +3164,30 @@ const PropSprites = (() => {
     chamf(x, y + 1, w, 5, r.top, 1);
     px(x + 1, y + 1, w - 2, 1, r.sheen); keyEdge(x + 1, y + 1, 3, 1, 0.26);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 1, y + 5, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 5, w - 2, 1, U.shade(r.top, -0.18));
     px(x + 1, y + 2, w - 2, 3, '#161020'); px(x + 1, y + 2, w - 2, 1, '#0e0a16');   // violet lane well
-    px(x + 1, y + 3, 4, 1, on ? shade(ACC.mem, 0.20) : shade(ACC.mem, -0.20));  // unsorted trunk IN
-    px(x + 8, y + 3, 3, 1, shade(rc, -0.15));                                     // sorted lane OUT
+    px(x + 1, y + 3, 4, 1, on ? U.shade(ACC.mem, 0.20) : U.shade(ACC.mem, -0.20));  // unsorted trunk IN
+    px(x + 8, y + 3, 3, 1, U.shade(rc, -0.15));                                     // sorted lane OUT
     for (let i = 0; i < 3; i++) {                                                   // three route tips, one lit
       const ty = y + 2 + i;
-      px(x + w - 2, ty, 2, 1, i === sel ? ROUTE[i] : shade(ROUTE[i], -0.62));
+      px(x + w - 2, ty, 2, 1, i === sel ? ROUTE[i] : U.shade(ROUTE[i], -0.62));
       if (i === sel) bloom(x + w - 2, ty, 2, 1, ROUTE[i], on ? 0.34 : 0.20);
     }
     const pk = (now % 700) / 700;                               // a box riding in to be read
     px(x + 1 + Math.floor(pk * 4), y + 3, 1, 1, '#d8b8ff');
     // SORTING CARTRIDGE — the silhouette that names it; collar ties it to the box so it can't float
     const dx0 = x + 3, dt = y - 7;
-    px(x + 2, y, 8, 2, LINE); px(x + 3, y, 6, 1, shade(r.top, 0.10)); px(x + 3, y + 1, 6, 1, r.ao); // collar
+    px(x + 2, y, 8, 2, LINE); px(x + 3, y, 6, 1, U.shade(r.top, 0.10)); px(x + 3, y + 1, 6, 1, r.ao); // collar
     chamf(dx0 - 1, dt - 1, 8, 10, LINE, 2);
     chamf(dx0, dt, 6, 8, r.face, 2);
     px(dx0 + 1, dt, 4, 1, r.top); keyEdge(dx0 + 1, dt, 3, 1, 0.28);
     px(dx0, dt + 2, 1, 5, r.lit); px(dx0 + 5, dt + 2, 1, 5, r.dk); rimEdge(dx0 + 5, dt + 2, 1, 5, 0.20);
-    px(dx0, dt + 1, 6, 1, shade(r.face, -0.36)); px(dx0, dt + 7, 6, 1, shade(r.face, -0.36)); // clamp bands
+    px(dx0, dt + 1, 6, 1, U.shade(r.face, -0.36)); px(dx0, dt + 7, 6, 1, U.shade(r.face, -0.36)); // clamp bands
     px(dx0 + 1, dt + 3, 4, 3, '#140b1c');                       // sight window
-    px(dx0 + 1, dt + 4, 4, 1, shade(rc, on ? 0.10 : -0.30));  // the route it just picked
-    px(dx0 + 1 + (Math.floor(now / 190) % 4), dt + 3, 1, 1, shade(ACC.mem, 0.35)); // tag-read scan
+    px(dx0 + 1, dt + 4, 4, 1, U.shade(rc, on ? 0.10 : -0.30));  // the route it just picked
+    px(dx0 + 1 + (Math.floor(now / 190) % 4), dt + 3, 1, 1, U.shade(ACC.mem, 0.35)); // tag-read scan
     bloom(dx0 + 1, dt + 3, 4, 3, ACC.mem, on ? 0.26 : 0.13);    // violet halo = "this is the filter"
-    px(dx0 + 4, dt + 6, 1, 1, blink(420, ph) ? '#d8b8ff' : shade(ACC.mem, -0.5)); // sorting LED
+    px(dx0 + 4, dt + 6, 1, 1, blink(420, ph) ? '#d8b8ff' : U.shade(ACC.mem, -0.5)); // sorting LED
   };
 
   F.merger = (x, y, w, h, f) => {
@@ -3296,9 +3211,9 @@ const PropSprites = (() => {
     chamf(x, y + 1, w, 5, r.top, 1);
     px(x + 1, y + 1, w - 2, 1, r.sheen); keyEdge(x + 1, y + 1, 4, 1, 0.26);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 1, y + 5, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 5, w - 2, 1, U.shade(r.top, -0.18));
     px(x + 1, y + 2, w - 2, 3, '#1c150e'); px(x + 1, y + 2, w - 2, 1, '#120e08');   // lane well
-    const dim = shade(c, -0.55), lc = on ? shade(c, 0.22) : shade(c, -0.12);
+    const dim = U.shade(c, -0.55), lc = on ? U.shade(c, 0.22) : U.shade(c, -0.12);
     px(x + 1, y + 2, 5, 1, dim); px(x + 1, y + 4, 5, 1, dim);   // two inputs converging
     px(x + 5, y + 3, 1, 1, lc);                                 // the join node
     px(x + 6, y + 3, 5, 1, dim);                                // combined out lane
@@ -3307,13 +3222,13 @@ const PropSprites = (() => {
       const p = x + 1 + Math.floor((t / 0.55) * 4);
       px(p, y + 2, 1, 1, '#ffd488'); px(p, y + 4, 1, 1, '#ffd488');
       bloom(p, y + 2, 1, 1, c, 0.26); bloom(p, y + 4, 1, 1, c, 0.26);
-      px(x + 5, y + 3, 1, 1, shade(c, -0.2 + 0.4 * (t / 0.55)));   // buffer filling
+      px(x + 5, y + 3, 1, 1, U.shade(c, -0.2 + 0.4 * (t / 0.55)));   // buffer filling
     } else {                                                    // ...and ONE fatter box leaves
       const p = x + 5 + Math.floor(((t - 0.55) / 0.45) * 6);
       px(p, y + 3, 2, 1, '#ffd488'); bloom(p, y + 3, 2, 1, c, on ? 0.40 : 0.26);
     }
     px(x + w, y + 4, 2, 1, t < 0.55 ? dim : lc);                // outlet tip
-    px(x + 2, y + 7, 1, 1, blink(520, ph) ? '#ffd488' : shade(c, -0.5));   // buffer LED
+    px(x + 2, y + 7, 1, 1, blink(520, ph) ? '#ffd488' : U.shade(c, -0.5));   // buffer LED
     if (on) glow(x, y + 1, w, 5, c, 0.10);
   };
 
@@ -3339,14 +3254,14 @@ const PropSprites = (() => {
     chamf(x, y + 1, w, 5, r.top, 1);
     px(x + 1, y + 1, w - 2, 1, r.sheen); keyEdge(x + 1, y + 1, 4, 1, 0.26);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 1, y + 5, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 5, w - 2, 1, U.shade(r.top, -0.18));
     px(x + 1, y + 2, w - 2, 3, '#1e120c'); px(x + 1, y + 2, w - 2, 1, '#140c08');   // lane well, ember-dark
-    const dim = shade(c, -0.55), lc = on ? shade(c, 0.22) : shade(c, -0.12);
+    const dim = U.shade(c, -0.55), lc = on ? U.shade(c, 0.22) : U.shade(c, -0.12);
     px(x + 1, y + 2, 5, 1, dim); px(x + 1, y + 4, 5, 1, dim);   // two inputs
     px(x + 7, y + 3, 4, 1, dim);                                // the single out lane
     const per = on ? 1300 : 2200, t = (now % per) / per;
     const held = t < 0.7;                                       // the barrier phase: both crates wait at the bar
-    px(x + 6, y + 2, 1, 3, held ? lc : shade(c, -0.35));      // THE LATCH BAR — lit while holding, dark when dropped
+    px(x + 6, y + 2, 1, 3, held ? lc : U.shade(c, -0.35));      // THE LATCH BAR — lit while holding, dark when dropped
     if (held) {
       const a = Math.min(1, t / 0.35), p1 = x + 1 + Math.floor(a * 4);   // crate 1 arrives first...
       px(p1, y + 2, 1, 1, '#ffc9a0'); bloom(p1, y + 2, 1, 1, c, 0.24);
@@ -3357,7 +3272,7 @@ const PropSprites = (() => {
       px(p, y + 3, 2, 1, '#ffc9a0'); bloom(p, y + 3, 2, 1, c, on ? 0.42 : 0.26);
     }
     px(x + w, y + 4, 2, 1, held ? dim : lc);                    // outlet tip
-    px(x + 2, y + 7, 1, 1, held && blink(300, ph) ? '#ffc9a0' : shade(c, -0.5));   // WAITING lamp blinks while held
+    px(x + 2, y + 7, 1, 1, held && blink(300, ph) ? '#ffc9a0' : U.shade(c, -0.5));   // WAITING lamp blinks while held
     if (on) glow(x, y + 1, w, 5, c, 0.10);
   };
 
@@ -3379,9 +3294,9 @@ const PropSprites = (() => {
     chamf(x, y + 1, w, 5, r.top, 1);
     px(x + 1, y + 1, w - 2, 1, r.sheen); keyEdge(x + 1, y + 1, 4, 1, 0.26);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 1, y + 5, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 5, w - 2, 1, U.shade(r.top, -0.18));
     px(x + 1, y + 2, w - 2, 3, '#0c1a20'); px(x + 1, y + 2, w - 2, 1, '#08121a');   // cold lane well
-    const dim = shade(c, -0.55), lc = on ? shade(c, 0.22) : shade(c, -0.12);
+    const dim = U.shade(c, -0.55), lc = on ? U.shade(c, 0.22) : U.shade(c, -0.12);
     px(x + 1, y + 3, 5, 1, dim);                                // trunk in
     px(x + 6, y + 2, 5, 1, dim); px(x + 6, y + 4, 5, 1, dim);   // done (high) and back (low)
     px(x + 6, y + 3, 1, 1, lc);                                 // the gate node
@@ -3393,14 +3308,14 @@ const PropSprites = (() => {
     px(x + w, y + 2, 2, 1, last && t >= 0.5 ? lc : dim); px(x + w, y + 6, 2, 1, !last && t >= 0.5 ? lc : dim);   // nozzle tips
     // COUNTER PILLAR — the silhouette that names it; collar ties it to the box so it can't float
     const dx0 = x + 3, dt = y - 6;
-    px(x + 2, y, 8, 2, LINE); px(x + 3, y, 6, 1, shade(r.top, 0.10)); px(x + 3, y + 1, 6, 1, r.ao);   // collar
+    px(x + 2, y, 8, 2, LINE); px(x + 3, y, 6, 1, U.shade(r.top, 0.10)); px(x + 3, y + 1, 6, 1, r.ao);   // collar
     chamf(dx0 - 1, dt - 1, 8, 9, LINE, 2);
     chamf(dx0, dt, 6, 7, r.face, 2);
     px(dx0 + 1, dt, 4, 1, r.top); keyEdge(dx0 + 1, dt, 3, 1, 0.28);
     px(dx0, dt + 2, 1, 4, r.lit); px(dx0 + 5, dt + 2, 1, 4, r.dk); rimEdge(dx0 + 5, dt + 2, 1, 4, 0.20);
     px(dx0 + 1, dt + 2, 4, 4, '#08141a');                       // tally window
-    for (let i = 0; i < 4; i++) px(dx0 + 1 + i, dt + 4, 1, 1, i <= pass ? (i === 3 ? '#bfefff' : c) : shade(c, -0.62));   // one lamp per pass
-    px(dx0 + 1 + pass, dt + 3, 1, 1, blink(260, ph) ? '#bfefff' : shade(c, -0.3));   // the pass in progress
+    for (let i = 0; i < 4; i++) px(dx0 + 1 + i, dt + 4, 1, 1, i <= pass ? (i === 3 ? '#bfefff' : c) : U.shade(c, -0.62));   // one lamp per pass
+    px(dx0 + 1 + pass, dt + 3, 1, 1, blink(260, ph) ? '#bfefff' : U.shade(c, -0.3));   // the pass in progress
     bloom(dx0 + 1, dt + 2, 4, 4, c, on ? 0.24 : 0.12);
   };
 
@@ -3451,7 +3366,7 @@ const PropSprites = (() => {
     px(x, y + h - 17, 1, 5, r.lit); px(x + w - 1, y + h - 17, 1, 5, r.dk);
     rimEdge(x + w - 1, y + h - 17, 1, 5, 0.20);
     px(x + 2, y + h - 12, w - 4, 1, r.ao);
-    wear(x + 2, y + h - 17, w - 4, 4, 3, shade(r.top, -0.10));
+    wear(x + 2, y + h - 17, w - 4, 4, 3, U.shade(r.top, -0.10));
 
     /* ---- PAINTED BERTH BOX + centre-in chevron: work berths HERE ---- */
     const bx0 = x + 5, by0 = y + h - 17, bw = w - 10, bh = 5;
@@ -3471,10 +3386,10 @@ const PropSprites = (() => {
       px(ax, y - 6, 4, 1, r.sheen); keyEdge(ax, y - 6, 4, 1, 0.28);
       px(ax, y - 5, 1, 12, r.lit); px(ax + 3, y - 5, 1, 12, r.dk); rimEdge(ax + 3, y - 5, 1, 12, 0.18);
       for (let i = 0; i < 3; i++) {                                // hazard banding, with its own shading
-        px(ax, y + 1 + i * 2, 4, 1, i % 2 ? '#caa84a' : shade(r.face, -0.42));
+        px(ax, y + 1 + i * 2, 4, 1, i % 2 ? '#caa84a' : U.shade(r.face, -0.42));
         if (i % 2) px(ax, y + 1 + i * 2, 2, 1, '#e6c86a');         // the band's own west highlight
       }
-      px(ax + 1, y - 5, 2, 2, bound ? (blink(700, s) ? '#7df0c8' : shade(c, -0.5)) : '#2a2018');
+      px(ax + 1, y - 5, 2, 2, bound ? (blink(700, s) ? '#7df0c8' : U.shade(c, -0.5)) : '#2a2018');
       if (bound && blink(700, s)) bloom(ax + 1, y - 5, 2, 2, c, 0.30);
     }
 
@@ -3518,7 +3433,7 @@ const PropSprites = (() => {
       px(bx + bw - 2, ty + ld + 1, 1, fh - 2, ramp.dk);
       rimEdge(bx + bw - 2, ty + ld + 1, 1, fh - 2, 0.18);              // cool bounce on the shade side
       px(bx + 1, fb - 1, bw - 2, 1, ramp.ao);                          // floor-line AO
-      px(bx + (bw >> 1), ty + ld + 1, 1, fh - 2, shade(ramp.face, 0.12));   // tape seam down the face
+      px(bx + (bw >> 1), ty + ld + 1, 1, fh - 2, U.shade(ramp.face, 0.12));   // tape seam down the face
       px(bx + 2, ty + ld + 2, 3, 2, '#d8e0d6'); px(bx + 2, ty + ld + 2, 3, 1, '#eaf2e8');  // shipping label
       px(bx + 2, ty + ld + 3, 2, 1, '#96a696');                        // barcode
       px(bx + bw - 4, ty + ld + 2, 2, 1, tint);                        // priority sticker
@@ -3526,9 +3441,9 @@ const PropSprites = (() => {
       px(bx, ty + 1, bw, ld, ramp.top);
       px(bx, ty + 1, bw, 1, ramp.sheen); keyEdge(bx, ty + 1, Math.max(2, bw - 5), 1, 0.26);
       px(bx, ty + 2, 1, ld - 1, ramp.lit); px(bx + bw - 1, ty + 2, 1, ld - 1, ramp.dk);
-      px(bx + (bw >> 1), ty + 1, 1, ld, shade(ramp.top, -0.20));     // flap crease
-      px(bx + 1, ty + 2, bw - 2, 1, shade(ramp.top, 0.06));          // cross-tape catch
-      px(bx, ty + ld, bw, 1, shade(ramp.top, -0.16));                // lid front lip
+      px(bx + (bw >> 1), ty + 1, 1, ld, U.shade(ramp.top, -0.20));     // flap crease
+      px(bx + 1, ty + 2, bw - 2, 1, U.shade(ramp.top, 0.06));          // cross-tape catch
+      px(bx, ty + ld, bw, 1, U.shade(ramp.top, -0.16));                // lid front lip
       px(bx + bw - 5, ty + 1, 3, 1, tint);                             // cargo tag on the lid
     };
     shadow2(x + 1, floorY, cw - 2);
@@ -3541,10 +3456,10 @@ const PropSprites = (() => {
     rimEdge(sx + 5, sb - 2, 1, 2, 0.18);
     px(sx + 1, sb - 3, 5, 2, RAMP.fabric.top); px(sx + 1, sb - 3, 5, 1, RAMP.fabric.sheen);
     keyEdge(sx + 1, sb - 3, 3, 1, 0.26);
-    px(sx + 4, sb - 3, 1, 2, shade(RAMP.fabric.top, -0.18));         // flap
+    px(sx + 4, sb - 3, 1, 2, U.shade(RAMP.fabric.top, -0.18));         // flap
     px(sx + 2, sb - 3, 1, 1, ACC.alert);                               // fragile dot
-    px(sx + 1, sb, 5, 1, shade(RAMP.fabric.ao, 0.15));               // contact shade on the lid below
-    px(x + cw - 6, floorY, 3, 1, shade(RAMP.steel.face, -0.22));     // floor scuff
+    px(sx + 1, sb, 5, 1, U.shade(RAMP.fabric.ao, 0.15));               // contact shade on the lid below
+    px(x + cw - 6, floorY, 3, 1, U.shade(RAMP.steel.face, -0.22));     // floor scuff
   };
 
 
@@ -3599,9 +3514,9 @@ const PropSprites = (() => {
     for (const p of [x + 5, x + w - 14]) {
       disc.forEach((s, j) => px(p + s[0], bodT + 3 + j, s[1], 1, '#0e0912'));
       disc.forEach((s, j) => { if (j > 0 && j < 8) px(p + s[0] + 1, bodT + 3 + j, s[1] - 2, 1, '#241a26'); });
-      px(p + 2, bodT + 4, 5, 1, shade(MAG, -0.44));                    // rim arc, north-west
-      px(p + 1, bodT + 5, 1, 3, shade(MAG, -0.52));
-      px(p + 4, bodT + 7, 1, 1, on ? MAG : shade(MAG, -0.30));         // the spindle
+      px(p + 2, bodT + 4, 5, 1, U.shade(MAG, -0.44));                    // rim arc, north-west
+      px(p + 1, bodT + 5, 1, 3, U.shade(MAG, -0.52));
+      px(p + 4, bodT + 7, 1, 1, on ? MAG : U.shade(MAG, -0.30));         // the spindle
       if (on) bloom(p + 4, bodT + 7, 1, 1, MAG, 0.22);
       px(p + 6, bodT + 9, 2, 1, '#8d97a0');                              // tonearm tick, south-east
       px(p + 7, bodT + 8, 1, 1, '#5d666e');
@@ -3612,32 +3527,32 @@ const PropSprites = (() => {
     px(mx, bodT + 3, 12, 9, '#141920');
     px(mx, bodT + 3, 12, 1, '#242c35');
     for (let i = 0; i < 4; i++)                                          // the LED row
-      px(mx + 2 + i * 3, bodT + 4, 1, 1, on ? (i & 1 ? CYA : VIO) : shade(i & 1 ? CYA : VIO, -0.55));
+      px(mx + 2 + i * 3, bodT + 4, 1, 1, on ? (i & 1 ? CYA : VIO) : U.shade(i & 1 ? CYA : VIO, -0.55));
     for (let i = 0; i < 3; i++) {                                        // three fader slots + caps
       const fx = mx + 3 + i * 3, cap = bodT + 6 + (i === 1 ? 2 : 0);
       px(fx, bodT + 6, 1, 5, '#0a0d11');
-      px(fx - 1, cap, 3, 1, MAG); px(fx - 1, cap, 3, 1, i === 1 ? MAG : shade(MAG, 0.14));
-      px(fx, cap + 1, 1, 1, shade(MAG, -0.44));
+      px(fx - 1, cap, 3, 1, MAG); px(fx - 1, cap, 3, 1, i === 1 ? MAG : U.shade(MAG, 0.14));
+      px(fx, cap + 1, 1, 1, U.shade(MAG, -0.44));
     }
-    px(x + w - 7, bodT + 10, 1, 1, on ? MAG : shade(MAG, -0.55));      // the two corner telltales
-    px(x + w - 5, bodT + 10, 1, 1, on ? CYA : shade(CYA, -0.55));
+    px(x + w - 7, bodT + 10, 1, 1, on ? MAG : U.shade(MAG, -0.55));      // the two corner telltales
+    px(x + w - 5, bodT + 10, 1, 1, on ? CYA : U.shade(CYA, -0.55));
 
     /* ---- EQ HOUSING: its own box, standing proud, with the body's shoulders showing either side ---- */
     const ex = x + 9, ew = w - 18;
     chamf(ex - 1, eqT - 1, ew + 2, 8, EDGE, 1);
     px(ex, eqT, ew, 6, PLUM_D);
-    px(ex, eqT, ew, 1, shade(PLUM, 0.10)); keyEdge(ex + 1, eqT, 7, 1, 0.20);
+    px(ex, eqT, ew, 1, U.shade(PLUM, 0.10)); keyEdge(ex + 1, eqT, 7, 1, 0.20);
     px(ex + 1, eqT + 1, ew - 2, 4, '#190f20');                           // the dark well the bars stand in
     const HTS = [3, 2, 4, 1, 3, 2, 4, 2, 3], COL = [VIO, MAG, CYA, VIO, MAG, CYA, MAG, VIO, MAG];
     for (let i = 0; i < 9; i++) {
       const bh = on ? Math.max(1, HTS[i] + (Math.floor(now / 190 + i * 2) % 3) - 1) : Math.max(1, HTS[i] - 2);
       const bxx = ex + 2 + i * 3, c = COL[i];
-      px(bxx, eqT + 5 - bh, 2, bh, on ? c : shade(c, -0.50));
-      px(bxx, eqT + 5 - bh, 2, 1, on ? shade(c, 0.34) : shade(c, -0.34));
+      px(bxx, eqT + 5 - bh, 2, bh, on ? c : U.shade(c, -0.50));
+      px(bxx, eqT + 5 - bh, 2, 1, on ? U.shade(c, 0.34) : U.shade(c, -0.34));
     }
     if (on) { bloom(ex + 1, eqT + 1, ew - 2, 4, MAG, 0.18); spill(ex + 1, eqT + 6, ew - 2, MAG, 0.12, 3); }
-    px(ex + Math.round(ew / 2) - 1, eqT - 1, 2, 1, on ? MAG : shade(MAG, -0.50));   // the pilot tick on the crown
-    if (on && blink(700, ph)) px(x + 4, bodT + 1, 1, 1, shade(CYA, 0.20));
+    px(ex + Math.round(ew / 2) - 1, eqT - 1, 2, 1, on ? MAG : U.shade(MAG, -0.50));   // the pilot tick on the crown
+    if (on && blink(700, ph)) px(x + 4, bodT + 1, 1, 1, U.shade(CYA, 0.20));
   };
 
   F.speaker = (x, y, w, h, f) => {   // v4 lounge speaker (1x1) — chamfered cab, cloth grille, cone throbs on f.work
@@ -3654,13 +3569,13 @@ const PropSprites = (() => {
     // chamfered cab with a narrow lit top cap — 12px wide, so the bevel has to do the silhouette work
     chamf(x + 1, y - 3, 10, 13, EDGE, 1);
     chamf(x + 2, y - 2, 8, 11, r.face, 1);
-    px(x + 2, y, 1, 8, shade(r.face, 0.10)); px(x + 9, y, 1, 8, r.dk);
+    px(x + 2, y, 1, 8, U.shade(r.face, 0.10)); px(x + 9, y, 1, 8, r.dk);
     rimEdge(x + 9, y, 1, 8, 0.22);                                // cool bounce down the shade side
     px(x + 3, y - 2, 6, 2, r.top); px(x + 3, y - 2, 6, 1, r.sheen);
     keyEdge(x + 3, y - 2, 4, 1, 0.30);                            // warm cap catch
     px(x + 2, y + 8, 8, 1, r.ao);
     // grille cloth over the baffle — a weave, so the cab doesn't read as bare plastic
-    for (let j = 0; j < 8; j += 2) px(x + 3, y + j, 6, 1, shade(r.face, -0.16));
+    for (let j = 0; j < 8; j += 2) px(x + 3, y + j, 6, 1, U.shade(r.face, -0.16));
     // driver: surround ring, cone, dust cap
     chamf(x + 3, y + 1, 6, 6, '#2c3641', 1);
     px(x + 4, y + 1, 4, 1, '#40495a');                            // ring catch
@@ -3763,15 +3678,15 @@ const PropSprites = (() => {
     px(kx + 1, y + 6, 6, 8, r.ao);
     px(kx + 1, y + 6, 6, 1, r.dk);
     for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++)
-      px(kx + 2 + i * 2, y + 8 + j * 2, 1, 1, blink(520, i + j * 1.7) ? shade(ACC.work, -0.05) : '#1b2a24');
-    px(kx + 1, y + 12, 6, 1, blink(900) ? ACC.work : shade(ACC.work, -0.62));
+      px(kx + 2 + i * 2, y + 8 + j * 2, 1, 1, blink(520, i + j * 1.7) ? U.shade(ACC.work, -0.05) : '#1b2a24');
+    px(kx + 1, y + 12, 6, 1, blink(900) ? ACC.work : U.shade(ACC.work, -0.62));
     if (on) {
       bloom(kx + 1, y + 12, 6, 1, ACC.work, 0.26);
       for (let dy = -R; dy <= R; dy++) {                           // hairline of light around the door seam
         const hw = Math.round(Math.sqrt(Math.max(0, R * R - dy * dy)));
         if (hw < 1) continue;
-        px(cx - hw, cy + dy, 1, 1, shade(ACC.work, -0.35));
-        px(cx + hw, cy + dy, 1, 1, shade(ACC.work, -0.55));
+        px(cx - hw, cy + dy, 1, 1, U.shade(ACC.work, -0.35));
+        px(cx + hw, cy + dy, 1, 1, U.shade(ACC.work, -0.55));
       }
       spill(x + 2, base - 5, w - 4, ACC.work, 0.10, 3);
     }
@@ -3789,7 +3704,7 @@ const PropSprites = (() => {
       const bx = x + (w >> 1) + s * 13;
       for (let j = 0; j < 8; j++) px(bx + s * Math.floor(j / 2), y + 3 + j, 3, 1, LINE);
       for (let j = 0; j < 8; j++) {
-        px(bx + s * Math.floor(j / 2), y + 3 + j, 1, 1, s < 0 ? r.lit : shade(r.face, 0.06));
+        px(bx + s * Math.floor(j / 2), y + 3 + j, 1, 1, s < 0 ? r.lit : U.shade(r.face, 0.06));
         px(bx + s * Math.floor(j / 2) + 1, y + 3 + j, 1, 1, r.dk);
       }
       chamf(bx + s * 4 - 3, y + h - 2, 9, 2, LINE, 1);
@@ -3804,7 +3719,7 @@ const PropSprites = (() => {
     px(x, bt + 2, 1, bh - 4, r.lit); px(x + w - 1, bt + 2, 1, bh - 4, r.dk);
     rimEdge(x + w - 1, bt + 2, 1, bh - 4, 0.22);
     px(x + 2, bt + bh - 1, w - 4, 1, r.ao);
-    for (const sxx of [x + 2, x + w - 3]) px(sxx, bt + 1, 1, 1, shade(r.top, 0.28));
+    for (const sxx of [x + 2, x + w - 3]) px(sxx, bt + 1, 1, 1, U.shade(r.top, 0.28));
     const gx = x + 2, gy = bt + 2, gw = w - 4, gh = 7;
     px(gx - 1, gy - 1, gw + 2, gh + 2, '#04100a');
     px(gx, gy, gw, gh, on ? '#08190e' : '#06120a');                 // never a black hole when idle
@@ -3820,15 +3735,15 @@ const PropSprites = (() => {
         const grp = Math.floor(cell / 11) % 3;
         const bits = U.hash('tkm' + cell + (col % 4)) & 31;
         const base = grp === 1 ? ACC.flow : '#9bff4a';
-        const c = pass ? shade(base, -0.62) : shade(base, on ? 0 : -0.42);
+        const c = pass ? U.shade(base, -0.62) : U.shade(base, on ? 0 : -0.42);
         for (let j = 0; j < 5; j++) if (bits & (1 << j)) px(gx + i, gy + j, 1, 1, c);
       }
     }
     px(gx, gy + 5, gw, 1, '#0d1f10');                               // lane divider
     for (let i = 0; i < gw - 1; i += 3) {                           // lower lane: up/down move ticks
       const k = (U.hash('tkv' + i + Math.floor(now / 1400)) % 3);
-      px(gx + i, gy + 6, 2, 1, k === 0 ? shade(ACC.work, on ? 0 : -0.4)
-        : k === 1 ? shade(ACC.flow, on ? -0.1 : -0.5) : '#1c3a22');
+      px(gx + i, gy + 6, 2, 1, k === 0 ? U.shade(ACC.work, on ? 0 : -0.4)
+        : k === 1 ? U.shade(ACC.flow, on ? -0.1 : -0.5) : '#1c3a22');
     }
     scanl(gx, gy, gw, gh, on ? 0.14 : 0.22);
     bloom(gx, gy, gw, 5, '#9bff4a', (0.13 + 0.03 * Math.sin(now / 700 + ph)) * (on ? 1 : 0.6));
@@ -3888,9 +3803,9 @@ const PropSprites = (() => {
     px(x + 3, dY, 6, 5, r.ink);
     px(x + 4, dY - 1, 4, 1, r.lit);                                  // lit lip above the well
     px(x + 4, dY + 1, 4, 3, r.ao);
-    px(x + 4, dY + 1, 2, 2, on ? G : shade(G, -0.60));             // the big readout block
+    px(x + 4, dY + 1, 2, 2, on ? G : U.shade(G, -0.60));             // the big readout block
     for (let k = 0; k < 3; k++)
-      px(x + 7, dY + 1 + k, 1, 1, blink(520, k * 1.4) ? G : shade(G, -0.68));
+      px(x + 7, dY + 1 + k, 1, 1, blink(520, k * 1.4) ? G : U.shade(G, -0.68));
     if (on) bloom(x + 4, dY + 1, 4, 3, G, 0.20);
 
     /* ---- PANEL 2: louvred vent ---- */
@@ -3913,7 +3828,7 @@ const PropSprites = (() => {
       else if (d > R - 2.0) c = r.ao;                                // the groove between rings
       else if (d > R - 3.0) c = nl < -0.3 ? r.mid : nl < 0.25 ? r.face : r.dk;
       else if (d > R - 3.7) c = r.ink;
-      else c = on ? shade(G, -0.34) : shade(G, -0.72);           // the lit well
+      else c = on ? U.shade(G, -0.34) : U.shade(G, -0.72);           // the lit well
       px(cx + dx, ly + dy, 1, 1, c);
     }
     if (on) {                                                        // four arcs burning on the ring
@@ -3925,7 +3840,7 @@ const PropSprites = (() => {
         }
       }
     }
-    px(cx - 1, ly - 1, 2, 2, on ? '#d6ffe8' : shade(G, -0.55));    // the hot core
+    px(cx - 1, ly - 1, 2, 2, on ? '#d6ffe8' : U.shade(G, -0.55));    // the hot core
     if (on) bloom(cx - 2, ly - 2, 4, 4, G, 0.34 + 0.10 * Math.sin(now / 700));
 
     /* ---- PANEL 4: indicator strip ---- */
@@ -3934,7 +3849,7 @@ const PropSprites = (() => {
     px(x + 4, iY - 1, 4, 1, r.mid);
     px(x + 4, iY + 1, 4, 2, r.ao);
     for (let k = 0; k < 4; k++)
-      px(x + 4 + k, iY + 1, 1, 1, blink(700, k * 1.2) ? G : shade(G, -0.68));
+      px(x + 4 + k, iY + 1, 1, 1, blink(700, k * 1.2) ? G : U.shade(G, -0.68));
     if (on) { bloom(x + 4, iY + 1, 4, 1, G, 0.20); spill(x + 1, base - 5, w - 2, G, 0.14, 4); }
 
     /* ---- BRASS FEET ---- */
@@ -3968,14 +3883,14 @@ const PropSprites = (() => {
       const sx = x + 1 + Math.round(i * (w - 2) / 3);
       px(sx, bT + 3, 1, bH - 7, MT_D); px(sx + 1, bT + 3, 1, bH - 7, MT_L);
     }
-    wear(x + 3, bT + 5, w - 6, 3, 3, shade(MT, -0.20));
+    wear(x + 3, bT + 5, w - 6, 3, 3, U.shade(MT, -0.20));
 
     /* ---- TWO BRASS BANDS, top and bottom of the face, each with one bright run ---- */
     for (const by of [bT + 1, bT + bH - 4]) {
       px(x + 1, by, w - 2, 2, BRS);
       px(x + 1, by, w - 2, 1, BRS_L); px(x + 2, by, 8, 1, BRS_HI); keyEdge(x + 2, by, 8, 1, 0.20);
       px(x + 1, by + 2, w - 2, 1, BRS_D);
-      for (let i = 0; i < 4; i++) px(x + 4 + i * 6, by + 1, 1, 1, shade(BRS_HI, -0.10));   // rivets
+      for (let i = 0; i < 4; i++) px(x + 4 + i * 6, by + 1, 1, 1, U.shade(BRS_HI, -0.10));   // rivets
     }
 
     /* ---- CORNER CAPS: brass L on every front corner ---- */
@@ -3991,7 +3906,7 @@ const PropSprites = (() => {
     px(hx, y - 4, 5, 6, BRS_D);
     px(hx, y - 4, 5, 1, BRS_HI); px(hx, y - 3, 5, 2, BRS_L); px(hx, y - 1, 5, 1, BRS);
     px(hx + 2, y, 1, 2, '#171d22');                                 // the keyhole
-    px(hx, y + 2, 5, 1, shade(BRS_D, -0.40));
+    px(hx, y + 2, 5, 1, U.shade(BRS_D, -0.40));
 
     /* ---- FEET + floor line ---- */
     px(x + 1, y + h - 3, w - 2, 1, '#080b0e');
@@ -4005,7 +3920,7 @@ const PropSprites = (() => {
     px(x + 1, y - 9, w - 2, 1, MT_SHN); keyEdge(x + 2, y - 9, 9, 1, 0.24);
     px(x + 2, y - 7, w - 4, 1, BRS); px(x + 2, y - 7, 9, 1, BRS_L);           // the brass spine
     px(x + 2, y - 6, w - 4, 1, BRS_D);
-    px(x + 2, y - 4, w - 4, 1, shade(MT_TOP, -0.20));                       // the lid falls toward the user
+    px(x + 2, y - 4, w - 4, 1, U.shade(MT_TOP, -0.20));                       // the lid falls toward the user
     px(x, y - 9, 1, 8, MT_L); px(x + w - 1, y - 9, 1, 8, MT_D);
     rimEdge(x + w - 1, y - 8, 1, 6, 0.20);
     px(x + 1, y - 2, w - 2, 1, '#141a1f');                                    // rebate under the lip
@@ -4037,7 +3952,7 @@ const PropSprites = (() => {
       px(cx0 - 1, y + 5 + j, cw + 2, 1, LINE);
       px(cx0, y + 5 + j, 1, 1, r.lit); px(cx0 + 1, y + 5 + j, cw - 2, 1, r.face); px(cx0 + cw - 1, y + 5 + j, 1, 1, r.dk);
     }
-    px(x + (w >> 1) - 5, y + 8, 10, 1, shade(r.face, -0.30));     // cast seam across the neck
+    px(x + (w >> 1) - 5, y + 8, 10, 1, U.shade(r.face, -0.30));     // cast seam across the neck
     rimEdge(x + (w >> 1) + 5, y + 6, 1, 4, 0.18);
     cable(x + (w >> 1) + 7, y + 7, x + (w >> 1) + 11, y + h - 2, 1.6);
     // chamfered head housing
@@ -4047,12 +3962,12 @@ const PropSprites = (() => {
     px(x, bt + 2, 1, bh - 4, r.lit); px(x + w - 1, bt + 2, 1, bh - 4, r.dk);
     rimEdge(x + w - 1, bt + 2, 1, bh - 4, 0.22);
     px(x + 2, bt + bh - 1, w - 4, 1, r.ao);
-    for (const sxx of [x + 2, x + w - 3]) { px(sxx, bt + 1, 1, 1, shade(r.top, 0.28)); px(sxx, bt + bh - 2, 1, 1, r.ao); }
-    wear(x + 1, bt + 1, w - 2, bh - 2, 3, shade(r.face, -0.10));
+    for (const sxx of [x + 2, x + w - 3]) { px(sxx, bt + 1, 1, 1, U.shade(r.top, 0.28)); px(sxx, bt + bh - 2, 1, 1, r.ao); }
+    wear(x + 1, bt + 1, w - 2, bh - 2, 3, U.shade(r.face, -0.10));
     // THREE PANELS, THREE CHART TYPES
     const ACCS = [ACC.data, ACC.flow, ACC.mem], pw = 10, pyy = bt + 2, phh = 10;
     for (let i = 0; i < 3; i++) {
-      const p0 = x + 2 + i * 11, acc = ACCS[i], lit = shade(acc, on ? 0 : -0.45);
+      const p0 = x + 2 + i * 11, acc = ACCS[i], lit = U.shade(acc, on ? 0 : -0.45);
       inset(p0, pyy, pw, phh, '#0c1218');
       px(p0 + 1, pyy + 1, pw - 2, phh - 2, on ? '#0b1620' : '#091119');   // panel ground keeps phosphor
       px(p0 + 1, pyy + 1, 4, 1, lit);                               // colour tab naming the panel (kept)
@@ -4062,7 +3977,7 @@ const PropSprites = (() => {
       const bx0 = p0 + 1, bw0 = pw - 2, by0 = pyy + 3, bh0 = 6;
       if (i === 0) {                                                // TRACE — dim echo behind the live line
         ctx.save(); ctx.lineWidth = 1;
-        ctx.strokeStyle = shade(acc, -0.72); ctx.beginPath();
+        ctx.strokeStyle = U.shade(acc, -0.72); ctx.beginPath();
         for (let j = 0; j < bw0; j++) {
           const yy = by0 + bh0 - 1 - (U.hash('ch0' + ((j + 3) >> 1)) % 5);
           j ? ctx.lineTo(bx0 + j, yy) : ctx.moveTo(bx0 + j, yy);
@@ -4078,15 +3993,15 @@ const PropSprites = (() => {
         for (let j = 0; j < bw0; j += 2) {
           const v = 1 + Math.floor((1 + Math.sin(now / 340 + j * 0.9 + ph)) * (on ? 1.8 : 0.8));
           px(bx0 + j, by0 + bh0 - v, 1, v, lit);
-          px(bx0 + j, by0 + bh0 - v, 1, 1, on ? shade(acc, 0.35) : shade(acc, -0.3));   // bar cap
+          px(bx0 + j, by0 + bh0 - v, 1, 1, on ? U.shade(acc, 0.35) : U.shade(acc, -0.3));   // bar cap
         }
-        px(bx0, by0 + bh0, bw0, 1, shade(acc, -0.55));            // baseline
+        px(bx0, by0 + bh0, bw0, 1, U.shade(acc, -0.55));            // baseline
       } else {                                                      // STACKED AREA — filled, not a line
         for (let j = 0; j < bw0; j++) {
           const v = 2 + (U.hash('ch2' + (j >> 1)) % 4);
-          px(bx0 + j, by0 + bh0 - v, 1, v, shade(acc, on ? -0.42 : -0.68));
+          px(bx0 + j, by0 + bh0 - v, 1, v, U.shade(acc, on ? -0.42 : -0.68));
           px(bx0 + j, by0 + bh0 - v, 1, 1, lit);                    // the surface of the area
-          px(bx0 + j, by0 + bh0 - 1, 1, 1, shade(acc, -0.6));     // darker lower band
+          px(bx0 + j, by0 + bh0 - 1, 1, 1, U.shade(acc, -0.6));     // darker lower band
         }
       }
       px(bx0 + bw0 - 1, by0 + (Math.floor(now / 400 + i + ph) % 4), 1, 1, on ? '#e8f4ff' : lit);  // live tick (kept)
@@ -4096,7 +4011,7 @@ const PropSprites = (() => {
     }
     spill(x + 3, bt + bh, w - 6, ACC.data, 0.14 * g0, 4);           // the bank lights its own column
     for (let i = 0; i < 3; i++)                                     // feed lamps on the bottom rail
-      px(x + 4 + i * 11, bt + bh - 3, 2, 1, blink(850, i + ph) ? shade(ACCS[i], on ? 0 : -0.45) : '#1c2630');
+      px(x + 4 + i * 11, bt + bh - 3, 2, 1, blink(850, i + ph) ? U.shade(ACCS[i], on ? 0 : -0.45) : '#1c2630');
   };
 
   F.wartable = (x, y, w, h, f) => {   // v4 WAR TABLE (5x2) — the room's centrepiece: a lit map you look DOWN on
@@ -4125,7 +4040,7 @@ const PropSprites = (() => {
     chamf(x - 1, y + h - 13, w + 2, 8, LINE, 2);
     px(x, y + h - 12, w, 6, r.face);
     px(x, y + h - 12, w, 1, r.lit); keyEdge(x + 2, y + h - 12, 14, 1, 0.16);   // catch under the top's overhang
-    px(x, y + h - 11, 1, 5, shade(r.face, 0.08)); px(x + w - 1, y + h - 11, 1, 5, r.dk);
+    px(x, y + h - 11, 1, 5, U.shade(r.face, 0.08)); px(x + w - 1, y + h - 11, 1, 5, r.dk);
     rimEdge(x + w - 1, y + h - 11, 1, 5, 0.20);
     px(x, y + h - 7, w, 1, r.ao);
     // two operator stations on the face: a rose contact bank west, an amber tasking bank east (kept blinks)
@@ -4140,19 +4055,19 @@ const PropSprites = (() => {
     px(x + 3, y, w - 6, 1, r.sheen); keyEdge(x + 3, y, 16, 1, 0.28);
     px(x, y + 2, 1, topH - 3, r.lit); px(x + w - 1, y + 2, 1, topH - 3, r.dk);
     rimEdge(x + w - 1, y + 2, 1, topH - 3, 0.20);
-    px(x + 3, y + topH, w - 6, 1, shade(r.top, -0.20));           // front lip of the top
-    wear(x + 2, y + 1, w - 4, topH - 2, 5, shade(r.top, -0.09));
+    px(x + 3, y + topH, w - 6, 1, U.shade(r.top, -0.20));           // front lip of the top
+    wear(x + 2, y + 1, w - 4, topH - 2, 5, U.shade(r.top, -0.09));
     // RAISED EDGE RAIL along the long sides + corner grab-handles: the officers-lean-here detail
-    px(x + 4, y + 1, w - 8, 1, shade(r.top, 0.16));
+    px(x + 4, y + 1, w - 8, 1, U.shade(r.top, 0.16));
     for (const gx of [x + 5, x + w - 12]) {
-      px(gx, y + 1, 7, 2, shade(r.top, 0.10)); px(gx, y + 1, 7, 1, r.sheen);
-      px(gx + 1, y + 2, 5, 1, shade(r.top, -0.30));              // the finger gap under the handle
+      px(gx, y + 1, 7, 2, U.shade(r.top, 0.10)); px(gx, y + 1, 7, 1, r.sheen);
+      px(gx + 1, y + 2, 5, 1, U.shade(r.top, -0.30));              // the finger gap under the handle
     }
     // MAP WELL — one big oval-cornered recess, the prop's single dominant lit shape
     const wx = x + 5, wy = topT + 2, ww = w - 10, wh = topH - 5;
     chamf(wx - 2, wy - 2, ww + 4, wh + 4, '#080407', 2);            // well surround, deeper than inset()
-    chamf(wx - 1, wy - 1, ww + 2, wh + 2, shade(r.top, -0.62), 2);
-    px(wx - 1, wy - 1, ww + 2, 1, shade(r.top, -0.78));           // shadow cast by the north lip INTO the well
+    chamf(wx - 1, wy - 1, ww + 2, wh + 2, U.shade(r.top, -0.62), 2);
+    px(wx - 1, wy - 1, ww + 2, 1, U.shade(r.top, -0.78));           // shadow cast by the north lip INTO the well
     chamf(wx, wy, ww, wh, on ? '#1c0d14' : '#150a10', 1);           // idle map keeps chart-glass, never dead black
     // chart substrate: a sector grid + a coastline-ish landmass, so it reads as a MAP not as noise
     for (let gx = 6; gx < ww - 2; gx += 7) px(wx + gx, wy + 1, 1, wh - 2, on ? '#3a1c28' : '#2a141d');
@@ -4216,7 +4131,7 @@ const PropSprites = (() => {
       px(pxx - 4, y + h - 2, 10, 1, r.ao);
       px(pxx - 3, y + h - 1, 2, 1, '#1a1e22'); px(pxx + 3, y + h - 1, 2, 1, '#1a1e22');   // castors
       ctx.globalAlpha = 0.30; px(pxx - 5, y + h, 12, 1, '#000'); ctx.globalAlpha = 1;
-      px(pxx, y + 4, 2, 2, shade(r.top, 0.16));                   // collar tying post to board (no floating)
+      px(pxx, y + 4, 2, 2, U.shade(r.top, 0.16));                   // collar tying post to board (no floating)
     }
     // CARCASS — chamfered frame with a warm crown key and a cool east rim
     chamf(x - 1, bT - 1, w + 2, bH + 2, LINE, 2);
@@ -4228,7 +4143,7 @@ const PropSprites = (() => {
     rivets(x + 1, bT + 1, w - 2, bH - 2, r.sheen, r.ao);
     // HEADER RAIL above the grid: a title bar of ticks, then the amber backlight bleeding out from behind
     inset(x + 2, bT + 1, w - 4, 2, '#1a150c');
-    for (let i = 0; i < 8; i++) px(x + 4 + i * 3, bT + 2, 2, 1, shade(ACC.flow, on ? -0.15 : -0.45));
+    for (let i = 0; i < 8; i++) px(x + 4 + i * 3, bT + 2, 2, 1, U.shade(ACC.flow, on ? -0.15 : -0.45));
     bloom(x + 3, bT + 2, w - 6, 1, ACC.flow, on ? 0.14 : 0.08);
     // THE GRID — 7 columns x 2 rows of split-flap cells behind one recessed glass strip
     const gT = bT + 4, cw2 = Math.floor((w - 6) / 7), gx0 = x + 3 + (((w - 6) - 7 * cw2) >> 1);
@@ -4255,7 +4170,7 @@ const PropSprites = (() => {
       }
     }
     scanl(x + 3, gT - 1, w - 6, 10, 0.12);                          // the glass over the paper
-    px(x + 3, gT - 1, 6, 1, shade(r.face, 0.30));                 // one corner reflection on that glass
+    px(x + 3, gT - 1, 6, 1, U.shade(r.face, 0.30));                 // one corner reflection on that glass
     // warm schedule light falling off the board's bottom edge onto the posts below it
     spill(x + 4, bT + bH, w - 8, ACC.flow, on ? 0.20 : 0.13, 5);
   };
@@ -4268,7 +4183,7 @@ const PropSprites = (() => {
       px(sx2, y + 5, 4, h - 7, r.face);
       px(sx2, y + 5, 1, h - 7, r.lit); keyEdge(sx2, y + 5, 1, 3, 0.18);
       px(sx2 + 3, y + 5, 1, h - 7, r.dk); rimEdge(sx2 + 3, y + 5, 1, 4, 0.20);
-      px(sx2, y + 4, 4, 1, shade(r.top, 0.10));               // saddle lip
+      px(sx2, y + 4, 4, 1, U.shade(r.top, 0.10));               // saddle lip
       px(sx2 - 1, y + h - 2, 6, 1, r.ao);
     }
     const per = on ? 520 : 800;                                 // end lights run hot while the line is live
@@ -4276,7 +4191,7 @@ const PropSprites = (() => {
     px(x + w - 6, y + 6, 2, 2, blink(per, 1 + ph) ? ACC.flow : '#2e3840');
     if (blink(per, ph)) bloom(x + 4, y + 6, 2, 2, ACC.flow, 0.20);
     px(x + (w >> 1) - 3, y + 5, 6, 4, LINE);                    // pressure gauge (kept wobble)
-    px(x + (w >> 1) - 2, y + 6, 4, 2, '#1b2226'); px(x + (w >> 1) - 2, y + 6, 4, 1, shade(r.face, 0.14));
+    px(x + (w >> 1) - 2, y + 6, 4, 2, '#1b2226'); px(x + (w >> 1) - 2, y + 6, 4, 1, U.shade(r.face, 0.14));
     px(x + (w >> 1) - 1 + Math.round(Math.sin(now / 400 + ph)), y + 7, 1, 1, ACC.flow);
     // the GLASS BARREL: dark core, a warm specular line along the crown, cool floor bounce along the belly
     chamf(x - 1, y - 4, w + 2, 10, LINE, 2);
@@ -4290,7 +4205,7 @@ const PropSprites = (() => {
     if (cyc < 0.4) {
       const capx = x + 4 + Math.floor(cyc / 0.4 * (w - 11));
       px(capx, y - 1, 3, 2, ACC.flow); px(capx, y - 1, 3, 1, '#fff4c0');
-      px(capx - 1, y - 1, 1, 2, shade(ACC.flow, -0.45)); px(capx - 2, y, 1, 1, shade(ACC.flow, -0.62)); // speed lines
+      px(capx - 1, y - 1, 1, 2, U.shade(ACC.flow, -0.45)); px(capx - 2, y, 1, 1, U.shade(ACC.flow, -0.62)); // speed lines
       bloom(capx, y - 1, 3, 2, ACC.flow, 0.30);
       spill(capx - 2, y + 4, 7, ACC.flow, 0.16, 3);             // the capsule lights the cradle as it passes
     } else if (cyc < 0.45 && blink(80, ph)) {
@@ -4326,11 +4241,11 @@ const PropSprites = (() => {
       px(bx + 1, ty + 1, bw - 2, 2, ramp.top);                         // lid slab (top-bias)
       px(bx + 1, ty + 1, bw - 2, 1, ramp.sheen);
       keyEdge(bx + 1, ty + 1, Math.max(2, bw - 5), 1, 0.28);           // warm ceiling strip on the lid
-      px(bx + (bw >> 1) - 1, ty + 2, 2, fh - 3, shade(ramp.face, 0.16));   // vertical tape
-      px(bx + 1, ty + 4, bw - 2, 1, shade(ramp.face, -0.20));        // horizontal tape shade
+      px(bx + (bw >> 1) - 1, ty + 2, 2, fh - 3, U.shade(ramp.face, 0.16));   // vertical tape
+      px(bx + 1, ty + 4, bw - 2, 1, U.shade(ramp.face, -0.20));        // horizontal tape shade
       px(bx + 2, ty + 3, 3, 1, '#d8e0d6');                             // shipping label
       px(bx + bw - 4, ty + 1, 2, 1, tint);                             // colour tab on the lid
-      px(bx + bw - 4, ty + 3, 2, 1, shade(tint, -0.2));              // sticker on the face
+      px(bx + bw - 4, ty + 3, 2, 1, U.shade(tint, -0.2));              // sticker on the face
     };
     parcel(x + 0, floorY, cw + 0, 8, RAMP.steel, ACC.flow);            // base carton, full width
     px(x + 3, floorY - 8, cw - 4, 1, '#0a0e0c');                       // the tier above presses into it
@@ -4349,8 +4264,8 @@ const PropSprites = (() => {
     cable(tx + 6, tb - 4, tx + 8, tb - 1, 1.2, '#6a6256');             // tag string off the top corner
     px(tx + 8, tb - 1, 2, 3, '#c9c2b0'); px(tx + 8, tb - 1, 2, 1, '#e4dcc8');   // the manifest tag itself
     px(tx + 8, tb + 1, 2, 1, '#8a8474');
-    px(x + (cw >> 1), floorY - 11, 1, 1, shade('#fff4c8', -0.35));   // strap buckle — a still stack cannot glint
-    px(x + (cw >> 1) - 1, floorY, 3, 1, shade(RAMP.steel.face, -0.22));                 // base scuff
+    px(x + (cw >> 1), floorY - 11, 1, 1, U.shade('#fff4c8', -0.35));   // strap buckle — a still stack cannot glint
+    px(x + (cw >> 1) - 1, floorY, 3, 1, U.shade(RAMP.steel.face, -0.22));                 // base scuff
   };
 
   F.core = (x, y, w, h, f) => {
@@ -4377,7 +4292,7 @@ const PropSprites = (() => {
     px(x + 2, top + 1, 4, 1, r.hi);
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
-    px(x + 4, top + 3, 4, 1, on ? M : shade(M, -0.62));
+    px(x + 4, top + 3, 4, 1, on ? M : U.shade(M, -0.62));
     if (on) bloom(x + 4, top + 3, 4, 1, M, 0.22);
 
     /* ---- SIDE RAILS clamping the tube, pinned at three points ---- */
@@ -4397,10 +4312,10 @@ const PropSprites = (() => {
     for (let yy = cTop; yy < cBot; yy++) {
       for (let i = 0; i < gW; i++) {
         const t = i / (gW - 1);
-        const c = t < 0.18 ? shade(M, -0.72) : t < 0.36 ? shade(M, -0.40)
-                : t < 0.64 ? (on ? shade(M, 0.06) : shade(M, -0.30))
-                : t < 0.82 ? shade(M, -0.44) : shade(M, -0.76);
-        px(gX + i, yy, 1, 1, on ? c : shade(c, -0.42));
+        const c = t < 0.18 ? U.shade(M, -0.72) : t < 0.36 ? U.shade(M, -0.40)
+                : t < 0.64 ? (on ? U.shade(M, 0.06) : U.shade(M, -0.30))
+                : t < 0.82 ? U.shade(M, -0.44) : U.shade(M, -0.76);
+        px(gX + i, yy, 1, 1, on ? c : U.shade(c, -0.42));
       }
     }
     if (on) {                                                     // bands travelling up the column
@@ -4409,7 +4324,7 @@ const PropSprites = (() => {
         const t = ((now / 1400) + k / 3) % 1;
         const byy = cBot - 2 - Math.floor(t * (span - 3));
         px(gX + 1, byy, gW - 2, 1, '#f0d8ff');
-        px(gX + 1, byy + 1, gW - 2, 1, shade(M, 0.30));
+        px(gX + 1, byy + 1, gW - 2, 1, U.shade(M, 0.30));
       }
       bloom(gX, cTop, gW, span, M, 0.22);
       spill(x + 1, base - 5, w - 2, M, 0.16, 4);
@@ -4466,14 +4381,14 @@ const PropSprites = (() => {
     px(x, CAP, w, 6, r.ink);
     for (let j = 0; j < 5; j++) {
       const i = j ? 1 : 2;
-      px(x + i, CAP + j, w - i * 2, 1, j === 4 ? r.mid : shade(r.face, -0.10 + j * 0.06));
+      px(x + i, CAP + j, w - i * 2, 1, j === 4 ? r.mid : U.shade(r.face, -0.10 + j * 0.06));
     }
     px(x + 2, CAP + 1, 2, 4, r.mid);                                 // WEST RAIL, end to end
     px(x + w - 3, CAP + 1, 1, 4, r.dk); rimEdge(x + w - 3, CAP + 1, 1, 4, 0.16);
-    px(x + 5, CAP + 2, w - 22, 1, shade(r.face, 0.16));            // ONE seam across the plane, not grain
+    px(x + 5, CAP + 2, w - 22, 1, U.shade(r.face, 0.16));            // ONE seam across the plane, not grain
     px(x + 2, CAP + 4, w - 4, 1, r.lit);                             // the front nosing takes the strip
     px(x + 1, CAP + 5, w - 2, 1, r.mid);                             // and the cap's own short FACE
-    px(x + 6, CAP + 5, w - 18, 1, on ? G : shade(G, -0.62));       // indicator strip, on the face
+    px(x + 6, CAP + 5, w - 18, 1, on ? G : U.shade(G, -0.62));       // indicator strip, on the face
     if (on) bloom(x + 6, CAP + 5, w - 18, 1, G, 0.20);
     px(x + 1, CAP + 6, w - 2, 1, r.ao);                              // its underside, occluding the well
 
@@ -4488,8 +4403,8 @@ const PropSprites = (() => {
     const wX = x + 2, wW = w - 12;
     px(wX, BODY, wW, PL - BODY, r.ao);
     px(wX, BODY, wW, 1, '#0a0e11');                                  // the cap's shadow, cast down
-    px(wX, BODY, 1, PL - BODY, shade(r.ao, 0.22));                 // west inner return, lit
-    px(wX + wW - 1, BODY, 1, PL - BODY, shade(r.ao, -0.30));       // east inner return, in shade
+    px(wX, BODY, 1, PL - BODY, U.shade(r.ao, 0.22));                 // west inner return, lit
+    px(wX + wW - 1, BODY, 1, PL - BODY, U.shade(r.ao, -0.30));       // east inner return, in shade
 
     /* ---- UPPER BAY: a latched case, two collared canisters, a drive unit ---- */
     px(wX + 2, BRD - 6, 9, 6, r.ink);
@@ -4506,11 +4421,11 @@ const PropSprites = (() => {
     px(wX + 23, BRD - 6, 9, 1, r.lit);                               // the drive unit's TOP
     px(wX + 23, BRD - 5, 9, 4, r.top);
     px(wX + 24, BRD - 3, 3, 1, r.hi);
-    px(wX + 30, BRD - 3, 1, 1, blink(420) ? G : shade(G, -0.66));
+    px(wX + 30, BRD - 3, 1, 1, blink(420) ? G : U.shade(G, -0.66));
 
     /* ---- THE BOARD: 2 rows of TOP SURFACE with the binders standing on its far edge ---- */
     px(wX, BRD, wW, 2, r.face);
-    px(wX, BRD, wW, 1, shade(r.face, 0.10)); px(wX + 1, BRD + 1, wW - 2, 1, r.mid);
+    px(wX, BRD, wW, 1, U.shade(r.face, 0.10)); px(wX + 1, BRD + 1, wW - 2, 1, r.mid);
     px(wX, BRD, 1, 2, r.lit); keyEdge(wX, BRD, 1, 2, 0.16);          // keyed down the west rail again
     px(wX + wW - 1, BRD, 1, 2, r.dk);
     px(wX, BRD + 2, wW, 1, '#080b0e');                               // the board's own thickness
@@ -4531,12 +4446,12 @@ const PropSprites = (() => {
     px(wX + 26, PL - 5, 7, 1, r.lit);                                // the module's TOP
     px(wX + 26, PL - 4, 7, 3, r.top);
     px(wX + 27, PL - 2, 5, 1, r.mid);
-    px(wX + 32, PL - 4, 1, 1, blink(760) ? G : shade(G, -0.66));
+    px(wX + 32, PL - 4, 1, 1, blink(760) ? G : U.shade(G, -0.66));
 
     /* ---- RIGHT COLUMN: one tall glowing channel ---- */
     const chX = x + w - 8;
     px(chX, BODY, 5, PL - BODY, r.ao);
-    px(chX + 2, BODY + 1, 1, PL - BODY - 2, on ? G : shade(G, -0.70));
+    px(chX + 2, BODY + 1, 1, PL - BODY - 2, on ? G : U.shade(G, -0.70));
     if (on) {
       px(chX + 2, BODY + 4, 1, 5, '#d6ffe8');
       bloom(chX + 1, BODY + 2, 3, PL - BODY - 4, G, 0.13);
@@ -4593,33 +4508,33 @@ const PropSprites = (() => {
     px(x, y + 5, w, 1, WD_LIT); keyEdge(x + 1, y + 5, w - 3, 1, 0.16);
     for (let i = 0; i < 4; i++) {                                       // four recessed panels
       const pxx = x + 3 + i * 12;
-      px(pxx, y + 6, 9, 2, shade(WD, -0.24));
-      px(pxx, y + 6, 9, 1, shade(WD, -0.44)); px(pxx, y + 7, 9, 1, shade(WD, 0.10));
+      px(pxx, y + 6, 9, 2, U.shade(WD, -0.24));
+      px(pxx, y + 6, 9, 1, U.shade(WD, -0.44)); px(pxx, y + 7, 9, 1, U.shade(WD, 0.10));
     }
     px(x + w - 1, y + 5, 1, 4, WD_DK); rimEdge(x + w - 1, y + 5, 1, 4, 0.20);
-    px(x, y + 8, w, 1, shade(WD_DK, -0.34));
+    px(x, y + 8, w, 1, U.shade(WD_DK, -0.34));
     bloom(x + 2, y + 8, w - 4, 1, ACC.lounge, on ? 0.28 : 0.15);   // under-counter accent — STEADY, see note
     // ---- COUNTER TOP: timber slab with a BRASS NOSING along the front lip. The nosing is the single
     // detail that says "bar" fastest, because no other prop in the catalog has a warm metal edge.
     chamf(x - 1, y - 3, w + 2, 9, EDGE, 2);
     chamf(x, y - 2, w, 7, WD, 2);
     px(x + 2, y - 2, w - 4, 1, WD_LIT); keyEdge(x + 2, y - 2, 10, 1, 0.28);
-    px(x + 2, y - 1, w - 4, 1, shade(WD, 0.14));
-    px(x + 2, y + 1, w - 4, 1, shade(WD, -0.10));   // the top falls away toward the user
-    px(x + 2, y + 2, w - 4, 1, shade(WD, -0.22));
-    for (let i = 0; i < 5; i++) px(x + 4 + i * 10, y, 5, 1, shade(WD, 0.08));   // grain along the top
+    px(x + 2, y - 1, w - 4, 1, U.shade(WD, 0.14));
+    px(x + 2, y + 1, w - 4, 1, U.shade(WD, -0.10));   // the top falls away toward the user
+    px(x + 2, y + 2, w - 4, 1, U.shade(WD, -0.22));
+    for (let i = 0; i < 5; i++) px(x + 4 + i * 10, y, 5, 1, U.shade(WD, 0.08));   // grain along the top
     px(x, y, 1, 4, WD_LIT); px(x + w - 1, y, 1, 4, WD_DK); rimEdge(x + w - 1, y, 1, 4, 0.20);
     px(x + 1, y + 3, w - 2, 1, BRS); px(x + 1, y + 3, 9, 1, BRS_LIT);   // the brass nosing
-    px(x + 1, y + 4, w - 2, 1, shade(BRS, -0.52));                    // its shadow onto the front face
-    wear(x + 2, y - 1, w - 4, 4, 4, shade(WD, -0.12));
+    px(x + 1, y + 4, w - 2, 1, U.shade(BRS, -0.52));                    // its shadow onto the front face
+    wear(x + 2, y - 1, w - 4, 4, 4, U.shade(WD, -0.12));
     // ---- BACK GANTRY: two end standards + a mid rail carry the shelf, so it is JOINERY, not a floater.
     const sy = y - 11, sw = 26, sxx = x + 5;
     for (const bx of [sxx, sxx + sw - 3]) {
       px(bx, sy + 5, 3, 8, EDGE);
-      px(bx, sy + 5, 1, 8, shade(WD, 0.18)); px(bx + 1, sy + 5, 1, 8, WD); px(bx + 2, sy + 5, 1, 8, WD_DK);
+      px(bx, sy + 5, 1, 8, U.shade(WD, 0.18)); px(bx + 1, sy + 5, 1, 8, WD); px(bx + 2, sy + 5, 1, 8, WD_DK);
       keyEdge(bx, sy + 6, 1, 5, 0.16); rimEdge(bx + 2, sy + 6, 1, 6, 0.18);
     }
-    px(sxx + 2, sy + 9, sw - 4, 1, WD_DK); px(sxx + 2, sy + 9, 6, 1, shade(WD, 0.10));   // mid rail
+    px(sxx + 2, sy + 9, sw - 4, 1, WD_DK); px(sxx + 2, sy + 9, 6, 1, U.shade(WD, 0.10));   // mid rail
     /* ---- BACK SHELF, rebuilt to Andrew's crop (2026-08-16). Same sxx/sy/sw as the shipped bar, so
        the prop's shape is untouched — only what sits inside the frame changed:
        ⛔ MUTED BOTTLES, NOT NEON. The shipped seven were saturated teal/magenta/cyan and read as a
@@ -4636,16 +4551,16 @@ const PropSprites = (() => {
     for (let i = 0; i < 8; i++) {
       const bc = ['#8e4356', '#6a4a8a', '#a8613a', '#7a5238', '#5f4a86', '#8e4356', '#6a4a8a', '#a8613a'][i];
       const bh2 = 2 + (i % 2), bxx = sxx + 1 + i * 3;
-      px(bxx, sy + 5 - bh2, 3, bh2, shade(bc, -0.22));                // body
-      px(bxx, sy + 5 - bh2, 3, 1, shade(bc, 0.30));                   // shoulder catch
-      px(bxx + 2, sy + 6 - bh2, 1, bh2 - 1, shade(bc, -0.44));        // shaded flank
-      px(bxx + 1, sy + 4 - bh2, 1, 1, shade(bc, 0.10));               // the cap, proud on top
+      px(bxx, sy + 5 - bh2, 3, bh2, U.shade(bc, -0.22));                // body
+      px(bxx, sy + 5 - bh2, 3, 1, U.shade(bc, 0.30));                   // shoulder catch
+      px(bxx + 2, sy + 6 - bh2, 1, bh2 - 1, U.shade(bc, -0.44));        // shaded flank
+      px(bxx + 1, sy + 4 - bh2, 1, 1, U.shade(bc, 0.10));               // the cap, proud on top
     }
     px(sxx + 1, sy + 5, sw - 2, 1, '#b9c6cc');                          // PALE CHROME SHELF EDGE
     px(sxx + 1, sy + 6, sw - 2, 1, '#5d686e');
     px(sxx + 2, sy + 5, 7, 1, '#dde7ec');                               // one glint, west
     for (let i = 0; i < 4; i++)                                          // magenta blocks under the edge
-      px(sxx + 4 + i * 6, sy + 7, 3, 1, on ? ACC.lounge : shade(ACC.lounge, -0.42));
+      px(sxx + 4 + i * 6, sy + 7, 3, 1, on ? ACC.lounge : U.shade(ACC.lounge, -0.42));
     bloom(sxx + 1, sy + 2, sw - 2, 3, ACC.lounge, on ? 0.20 : 0.12);
     spill(sxx + 1, sy + 8, sw - 2, ACC.lounge, on ? 0.18 : 0.10, 4);
     px(sxx + sw - 4, sy + 1, 1, 1, '#33241a');                     // shelf pilot fitting, dark: see note
@@ -4654,7 +4569,7 @@ const PropSprites = (() => {
     // zone and they read as three lit CANDLES — the brightest thing on the prop, in front of the one
     // element (the bottle niche) that is supposed to be the light source.
     const tx = x + Math.round(w / 2) - 9;
-    px(tx - 1, y - 1, 11, 2, shade(BRS, -0.34)); px(tx - 1, y - 1, 11, 1, BRS);
+    px(tx - 1, y - 1, 11, 2, U.shade(BRS, -0.34)); px(tx - 1, y - 1, 11, 1, BRS);
     for (let i = 0; i < 3; i++) {
       const tk = tx + i * 4;
       px(tk, y - 5, 1, 4, '#6c7a86'); px(tk, y - 5, 1, 2, '#96a4ae');   // the column
@@ -4703,9 +4618,9 @@ const PropSprites = (() => {
     px(x + 2, y + 2, 1, 2, '#4a8a82'); px(x + 9, y + 2, 1, 2, '#26554e');
     rimEdge(x + 9, y + 2, 1, 2, 0.20);                          // cold bounce off the east flank of the pad
     px(x + 3, y + 3, 1, 1, '#26554e'); px(x + 8, y + 3, 1, 1, '#26554e');   // piping stitches (kept)
-    px(x + 5, y + 2, 2, 1, shade('#2f6a62', 0.18));           // a soft crease where a body sits
+    px(x + 5, y + 2, 2, 1, U.shade('#2f6a62', 0.18));           // a soft crease where a body sits
     px(x + 3, y + 4, 6, 1, r.dk);                               // rounded underside rim
-    px(x + 4, y + 5, 4, 1, shade(r.dk, -0.30));               // seat AO onto the stem
+    px(x + 4, y + 5, 4, 1, U.shade(r.dk, -0.30));               // seat AO onto the stem
   };
 
   F.tv = (x, y, w, h, f) => {   // v4 TV (3x1) — chamfered panel on a credenza; screen faces SOUTH (its approach side)
@@ -4721,18 +4636,18 @@ const PropSprites = (() => {
     chamf(x - 1, y + 4, w + 2, 6, LINE, 2);
     px(x, y + 5, w, 4, r.face);
     px(x, y + 5, w, 1, r.lit); keyEdge(x + 1, y + 5, w - 3, 1, 0.16);
-    for (const dx of [x + 12, x + 24]) { px(dx, y + 6, 1, 3, r.ao); px(dx + 1, y + 6, 1, 3, shade(r.face, 0.10)); }
-    for (const pxx of [x + 5, x + 17, x + 29]) { px(pxx, y + 6, 2, 1, shade(r.face, -0.40)); px(pxx, y + 7, 2, 1, shade(r.face, 0.12)); }
+    for (const dx of [x + 12, x + 24]) { px(dx, y + 6, 1, 3, r.ao); px(dx + 1, y + 6, 1, 3, U.shade(r.face, 0.10)); }
+    for (const pxx of [x + 5, x + 17, x + 29]) { px(pxx, y + 6, 2, 1, U.shade(r.face, -0.40)); px(pxx, y + 7, 2, 1, U.shade(r.face, 0.12)); }
     px(x + w - 1, y + 5, 1, 4, r.dk); rimEdge(x + w - 1, y + 5, 1, 4, 0.20);
     px(x, y + 8, w, 1, r.ao);
     // credenza top
     chamf(x - 1, y + 1, w + 2, 5, LINE, 2);
     chamf(x, y + 2, w, 3, r.top, 2);
     px(x + 2, y + 2, w - 4, 1, r.sheen); keyEdge(x + 2, y + 2, 8, 1, 0.26);
-    px(x + 1, y + 4, w - 2, 1, shade(r.top, -0.16));
+    px(x + 1, y + 4, w - 2, 1, U.shade(r.top, -0.16));
     // the PANEL: chamfered slab on a real pedestal foot, so it sits ON the credenza instead of hovering
-    px(x + 12, y + 1, 12, 2, shade(r.top, -0.34)); px(x + 13, y + 1, 10, 1, shade(r.top, -0.12));  // foot pressed into the top
-    px(x + 16, y - 1, 4, 3, shade(r.face, -0.12)); px(x + 16, y - 1, 1, 3, r.lit); px(x + 19, y - 1, 1, 3, r.dk);  // neck
+    px(x + 12, y + 1, 12, 2, U.shade(r.top, -0.34)); px(x + 13, y + 1, 10, 1, U.shade(r.top, -0.12));  // foot pressed into the top
+    px(x + 16, y - 1, 4, 3, U.shade(r.face, -0.12)); px(x + 16, y - 1, 1, 3, r.lit); px(x + 19, y - 1, 1, 3, r.dk);  // neck
     chamf(x + 2, y - 12, w - 4, 15, LINE, 2);
     chamf(x + 3, y - 11, w - 6, 13, '#12181d', 2);                // bezel
     px(x + 5, y - 11, w - 10, 1, '#26333a'); keyEdge(x + 5, y - 11, 7, 1, 0.24);   // warm catch along the crown
@@ -4767,13 +4682,13 @@ const PropSprites = (() => {
       cast = '#6a2a3a';
     }
     scanl(sx, sy, sw, sh2, watched ? 0.08 : 0.14);                 // an unwatched set reads dustier
-    px(sx, sy, 6, 2, shade(cast, 0.45));                         // glass glint on the corner
+    px(sx, sy, 6, 2, U.shade(cast, 0.45));                         // glass glint on the corner
     glow(sx, sy, 6, 2, '#dfe8f0', 0.07);
     bloom(sx, sy, sw, sh2, cast, watched ? 0.16 : 0.09);           // panel bloom with real falloff
     spill(sx, y + 2, sw, cast, watched ? 0.30 : 0.13, 5);          // picture light pools DOWN the credenza top
     // soundbar on the credenza + the chin badge
-    px(x + 8, y + 3, w - 16, 1, '#161c22'); px(x + 8, y + 3, 1, 1, shade('#161c22', 0.5));
-    for (let i = 0; i < 4; i++) px(x + 11 + i * 4, y + 3, 1, 1, watched && blink(240, i + ph) ? shade(cast, 0.4) : '#2e2e2e');
+    px(x + 8, y + 3, w - 16, 1, '#161c22'); px(x + 8, y + 3, 1, 1, U.shade('#161c22', 0.5));
+    for (let i = 0; i < 4; i++) px(x + 11 + i * 4, y + 3, 1, 1, watched && blink(240, i + ph) ? U.shade(cast, 0.4) : '#2e2e2e');
     px(x + Math.round(w / 2) - 1, y, 2, 1, '#1e262c');             // brand chip on the chin
     px(x + w - 6, y, 1, 1, watched ? '#ff6a6a' : (blink(1400, ph) ? '#ff3030' : '#3a1010'));   // standby LED
     cable(x + w - 5, y - 1, x + w - 2, y + 4, 1.6, '#0b1114');     // panel lead sagging behind the credenza
@@ -4796,25 +4711,25 @@ const PropSprites = (() => {
     // rounded shoulder, so they read as cushions instead of chiclets on a shelf.
     px(x + 6, y - 8, 7, 4, EDGE);
     px(x + 7, y - 7, 5, 3, '#2f6a62'); px(x + 7, y - 7, 5, 1, '#4a8a82');
-    px(x + 8, y - 6, 1, 2, shade('#4a8a82', 0.16)); px(x + 10, y - 6, 1, 2, shade('#4a8a82', 0.16));   // woven stripes
-    px(x + 7, y - 7, 1, 3, shade('#2f6a62', 0.18)); px(x + 11, y - 7, 1, 3, shade('#2f6a62', -0.24));
+    px(x + 8, y - 6, 1, 2, U.shade('#4a8a82', 0.16)); px(x + 10, y - 6, 1, 2, U.shade('#4a8a82', 0.16));   // woven stripes
+    px(x + 7, y - 7, 1, 3, U.shade('#2f6a62', 0.18)); px(x + 11, y - 7, 1, 3, U.shade('#2f6a62', -0.24));
     px(x + 7, y - 7, 1, 1, EDGE); px(x + 11, y - 7, 1, 1, EDGE);   // rounded shoulders — a stuffed corner, not a card
     keyEdge(x + 8, y - 7, 3, 1, 0.20);
     px(x + w - 13, y - 8, 7, 4, EDGE);
     px(x + w - 12, y - 7, 5, 3, '#8a6a3a'); px(x + w - 12, y - 7, 5, 1, '#caa84a');
-    px(x + w - 11, y - 6, 3, 1, shade('#8a6a3a', -0.20));        // a band across the amber one — the pair differ
-    px(x + w - 12, y - 7, 1, 3, shade('#8a6a3a', 0.18)); px(x + w - 8, y - 7, 1, 3, shade('#8a6a3a', -0.24));
+    px(x + w - 11, y - 6, 3, 1, U.shade('#8a6a3a', -0.20));        // a band across the amber one — the pair differ
+    px(x + w - 12, y - 7, 1, 3, U.shade('#8a6a3a', 0.18)); px(x + w - 8, y - 7, 1, 3, U.shade('#8a6a3a', -0.24));
     px(x + w - 12, y - 7, 1, 1, EDGE); px(x + w - 8, y - 7, 1, 1, EDGE);
     rimEdge(x + w - 8, y - 7, 1, 3, 0.20);
     // backrest from behind: rounded lit cap + ONE tall rear panel dropping to the floor
     rr(x + 1, y - 5, w - 2, h + 5, EDGE);
     px(x + 2, y - 4, w - 4, 2, r.lit);                            // cap catches the light
-    px(x + 2, y - 4, 8, 1, shade(r.lit, 0.10));
+    px(x + 2, y - 4, 8, 1, U.shade(r.lit, 0.10));
     keyEdge(x + 2, y - 4, 14, 1, 0.26);                           // warm ceiling strip along the crown
     rimEdge(x + w - 6, y - 4, 4, 1, 0.20);                        // cool sky bounce at the far end of the cap
-    px(x + 2, y - 4, 1, 1, shade(r.lit, -0.14));                // cap corners rounded off — a roll, not a plank
-    px(x + w - 3, y - 4, 1, 1, shade(r.lit, -0.18));
-    px(x + 2, y - 3, w - 4, 1, shade(r.lit, -0.22));            // piping seam where the cap rolls into the panel
+    px(x + 2, y - 4, 1, 1, U.shade(r.lit, -0.14));                // cap corners rounded off — a roll, not a plank
+    px(x + w - 3, y - 4, 1, 1, U.shade(r.lit, -0.18));
+    px(x + 2, y - 3, w - 4, 1, U.shade(r.lit, -0.22));            // piping seam where the cap rolls into the panel
     px(x + 2, y - 2, w - 4, h, r.face);                           // rear upholstery panel
     // v6 MATERIAL: each 14px channel between the locked seams BULGES — a lit center column falling to
     // shaded edges — so the back reads as padded upholstery instead of one flat board. Geometry (cap
@@ -4825,42 +4740,42 @@ const PropSprites = (() => {
     for (let i = 0; i <= (w - 4) / 14; i++) {
       const c0 = x + 3 + i * 14, c1 = Math.min(x + 2 + (i + 1) * 14, x + w - 3);
       const cwd = c1 - c0; if (cwd < 6) continue;
-      px(c0 + 2, y - 1, cwd - 4, h - 3, shade(r.face, 0.05));   // the bulge's lit belly
-      px(c0 + 3, y - 1, 3, h - 4, shade(r.face, 0.10));         // west-biased crown of the bulge
-      px(c0 + 4, y - 1, 1, h - 5, shade(r.face, 0.15));         // crown core — a genuine round, 3 steps
-      px(c0, y - 1, 1, h - 2, shade(r.face, -0.09));            // falling into the seam shade
-      px(c1 - 1, y - 1, 1, h - 2, shade(r.face, -0.09));
-      px(c0 + 1, y + h - 5, cwd - 2, 1, shade(r.face, -0.04));  // upholstery settles darker toward the skirt
+      px(c0 + 2, y - 1, cwd - 4, h - 3, U.shade(r.face, 0.05));   // the bulge's lit belly
+      px(c0 + 3, y - 1, 3, h - 4, U.shade(r.face, 0.10));         // west-biased crown of the bulge
+      px(c0 + 4, y - 1, 1, h - 5, U.shade(r.face, 0.15));         // crown core — a genuine round, 3 steps
+      px(c0, y - 1, 1, h - 2, U.shade(r.face, -0.09));            // falling into the seam shade
+      px(c1 - 1, y - 1, 1, h - 2, U.shade(r.face, -0.09));
+      px(c0 + 1, y + h - 5, cwd - 2, 1, U.shade(r.face, -0.04));  // upholstery settles darker toward the skirt
       const bx = c0 + (cwd >> 1);                                 // tuft button, its catch above and shade below
-      px(bx, y + 1, 1, 1, shade(r.face, -0.32));
-      px(bx, y, 1, 1, shade(r.face, 0.18));
-      px(bx - 1, y + 2, 1, 1, shade(r.face, -0.10));            // the button pulls a little diagonal crease
-      px(bx + 1, y + 2, 1, 1, shade(r.face, -0.10));
+      px(bx, y + 1, 1, 1, U.shade(r.face, -0.32));
+      px(bx, y, 1, 1, U.shade(r.face, 0.18));
+      px(bx - 1, y + 2, 1, 1, U.shade(r.face, -0.10));            // the button pulls a little diagonal crease
+      px(bx + 1, y + 2, 1, 1, U.shade(r.face, -0.10));
     }
-    px(x + 2, y - 2, 1, h, shade(r.face, 0.10));                // lit west facet
+    px(x + 2, y - 2, 1, h, U.shade(r.face, 0.10));                // lit west facet
     px(x + w - 3, y - 2, 1, h, r.dk);                             // dark east facet
     rimEdge(x + w - 3, y - 2, 1, h - 2, 0.22);                    // cool bounce down the shade flank
     for (let i = 1; i < (w - 4) / 14; i++) {                      // cushion seams (these mark the cushions — locked)
       px(x + 2 + i * 14, y - 1, 1, h - 2, r.dk);
-      px(x + 3 + i * 14, y - 1, 1, h - 3, shade(r.face, 0.09)); // the catch beside each seam gives the panel depth
+      px(x + 3 + i * 14, y - 1, 1, h - 3, U.shade(r.face, 0.09)); // the catch beside each seam gives the panel depth
     }
-    wear(x + 2, y - 1, w - 4, h - 2, 6, shade(r.face, -0.08));
-    px(x + 2, y + h - 4, w - 4, 1, shade(r.face, -0.12));       // skirt band: the upholstery stops before the floor
-    px(x + 2, y + h - 3, w - 4, 1, shade(r.face, -0.18));       // kick-line shadow near the floor
+    wear(x + 2, y - 1, w - 4, h - 2, 6, U.shade(r.face, -0.08));
+    px(x + 2, y + h - 4, w - 4, 1, U.shade(r.face, -0.12));       // skirt band: the upholstery stops before the floor
+    px(x + 2, y + h - 3, w - 4, 1, U.shade(r.face, -0.18));       // kick-line shadow near the floor
     px(x + 2, y + h - 2, w - 4, 1, r.ao);                         // floor-line ambient occlusion
     // the pillows GROUND: each casts a soft notch onto the cap it leans over (they floated before)
-    px(x + 7, y - 4, 5, 1, shade(r.lit, -0.16));
-    px(x + w - 12, y - 4, 5, 1, shade(r.lit, -0.16));
+    px(x + 7, y - 4, 5, 1, U.shade(r.lit, -0.16));
+    px(x + w - 12, y - 4, 5, 1, U.shade(r.lit, -0.16));
     // arms: rounded caps that step DOWN from the back and wrap the ends to the floor
     for (const ax of [x, x + w - 4]) {
       rr(ax - 1, y - 3, 6, h + 3, EDGE);
       px(ax, y - 2, 4, h + 1, r.face);
-      px(ax, y - 2, 4, 2, r.lit); px(ax, y - 2, 3, 1, shade(r.lit, 0.10));   // arm cap
-      if (ax === x) { keyEdge(ax, y - 2, 4, 1, 0.24); px(ax, y, 1, h - 2, shade(r.face, 0.10)); }
+      px(ax, y - 2, 4, 2, r.lit); px(ax, y - 2, 3, 1, U.shade(r.lit, 0.10));   // arm cap
+      if (ax === x) { keyEdge(ax, y - 2, 4, 1, 0.24); px(ax, y, 1, h - 2, U.shade(r.face, 0.10)); }
       else { rimEdge(ax + 3, y - 2, 1, h, 0.20); px(ax + 3, y, 1, h - 2, r.dk); }
-      px(ax, y, 4, 1, shade(r.face, -0.20));                    // roll seam under the arm cap
-      px(ax === x ? ax + 4 : ax - 1, y - 1, 1, h - 1, shade(r.face, -0.16)); // elbow crease against the panel
-      px(ax + 1, y + 2, 2, h - 5, shade(r.face, 0.05));         // the arm's own soft belly
+      px(ax, y, 4, 1, U.shade(r.face, -0.20));                    // roll seam under the arm cap
+      px(ax === x ? ax + 4 : ax - 1, y - 1, 1, h - 1, U.shade(r.face, -0.16)); // elbow crease against the panel
+      px(ax + 1, y + 2, 2, h - 5, U.shade(r.face, 0.05));         // the arm's own soft belly
       px(ax, y + h - 2, 4, 1, r.ao);                              // arm base AO
     }
   };
@@ -4893,38 +4808,38 @@ const PropSprites = (() => {
     rr(SW - 1, y - 2, 8, 7, EDGE);                               // the cushion, set BACK between them
     /* (2) THE CUSHION — inset, so the deck shows between the arms and the outline notches */
     px(SW, y - 1, 7, 5, r.face);
-    px(SW, y - 1, 1, 5, shade(r.face, 0.14));                  // its west lip catches the strip
-    px(SW + 1, y - 1, 4, 5, shade(r.face, 0.07));              // the soft belly
-    px(SW + 5, y - 1, 2, 5, shade(r.face, -0.12));             // falling into the back's shade
-    px(SW + 3, y + 1, 1, 1, shade(r.face, -0.34));             // tuft button
-    px(SW + 2, y + 2, 1, 1, shade(r.face, -0.14)); px(SW + 4, y + 2, 1, 1, shade(r.face, -0.14));
-    px(SW, y + 3, 7, 1, shade(r.face, -0.30));                 // the cushion's own front shadow
+    px(SW, y - 1, 1, 5, U.shade(r.face, 0.14));                  // its west lip catches the strip
+    px(SW + 1, y - 1, 4, 5, U.shade(r.face, 0.07));              // the soft belly
+    px(SW + 5, y - 1, 2, 5, U.shade(r.face, -0.12));             // falling into the back's shade
+    px(SW + 3, y + 1, 1, 1, U.shade(r.face, -0.34));             // tuft button
+    px(SW + 2, y + 2, 1, 1, U.shade(r.face, -0.14)); px(SW + 4, y + 2, 1, 1, U.shade(r.face, -0.14));
+    px(SW, y + 3, 7, 1, U.shade(r.face, -0.30));                 // the cushion's own front shadow
     /* (3) THE FAR ARM — a roll, lit on top, stopping at the back */
     px(ax + 1, y - 4, 11, 2, r.lit); keyEdge(ax + 1, y - 4, 6, 1, 0.26);
-    px(ax + 1, y - 2, 11, 1, shade(r.lit, -0.30));             // piping under its crown
-    px(ax + 1, y - 1, 3, 1, r.face); px(ax + 1, y - 1, 1, 1, shade(r.face, 0.12));   // its west end wraps down
+    px(ax + 1, y - 2, 11, 1, U.shade(r.lit, -0.30));             // piping under its crown
+    px(ax + 1, y - 1, 3, 1, r.face); px(ax + 1, y - 1, 1, 1, U.shade(r.face, 0.12));   // its west end wraps down
     /* (4) ONE THROW PILLOW, propped where the back meets the cushion */
     px(SW + 3, y - 3, 5, 6, EDGE);
     px(SW + 4, y - 2, 3, 4, '#2f6a62'); px(SW + 4, y - 2, 3, 1, '#4a8a82');
-    px(SW + 4, y - 1, 1, 2, shade('#4a8a82', 0.18)); px(SW + 6, y - 1, 1, 2, shade('#2f6a62', -0.26));
+    px(SW + 4, y - 1, 1, 2, U.shade('#4a8a82', 0.18)); px(SW + 6, y - 1, 1, 2, U.shade('#2f6a62', -0.26));
     px(SW + 4, y - 2, 1, 1, EDGE); px(SW + 6, y - 2, 1, 1, EDGE);   // stuffed corners, not a card
     /* (5) THE BACK — an unbroken crown down the east side, a row above both arms */
     px(BK, y - 6, 4, h + 6, r.lit);
     keyEdge(BK, y - 6, 4, 8, 0.24);
-    px(BK, y - 6, 1, h + 6, shade(r.lit, 0.10));
-    px(BK + 4, y - 6, 1, h + 6, shade(r.lit, -0.32));          // piping where the crown rolls over
+    px(BK, y - 6, 1, h + 6, U.shade(r.lit, 0.10));
+    px(BK + 4, y - 6, 1, h + 6, U.shade(r.lit, -0.32));          // piping where the crown rolls over
     px(BK + 5, y - 5, 1, h + 4, r.dk); rimEdge(BK + 5, y - 5, 1, h + 4, 0.22);
-    px(BK + 1, y - 6, 2, 1, shade(r.lit, 0.16));               // the crown's own catch
+    px(BK + 1, y - 6, 2, 1, U.shade(r.lit, 0.16));               // the crown's own catch
     /* (6) THE NEAR ARM last, so it wraps the cushion: crown, piping, then the south face + skirt.
        ⛔ ROW y+3 IS THE SEAT LINE. Everything from here down is what a sitting body disappears
           BEHIND — see RECLINER_FRONT_Y / drawSeatFront. Move this band and the sitter's shins
           either float in front of the arm or get swallowed to the waist. */
     px(ax + 1, y + 4, 11, 2, r.lit); keyEdge(ax + 1, y + 4, 6, 1, 0.28);
-    px(ax + 1, y + 6, 11, 1, shade(r.lit, -0.26));
+    px(ax + 1, y + 6, 11, 1, U.shade(r.lit, -0.26));
     px(ax + 1, y + 7, aw - 3, 3, r.face);
-    px(ax + 1, y + 7, 1, 3, shade(r.face, 0.12)); px(ax + aw - 3, y + 7, 1, 3, r.dk);
-    px(ax + 3, y + 8, aw - 7, 1, shade(r.face, 0.06));         // the arm's soft belly
-    px(ax + 1, y + 10, aw - 3, 1, shade(r.face, -0.28));       // skirt
+    px(ax + 1, y + 7, 1, 3, U.shade(r.face, 0.12)); px(ax + aw - 3, y + 7, 1, 3, r.dk);
+    px(ax + 3, y + 8, aw - 7, 1, U.shade(r.face, 0.06));         // the arm's soft belly
+    px(ax + 1, y + 10, aw - 3, 1, U.shade(r.face, -0.28));       // skirt
     px(ax + 1, y + 11, aw - 3, 1, r.ao);                         // floor-line AO
   };
 
@@ -4978,8 +4893,8 @@ const PropSprites = (() => {
 
     /* ---- MARQUEE: the lit sign, proud of the cabinet, with brighter end caps ---- */
     px(x, T + 2, w, 5, EDGE);
-    px(x + 1, T + 3, w - 2, 3, shade(P, -0.26));
-    px(x + 1, T + 3, w - 2, 1, shade(P, 0.30));                   // lit top edge
+    px(x + 1, T + 3, w - 2, 3, U.shade(P, -0.26));
+    px(x + 1, T + 3, w - 2, 1, U.shade(P, 0.30));                   // lit top edge
     px(x + 1, T + 3, 1, 3, '#ffd0f4'); px(x + w - 2, T + 3, 1, 3, '#ffd0f4');   // end caps
     px(x + 3, T + 4, 2, 1, '#ffe8f8'); px(x + 7, T + 4, 2, 1, '#ffe8f8');       // two glyph blocks
     bloom(x + 1, T + 3, w - 2, 3, P, 0.26);
@@ -4992,20 +4907,20 @@ const PropSprites = (() => {
     /* ---- SCREEN BAY: magenta strips flanking a green CRT ---- */
     const sy = T + 8, sh = 7;
     px(x + 1, sy - 1, w - 2, sh + 2, EDGE);
-    px(x + 1, sy, 1, sh, on ? P : shade(P, -0.50));               // WEST light strip
-    px(x + w - 2, sy, 1, sh, on ? P : shade(P, -0.50));           // EAST light strip
+    px(x + 1, sy, 1, sh, on ? P : U.shade(P, -0.50));               // WEST light strip
+    px(x + w - 2, sy, 1, sh, on ? P : U.shade(P, -0.50));           // EAST light strip
     if (on) { bloom(x + 1, sy, 1, sh, P, 0.24); bloom(x + w - 2, sy, 1, sh, P, 0.24); }
     px(x + 2, sy, w - 4, sh, '#04120a');
     if (on) {
       const sc = scr((f && f.x) || 0);
-      px(x + 2, sy, w - 4, sh, shade(sc, -0.78));
+      px(x + 2, sy, w - 4, sh, U.shade(sc, -0.78));
       const drift = Math.floor(now / 700) % 2;
       for (let ry = 0; ry < 2; ry++)                                // two rows of invaders
         for (let rx = 0; rx < 3; rx++)
-          px(x + 3 + rx * 2 + drift, sy + 1 + ry * 2, 2, 1, shade(sc, 0.24));
+          px(x + 3 + rx * 2 + drift, sy + 1 + ry * 2, 2, 1, U.shade(sc, 0.24));
       px(cx - 1, sy + 5, 2, 1, '#eaffe8');                          // the ship
       px(cx, sy + 4, 1, 1, '#eaffe8');
-      px(x + 3, sy + 6, 4, 1, shade(sc, 0.10));                   // a ground line
+      px(x + 3, sy + 6, 4, 1, U.shade(sc, 0.10));                   // a ground line
       scanl(x + 2, sy, w - 4, sh, 0.20);
       bloom(x + 2, sy, w - 4, sh, sc, 0.16);
     } else {
@@ -5025,7 +4940,7 @@ const PropSprites = (() => {
     /* ---- LOWER CABINET: magenta lamp, coin slot, vent grille ---- */
     px(x + 1, T + 20, w - 2, 3, BODY);
     px(x + 1, T + 20, w - 2, 1, BODY_D);
-    px(x + 2, T + 21, 2, 2, on ? P : shade(P, -0.55));            // the lamp
+    px(x + 2, T + 21, 2, 2, on ? P : U.shade(P, -0.55));            // the lamp
     if (on) bloom(x + 2, T + 21, 2, 2, P, 0.22);
     px(x + 5, T + 21, 2, 2, b.ao);                                  // coin slot
     px(x + 5, T + 21, 2, 1, r.mid);
@@ -5036,7 +4951,7 @@ const PropSprites = (() => {
     /* ---- PLINTH with magenta ticks ---- */
     px(x, base - 3, w, 3, EDGE);
     px(x + 1, base - 2, w - 2, 1, r.mid);                           // the plinth's ONE lit row
-    for (let k = 0; k < 3; k++) px(x + 6 + k, base - 2, 1, 1, on ? P : shade(P, -0.60));
+    for (let k = 0; k < 3; k++) px(x + 6 + k, base - 2, 1, 1, on ? P : U.shade(P, -0.60));
     px(x + 2, base - 2, 3, 1, b.ao);
     // base-1 stays EDGE: the cabinet needs a dark row ON the floor or it reads as standing on a
     // pale kick and floats. A 2-row lit plinth was the first thing wrong with the shortened version.
@@ -5059,7 +4974,7 @@ const PropSprites = (() => {
     const T_LIT = '#4fdcb8', T_MID = '#2f9d86', T_DK = '#155048', SCR = '#0d2a26';
     const PALE = '#8e9aa2', PALE_L = '#b6c0c6';
     const base = y + h, T = base - 26;
-    const glowT = c => on ? c : shade(c, -0.55);
+    const glowT = c => on ? c : U.shade(c, -0.55);
 
     shadow2(x + 1, base - 1, w - 2);
 
@@ -5090,7 +5005,7 @@ const PropSprites = (() => {
       px(x + 4, T + 11, 1, 2, T_LIT); px(x + 3, T + 12, 3, 1, T_LIT); // the little runner
       px(x + 4, T + 10, 1, 1, T_LIT);
       px(x + 2, T + 13, w - 4, 1, T_MID);                             // the ground line
-      px(x + 7, T + 12, 3, 1, shade(T_MID, 0.20));                  // a ledge it is heading for
+      px(x + 7, T + 12, 3, 1, U.shade(T_MID, 0.20));                  // a ledge it is heading for
       scanl(x + 2, T + 7, w - 4, 7, 0.20);
       bloom(x + 2, T + 7, w - 4, 7, T_LIT, 0.16);
     } else {
@@ -5114,10 +5029,10 @@ const PropSprites = (() => {
 
     /* ---- LIGHT BAR across the kick — the reference's signature ---- */
     px(x + 1, T + 25, w - 2, 2, BODY_D);
-    px(x + 2, T + 25, w - 4, 1, on ? T_LIT : shade(T_LIT, -0.60));
+    px(x + 2, T + 25, w - 4, 1, on ? T_LIT : U.shade(T_LIT, -0.60));
     if (on) { bloom(x + 2, T + 25, w - 4, 1, T_LIT, 0.30); spill(x + 2, base - 1, w - 4, T_LIT, 0.18, 4); }
     px(x + 1, base - 1, w - 2, 1, '#080c0e');
-    if (on && blink(900, ph)) px(x + w - 3, T + 6, 1, 1, shade(T_LIT, 0.20));
+    if (on && blink(900, ph)) px(x + w - 3, T + 6, 1, 1, U.shade(T_LIT, 0.20));
   };
 
   F.jukebox = (x, y, w, h, f) => {
@@ -5133,7 +5048,7 @@ const PropSprites = (() => {
     const EDGE = '#1c1410';
     const live = !!(f && f.live), ph = (f && f.x) || 0;
     const cw = 13, T = y - 3, B = y + h - 1;
-    const cold = c => live ? c : shade(c, -0.42);
+    const cold = c => live ? c : U.shade(c, -0.42);
     const TIM = '#7a4a22', TIM_D = '#43280f', TIM_L = '#9c6a34';
     const CRM = '#c8a45e', CRM_L = '#e8cf94', CRM_D = '#8a6c38';
     const CHR = '#b0bcc2', CHR_D = '#667077';
@@ -5221,25 +5136,25 @@ const PropSprites = (() => {
     const sT = y + h - 8, bx = x + 3, bw = w - 6;
     px(bx, y + 7, bw, sT - y - 7, QLT);
     px(bx, y + 7, bw, 2, QLT_LIT);                                      // turned-down fold, catching light
-    px(bx, y + 7, bw, 1, shade(QLT_LIT, 0.18));
+    px(bx, y + 7, bw, 1, U.shade(QLT_LIT, 0.18));
     px(bx, y + 9, bw, 1, QLT_DK);                                       // the fold's own shadow
-    px(bx, y + 10, 1, sT - y - 10, shade(QLT, 0.12));
+    px(bx, y + 10, 1, sT - y - 10, U.shade(QLT, 0.12));
     px(bx + bw - 1, y + 10, 1, sT - y - 10, QLT_DK);
     rimEdge(bx + bw - 1, y + 10, 1, sT - y - 10, 0.18);
-    for (const qx of [bx + 5, bx + bw - 6]) px(qx, y + 10, 1, sT - y - 10, shade(QLT, -0.16));  // stitching
-    for (let qy = y + 12; qy < sT - 1; qy += 4) px(bx + 1, qy, bw - 2, 1, shade(QLT, -0.13));
-    px(bx + 2, y + 11, 5, 1, shade(QLT_LIT, -0.22));                  // one soft crease, west-biased
-    wear(bx + 2, y + 11, bw - 4, sT - y - 13, 4, shade(QLT, -0.11));
+    for (const qx of [bx + 5, bx + bw - 6]) px(qx, y + 10, 1, sT - y - 10, U.shade(QLT, -0.16));  // stitching
+    for (let qy = y + 12; qy < sT - 1; qy += 4) px(bx + 1, qy, bw - 2, 1, U.shade(QLT, -0.13));
+    px(bx + 2, y + 11, 5, 1, U.shade(QLT_LIT, -0.22));                  // one soft crease, west-biased
+    wear(bx + 2, y + 11, bw - 4, sT - y - 13, 4, U.shade(QLT, -0.11));
     if (!occupied) return;
     // OCCUPIED: the quilt is tented over a body. One breath cycle (~4s) moves the crown by a single
     // pixel — a sleeping body is nearly still, and anything faster reads as a machine, not a lung.
     const breath = (Math.sin((now || 0) / 2000) > 0.2) ? 1 : 0;
     const cx = bx + ((bw - 8) >> 1);
-    px(cx, y + 10 - breath, 8, sT - y - 11 + breath, shade(QLT, 0.10));       // the swell itself
-    px(cx, y + 10 - breath, 8, 1, shade(QLT_LIT, -0.06));                     // lit crown
-    px(cx - 1, y + 11 - breath, 1, sT - y - 12, shade(QLT, -0.10));           // the shoulders' shadow, west
+    px(cx, y + 10 - breath, 8, sT - y - 11 + breath, U.shade(QLT, 0.10));       // the swell itself
+    px(cx, y + 10 - breath, 8, 1, U.shade(QLT_LIT, -0.06));                     // lit crown
+    px(cx - 1, y + 11 - breath, 1, sT - y - 12, U.shade(QLT, -0.10));           // the shoulders' shadow, west
     px(cx + 8, y + 11 - breath, 1, sT - y - 12, QLT_DK);                        // ...and east
-    px(cx + 1, sT - 3, 6, 1, shade(QLT, -0.14));                              // the fold where the feet end
+    px(cx + 1, sT - 3, 6, 1, U.shade(QLT, -0.14));                              // the fold where the feet end
   };
 
   F.bunk = (x, y, w, h, f) => {
@@ -5261,7 +5176,7 @@ const PropSprites = (() => {
     // ---- FOUR CORNER POSTS. The south pair carries the contact; the north pair is a hint behind the
     // mattress, which is all you would see of them from above.
     for (const lx of [x + 1, x + w - 4]) {
-      px(lx, y + 1, 3, 3, shade(WD, -0.30));                          // north posts, mostly hidden
+      px(lx, y + 1, 3, 3, U.shade(WD, -0.30));                          // north posts, mostly hidden
       px(lx, y + h - 5, 3, 5, LINE);
       px(lx, y + h - 4, 3, 4, WD); px(lx, y + h - 4, 1, 4, WD_LIT); px(lx + 2, y + h - 4, 1, 4, WD_DK);
       keyEdge(lx, y + h - 4, 1, 3, 0.16); rimEdge(lx + 2, y + h - 4, 1, 3, 0.20);
@@ -5272,10 +5187,10 @@ const PropSprites = (() => {
     px(x, y - 2, w, sT - y + 2, LINE);
     px(x + 1, y - 1, w - 2, sT - y, WD);
     px(x + 1, y - 1, w - 2, 1, WD_LIT); keyEdge(x + 2, y - 1, 10, 1, 0.24);   // the head rail, lit
-    px(x + 1, y, w - 2, 1, shade(WD, 0.08));
+    px(x + 1, y, w - 2, 1, U.shade(WD, 0.08));
     px(x + 1, y - 1, 1, sT - y, WD_LIT); px(x + w - 2, y - 1, 1, sT - y, WD_DK);
     rimEdge(x + w - 2, y, 1, sT - y - 1, 0.20);
-    wear(x + 2, y - 1, w - 4, 3, 3, shade(WD, -0.18));
+    wear(x + 2, y - 1, w - 4, 3, 3, U.shade(WD, -0.18));
     // PILLOW at the head (north) — one block of near-white, plumped: lit crown, shaded skirt, and a
     // slept-in dent so it is not a card. Inset from the rim so the timber reads all the way round.
     // SIX rows, not seven, and the linen is knocked back off pure white. A pillow is roughly a quarter
@@ -5283,10 +5198,10 @@ const PropSprites = (() => {
     // brightest thing on the prop, read as a label stuck to the bedding rather than as bedding.
     chamf(bx, y + 1, bw, 6, LIN, 1);
     px(bx + 1, y + 1, bw - 2, 1, LIN_LIT); keyEdge(bx + 2, y + 1, 6, 1, 0.22);
-    px(bx, y + 2, 1, 4, shade(LIN, 0.05)); px(bx + bw - 1, y + 2, 1, 4, LIN_DK);
+    px(bx, y + 2, 1, 4, U.shade(LIN, 0.05)); px(bx + bw - 1, y + 2, 1, 4, LIN_DK);
     rimEdge(bx + bw - 1, y + 2, 1, 4, 0.16);
-    px(bx + 4, y + 3, 9, 2, shade(LIN, -0.13));                       // the dent a head left
-    px(bx + 5, y + 4, 7, 1, shade(LIN, -0.22));
+    px(bx + 4, y + 3, 9, 2, U.shade(LIN, -0.13));                       // the dent a head left
+    px(bx + 5, y + 4, 7, 1, U.shade(LIN, -0.22));
     px(bx + 1, y + 6, bw - 2, 1, LIN_DK);                               // the pillow's own under-shade
     // QUILT over the rest, hem to the foot. The turned-down fold at the head is the one asymmetry.
     // SKIPPED while a body is dormant in the bed: world.js then draws the sleeper and calls drawOver()
@@ -5301,15 +5216,15 @@ const PropSprites = (() => {
     // the top plane's own outline row and this band's would otherwise stack into a 2px black gap
     // between the mattress and its face, which reads as a slot cut through the bed. One row of the
     // quilt's shade closes it, and doubles as the mattress edge's contact shadow.
-    px(x + 1, sT - 1, w - 2, 1, shade(QLT_DK, -0.30));
+    px(x + 1, sT - 1, w - 2, 1, U.shade(QLT_DK, -0.30));
     px(x + 1, sT + 1, w - 2, 4, WD);
     px(x + 1, sT + 1, w - 2, 1, WD_LIT); keyEdge(x + 2, sT + 1, 8, 1, 0.18);
     px(x + 1, sT + 2, 1, 3, WD_LIT); px(x + w - 2, sT + 2, 1, 3, WD_DK);
     rimEdge(x + w - 2, sT + 2, 1, 3, 0.20);
     px(bx, sT + 1, bw, 3, QLT_DK);                                      // the quilt hanging over the foot
-    px(bx, sT + 1, bw, 1, shade(QLT, -0.08));
-    px(bx + 1, sT + 4, bw - 2, 1, shade(QLT_DK, -0.44));              // its hem shadow on the rail
-    px(x + 1, sT + 5, w - 2, 1, shade(WD_DK, -0.34));                 // floor-line AO under the rail
+    px(bx, sT + 1, bw, 1, U.shade(QLT, -0.08));
+    px(bx + 1, sT + 4, bw - 2, 1, U.shade(QLT_DK, -0.44));              // its hem shadow on the rail
+    px(x + 1, sT + 5, w - 2, 1, U.shade(WD_DK, -0.34));                 // floor-line AO under the rail
   };
 
   /* v5 RUG (4x3) — the station's biggest FLOOR DECAL. Zero rise, ever.
@@ -5329,7 +5244,7 @@ const PropSprites = (() => {
      you notice the second time you look, which is what everything else in this station does. */
   const RUG_BASE = '#54332e', RUG_RIM = '#472b27';
   F.rug = (x, y, w, h, f) => {
-    const INK = shade(RUG_BASE, -0.13), PALE = shade(RUG_BASE, 0.08);
+    const INK = U.shade(RUG_BASE, -0.13), PALE = U.shade(RUG_BASE, 0.08);
     // the silhouette: soft corners and a bound rim. NOT a black outline — a rug has no lip to cast one,
     // and v4's near-black edge is half of why it read as a hole in the floor.
     px(x + 2, y, w - 4, h, RUG_RIM); px(x, y + 2, w, h - 4, RUG_RIM);
@@ -5340,8 +5255,8 @@ const PropSprites = (() => {
        2px runs the first cut used) lines the flecks up into courses and the wool reads as brickwork.
        Integer coordinate hashing, no string keys: this is the one loop that runs over the whole 48x36
        footprint every frame, and PropSprites is already the heaviest thing in the frame. */
-    for (let jy = 3; jy < h - 2; jy += 2) px(x + 2, y + jy, w - 4, 1, shade(RUG_BASE, -0.028));   // weft courses: the weave, almost subliminal
-    const lit = shade(RUG_BASE, 0.035), dk = shade(RUG_BASE, -0.045);
+    for (let jy = 3; jy < h - 2; jy += 2) px(x + 2, y + jy, w - 4, 1, U.shade(RUG_BASE, -0.028));   // weft courses: the weave, almost subliminal
+    const lit = U.shade(RUG_BASE, 0.035), dk = U.shade(RUG_BASE, -0.045);
     for (let jy = 2; jy < h - 2; jy++) {
       const phase = ((jy * 19349663) >>> 0) % 3;
       for (let ix = 2 + phase; ix < w - 2; ix += 3) {
@@ -5352,13 +5267,13 @@ const PropSprites = (() => {
     }
     // the ceiling strips, at a QUARTER of v4's contrast — on a decal this is the only depth cue there is,
     // and any more of it turns the rug back into a lit 3D slab.
-    px(x + 3, y + 2, w - 6, 1, shade(RUG_BASE, 0.05));
-    px(x + 3, y + h - 3, w - 6, 1, shade(RUG_BASE, -0.07));
-    ctx.globalAlpha = 0.5; px(x + 2, y + 3, 1, h - 6, shade(RUG_BASE, 0.04)); px(x + w - 3, y + 3, 1, h - 6, shade(RUG_BASE, -0.05)); ctx.globalAlpha = 1;
+    px(x + 3, y + 2, w - 6, 1, U.shade(RUG_BASE, 0.05));
+    px(x + 3, y + h - 3, w - 6, 1, U.shade(RUG_BASE, -0.07));
+    ctx.globalAlpha = 0.5; px(x + 2, y + 3, 1, h - 6, U.shade(RUG_BASE, 0.04)); px(x + w - 3, y + 3, 1, h - 6, U.shade(RUG_BASE, -0.05)); ctx.globalAlpha = 1;
     px(x + 4, y + 4, w - 8, 1, INK); px(x + 4, y + h - 5, w - 8, 1, INK);          // one quiet border line
     px(x + 4, y + 4, 1, h - 8, INK); px(x + w - 5, y + 4, 1, h - 8, INK);
     const cx = x + (w >> 1), cy = y + (h >> 1);
-    ctx.globalAlpha = 0.55; px(cx - 8, cy - 4, 16, 9, shade(RUG_BASE, 0.035)); ctx.globalAlpha = 1;   // the medallion's washed field
+    ctx.globalAlpha = 0.55; px(cx - 8, cy - 4, 16, 9, U.shade(RUG_BASE, 0.035)); ctx.globalAlpha = 1;   // the medallion's washed field
     for (let d = 0; d <= 7; d++) {                                                 // ...and the lozenge, outline only
       const ww = 17 - d * 2, lx = cx - (ww >> 1), rx = cx + (ww >> 1) - 1;
       if (d === 7) { px(lx, cy - d, ww, 1, PALE); px(lx, cy + d, ww, 1, PALE); continue; }
@@ -5369,7 +5284,7 @@ const PropSprites = (() => {
     // WEAR is what makes a rug read as lived-on, and here it also half-erases the motif on purpose.
     ctx.globalAlpha = 0.13; px(x + 4, y + (h >> 1) - 3, w - 8, 7, '#0f1113'); ctx.globalAlpha = 1;      // the walked path
     ctx.globalAlpha = 0.09; px(x + w - 17, y + 5, 12, 6, '#d8cec0'); ctx.globalAlpha = 1;               // a bleached corner
-    wear(x + 4, y + 4, w - 8, h - 8, 14, shade(RUG_BASE, -0.14));
+    wear(x + 4, y + 4, w - 8, h - 8, 14, U.shade(RUG_BASE, -0.14));
     // the frayed short ends, dithered IN the floor plane so they read as threads and never as a lip
     for (let jy = 2; jy < h - 2; jy++) if (((jy * 2654435761) >>> 0) & 1) { px(x - 1, y + jy, 1, 1, RUG_RIM); px(x + w, y + jy, 1, 1, RUG_RIM); }
   };
@@ -5390,23 +5305,23 @@ const PropSprites = (() => {
      Traffic runs the SHORT way across a mat, so the walked path is a vertical strip, not the 4x3's belt. */
   const RUGS_BASE = '#5a4526', RUGS_RIM = '#4b381f';
   F.rug_small = (x, y, w, h, f) => {
-    const INK = shade(RUGS_BASE, -0.13), PALE = shade(RUGS_BASE, 0.08);
+    const INK = U.shade(RUGS_BASE, -0.13), PALE = U.shade(RUGS_BASE, 0.08);
     // the bound rim: soft corners, and a tint of the wool itself — never a black outline. A rug has no
     // lip to cast one, and a near-black edge is what makes a decal read as a hole cut in the deck.
     px(x + 2, y, w - 4, h, RUGS_RIM); px(x, y + 2, w, h - 4, RUGS_RIM);
     px(x + 1, y + 1, 1, 1, RUGS_RIM); px(x + w - 2, y + 1, 1, 1, RUGS_RIM);
     px(x + 1, y + h - 2, 1, 1, RUGS_RIM); px(x + w - 2, y + h - 2, 1, 1, RUGS_RIM);
     rr(x + 2, y + 2, w - 4, h - 4, RUGS_BASE);
-    for (let ix = 4; ix < w - 3; ix += 3) px(x + ix, y + 3, 1, h - 6, shade(RUGS_BASE, -0.03));   // the warp it was beaten onto
+    for (let ix = 4; ix < w - 3; ix += 3) px(x + ix, y + 3, 1, h - 6, U.shade(RUGS_BASE, -0.03));   // the warp it was beaten onto
     for (let jy = 4; jy < h - 4; jy++) {                                    // slubs: thread catches, so it is cloth and not corduroy
       const n = ((jy * 2654435761) ^ 0x9e3779b9) >>> 0;
       if (n & 3) continue;
-      px(x + 3 + (n % Math.max(1, w - 9)), y + jy, 2, 1, shade(RUGS_BASE, 0.04));
+      px(x + 3 + (n % Math.max(1, w - 9)), y + jy, 2, 1, U.shade(RUGS_BASE, 0.04));
     }
-    px(x + 3, y + 2, w - 6, 1, shade(RUGS_BASE, 0.05));                  // the ceiling strips, at a quarter of the
-    px(x + 3, y + h - 3, w - 6, 1, shade(RUGS_BASE, -0.07));             // contrast a lit slab would take — on a
+    px(x + 3, y + 2, w - 6, 1, U.shade(RUGS_BASE, 0.05));                  // the ceiling strips, at a quarter of the
+    px(x + 3, y + h - 3, w - 6, 1, U.shade(RUGS_BASE, -0.07));             // contrast a lit slab would take — on a
     ctx.globalAlpha = 0.5;                                                 // decal this is the ONLY depth cue there is
-    px(x + 2, y + 3, 1, h - 6, shade(RUGS_BASE, 0.04)); px(x + w - 3, y + 3, 1, h - 6, shade(RUGS_BASE, -0.05));
+    px(x + 2, y + 3, 1, h - 6, U.shade(RUGS_BASE, 0.04)); px(x + w - 3, y + 3, 1, h - 6, U.shade(RUGS_BASE, -0.05));
     ctx.globalAlpha = 1;
     /* the two end bands. A chevron chain, PALE over INK, interlocked: one zigzag climbing the band and its
        mirror falling through it, which is the flatweave motif that costs the fewest pixels to read. */
@@ -5419,7 +5334,7 @@ const PropSprites = (() => {
     };
     chev(y + 4); chev(y + h - 9);
     const cx = x + (w >> 1), cy = y + (h >> 1);
-    ctx.globalAlpha = 0.55; px(cx - 5, cy - 3, 11, 7, shade(RUGS_BASE, 0.035)); ctx.globalAlpha = 1;   // the diamond's washed field
+    ctx.globalAlpha = 0.55; px(cx - 5, cy - 3, 11, 7, U.shade(RUGS_BASE, 0.035)); ctx.globalAlpha = 1;   // the diamond's washed field
     for (let d = 0; d <= 5; d++) {                                         // ...and the diamond, OUTLINE only
       const ww = 11 - d * 2, lx = cx - (ww >> 1), rx = cx + (ww >> 1);
       if (d === 5) { px(lx, cy - d, Math.max(1, ww), 1, PALE); px(lx, cy + d, Math.max(1, ww), 1, PALE); continue; }
@@ -5432,7 +5347,7 @@ const PropSprites = (() => {
     // WEAR — what makes a rug read as lived-on, and here it half-erases the motif on purpose.
     ctx.globalAlpha = 0.12; px(cx - 4, y + 3, 9, h - 6, '#0f1113'); ctx.globalAlpha = 1;                 // crossed the short way
     ctx.globalAlpha = 0.08; px(x + 4, y + h - 13, 8, 7, '#d8cec0'); ctx.globalAlpha = 1;                 // a bleached corner
-    wear(x + 3, y + 3, w - 6, h - 6, 10, shade(RUGS_BASE, -0.14));
+    wear(x + 3, y + 3, w - 6, h - 6, 10, U.shade(RUGS_BASE, -0.14));
     // the frayed ends on the N/S edges (the 4x3 frays E/W), dithered IN the floor plane so they read as
     // threads and never as a lip.
     for (let ix = 2; ix < w - 2; ix++) if (((ix * 2654435761) >>> 0) & 1) { px(x + ix, y - 1, 1, 1, RUGS_RIM); px(x + ix, y + h, 1, 1, RUGS_RIM); }
@@ -5453,12 +5368,12 @@ const PropSprites = (() => {
      Two traffic paths cross it, not one: a rug you can walk around is a rug you walk over both ways. */
   const RUGL_BASE = '#3e2430', RUGL_RIM = '#331d28';
   F.rug_large = (x, y, w, h, f) => {
-    const INK = shade(RUGL_BASE, -0.13), PALE = shade(RUGL_BASE, 0.08);
+    const INK = U.shade(RUGL_BASE, -0.13), PALE = U.shade(RUGL_BASE, 0.08);
     px(x + 2, y, w - 4, h, RUGL_RIM); px(x, y + 2, w, h - 4, RUGL_RIM);
     px(x + 1, y + 1, 1, 1, RUGL_RIM); px(x + w - 2, y + 1, 1, 1, RUGL_RIM);
     px(x + 1, y + h - 2, 1, 1, RUGL_RIM); px(x + w - 2, y + h - 2, 1, 1, RUGL_RIM);
     rr(x + 2, y + 2, w - 4, h - 4, RUGL_BASE);
-    const lit = shade(RUGL_BASE, 0.035), dk = shade(RUGL_BASE, -0.045);
+    const lit = U.shade(RUGL_BASE, 0.035), dk = U.shade(RUGL_BASE, -0.045);
     for (let jy = 3; jy < h - 3; jy++) {                                   // PILE — 4px stride, phase hashed per ROW:
       const phase = ((jy * 19349663) >>> 0) % 4;                           // a regular stride lines the fleck into
       for (let ix = 3 + phase; ix < w - 3; ix += 4) {                      // courses and the wool reads as brickwork
@@ -5467,13 +5382,13 @@ const PropSprites = (() => {
         px(x + ix, y + jy, 1, 1, (n & 8) ? lit : dk);
       }
     }
-    px(x + 3, y + 3, w - 6, 1, shade(RUGL_BASE, -0.09));                 // the SELVEDGE: a rolled bound edge, the
-    px(x + 3, y + h - 4, w - 6, 1, shade(RUGL_BASE, -0.09));             // one thing a big rug has that a mat doesn't
-    px(x + 3, y + 4, 1, h - 8, shade(RUGL_BASE, -0.09)); px(x + w - 4, y + 4, 1, h - 8, shade(RUGL_BASE, -0.09));
-    px(x + 4, y + 2, w - 8, 1, shade(RUGL_BASE, 0.05));                  // ceiling strips, quarter contrast
-    px(x + 4, y + h - 3, w - 8, 1, shade(RUGL_BASE, -0.07));
+    px(x + 3, y + 3, w - 6, 1, U.shade(RUGL_BASE, -0.09));                 // the SELVEDGE: a rolled bound edge, the
+    px(x + 3, y + h - 4, w - 6, 1, U.shade(RUGL_BASE, -0.09));             // one thing a big rug has that a mat doesn't
+    px(x + 3, y + 4, 1, h - 8, U.shade(RUGL_BASE, -0.09)); px(x + w - 4, y + 4, 1, h - 8, U.shade(RUGL_BASE, -0.09));
+    px(x + 4, y + 2, w - 8, 1, U.shade(RUGL_BASE, 0.05));                  // ceiling strips, quarter contrast
+    px(x + 4, y + h - 3, w - 8, 1, U.shade(RUGL_BASE, -0.07));
     ctx.globalAlpha = 0.5;
-    px(x + 2, y + 4, 1, h - 8, shade(RUGL_BASE, 0.04)); px(x + w - 3, y + 4, 1, h - 8, shade(RUGL_BASE, -0.05));
+    px(x + 2, y + 4, 1, h - 8, U.shade(RUGL_BASE, 0.04)); px(x + w - 3, y + 4, 1, h - 8, U.shade(RUGL_BASE, -0.05));
     ctx.globalAlpha = 1;
     const frame = (o, c) => {
       px(x + o, y + o, w - o * 2, 1, c); px(x + o, y + h - o - 1, w - o * 2, 1, c);
@@ -5489,7 +5404,7 @@ const PropSprites = (() => {
     bracket(x + 16, y + 16, 1, 1); bracket(x + w - 17, y + 16, -1, 1);
     bracket(x + 16, y + h - 17, 1, -1); bracket(x + w - 17, y + h - 17, -1, -1);
     const cx = x + (w >> 1), cy = y + (h >> 1);
-    ctx.globalAlpha = 0.55; px(cx - 9, cy - 9, 19, 19, shade(RUGL_BASE, 0.035)); ctx.globalAlpha = 1;  // the star's washed field
+    ctx.globalAlpha = 0.55; px(cx - 9, cy - 9, 19, 19, U.shade(RUGL_BASE, 0.035)); ctx.globalAlpha = 1;  // the star's washed field
     for (let d = 0; d <= 8; d++) {                                         // the lozenge...
       const ww = 17 - d * 2, lx = cx - (ww >> 1), rx = cx + (ww >> 1);
       if (d === 8) { px(lx, cy - d, Math.max(1, ww), 1, PALE); px(lx, cy + d, Math.max(1, ww), 1, PALE); continue; }
@@ -5498,12 +5413,12 @@ const PropSprites = (() => {
     }
     px(cx - 6, cy - 6, 13, 1, INK); px(cx - 6, cy + 6, 13, 1, INK);        // ...crossed by the square: eight points
     px(cx - 6, cy - 6, 1, 13, INK); px(cx + 6, cy - 6, 1, 13, INK);
-    px(cx - 2, cy - 2, 5, 5, shade(RUGL_BASE, 0.05)); px(cx - 1, cy - 1, 3, 3, INK);
+    px(cx - 2, cy - 2, 5, 5, U.shade(RUGL_BASE, 0.05)); px(cx - 1, cy - 1, 3, 3, INK);
     // WEAR — two crossing paths, and the star sits under both on purpose.
     ctx.globalAlpha = 0.12; px(x + 4, cy - 5, w - 8, 11, '#0f1113'); ctx.globalAlpha = 1;
     ctx.globalAlpha = 0.08; px(cx - 4, y + 4, 9, h - 8, '#0f1113'); ctx.globalAlpha = 1;
     ctx.globalAlpha = 0.09; px(x + w - 21, y + 7, 14, 8, '#d8cec0'); ctx.globalAlpha = 1;                // a bleached corner
-    wear(x + 5, y + 5, w - 10, h - 10, 22, shade(RUGL_BASE, -0.14));
+    wear(x + 5, y + 5, w - 10, h - 10, 22, U.shade(RUGL_BASE, -0.14));
   };
 
   F.seatchair = (x, y, w, h, f) => {
@@ -5534,8 +5449,8 @@ const PropSprites = (() => {
     px(x + 3, y - 2, 6, 3, s.face);                              // shoulders
     px(x + 3, y - 2, 1, 3, s.lit); px(x + 8, y - 2, 1, 3, s.dk);
     rimEdge(x + 8, y - 2, 1, 3, 0.20);
-    for (let j = 0; j < 3; j++) px(x + 4, y - 2 + j, 4, 1, shade(s.face, j % 2 ? -0.13 : 0.03));
-    px(x + 4, y + 1, 4, 1, shade(s.face, -0.26));              // pinched lumbar
+    for (let j = 0; j < 3; j++) px(x + 4, y - 2 + j, 4, 1, U.shade(s.face, j % 2 ? -0.13 : 0.03));
+    px(x + 4, y + 1, 4, 1, U.shade(s.face, -0.26));              // pinched lumbar
     /* SEAT PAD — silver where the shipped chair is teal. */
     px(x + 1, y + 3, 10, 5, s.ink);
     px(x + 2, y + 4, 8, 1, s.hi); px(x + 2, y + 4, 4, 1, s.sheen);
@@ -5548,9 +5463,9 @@ const PropSprites = (() => {
     px(x + 3, y + 8, 6, 1, r.dk);
     /* ARMRESTS last, so they read in FRONT of the pad. */
     px(x, y + 2, 2, 4, s.ink); px(x + 10, y + 2, 2, 4, s.ink);
-    px(x, y + 3, 2, 1, shade(s.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);
-    px(x, y + 4, 2, 1, shade(s.face, -0.18));
-    px(x + 10, y + 3, 2, 1, shade(s.face, -0.04));
+    px(x, y + 3, 2, 1, U.shade(s.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);
+    px(x, y + 4, 2, 1, U.shade(s.face, -0.18));
+    px(x + 10, y + 3, 2, 1, U.shade(s.face, -0.04));
     px(x + 10, y + 4, 2, 1, s.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
 
@@ -5595,14 +5510,14 @@ const PropSprites = (() => {
     // the lumbar. Legibility bought from silhouette costs no brightness, so the prop stays quiet.
     px(x + 4, y - 4, 4, 1, LINE); px(x + 3, y - 3, 6, 1, LINE);
     px(x + 2, y - 2, 8, 4, LINE); px(x + 3, y + 2, 6, 1, LINE);
-    px(x + 4, y - 3, 4, 1, shade(r.face, 0.16));              // headrest bar
+    px(x + 4, y - 3, 4, 1, U.shade(r.face, 0.16));              // headrest bar
     keyEdge(x + 4, y - 3, 2, 1, 0.26);
     px(x + 3, y - 2, 6, 3, r.face);                             // shoulders — the widest span
-    px(x + 3, y - 2, 1, 3, shade(r.face, 0.12)); px(x + 8, y - 2, 1, 3, r.dk);
+    px(x + 3, y - 2, 1, 3, U.shade(r.face, 0.12)); px(x + 8, y - 2, 1, 3, r.dk);
     rimEdge(x + 8, y - 2, 1, 3, 0.20);
     for (let j = 0; j < 3; j++)                                 // mesh weave, alternating rows
-      px(x + 4, y - 2 + j, 4, 1, shade(r.face, j % 2 ? -0.13 : 0.03));
-    px(x + 4, y + 1, 4, 1, shade(r.face, -0.26));             // pinched waist = the lumbar read
+      px(x + 4, y - 2 + j, 4, 1, U.shade(r.face, j % 2 ? -0.13 : 0.03));
+    px(x + 4, y + 1, 4, 1, U.shade(r.face, -0.26));             // pinched waist = the lumbar read
     // seat pad, middle-south — stays visible under a seated agent
     px(x + 1, y + 3, 10, 5, LINE);
     px(x + 2, y + 4, 8, 1, '#4a8a82'); px(x + 2, y + 4, 4, 1, '#5aa89c');
@@ -5616,9 +5531,9 @@ const PropSprites = (() => {
     // ARMRESTS — the second tell, and the cheapest one: two nubs breaking the outline east and west,
     // riding just above the seat. Drawn last so they read as in FRONT of the pad, not sunk into it.
     px(x, y + 2, 2, 4, LINE); px(x + 10, y + 2, 2, 4, LINE);
-    px(x, y + 3, 2, 1, shade(r.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);   // west arm takes the key
-    px(x, y + 4, 2, 1, shade(r.face, -0.18));
-    px(x + 10, y + 3, 2, 1, shade(r.face, -0.04));            // east arm sits in shade
+    px(x, y + 3, 2, 1, U.shade(r.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);   // west arm takes the key
+    px(x, y + 4, 2, 1, U.shade(r.face, -0.18));
+    px(x + 10, y + 3, 2, 1, U.shade(r.face, -0.04));            // east arm sits in shade
     px(x + 10, y + 4, 2, 1, r.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
 
@@ -5653,18 +5568,18 @@ const PropSprites = (() => {
     px(x + 3, y + 0, 5, 2, LINE);
     px(x + 4, y + 2, 4, 1, LINE);                               // lumbar foot, tucked into the seat ink
     px(x + 3, y - 3, 4, 1, r.lit); keyEdge(x + 3, y - 3, 3, 1, 0.28);   // the crown catches the strip
-    px(x + 3, y - 2, 4, 2, shade(r.face, -0.04));             // mesh, edge-on — a full slab, not a stalk
-    px(x + 3, y - 2, 1, 2, shade(r.face, 0.12)); keyEdge(x + 3, y - 2, 1, 2, 0.18);
+    px(x + 3, y - 2, 4, 2, U.shade(r.face, -0.04));             // mesh, edge-on — a full slab, not a stalk
+    px(x + 3, y - 2, 1, 2, U.shade(r.face, 0.12)); keyEdge(x + 3, y - 2, 1, 2, 0.18);
     px(x + 6, y - 2, 1, 2, r.dk); rimEdge(x + 6, y - 2, 1, 2, 0.20);
-    px(x + 4, y + 0, 3, 1, shade(r.face, -0.10));             // weave row
-    px(x + 4, y + 0, 1, 1, shade(r.face, 0.06)); px(x + 6, y + 0, 1, 1, shade(r.dk, 0.04));
-    px(x + 4, y + 1, 3, 1, shade(r.face, -0.26));             // lumbar pinch
+    px(x + 4, y + 0, 3, 1, U.shade(r.face, -0.10));             // weave row
+    px(x + 4, y + 0, 1, 1, U.shade(r.face, 0.06)); px(x + 6, y + 0, 1, 1, U.shade(r.dk, 0.04));
+    px(x + 4, y + 1, 3, 1, U.shade(r.face, -0.26));             // lumbar pinch
     /* THE FAR ARMREST, behind the seat plane. The camera looks down, so the far arm rides HIGH and
        dark and the near arm LOW and lit, with the seat plane between them — that pair of offset
        rails IS the side view. It stops a px short of the seat's front: arms never reach the knees. */
     px(x + 5, y + 1, 6, 2, LINE);
-    px(x + 6, y + 1, 4, 1, shade(r.face, -0.18));
-    px(x + 6, y + 2, 4, 1, shade(r.dk, -0.06));
+    px(x + 6, y + 1, 4, 1, U.shade(r.face, -0.18));
+    px(x + 6, y + 2, 4, 1, U.shade(r.dk, -0.06));
     /* THE SEAT — its top plane running east off the back, still the biggest patch of colour, and
        its east END is the seat's FRONT: below it the profile stays OPEN down to the base, because
        the daylight under the knees is the thing that makes it furniture. */
@@ -5681,7 +5596,7 @@ const PropSprites = (() => {
        dark, and with both drawn the profile can never collapse into one grey mass. */
     px(x + 4, y + 5, 7, 2, LINE);
     px(x + 5, y + 5, 5, 1, r.lit); keyEdge(x + 5, y + 5, 3, 1, 0.30);
-    px(x + 5, y + 6, 5, 1, shade(r.face, -0.10));
+    px(x + 5, y + 6, 5, 1, U.shade(r.face, -0.10));
     px(x + 9, y + 5, 1, 2, r.dk); rimEdge(x + 9, y + 5, 1, 2, 0.22);
   };
 
@@ -5703,26 +5618,26 @@ const PropSprites = (() => {
     keyEdge(x + 5, y + 7, 1, 2, 0.20); rimEdge(x + 6, y + 7, 1, 3, 0.22);
     // the pad, seen from behind: only its rear edge and underside are left
     px(x + 1, y + 3, 10, 5, LINE);
-    px(x + 2, y + 4, 8, 2, shade('#2f6a62', -0.22));           // upholstery in its own shadow
-    px(x + 2, y + 4, 8, 1, shade('#4a8a82', -0.26));
-    px(x + 2, y + 6, 8, 1, r.dk); px(x + 3, y + 7, 6, 1, shade(r.dk, -0.30));
+    px(x + 2, y + 4, 8, 2, U.shade('#2f6a62', -0.22));           // upholstery in its own shadow
+    px(x + 2, y + 4, 8, 1, U.shade('#4a8a82', -0.26));
+    px(x + 2, y + 6, 8, 1, r.dk); px(x + 3, y + 7, 6, 1, U.shade(r.dk, -0.30));
     // the SHELL: same waisted outline as the front, but a solid moulded back instead of mesh
     px(x + 4, y - 4, 4, 1, LINE); px(x + 3, y - 3, 6, 1, LINE);
     px(x + 2, y - 2, 8, 4, LINE); px(x + 3, y + 2, 6, 1, LINE);
-    px(x + 4, y - 3, 4, 1, shade(r.face, 0.10));               // headrest bar, dimmer than its front
+    px(x + 4, y - 3, 4, 1, U.shade(r.face, 0.10));               // headrest bar, dimmer than its front
     keyEdge(x + 4, y - 3, 2, 1, 0.20);
-    px(x + 3, y - 2, 6, 3, shade(r.face, -0.10));
-    px(x + 3, y - 2, 1, 3, shade(r.face, 0.04)); px(x + 8, y - 2, 1, 3, shade(r.dk, 0.06));
+    px(x + 3, y - 2, 6, 3, U.shade(r.face, -0.10));
+    px(x + 3, y - 2, 1, 3, U.shade(r.face, 0.04)); px(x + 8, y - 2, 1, 3, U.shade(r.dk, 0.06));
     rimEdge(x + 8, y - 2, 1, 3, 0.20);
-    px(x + 5, y - 2, 2, 3, shade(r.face, -0.02));              // the shell's crowned spine
-    px(x + 5, y + 1, 2, 1, shade(r.face, -0.30));
-    px(x + 4, y + 1, 4, 1, shade(r.face, -0.26));              // lumbar pinch
-    px(x + 4, y + 2, 4, 1, shade(r.dk, -0.10));                // the mounting bracket under it
+    px(x + 5, y - 2, 2, 3, U.shade(r.face, -0.02));              // the shell's crowned spine
+    px(x + 5, y + 1, 2, 1, U.shade(r.face, -0.30));
+    px(x + 4, y + 1, 4, 1, U.shade(r.face, -0.26));              // lumbar pinch
+    px(x + 4, y + 2, 4, 1, U.shade(r.dk, -0.10));                // the mounting bracket under it
     // armrests from behind: their far ends only, breaking the outline east and west
     px(x, y + 2, 2, 4, LINE); px(x + 10, y + 2, 2, 4, LINE);
-    px(x, y + 3, 2, 1, shade(r.face, 0.06)); keyEdge(x, y + 3, 1, 1, 0.22);
-    px(x, y + 4, 2, 1, shade(r.face, -0.24));
-    px(x + 10, y + 3, 2, 1, shade(r.face, -0.14));
+    px(x, y + 3, 2, 1, U.shade(r.face, 0.06)); keyEdge(x, y + 3, 1, 1, 0.22);
+    px(x, y + 4, 2, 1, U.shade(r.face, -0.24));
+    px(x + 10, y + 3, 2, 1, U.shade(r.face, -0.14));
     px(x + 10, y + 4, 2, 1, r.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
 
@@ -5765,7 +5680,7 @@ const PropSprites = (() => {
     const WD = '#63513a', WD_LIT = '#8a7154', WD_DK = '#382c1f';
     shadow2(x + 2, y + h - 1, 8);
     for (const lx of [x + 2, x + w - 4]) {                                 // rear pair, behind the top
-      px(lx, top - 1, 2, 5, shade(WD, -0.26)); rimEdge(lx, top - 1, 1, 4, 0.16);
+      px(lx, top - 1, 2, 5, U.shade(WD, -0.26)); rimEdge(lx, top - 1, 1, 4, 0.16);
     }
     for (const lx of [x + 1, x + w - 3]) {                                 // front pair
       px(lx, top + 1, 2, 7, LINE);
@@ -5778,12 +5693,12 @@ const PropSprites = (() => {
     chamf(x, top - 6, w, 9, LINE, 2);
     chamf(x + 1, top - 5, w - 2, 7, WD, 1);
     px(x + 2, top - 5, w - 4, 1, WD_LIT); keyEdge(x + 2, top - 5, 4, 1, 0.26);   // lit back edge
-    px(x + 1, top - 3, 1, 4, shade(WD, 0.10)); px(x + w - 2, top - 3, 1, 4, WD_DK);
+    px(x + 1, top - 3, 1, 4, U.shade(WD, 0.10)); px(x + w - 2, top - 3, 1, 4, WD_DK);
     rimEdge(x + w - 2, top - 3, 1, 4, 0.20);
-    px(x + 2, top - 1, w - 4, 1, shade(WD, -0.20));                      // the near half falls off
-    px(x + 3, top - 4, 5, 1, shade(WD, 0.08));                           // a little grain
+    px(x + 2, top - 1, w - 4, 1, U.shade(WD, -0.20));                      // the near half falls off
+    px(x + 3, top - 4, 5, 1, U.shade(WD, 0.08));                           // a little grain
     px(x + 2, top, w - 4, 1, WD_DK);                                       // the top's THICKNESS
-    px(x + 2, top + 1, w - 4, 1, shade(WD_DK, -0.44));
+    px(x + 2, top + 1, w - 4, 1, U.shade(WD_DK, -0.44));
   };
 
   F.loungetable = (x, y, w, h, f) => {
@@ -5797,7 +5712,7 @@ const PropSprites = (() => {
     shadow2(x + 1, y + h - 1, w - 2);
     // LEGS — four, and they must read. Front pair lit, rear pair cool and thinner. Bare deck between.
     for (const lx of [x + 2, x + w - 5]) {                                 // rear pair, up behind the top
-      px(lx + 1, top + 1, 2, 6, shade(r.face, -0.24)); rimEdge(lx + 1, top + 1, 1, 5, 0.16);
+      px(lx + 1, top + 1, 2, 6, U.shade(r.face, -0.24)); rimEdge(lx + 1, top + 1, 1, 5, 0.16);
     }
     for (const lx of [x + 1, x + w - 4]) {                                 // front pair
       px(lx, top + 3, 3, 6, LINE);
@@ -5807,8 +5722,8 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.30; px(lx - 1, y + h - 1, 5, 1, '#000'); ctx.globalAlpha = 1;
     }
     // UNDER-SHELF spanning between the legs, seen through the glass
-    px(x + 4, top - 2, w - 8, 4, shade(r.face, -0.30));
-    px(x + 4, top - 2, w - 8, 1, shade(r.face, 0.10));
+    px(x + 4, top - 2, w - 8, 4, U.shade(r.face, -0.30));
+    px(x + 4, top - 2, w - 8, 1, U.shade(r.face, 0.10));
     px(x + 7, top - 1, 7, 1, '#5d6b63'); px(x + 7, top - 1, 4, 1, '#7a8a80');   // two datapads on it
     px(x + 8, top, 6, 1, '#4a5a66'); px(x + 8, top, 3, 1, '#647686');
     // THE PANE — translucent, so everything above survives underneath. That IS the glass.
@@ -5818,12 +5733,12 @@ const PropSprites = (() => {
     px(x + 1, top - 9, w - 2, 1, LINE); px(x + 1, top + 1, w - 2, 1, LINE);
     px(x, top - 8, 1, 9, LINE); px(x + w - 1, top - 8, 1, 9, LINE);
     px(x + 1, top - 8, w - 2, 1, GLS_LIT); keyEdge(x + 2, top - 8, 10, 1, 0.30);   // bright leading edge
-    px(x + 1, top, w - 2, 1, shade(GLS_LIT, -0.40));                     // the near edge, dimmer
-    px(x + 1, top - 7, 1, 7, shade(GLS_LIT, -0.30)); px(x + w - 2, top - 7, 1, 7, shade(GLS, -0.34));
+    px(x + 1, top, w - 2, 1, U.shade(GLS_LIT, -0.40));                     // the near edge, dimmer
+    px(x + 1, top - 7, 1, 7, U.shade(GLS_LIT, -0.30)); px(x + w - 2, top - 7, 1, 7, U.shade(GLS, -0.34));
     rimEdge(x + w - 2, top - 7, 1, 7, 0.22);
-    for (let i = 0; i < 5; i++) px(x + 3 + i, top - 7 + i, 7 - i, 1, shade(GLS_LIT, -0.18 - i * 0.07));  // specular
+    for (let i = 0; i < 5; i++) px(x + 3 + i, top - 7 + i, 7 - i, 1, U.shade(GLS_LIT, -0.18 - i * 0.07));  // specular
     // the pane's own THICKNESS below the near edge
-    px(x + 2, top + 2, w - 4, 1, shade(GLS, -0.44));
+    px(x + 2, top + 2, w - 4, 1, U.shade(GLS, -0.44));
   };
 
   F.longtable = (x, y, w, h, f) => {
@@ -5839,7 +5754,7 @@ const PropSprites = (() => {
     const top = y + h - 1 - SURFACE_RISE;
     shadow2(x + 2, y + h - 1, w - 4);
     for (const lx of [x + 3, x + w - 6]) {                                 // REAR pair, up behind the top
-      px(lx, top + 1, 3, 6, shade(WD, -0.30)); rimEdge(lx + 2, top + 1, 1, 5, 0.14);
+      px(lx, top + 1, 3, 6, U.shade(WD, -0.30)); rimEdge(lx + 2, top + 1, 1, 5, 0.14);
     }
     for (const lx of [x + 2, x + w - 5]) {                                 // FRONT pair, under the near edge
       px(lx, top + 3, 3, 6, LINE);
@@ -5848,26 +5763,26 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.30; px(lx - 1, y + h - 1, 5, 1, '#000'); ctx.globalAlpha = 1;
     }
     px(x + 5, top + 6, w - 10, 1, WD_DK);                                  // stretcher down the length
-    px(x + 5, top + 6, 5, 1, shade(WD_DK, 0.16));
-    px(x + 5, top + 7, w - 10, 1, shade(WD_DK, -0.40));
+    px(x + 5, top + 6, 5, 1, U.shade(WD_DK, 0.16));
+    px(x + 5, top + 7, w - 10, 1, U.shade(WD_DK, -0.40));
     // THE TABLETOP as a foreshortened plane: 9 rows deep, back edge lit, near edge falling into shade
     px(x - 1, top - 9, w + 2, 11, LINE);
     px(x, top - 8, w, 9, WD);
     px(x, top - 8, w, 1, WD_LIT); keyEdge(x + 1, top - 8, 11, 1, 0.26);
-    px(x, top - 7, w, 1, shade(WD, 0.16));                               // the far half takes the key
-    px(x, top - 1, w, 1, shade(WD, -0.16));                              // the near half falls off
-    px(x, top, w, 1, shade(WD, -0.30));
+    px(x, top - 7, w, 1, U.shade(WD, 0.16));                               // the far half takes the key
+    px(x, top - 1, w, 1, U.shade(WD, -0.16));                              // the near half falls off
+    px(x, top, w, 1, U.shade(WD, -0.30));
     px(x, top - 8, 1, 9, WD_LIT); px(x + w - 1, top - 8, 1, 9, WD_DK);
     rimEdge(x + w - 1, top - 7, 1, 8, 0.20);
     for (const sy of [top - 5, top - 2]) {                                 // plank seams, running ACROSS
-      px(x, sy, w, 1, shade(WD, -0.40));
-      px(x, sy + 1, w, 1, shade(WD, 0.12));                              // the next board's lit lip
+      px(x, sy, w, 1, U.shade(WD, -0.40));
+      px(x, sy + 1, w, 1, U.shade(WD, 0.12));                              // the next board's lit lip
     }
     for (let i = 0; i < 6; i++) {                                          // grain, clamped to the top
-      const gx = x + 2 + i * 7; if (gx + 4 <= x + w) px(gx, top - 7 + (i % 3) * 3, 4, 1, shade(WD, 0.08));
+      const gx = x + 2 + i * 7; if (gx + 4 <= x + w) px(gx, top - 7 + (i % 3) * 3, 4, 1, U.shade(WD, 0.08));
     }
     px(x, top + 1, w, 1, WD_DK);                                           // the top's THICKNESS, near edge
-    px(x + 1, top + 2, w - 2, 1, shade(WD_DK, -0.44));
+    px(x + 1, top + 2, w - 2, 1, U.shade(WD_DK, -0.44));
   };
   /* ---- TABLES, TURNED. A table is the one family whose footprint genuinely IS its plan: the box is
      the TOP SURFACE seen from above, so a 3×1 trestle turned really is a 1×3 one and things stand on
@@ -5898,8 +5813,8 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.30; px(lx - 1, y + h - 1, 5, 1, '#000'); ctx.globalAlpha = 1;
     }
     // UNDER-SHELF — an inset plate under the middle of the pane, never a full-bleed interior
-    px(x + 2, top - D + 6, w - 4, D - 10, shade(r.face, -0.30));
-    px(x + 2, top - D + 6, w - 4, 1, shade(r.face, 0.08));
+    px(x + 2, top - D + 6, w - 4, D - 10, U.shade(r.face, -0.30));
+    px(x + 2, top - D + 6, w - 4, 1, U.shade(r.face, 0.08));
     px(x + 4, top - D + 8, 4, 2, '#5d6b63'); px(x + 4, top - D + 8, 2, 1, '#6d7d74');   // one datapad on it
     // THE PANE — a half-alpha tint a px proud of its tile each side, so deck texture rides through
     ctx.globalAlpha = 0.50;
@@ -5907,16 +5822,16 @@ const PropSprites = (() => {
     ctx.globalAlpha = 1;
     px(x, top - D - 1, w, 1, LINE); px(x, top + 1, w, 1, LINE);            // eased corners for free:
     px(x - 1, top - D, 1, D + 1, LINE); px(x + w, top - D, 1, D + 1, LINE); // the rows stop a px short
-    px(x + 1, top - D, w - 2, 1, shade(GLS_LIT, -0.18));                 // far edge, present but QUIET
+    px(x + 1, top - D, w - 2, 1, U.shade(GLS_LIT, -0.18));                 // far edge, present but QUIET
     px(x, top - D + 1, 1, D - 1, GLS_LIT);                                 // THE WEST RAIL — lit end to end
     keyEdge(x, top - D + 1, 1, Math.min(8, D - 1), 0.30);
-    px(x + w - 1, top - D + 1, 1, D - 1, shade(GLS, -0.34));
+    px(x + w - 1, top - D + 1, 1, D - 1, U.shade(GLS, -0.34));
     rimEdge(x + w - 1, top - D + 3, 1, D - 3, 0.22);
-    px(x + 1, top, w - 2, 1, shade(GLS_LIT, -0.40));                     // the near edge, dimmer
+    px(x + 1, top, w - 2, 1, U.shade(GLS_LIT, -0.40));                     // the near edge, dimmer
     for (let i = 0; i < 6; i++)                                            // the SPECULAR WEDGE — the south view's
-      px(x + 1, top - D + 2 + i, 7 - i, 1, shade(GLS_LIT, -0.16 - i * 0.06));   // glass cue, swept down the lit rail
-    px(x + 2, top - 5, 3, 1, shade(GLS_LIT, -0.34));                     // a second, smaller catch near the foot
-    px(x + 1, top + 2, w - 2, 1, shade(GLS, -0.44));                     // the pane's own thickness
+      px(x + 1, top - D + 2 + i, 7 - i, 1, U.shade(GLS_LIT, -0.16 - i * 0.06));   // glass cue, swept down the lit rail
+    px(x + 2, top - 5, 3, 1, U.shade(GLS_LIT, -0.34));                     // a second, smaller catch near the foot
+    px(x + 1, top + 2, w - 2, 1, U.shade(GLS, -0.44));                     // the pane's own thickness
   };
 
   F['longtable:e'] = (x, y, w, h, f) => {
@@ -5935,7 +5850,7 @@ const PropSprites = (() => {
     const D = top - (y + 1);                                               // the tabletop's depth in rows
     shadow2(x + 1, y + h - 1, w - 2);
     ctx.globalAlpha = 0.22; px(x + w + 1, y + 3, 2, D + 5, '#000'); ctx.globalAlpha = 1;
-    px(x + 5, top + 3, 2, 5, shade(WD_DK, 0.10));                        // the length stretcher, running away
+    px(x + 5, top + 3, 2, 5, U.shade(WD_DK, 0.10));                        // the length stretcher, running away
     for (const lx of [x + 1, x + w - 4]) {                                 // THE NEAR PAIR, at the corners
       px(lx, top + 3, 3, 6, LINE);
       px(lx, top + 3, 1, 6, WD_LIT); px(lx + 1, top + 3, 2, 6, WD_DK);
@@ -5943,27 +5858,27 @@ const PropSprites = (() => {
       ctx.globalAlpha = 0.30; px(lx - 1, y + h - 1, 5, 1, '#000'); ctx.globalAlpha = 1;
     }
     px(x + 3, y + h - 4, w - 6, 1, WD_DK);                                 // end rail between the near legs
-    px(x + 3, y + h - 5, w - 6, 1, shade(WD_DK, 0.14));
+    px(x + 3, y + h - 5, w - 6, 1, U.shade(WD_DK, 0.14));
     // THE BOARD as a long receding plane, its ends eased
     chamf(x - 2, top - D - 1, w + 4, D + 3, LINE, 2);
     chamf(x - 1, top - D, w + 2, D + 1, WD, 1);
-    px(x, top - D, w, 1, shade(WD, 0.10));                               // far end — a warm lift, no key blast
+    px(x, top - D, w, 1, U.shade(WD, 0.10));                               // far end — a warm lift, no key blast
     px(x - 1, top - D + 1, 1, D - 1, WD_LIT);                              // THE WEST RAIL — lit end to end
     keyEdge(x - 1, top - D + 1, 1, Math.min(9, D - 1), 0.24);
-    px(x, top - D + 1, 1, D - 1, shade(WD, 0.10));                       // its board already turning away
+    px(x, top - D + 1, 1, D - 1, U.shade(WD, 0.10));                       // its board already turning away
     px(x + w, top - D + 1, 1, D - 1, WD_DK);                               // east rail in its own shade
     rimEdge(x + w, top - D + 4, 1, D - 4, 0.20);
-    px(x, top - 1, w, 1, shade(WD, -0.16));                              // the near end falls off
-    px(x, top, w, 1, shade(WD, -0.30));
+    px(x, top - 1, w, 1, U.shade(WD, -0.16));                              // the near end falls off
+    px(x, top, w, 1, U.shade(WD, -0.30));
     for (const sx of [x + 3, x + 7]) {                                     // plank seams, running the LENGTH, quiet
-      px(sx, top - D + 1, 1, D, shade(WD, -0.26));
-      px(sx + 1, top - D + 1, 1, D, shade(WD, 0.06));
+      px(sx, top - D + 1, 1, D, U.shade(WD, -0.26));
+      px(sx + 1, top - D + 1, 1, D, U.shade(WD, 0.06));
     }
     for (let i = 0; i < 6; i++) {                                          // grain, clamped to the top
-      const gy = top - D + 3 + i * 4; if (gy + 3 <= top) px(x + 1 + (i % 3) * 3, gy, 1, 3, shade(WD, 0.08));
+      const gy = top - D + 3 + i * 4; if (gy + 3 <= top) px(x + 1 + (i % 3) * 3, gy, 1, 3, U.shade(WD, 0.08));
     }
     px(x - 1, top + 1, w + 2, 1, WD_DK);                                   // the top's THICKNESS, near edge
-    px(x, top + 2, w, 1, shade(WD_DK, -0.44));
+    px(x, top + 2, w, 1, U.shade(WD_DK, -0.44));
   };
 
   /* ============ THE LOW TABLE + THE DINER SET (2026-08-17) ============
@@ -5991,7 +5906,7 @@ const PropSprites = (() => {
     // FOUR STUB LEGS — 4px blocks at the corners. Short and wide is the whole read; a slim post
     // under a thick slab reads as a dining table someone sawed the legs off.
     for (const lx of [x + 3, x + w - 7]) {                                 // rear pair, behind the slab
-      px(lx, top + 5, 4, 4, shade(WD, -0.34)); rimEdge(lx + 3, top + 5, 1, 4, 0.14);
+      px(lx, top + 5, 4, 4, U.shade(WD, -0.34)); rimEdge(lx + 3, top + 5, 1, 4, 0.14);
     }
     for (const lx of [x + 2, x + w - 6]) {                                 // front pair, under the near edge
       px(lx, top + 5, 4, 4, INK);
@@ -6002,8 +5917,8 @@ const PropSprites = (() => {
     // THE SHELF between them, with two magazines lying on it — the one saturated thing on the prop,
     // and the reason this table can afford to keep its top clear.
     px(x + 6, top + 5, w - 12, 3, INK);
-    px(x + 7, top + 5, w - 14, 1, shade(WD, 0.06)); keyEdge(x + 7, top + 5, 6, 1, 0.18);
-    px(x + 7, top + 6, w - 14, 1, shade(WD, -0.26));
+    px(x + 7, top + 5, w - 14, 1, U.shade(WD, 0.06)); keyEdge(x + 7, top + 5, 6, 1, 0.18);
+    px(x + 7, top + 6, w - 14, 1, U.shade(WD, -0.26));
     px(x + 8, top + 6, 8, 1, '#a8503a'); px(x + 8, top + 6, 4, 1, '#c96b4c');       // a red magazine
     px(x + 18, top + 6, 7, 1, '#b09044'); px(x + 18, top + 6, 3, 1, '#cfae62');     // and a tan one
     // THE SLAB — 8 rows of top plane over a 3-row edge. That edge IS the prop: it is the only
@@ -6011,18 +5926,18 @@ const PropSprites = (() => {
     chamf(x - 1, top - 8, w + 2, 13, INK, 2);
     chamf(x, top - 7, w, 10, WD, 1);
     px(x + 1, top - 7, w - 2, 1, WD_LIT); keyEdge(x + 1, top - 7, 8, 1, 0.26);      // lit far edge
-    px(x, top - 6, w, 1, shade(WD, 0.16));
-    px(x, top - 1, w, 1, shade(WD, -0.10));                                       // near half falls off
+    px(x, top - 6, w, 1, U.shade(WD, 0.16));
+    px(x, top - 1, w, 1, U.shade(WD, -0.10));                                       // near half falls off
     px(x, top - 7, 1, 9, WD_LIT); px(x + w - 1, top - 7, 1, 9, WD_DK);
     rimEdge(x + w - 1, top - 6, 1, 8, 0.20);
-    px(x + 1, top - 4, w - 2, 1, shade(WD, -0.26));                                // ONE plank seam, quiet
-    px(x + 1, top - 3, w - 2, 1, shade(WD, 0.10));
+    px(x + 1, top - 4, w - 2, 1, U.shade(WD, -0.26));                                // ONE plank seam, quiet
+    px(x + 1, top - 3, w - 2, 1, U.shade(WD, 0.10));
     for (let i = 0; i < 7; i++) {                                                   // grain, clamped to the top
-      const gx = x + 2 + i * 5; if (gx + 4 <= x + w - 1) px(gx, top - 6 + (i % 3) * 3, 4, 1, shade(WD, 0.07));
+      const gx = x + 2 + i * 5; if (gx + 4 <= x + w - 1) px(gx, top - 6 + (i % 3) * 3, 4, 1, U.shade(WD, 0.07));
     }
-    px(x, top + 1, w, 1, shade(WD, 0.02)); keyEdge(x + 1, top + 1, 8, 1, 0.20);    // THE EDGE, lit on top
+    px(x, top + 1, w, 1, U.shade(WD, 0.02)); keyEdge(x + 1, top + 1, 8, 1, 0.20);    // THE EDGE, lit on top
     px(x, top + 2, w, 1, WD_DK);
-    px(x + 1, top + 3, w - 2, 1, shade(WD_DK, -0.44));                            // its underside in shade
+    px(x + 1, top + 3, w - 2, 1, U.shade(WD_DK, -0.44));                            // its underside in shade
   };
 
   F['lowtable:e'] = (x, y, w, h, f) => {
@@ -6039,8 +5954,8 @@ const PropSprites = (() => {
     shadow2(x + 1, y + h - 1, w - 2);
     ctx.globalAlpha = 0.22; px(x + w + 1, y + 3, 2, D + 5, '#000'); ctx.globalAlpha = 1;
     px(x + 5, top + 5, 3, 4, INK);                                                  // the shelf, receding
-    px(x + 5, top + 5, 3, 1, shade(WD, -0.04)); px(x + 5, top + 6, 3, 1, '#a8503a');
-    px(x + 5, top + 7, 3, 1, shade(WD, -0.30));
+    px(x + 5, top + 5, 3, 1, U.shade(WD, -0.04)); px(x + 5, top + 6, 3, 1, '#a8503a');
+    px(x + 5, top + 7, 3, 1, U.shade(WD, -0.30));
     for (const lx of [x + 1, x + w - 5]) {                                          // the NEAR pair of stubs
       px(lx, top + 5, 4, 4, INK);
       px(lx + 1, top + 5, 1, 4, WD_LIT); px(lx + 2, top + 5, 2, 4, WD_DK);
@@ -6049,19 +5964,19 @@ const PropSprites = (() => {
     }
     chamf(x - 2, top - D - 1, w + 4, D + 5, INK, 2);
     chamf(x - 1, top - D, w + 2, D + 3, WD, 1);
-    px(x, top - D, w, 1, shade(WD, 0.10));                                        // far end — a warm lift
+    px(x, top - D, w, 1, U.shade(WD, 0.10));                                        // far end — a warm lift
     px(x - 1, top - D + 1, 1, D - 1, WD_LIT);                                       // THE WEST RAIL
     keyEdge(x - 1, top - D + 1, 1, Math.min(9, D - 1), 0.24);
     px(x + w, top - D + 1, 1, D - 1, WD_DK);
     rimEdge(x + w, top - D + 4, 1, D - 4, 0.20);
-    px(x, top - 1, w, 1, shade(WD, -0.10));
+    px(x, top - 1, w, 1, U.shade(WD, -0.10));
     for (const sx of [x + 4]) {                                                     // ONE plank seam, quiet
-      px(sx, top - D + 1, 1, D, shade(WD, -0.26));
-      px(sx + 1, top - D + 1, 1, D, shade(WD, 0.08));
+      px(sx, top - D + 1, 1, D, U.shade(WD, -0.26));
+      px(sx + 1, top - D + 1, 1, D, U.shade(WD, 0.08));
     }
-    px(x - 1, top + 1, w + 2, 1, shade(WD, 0.02)); keyEdge(x, top + 1, 5, 1, 0.20);   // THE EDGE, lit on top
+    px(x - 1, top + 1, w + 2, 1, U.shade(WD, 0.02)); keyEdge(x, top + 1, 5, 1, 0.20);   // THE EDGE, lit on top
     px(x - 1, top + 2, w + 2, 1, WD_DK);
-    px(x, top + 3, w, 1, shade(WD_DK, -0.44));
+    px(x, top + 3, w, 1, U.shade(WD_DK, -0.44));
   };
 
   /* ---- THE GLASS LOUNGE TABLE (2026-08-17, Andrew: "one more low table thats more of the lounge
@@ -6108,12 +6023,12 @@ const PropSprites = (() => {
     px(x + 1, top - 9, w - 2, 1, b.ink); px(x + 1, top + 1, w - 2, 1, b.ink);
     px(x, top - 8, 1, 9, b.ink); px(x + w - 1, top - 8, 1, 9, b.ink);
     px(x + 1, top - 8, w - 2, 1, GLS_LIT); keyEdge(x + 2, top - 8, 10, 1, 0.30);   // bright far edge
-    px(x + 1, top - 7, 1, 7, shade(GLS_LIT, -0.28)); px(x + w - 2, top - 7, 1, 7, shade(GLS, -0.34));
+    px(x + 1, top - 7, 1, 7, U.shade(GLS_LIT, -0.28)); px(x + w - 2, top - 7, 1, 7, U.shade(GLS, -0.34));
     rimEdge(x + w - 2, top - 7, 1, 7, 0.22);
     for (let i = 0; i < 7; i++)                                            // THE SPECULAR WEDGE — the glass
-      px(x + 3 + i, top - 7 + i, 9 - i, 1, shade(GLS_LIT, -0.14 - i * 0.06));
-    px(x + w - 9, top - 4, 3, 1, shade(GLS_LIT, -0.34));                 // a second, smaller catch
-    px(x + 1, top, w - 2, 1, shade(GLS_LIT, -0.42));                     // the near edge, dimmer
+      px(x + 3 + i, top - 7 + i, 9 - i, 1, U.shade(GLS_LIT, -0.14 - i * 0.06));
+    px(x + w - 9, top - 4, 3, 1, U.shade(GLS_LIT, -0.34));                 // a second, smaller catch
+    px(x + 1, top, w - 2, 1, U.shade(GLS_LIT, -0.42));                     // the near edge, dimmer
     px(x + 1, top + 2, w - 2, 1, b.mid);                                   // the pane's BRASS rim below it
     px(x + 2, top + 3, w - 4, 1, b.ao);
   };
@@ -6152,17 +6067,17 @@ const PropSprites = (() => {
     ctx.globalAlpha = 0.52;
     px(x + 1, top - D, w - 2, D + 1, GLS);
     ctx.globalAlpha = 1;
-    px(x + 1, top - D - 1, w - 2, 1, shade(GLS, -0.40));                 // the far end: glass, not frame
-    px(x + 1, top - D, w - 2, 1, shade(GLS_LIT, -0.22));
-    px(x, top - D + 1, 1, D, shade(GLS_LIT, -0.10));                     // THE WEST RAIL — lit end to end
+    px(x + 1, top - D - 1, w - 2, 1, U.shade(GLS, -0.40));                 // the far end: glass, not frame
+    px(x + 1, top - D, w - 2, 1, U.shade(GLS_LIT, -0.22));
+    px(x, top - D + 1, 1, D, U.shade(GLS_LIT, -0.10));                     // THE WEST RAIL — lit end to end
     keyEdge(x, top - D + 1, 1, Math.min(9, D), 0.30);
-    px(x + w - 1, top - D + 1, 1, D, shade(GLS, -0.38));
+    px(x + w - 1, top - D + 1, 1, D, U.shade(GLS, -0.38));
     rimEdge(x + w - 1, top - D + 3, 1, D - 3, 0.22);
     for (let i = 0; i < 6; i++)                                            // the wedge, swept down the rail
-      px(x + 1, top - D + 2 + i, 7 - i, 1, shade(GLS_LIT, -0.16 - i * 0.06));
-    px(x + 2, top - 6, 3, 1, shade(GLS_LIT, -0.34));
+      px(x + 1, top - D + 2 + i, 7 - i, 1, U.shade(GLS_LIT, -0.16 - i * 0.06));
+    px(x + 2, top - 6, 3, 1, U.shade(GLS_LIT, -0.34));
     // THE NEAR EDGE — the one place a frame reads: brass rim, its own shadow, then bare deck
-    px(x + 1, top, w - 2, 1, shade(GLS_LIT, -0.42));
+    px(x + 1, top, w - 2, 1, U.shade(GLS_LIT, -0.42));
     px(x, top + 1, w, 1, b.mid); keyEdge(x + 1, top + 1, 5, 1, 0.24);
     px(x, top + 2, w, 1, b.dk);
     px(x + 1, top + 3, w - 2, 1, b.ao);
@@ -6190,7 +6105,7 @@ const PropSprites = (() => {
     shadow2(x + 2, y + h - 1, w - 4);
     // FOUR LEGS — turned timber to match the top, with a metal foot so it does not smear into the deck
     for (const lx of [x + 4, x + w - 7]) {
-      px(lx, top + 2, 3, 6, shade(WD, -0.34)); rimEdge(lx + 2, top + 2, 1, 5, 0.14);
+      px(lx, top + 2, 3, 6, U.shade(WD, -0.34)); rimEdge(lx + 2, top + 2, 1, 5, 0.14);
     }
     for (const lx of [x + 3, x + w - 6]) {
       px(lx, top + 5, 3, 5, INK);
@@ -6199,29 +6114,29 @@ const PropSprites = (() => {
       px(lx - 1, y + h - 2, 5, 2, INK); px(lx, y + h - 2, 3, 1, CHR_DK);
       ctx.globalAlpha = 0.32; px(lx - 2, y + h - 1, 7, 1, '#000'); ctx.globalAlpha = 1;
     }
-    px(x + 8, top + 6, w - 16, 1, shade(WD, -0.40));                      // the stretcher
+    px(x + 8, top + 6, w - 16, 1, U.shade(WD, -0.40));                      // the stretcher
     // THE TOP — a rounded BUTCHER BLOCK: boards of unequal width running across, each with its own
     // value, seamed dark with a lit lip. Unequal is the whole trick — even stripes read as corrugation.
     chamf(x - 1, top - D - 1, w + 2, D + 6, INK, 3);
-    chamf(x, top - D, w, D + 4, shade(WD, -0.30), 3);
+    chamf(x, top - D, w, D + 4, U.shade(WD, -0.30), 3);
     chamf(x + 1, top - D + 1, w - 2, D, WD, 2);
     const boards = [3, 2, 3, 2];
     let by = top - D + 1;
     for (let b = 0; b < boards.length; b++) {
       const bh = boards[b];
-      px(x + 1, by, w - 2, bh, shade(WD, b % 2 ? 0.07 : -0.05));          // the board's own value
-      px(x + 1, by, w - 2, 1, shade(WD, b % 2 ? 0.18 : 0.10));            // its lit lip
+      px(x + 1, by, w - 2, bh, U.shade(WD, b % 2 ? 0.07 : -0.05));          // the board's own value
+      px(x + 1, by, w - 2, 1, U.shade(WD, b % 2 ? 0.18 : 0.10));            // its lit lip
       for (let g = 0; g < 5; g++) {                                        // ring grain, sparse
         const gx = x + 3 + ((b * 7 + g * 6) % (w - 8));
-        px(gx, by + (bh > 2 ? 1 : 0), 3, 1, shade(WD, b % 2 ? -0.10 : -0.16));
+        px(gx, by + (bh > 2 ? 1 : 0), 3, 1, U.shade(WD, b % 2 ? -0.10 : -0.16));
       }
       by += bh;
-      if (by < top) px(x + 1, by - 1, w - 2, 1, shade(WD, -0.34));        // the seam between boards
+      if (by < top) px(x + 1, by - 1, w - 2, 1, U.shade(WD, -0.34));        // the seam between boards
     }
-    px(x + 2, top - D + 1, w - 4, 1, shade(WD_LIT, 0.06)); keyEdge(x + 2, top - D + 1, 9, 1, 0.26);
+    px(x + 2, top - D + 1, w - 4, 1, U.shade(WD_LIT, 0.06)); keyEdge(x + 2, top - D + 1, 9, 1, 0.26);
     px(x + 1, top - D + 2, 1, D - 2, WD_LIT); px(x + w - 2, top - D + 2, 1, D - 2, WD_DK);
     rimEdge(x + w - 2, top - D + 3, 1, D - 4, 0.20);
-    px(x + 2, top - 1, w - 4, 1, shade(WD, -0.14));
+    px(x + 2, top - 1, w - 4, 1, U.shade(WD, -0.14));
     /* THE PLANT, dead centre — the one living thing, and the reason this top needs no other dressing.
        Terracotta and leaf are both authored PAST the chroma skip so the dial hands them through. */
     const cx0 = x + Math.round(w / 2) - 2;
@@ -6236,9 +6151,9 @@ const PropSprites = (() => {
     keyEdge(cx0 + 1, py0 + 4, 2, 1, 0.24);
     px(cx0 + 3, py0 + 5, 1, 2, '#6d3419');
     // THE NEAR EDGE — the slab's own timber. No band: that was the red, and it is gone.
-    px(x + 1, top, w - 2, 1, shade(WD, 0.04)); keyEdge(x + 2, top, 10, 1, 0.22);
+    px(x + 1, top, w - 2, 1, U.shade(WD, 0.04)); keyEdge(x + 2, top, 10, 1, 0.22);
     px(x + 1, top + 1, w - 2, 2, WD_DK);
-    px(x + 2, top + 3, w - 4, 1, shade(WD_DK, -0.40));
+    px(x + 2, top + 3, w - 4, 1, U.shade(WD_DK, -0.40));
     px(x, top - 2, 1, 6, WD_DK); px(x + w - 1, top - 2, 1, 6, WD_DK);
   };
   F.dinertable = (x, y, w, h, f) => dinerTop(x, y, w, h, f);
@@ -6262,29 +6177,29 @@ const PropSprites = (() => {
       px(lx - 1, y + h - 2, 5, 2, INK); px(lx, y + h - 2, 3, 1, CHR_DK);    // the metal foot
       ctx.globalAlpha = 0.32; px(lx - 2, y + h - 1, 7, 1, '#000'); ctx.globalAlpha = 1;
     }
-    px(x + 6, top + 6, w - 12, 1, shade(WD, -0.40));                      // the end stretcher
+    px(x + 6, top + 6, w - 12, 1, U.shade(WD, -0.40));                      // the end stretcher
     chamf(x - 1, top - D - 1, w + 2, D + 6, INK, 3);
-    chamf(x, top - D, w, D + 4, shade(WD, -0.30), 3);
+    chamf(x, top - D, w, D + 4, U.shade(WD, -0.30), 3);
     chamf(x + 1, top - D + 1, w - 2, D, WD, 2);
     const boards = [5, 4, 5, 4, 5];                                         // unequal boards, down the length
     let bx = x + 1;
     for (let b = 0; b < boards.length && bx < x + w - 1; b++) {
       const bw = Math.min(boards[b], x + w - 1 - bx);
-      px(bx, top - D + 1, bw, D, shade(WD, b % 2 ? 0.07 : -0.05));
-      px(bx, top - D + 1, 1, D, shade(WD, b % 2 ? 0.18 : 0.10));          // each board's lit west lip
+      px(bx, top - D + 1, bw, D, U.shade(WD, b % 2 ? 0.07 : -0.05));
+      px(bx, top - D + 1, 1, D, U.shade(WD, b % 2 ? 0.18 : 0.10));          // each board's lit west lip
       for (let g = 0; g < 4; g++) {                                         // ring grain, sparse
         const gy = top - D + 3 + ((b * 5 + g * 7) % (D - 4));
-        px(bx + (bw > 4 ? 1 : 0), gy, 1, 3, shade(WD, b % 2 ? -0.10 : -0.16));
+        px(bx + (bw > 4 ? 1 : 0), gy, 1, 3, U.shade(WD, b % 2 ? -0.10 : -0.16));
       }
       bx += bw;
-      if (bx < x + w - 1) px(bx - 1, top - D + 1, 1, D, shade(WD, -0.34));   // the seam
+      if (bx < x + w - 1) px(bx - 1, top - D + 1, 1, D, U.shade(WD, -0.34));   // the seam
     }
-    px(x + 2, top - D + 1, w - 4, 1, shade(WD_LIT, -0.10));               // far end, quiet
+    px(x + 2, top - D + 1, w - 4, 1, U.shade(WD_LIT, -0.10));               // far end, quiet
     px(x + 1, top - D + 2, 1, D - 2, WD_LIT);                               // THE WEST RAIL
     keyEdge(x + 1, top - D + 2, 1, Math.min(10, D - 2), 0.26);
     px(x + w - 2, top - D + 2, 1, D - 2, WD_DK);
     rimEdge(x + w - 2, top - D + 4, 1, D - 5, 0.20);
-    px(x + 2, top - 1, w - 4, 1, shade(WD, -0.14));
+    px(x + 2, top - 1, w - 4, 1, U.shade(WD, -0.14));
     /* THE PLANT, dead centre of the turned top too */
     const cx0 = x + Math.round(w / 2) - 2, py0 = top - Math.round(D / 2) - 2;
     ctx.globalAlpha = 0.26; px(cx0 + 1, py0 + 8, 4, 1, '#000'); px(cx0 + 5, py0 + 4, 1, 4, '#000'); ctx.globalAlpha = 1;
@@ -6297,9 +6212,9 @@ const PropSprites = (() => {
     keyEdge(cx0 + 1, py0 + 4, 2, 1, 0.24);
     px(cx0 + 3, py0 + 5, 1, 2, '#6d3419');
     // the near edge — the slab's own timber, matching the shipped south view
-    px(x + 1, top, w - 2, 1, shade(WD, 0.04)); keyEdge(x + 2, top, 8, 1, 0.22);
+    px(x + 1, top, w - 2, 1, U.shade(WD, 0.04)); keyEdge(x + 2, top, 8, 1, 0.22);
     px(x + 1, top + 1, w - 2, 2, WD_DK);
-    px(x + 2, top + 3, w - 4, 1, shade(WD_DK, -0.40));
+    px(x + 2, top + 3, w - 4, 1, U.shade(WD_DK, -0.40));
     px(x, top - 2, 1, 6, WD_DK); px(x + w - 1, top - 2, 1, 6, WD_DK);
   };
 
@@ -6336,7 +6251,7 @@ const PropSprites = (() => {
     px(x + 3, y - 3, 6, 1, RED_LIT); px(x + 3, y - 3, 3, 1, RED_HI);
     px(x + 3, y - 2, 1, 4, RED_LIT); px(x + 8, y - 2, 1, 4, RED_DK);
     rimEdge(x + 8, y - 2, 1, 4, 0.20);
-    px(x + 4, y - 1, 4, 1, shade(RED, -0.18));                             // the pad's tuck seam
+    px(x + 4, y - 1, 4, 1, U.shade(RED, -0.18));                             // the pad's tuck seam
     px(x + 3, y + 2, 6, 1, RED_DK);
     px(x + 2, y - 2, 1, 5, CHR_DK); px(x + 9, y - 2, 1, 5, CHR_DK);          // THE SIDE POSTS, back to seat
     px(x + 2, y - 2, 1, 2, CHR);
@@ -6400,18 +6315,18 @@ const PropSprites = (() => {
     }
     // the pad from behind: its rear edge and underside only
     rr(x + 1, y + 3, 10, 5, INK);
-    px(x + 2, y + 4, 8, 2, shade(RED, -0.26));
-    px(x + 2, y + 4, 8, 1, shade(RED_LIT, -0.32));
+    px(x + 2, y + 4, 8, 2, U.shade(RED, -0.26));
+    px(x + 2, y + 4, 8, 1, U.shade(RED_LIT, -0.32));
     px(x + 2, y + 6, 8, 1, RED_DK); px(x + 3, y + 7, 6, 1, CHR_DK);
     // THE SHELL — same outline as the front, one crowned surface, no buttons and no lip
     px(x + 3, y - 4, 6, 1, INK); px(x + 4, y - 4, 4, 1, CHR);
     keyEdge(x + 4, y - 4, 2, 1, 0.22);
     px(x + 2, y - 3, 8, 6, INK);
-    px(x + 3, y - 3, 6, 5, shade(RED, -0.12));
-    px(x + 3, y - 3, 6, 1, shade(RED_LIT, -0.20));
-    px(x + 3, y - 2, 1, 4, shade(RED_LIT, -0.26)); px(x + 8, y - 2, 1, 4, RED_DK);
+    px(x + 3, y - 3, 6, 5, U.shade(RED, -0.12));
+    px(x + 3, y - 3, 6, 1, U.shade(RED_LIT, -0.20));
+    px(x + 3, y - 2, 1, 4, U.shade(RED_LIT, -0.26)); px(x + 8, y - 2, 1, 4, RED_DK);
     rimEdge(x + 8, y - 2, 1, 4, 0.20);
-    px(x + 5, y - 3, 2, 5, shade(RED, -0.02));                             // the shell's crowned spine
+    px(x + 5, y - 3, 2, 5, U.shade(RED, -0.02));                             // the shell's crowned spine
     px(x + 3, y + 2, 6, 1, RED_DK);
     px(x + 2, y - 2, 1, 5, CHR_DK); px(x + 9, y - 2, 1, 5, CHR_DK);          // the side posts
   };
@@ -6461,11 +6376,11 @@ const PropSprites = (() => {
     px(x + 2, y + 5, 8, 2, SH); px(x + 3, y + 6, 6, 1, SH_DK);             // the shell's lower belly
     // THE OPENING — the lining, inset, so the mass reads as hollow
     px(x + 3, y - 2, 6, 5, IN_DK);
-    px(x + 3, y - 2, 6, 1, IN); px(x + 4, y - 2, 4, 1, shade(IN, 0.10));
-    px(x + 3, y - 1, 1, 4, IN); px(x + 8, y - 1, 1, 4, shade(IN_DK, -0.18));
+    px(x + 3, y - 2, 6, 1, IN); px(x + 4, y - 2, 4, 1, U.shade(IN, 0.10));
+    px(x + 3, y - 1, 1, 4, IN); px(x + 8, y - 1, 1, 4, U.shade(IN_DK, -0.18));
     // THE CUSHION in the bottom of it — the prop's one saturated thing
     px(x + 3, y + 2, 6, 3, CU);
-    px(x + 3, y + 2, 6, 1, CU_LIT); px(x + 4, y + 2, 3, 1, shade(CU_LIT, 0.10));
+    px(x + 3, y + 2, 6, 1, CU_LIT); px(x + 4, y + 2, 3, 1, U.shade(CU_LIT, 0.10));
     keyEdge(x + 4, y + 2, 3, 1, 0.24);
     px(x + 3, y + 3, 1, 2, CU_LIT); px(x + 8, y + 3, 1, 2, CU_DK);
     px(x + 5, y + 4, 2, 1, CU_DK);                                         // its tuck seam
@@ -6504,7 +6419,7 @@ const PropSprites = (() => {
     px(x + 10, y + 4, 1, 3, SH_DK); rimEdge(x + 10, y + 4, 1, 3, 0.22);
     // THE CUSHION, running east out of the shell's mouth
     px(x + 4, y + 3, 7, 3, CU);
-    px(x + 4, y + 3, 7, 1, CU_LIT); px(x + 5, y + 3, 3, 1, shade(CU_LIT, 0.10));
+    px(x + 4, y + 3, 7, 1, CU_LIT); px(x + 5, y + 3, 3, 1, U.shade(CU_LIT, 0.10));
     keyEdge(x + 5, y + 3, 3, 1, 0.24);
     px(x + 4, y + 4, 1, 2, CU_LIT); px(x + 10, y + 4, 1, 2, CU_DK);
     px(x + 7, y + 5, 2, 1, CU_DK);
@@ -6520,17 +6435,17 @@ const PropSprites = (() => {
     px(x + 5, y + 8, 1, 3, SH_DK); px(x + 6, y + 8, 1, 3, SH_DK);
     px(x + 2, y + 10, 8, 2, INK);
     px(x + 3, y + 10, 6, 1, SH_DK); px(x + 3, y + 10, 3, 1, SH);
-    px(x + 3, y + 11, 6, 1, shade(SH_DK, -0.30));
+    px(x + 3, y + 11, 6, 1, U.shade(SH_DK, -0.30));
     px(x + 3, y - 5, 6, 1, INK); px(x + 2, y - 4, 8, 1, INK);
     px(x + 1, y - 3, 10, 10, INK); px(x + 2, y + 7, 8, 1, INK);
     px(x + 3, y - 4, 5, 1, SH); keyEdge(x + 3, y - 4, 3, 1, 0.22);
     px(x + 2, y - 3, 8, 9, SH_DK);                                         // the dome, unbroken
-    px(x + 3, y - 3, 6, 8, shade(SH, -0.10));
+    px(x + 3, y - 3, 6, 8, U.shade(SH, -0.10));
     px(x + 5, y - 3, 2, 9, SH);                                            // its crowned spine
-    px(x + 2, y - 3, 1, 9, shade(SH_LIT, -0.24)); px(x + 9, y - 3, 1, 9, shade(SH_DK, -0.18));
+    px(x + 2, y - 3, 1, 9, U.shade(SH_LIT, -0.24)); px(x + 9, y - 3, 1, 9, U.shade(SH_DK, -0.18));
     rimEdge(x + 9, y - 2, 1, 8, 0.22);
-    px(x + 2, y + 5, 8, 2, SH_DK); px(x + 3, y + 6, 6, 1, shade(SH_DK, -0.24));
-    px(x + 4, y + 7, 4, 1, shade(SH_DK, -0.34));                         // where it meets the pedestal
+    px(x + 2, y + 5, 8, 2, SH_DK); px(x + 3, y + 6, 6, 1, U.shade(SH_DK, -0.24));
+    px(x + 4, y + 7, 4, 1, U.shade(SH_DK, -0.34));                         // where it meets the pedestal
   };
 
   /* ---- THE BOOTH (2026-08-17) — the one seat type the catalog had no version of at all. Every
@@ -6551,14 +6466,14 @@ const PropSprites = (() => {
     px(x + 1, y - 7, w - 2, 10, INK);
     px(x + 2, y - 6, w - 4, 1, CHR_HI); keyEdge(x + 2, y - 6, 8, 1, 0.30);   // the cap rail
     px(x + 2, y - 5, w - 4, 1, CHR_DK);
-    px(x + 2, y - 4, w - 4, 6, shade(RED, -0.10));
+    px(x + 2, y - 4, w - 4, 6, U.shade(RED, -0.10));
     px(x + 2, y - 4, w - 4, 1, RED); px(x + 3, y - 4, 5, 1, RED_LIT);
     px(x + 2, y - 3, 1, 5, RED_LIT); px(x + w - 3, y - 3, 1, 5, RED_DK);
     rimEdge(x + w - 3, y - 3, 1, 5, 0.20);
     for (let bx = x + 5; bx < x + w - 4; bx += 6) {                           // TUFTING — countable buttons
-      px(bx, y - 2, 1, 1, RED_DK); px(bx, y - 1, 1, 1, shade(RED_LIT, -0.10));
-      px(bx - 1, y - 3, 1, 1, shade(RED, 0.10)); px(bx + 1, y - 3, 1, 1, shade(RED, 0.10));
-      px(bx, y + 1, 1, 2, shade(RED, -0.14));                              // the pleat under each
+      px(bx, y - 2, 1, 1, RED_DK); px(bx, y - 1, 1, 1, U.shade(RED_LIT, -0.10));
+      px(bx - 1, y - 3, 1, 1, U.shade(RED, 0.10)); px(bx + 1, y - 3, 1, 1, U.shade(RED, 0.10));
+      px(bx, y + 1, 1, 2, U.shade(RED, -0.14));                              // the pleat under each
     }
     px(x + 2, y + 2, w - 4, 1, RED_DK);                                      // where the back meets the seat
     /* THE SEAT — the light plane, proud of the back at both ends so the bench reads as upholstered
@@ -6573,8 +6488,8 @@ const PropSprites = (() => {
     px(x + 1, y + 8, w - 2, 1, CHR); px(x + 1, y + 8, 4, 1, CHR_HI);         // the chrome trim strip
     /* THE TOE KICK — recessed, with deck under it. This is the whole difference from a crate. */
     px(x + 2, y + 9, w - 4, 2, INK);
-    px(x + 3, y + 9, w - 6, 1, shade(CHR_DK, -0.20));
-    px(x + 3, y + 10, w - 6, 1, shade(INK, 0.10));
+    px(x + 3, y + 9, w - 6, 1, U.shade(CHR_DK, -0.20));
+    px(x + 3, y + 10, w - 6, 1, U.shade(INK, 0.10));
     ctx.globalAlpha = 0.34; px(x + 2, y + h - 1, w - 4, 1, '#000'); ctx.globalAlpha = 1;
   };
 
@@ -6605,7 +6520,7 @@ const PropSprites = (() => {
     keyEdge(x + 2, y - 4, 1, 5, 0.20);                                       // bright rail is a strip light.
     px(x + 3, y - 3, 1, h - 2, RED);                                         // the crown rolling over
     px(x + 4, y - 3, 1, h - 2, RED_DK);                                      // and falling into shade
-    px(x + 5, y - 2, 1, h - 3, shade(RED_DK, -0.30));                      // its shadow ON the seat
+    px(x + 5, y - 2, 1, h - 3, U.shade(RED_DK, -0.30));                      // its shadow ON the seat
     for (let by = y + 1; by < NE - 2; by += 6) px(x + 3, by, 1, 1, RED_DK);  // tufting, down the length
     /* THE SEAT — the major mass and the light plane, running the same length */
     px(x + 6, y - 2, w - 7, h - 2, RED_LIT);
@@ -6614,14 +6529,14 @@ const PropSprites = (() => {
     px(x + w - 3, y - 1, 1, h - 3, RED); px(x + w - 2, y - 1, 1, h - 3, RED_DK);
     rimEdge(x + w - 2, y + 1, 1, h - 6, 0.20);
     for (let by = y + 2; by < NE - 2; by += 6) {                             // seat buttons, down the length
-      px(x + 9, by, 1, 1, RED_DK); px(x + 9, by + 1, 1, 1, shade(RED_HI, -0.06));
+      px(x + 9, by, 1, 1, RED_DK); px(x + 9, by + 1, 1, 1, U.shade(RED_HI, -0.06));
     }
     /* THE NEAR END — the seat's front edge, its chrome trim, and the toe kick under everything */
     px(x + 1, NE, w - 2, 1, RED);
     px(x + 1, NE + 1, w - 2, 1, CHR); px(x + 1, NE + 1, 4, 1, CHR_HI);
     px(x + 2, NE + 2, w - 4, 3, INK);
-    px(x + 3, NE + 2, w - 6, 1, shade(CHR_DK, -0.20));
-    px(x + 3, NE + 3, w - 6, 1, shade(INK, 0.10));
+    px(x + 3, NE + 2, w - 6, 1, U.shade(CHR_DK, -0.20));
+    px(x + 3, NE + 3, w - 6, 1, U.shade(INK, 0.10));
     ctx.globalAlpha = 0.34; px(x + 1, y + h - 1, w - 2, 1, '#000'); ctx.globalAlpha = 1;
   };
 
@@ -6685,24 +6600,24 @@ const PropSprites = (() => {
       const bx = x + sx, ry = y + dy;
       px(bx, ry, sw, 1, BD);
       px(bx, ry, 1, 1, BD_LIT); px(bx + sw - 1, ry, 1, 1, BD_DK);
-      if (dy <= 1) px(bx + 1, ry, Math.max(0, sw - 2), 1, shade(BD, 0.10));   // the upper half takes the key
-      if (dy >= 4) px(bx + 1, ry, Math.max(0, sw - 2), 1, shade(BD, -0.16));
+      if (dy <= 1) px(bx + 1, ry, Math.max(0, sw - 2), 1, U.shade(BD, 0.10));   // the upper half takes the key
+      if (dy >= 4) px(bx + 1, ry, Math.max(0, sw - 2), 1, U.shade(BD, -0.16));
     }
     keyEdge(x + 1, y + 1, 3, 1, 0.28); rimEdge(x + 10, y + 1, 1, 3, 0.20);
     /* THE HARDWARE — two black pickups, a chrome bridge, and the white STAR decals off the reference.
        Three marks and a spark; anything more at this size is litter. */
     px(x + 4, y + 1, 4, 1, '#141a22');                                      // two humbuckers, with a
-    px(x + 4, y + 2, 4, 1, shade(BD, -0.20));                             // strip of body between them
+    px(x + 4, y + 2, 4, 1, U.shade(BD, -0.20));                             // strip of body between them
     px(x + 4, y + 3, 4, 1, '#141a22');
     px(x + 4, y + 4, 3, 1, r.hi); px(x + 5, y + 4, 1, 1, r.sheen);          // the bridge, catching the strip
     px(x + 2, y + 2, 1, 1, '#f2f4f5'); px(x + 9, y + 4, 1, 1, '#f2f4f5');   // two star decals
-    px(x + 8, y + 4, 1, 1, shade(BD_LIT, 0.14));                          // a knob
+    px(x + 8, y + 4, 1, 1, U.shade(BD_LIT, 0.14));                          // a knob
     /* THE NECK — dark board, sparse inlays, ending AT the joint (run to the bridge it splits the
        body in half). Props may overhang upward and that height is what carries across a room. */
     px(x + 4, y - 12, 4, 11, INK);
     px(x + 5, y - 11, 2, 10, NECK);
     px(x + 5, y - 11, 1, 10, NECK_LIT); keyEdge(x + 5, y - 11, 1, 7, 0.22);
-    px(x + 6, y - 11, 1, 10, shade(NECK, -0.24)); rimEdge(x + 6, y - 9, 1, 8, 0.18);
+    px(x + 6, y - 11, 1, 10, U.shade(NECK, -0.24)); rimEdge(x + 6, y - 9, 1, 8, 0.18);
     for (let fy = y - 9; fy < y - 2; fy += 3) px(x + 5, fy, 1, 1, '#8e959a');   // dot inlays — ONE px each:
     // two px of white every third row is a LADDER, not a fretboard.
     px(x + 5, y - 2, 2, 1, r.mid);                                          // the neck plate at the joint
@@ -6735,7 +6650,7 @@ const PropSprites = (() => {
       px(pxx - 3, y + h - 2, 8, 1, r.ao);
       px(pxx - 2, y + h - 1, 2, 1, '#1a1e22'); px(pxx + 2, y + h - 1, 2, 1, '#1a1e22');
       ctx.globalAlpha = 0.30; px(pxx - 4, y + h, 10, 1, '#000'); ctx.globalAlpha = 1;
-      px(pxx, y + 4, 2, 2, shade(r.top, 0.16));
+      px(pxx, y + 4, 2, 2, U.shade(r.top, 0.16));
     }
     // chamfered carcass
     chamf(x - 1, y - 6, w + 2, 14, LINE, 2);
@@ -6747,8 +6662,8 @@ const PropSprites = (() => {
     chamf(x - 2, y - 9, w + 4, 4, LINE, 2);
     chamf(x - 1, y - 8, w + 2, 3, r.top, 2);
     px(x + 1, y - 8, w - 2, 1, r.sheen); keyEdge(x + 1, y - 8, 7, 1, 0.30);
-    px(x + 1, y - 6, w - 2, 1, shade(r.top, -0.34));              // hood's underside lip
-    for (const cx4 of [x + 1, x + w - 3]) { px(cx4, y - 6, 2, 3, shade(r.face, -0.20)); px(cx4, y - 6, 1, 3, r.dk); } // hood cheeks
+    px(x + 1, y - 6, w - 2, 1, U.shade(r.top, -0.34));              // hood's underside lip
+    for (const cx4 of [x + 1, x + w - 3]) { px(cx4, y - 6, 2, 3, U.shade(r.face, -0.20)); px(cx4, y - 6, 1, 3, r.dk); } // hood cheeks
     // recessed glass well, hood shadow raked across its top two rows
     const sx = x + 3, sy = y - 4, sw = w - 6, sh2 = 9;
     inset(sx - 1, sy - 1, sw + 2, sh2 + 2, '#080a0c');
@@ -6768,7 +6683,7 @@ const PropSprites = (() => {
     ctx.restore();
     // vertex ticks where the wireframe corners land — vector sets read as PLOTTED when the nodes show
     for (const [vx, vy] of [[sx + 1, sy + 1], [sx + sw - 3, sy + 1], [sx + 1, sy + sh2 - 4], [sx + sw - 3, sy + sh2 - 4]])
-      px(vx, vy, 1, 1, blink(900, vx + ph) ? HOT : shade(RED, -0.35));
+      px(vx, vy, 1, 1, blink(900, vx + ph) ? HOT : U.shade(RED, -0.35));
     // three scrolling tactical readout bars (kept), now with falloff instead of flat glow
     for (let r2 = 0; r2 < 3; r2++) {
       const by = sy + sh2 - 4 + r2;
@@ -6808,7 +6723,7 @@ const PropSprites = (() => {
     px(x + 2, top + 1, 4, 1, r.hi);
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
-    px(x + 4, top + 3, 4, 1, on ? M : shade(M, -0.62));
+    px(x + 4, top + 3, 4, 1, on ? M : U.shade(M, -0.62));
     if (on) bloom(x + 4, top + 3, 4, 1, M, 0.20);
 
     /* ---- OPEN FRAME: two uprights, deck visible between the combs ---- */
@@ -6826,7 +6741,7 @@ const PropSprites = (() => {
       px(x + 3, cy0, w - 6, 2, r.ao);                             // the slot itself
       for (let i = 0; i < 5; i++)                                 // the pins — countable
         px(x + 4 + i, cy0, 1, 1, i % 2 ? r.lit : r.face);
-      px(x + w - 4, cy0, 1, 1, blink(380 + k * 140, k) ? D : shade(D, -0.70));
+      px(x + w - 4, cy0, 1, 1, blink(380 + k * 140, k) ? D : U.shade(D, -0.70));
       if (on) bloom(x + w - 4, cy0, 1, 1, D, 0.18);
     }
 
@@ -6836,7 +6751,7 @@ const PropSprites = (() => {
       const a = (t / 8) * Math.PI;
       px(lx + Math.round(Math.sin(a) * 3), ly + t, 1, 1, r.ink);
     }
-    px(lx + 2, ly + 8, 2, 2, r.ink); px(lx + 2, ly + 8, 1, 1, on ? D : shade(D, -0.6));
+    px(lx + 2, ly + 8, 2, 2, r.ink); px(lx + 2, ly + 8, 1, 1, on ? D : U.shade(D, -0.6));
 
     /* ---- BASE: vented, dot grid ---- */
     const vy = base - 9;
@@ -6873,19 +6788,19 @@ const PropSprites = (() => {
     // TALL 3/4 chamfered column + a cap we look down on
     chamf(x - 1, y - 3, w + 2, h - 2, LINE, 2);
     chamf(x, y - 2, w, h - 4, r.face, 2);
-    px(x, y, 1, h - 8, shade(r.face, 0.12)); px(x + w - 1, y, 1, h - 8, r.dk);
+    px(x, y, 1, h - 8, U.shade(r.face, 0.12)); px(x + w - 1, y, 1, h - 8, r.dk);
     rimEdge(x + w - 1, y + 1, 1, h - 10, 0.22);
     chamf(x - 1, y - 6, w + 2, 4, LINE, 1);
     px(x, y - 5, w, 2, r.top); px(x, y - 5, w, 1, r.sheen); keyEdge(x, y - 5, 5, 1, 0.30);
-    px(x, y - 3, w, 1, shade(r.top, -0.24));                      // cap lip ties cap to column
+    px(x, y - 3, w, 1, U.shade(r.top, -0.24));                      // cap lip ties cap to column
     // two beveled bands (kept) — the slot crosses them, which is what makes it read as recessed
     for (const by of [y + 1, y + h - 10]) {
-      px(x, by, w, 3, shade(r.face, 0.14));
+      px(x, by, w, 3, U.shade(r.face, 0.14));
       px(x, by, w, 1, r.lit); keyEdge(x + 1, by, w - 3, 1, 0.16);
       px(x, by + 2, w, 1, r.ao);
       px(x + 1, by + 1, 1, 1, r.sheen); px(x + w - 2, by + 1, 1, 1, r.ao);   // rivets
     }
-    wear(x + 1, y + 5, w - 2, h - 17, 3, shade(r.face, -0.12));
+    wear(x + 1, y + 5, w - 2, h - 17, 3, U.shade(r.face, -0.12));
     // CROWN: rotating scan head on a stubby mast (kept sweep behaviour), tied down so it doesn't float
     px(icx - 1, y - 8, 3, 3, LINE); px(icx - 1, y - 8, 1, 3, r.lit); px(icx + 1, y - 8, 1, 3, r.dk);
     chamf(icx - 3, y - 10, 7, 3, LINE, 1);
@@ -6900,13 +6815,13 @@ const PropSprites = (() => {
     inset(slotX - 2, slotY - 2, 6, slotH + 4, '#201210');
     px(slotX - 1, slotY - 1, 4, slotH + 2, '#12090a');              // the well behind the diffuser
     const pl = on ? 0.55 + 0.45 * Math.abs(Math.sin(now / 480)) : 0.20 + 0.06 * Math.sin(now / 1400);
-    px(slotX, slotY, 2, slotH, shade(RED, on ? -0.04 : -0.34));   // idle slot stays a dim ember, never black
-    px(slotX, slotY, 1, slotH, shade(RED, 0.16));                 // west edge of the pipe catches more
+    px(slotX, slotY, 2, slotH, U.shade(RED, on ? -0.04 : -0.34));   // idle slot stays a dim ember, never black
+    px(slotX, slotY, 1, slotH, U.shade(RED, 0.16));                 // west edge of the pipe catches more
     bloom(slotX, slotY, 2, slotH, RED, pl * 0.55);
     for (let i = 0; i < 3; i++) {                                   // ORDERS travelling up the pipe
       const t = ((now / (on ? 520 : 1500) + i * 0.34) % 1);
       const py2 = slotY + slotH - 2 - Math.round(t * (slotH - 2));
-      px(slotX, py2, 2, 1, on ? '#ffd9d2' : shade(RED, 0.10));
+      px(slotX, py2, 2, 1, on ? '#ffd9d2' : U.shade(RED, 0.10));
       bloom(slotX, py2, 2, 1, RED, (on ? 0.40 : 0.18) * (1 - t * 0.6));
     }
     if (on && blink(480)) px(slotX, slotY, 2, slotH, HOT);          // hot core when dispatching (kept)
@@ -6934,10 +6849,10 @@ const PropSprites = (() => {
     chamf(x - 1, y + 5, w + 2, 7, LINE, 2);
     px(x, y + 6, w, 4, r.face);
     px(x, y + 6, w, 1, r.lit); keyEdge(x + 1, y + 6, w - 3, 1, 0.15);
-    px(x, y + 6, 1, 4, shade(r.face, 0.08)); px(x + w - 1, y + 6, 1, 4, r.dk);
+    px(x, y + 6, 1, 4, U.shade(r.face, 0.08)); px(x + w - 1, y + 6, 1, 4, r.dk);
     rimEdge(x + w - 1, y + 6, 1, 4, 0.20);
     for (let i = 0; i < (w - 8) / 6; i++) {
-      px(x + 4 + i * 6, y + 7, 1, 2, r.ao); px(x + 5 + i * 6, y + 7, 1, 2, shade(r.face, 0.14));
+      px(x + 4 + i * 6, y + 7, 1, 2, r.ao); px(x + 5 + i * 6, y + 7, 1, 2, U.shade(r.face, 0.14));
     }
     px(x, y + 9, w, 1, r.ao);
     px(x + 2, y + 7, 1, 1, (on ? blink(420, ph) : blink(1600, ph)) ? HOT : '#3a1c1a');   // status LED (kept)
@@ -6946,12 +6861,12 @@ const PropSprites = (() => {
     chamf(x, y, w, 6, r.top, 2);
     px(x + 2, y, w - 4, 1, r.sheen); keyEdge(x + 2, y, 7, 1, 0.28);
     px(x, y + 2, 1, 3, r.lit); px(x + w - 1, y + 2, 1, 3, r.dk); rimEdge(x + w - 1, y + 2, 1, 3, 0.20);
-    px(x + 2, y + 5, w - 4, 1, shade(r.top, -0.20));
-    wear(x + 2, y + 1, w - 4, 4, 3, shade(r.top, -0.10));
+    px(x + 2, y + 5, w - 4, 1, U.shade(r.top, -0.20));
+    wear(x + 2, y + 1, w - 4, 4, 3, U.shade(r.top, -0.10));
     const tx = x + 4, tw = w - 8;
     px(tx - 1, y, tw + 2, 4, '#141013');                            // trough surround
     px(tx, y + 1, tw, 2, '#23181a');
-    px(tx, y + 1, tw, 1, shade(r.top, -0.50));                    // shadow at the back of the trough
+    px(tx, y + 1, tw, 1, U.shade(r.top, -0.50));                    // shadow at the back of the trough
     px(cx - 3, y + 2, 6, 1, HOT);                                   // the emitter slit itself (kept)
     bloom(cx - 3, y + 2, 6, 1, RED, 0.22 + 0.10 * Math.abs(flick(1300)));
     for (const lx of [tx + 1, tx + tw - 2]) px(lx, y + 2, 1, 1, blink(700, lx + ph) ? RED : '#3a1c1a'); // lens pilots
@@ -7015,18 +6930,18 @@ const PropSprites = (() => {
     // domed cap
     chamf(x, y - 9, w, 4, LINE, 1);
     px(x + 1, y - 8, w - 2, 1, r.sheen); keyEdge(x + 1, y - 8, 4, 1, 0.28);
-    px(x + 1, y - 7, w - 2, 2, r.top); px(x + 1, y - 6, w - 2, 1, shade(r.top, -0.24));
+    px(x + 1, y - 7, w - 2, 2, r.top); px(x + 1, y - 6, w - 2, 1, U.shade(r.top, -0.24));
     // recessed lens housing (kept: concentric arcs, sweep, pupil spec)
     const lensTop = y - 4, lensH = 13;
     inset(x + 1, lensTop, w - 2, lensH, '#10161a');
-    px(x + 1, lensTop, w - 2, 1, shade(r.face, -0.55));      // hood shadow into the top of the well
+    px(x + 1, lensTop, w - 2, 1, U.shade(r.face, -0.55));      // hood shadow into the top of the well
     const lcx = x + w / 2, lcy = lensTop + lensH / 2, R = (w - 5) / 2;
     ctx.save();
     ctx.beginPath(); ctx.rect(x + 2, lensTop + 1, w - 4, lensH - 2); ctx.clip();
     for (let cr = R; cr >= 1.2; cr -= 1.2) {
       const t = cr / R;
       ctx.beginPath();
-      ctx.strokeStyle = shade(ACC.data, -0.48 + 0.40 * (1 - t));
+      ctx.strokeStyle = U.shade(ACC.data, -0.48 + 0.40 * (1 - t));
       ctx.globalAlpha = (on ? 1 : 0.62) * (0.35 + 0.4 * (1 - t));
       ctx.arc(lcx, lcy, cr, 0, 6.2832); ctx.stroke();
     }
@@ -7043,14 +6958,14 @@ const PropSprites = (() => {
     bloom(x + 2, lensTop + 1, w - 4, lensH - 2, ACC.data, on ? 0.15 : 0.08);
     spill(x + 1, lensTop + lensH, w - 2, ACC.data, on ? 0.20 : 0.10, 4);  // lens light pools down the column
     // instrument collar + the amber hardware LEDs the whole research bench shares (kept 520)
-    px(x + 1, y + 10, w - 2, 2, shade(r.face, -0.30)); px(x + 1, y + 10, w - 2, 1, shade(r.top, 0.10));
+    px(x + 1, y + 10, w - 2, 2, U.shade(r.face, -0.30)); px(x + 1, y + 10, w - 2, 1, U.shade(r.top, 0.10));
     knurl(x + 2, y + 11, w - 4, 1, r.face);
     for (let i = 0; i < 2; i++) {
       const lx2 = i ? x + w - 4 : x + 2, lit = blink(520, i);
       px(lx2, y + 13, 2, 2, lit ? '#ffb347' : '#5a3f1a');
       if (lit) bloom(lx2, y + 13, 2, 2, '#ffb347', 0.24);
     }
-    px(x + 2, y + 15, w - 4, 1, r.dk); px(x + 2, y + 16, w - 4, 1, shade(r.face, 0.14)); // lower seam (kept)
+    px(x + 2, y + 15, w - 4, 1, r.dk); px(x + 2, y + 16, w - 4, 1, U.shade(r.face, 0.14)); // lower seam (kept)
     bloom(x, y + h - 6, w, 3, ACC.data, (on ? 0.14 : 0.08) + 0.04 * Math.sin(now / 600 + ph)); // floor bleed (kept)
   };
   F.research_trendpillar = (x, y, w, h, f) => { // v4 trend totem (1x2) — a hooded strip chart, same bench hardware
@@ -7065,7 +6980,7 @@ const PropSprites = (() => {
     px(x + w - 1, y + h - 8, 1, 4, r.dk); rimEdge(x + w - 1, y + h - 8, 1, 4, 0.20);
     px(x, y + h - 5, w, 1, r.ao);
     inset(x + 2, y + h - 7, w - 4, 3, '#10161a');
-    for (let i = 0; i < 3; i++) px(x + 3 + i * 2, y + h - 6, 1, 1, shade(r.face, -0.5));  // vent slots
+    for (let i = 0; i < 3; i++) px(x + 3 + i * 2, y + h - 6, 1, 1, U.shade(r.face, -0.5));  // vent slots
     px(x + 3, y + h - 6, 1, 1, blink(2200) ? ACC.work : '#1c2a22');
     if (blink(2200)) bloom(x + 3, y + h - 6, 1, 1, ACC.work, 0.26);
     // slab body, full height, chamfered cap — two temperatures down the flanks
@@ -7076,7 +6991,7 @@ const PropSprites = (() => {
     rimEdge(x + w - 2, y - 4, 1, 16, 0.20);
     // a real HOOD over the screen — the totem needs a brow or the display floats on a bare slab
     px(x, y - 5, w, 2, LINE); px(x + 1, y - 5, w - 2, 1, r.top); keyEdge(x + 1, y - 5, 5, 1, 0.24);
-    px(x + 1, y - 3, w - 2, 1, shade(r.face, -0.5));         // the hood's shadow onto the glass
+    px(x + 1, y - 3, w - 2, 1, U.shade(r.face, -0.5));         // the hood's shadow onto the glass
     // vertical strip display (kept: dual charts, ticker, drifting scan)
     const scX = x + 1, scW = w - 2, scY = y - 3, scH = h - 11;
     inset(scX, scY, scW, scH, '#0a1416');
@@ -7090,7 +7005,7 @@ const PropSprites = (() => {
       const cy3 = gTop + gH - 2 - (i / gW) * (gH - 4) - (s % 5) + 2;
       ctx.globalAlpha = dimA;
       px(gX + i, cy3, 1, 1, ACC.data);
-      if (i > 0) px(gX + i, cy3 + 1, 1, 1, shade(ACC.data, -0.45));   // the series' own shadow under it
+      if (i > 0) px(gX + i, cy3 + 1, 1, 1, U.shade(ACC.data, -0.45));   // the series' own shadow under it
       ctx.globalAlpha = dimA * 0.85;
       px(gX + i, gTop + gH - 1 - (i / gW) * (gH - 8) * 0.6 - (U.hash('curie' + ((i + tk) % 64)) % 3), 1, 1, '#8f7bff');
       ctx.globalAlpha = 1;
@@ -7109,8 +7024,8 @@ const PropSprites = (() => {
     ctx.globalAlpha = on ? 0.22 : 0.10; px(gX, scanY, gW, 1, '#9af0ff'); ctx.globalAlpha = 1;
     scanl(gX, gTop, gW, gH, 0.16);
     ctx.restore();
-    px(scX, scY, scW, 1, shade('#2a332f', 0.18));            // bezel highlights (kept)
-    px(scX, scY, 1, scH, shade('#2a332f', 0.10));
+    px(scX, scY, scW, 1, U.shade('#2a332f', 0.18));            // bezel highlights (kept)
+    px(scX, scY, 1, scH, U.shade('#2a332f', 0.10));
     px(scX + scW - 1, scY, 1, scH, '#1a221e');
     bloom(scX + 1, scY + 1, scW - 2, scH - 2, ACC.data, on ? 0.14 : 0.07);
     spill(scX, scY + scH, scW, ACC.data, on ? 0.20 : 0.09, 4); // chart light pools down onto the pedestal
@@ -7123,7 +7038,7 @@ const PropSprites = (() => {
     for (const wx of [x + 3, x + w - 6]) {                     // caster wheels, proud of the frame
       px(wx - 1, y + h - 4, 4, 4, LINE);
       px(wx, y + h - 3, 2, 2, '#15191a'); px(wx, y + h - 3, 2, 1, '#2c3438');
-      px(wx, y + h - 4, 2, 1, shade(r.face, 0.10));          // the fork the caster hangs off
+      px(wx, y + h - 4, 2, 1, U.shade(r.face, 0.10));          // the fork the caster hangs off
     }
     // open mid shelf: dark void, corner posts, a cross-brace so the frame is a frame and not two sticks
     px(x + 2, y + 5, w - 4, 4, '#0d1318');
@@ -7142,8 +7057,8 @@ const PropSprites = (() => {
     chamf(x, y - 1, w, 6, r.top, 1);
     px(x + 2, y - 1, w - 4, 1, r.sheen); keyEdge(x + 2, y - 1, 8, 1, 0.26);
     px(x, y, 1, 4, r.lit); px(x + w - 1, y, 1, 4, r.dk); rimEdge(x + w - 1, y, 1, 4, 0.20);
-    px(x + 1, y + 4, w - 2, 1, shade(r.top, -0.18));
-    wear(x + 2, y, w - 4, 4, 3, shade(r.top, -0.10));
+    px(x + 1, y + 4, w - 2, 1, U.shade(r.top, -0.18));
+    wear(x + 2, y, w - 4, 4, 3, U.shade(r.top, -0.10));
     // VIAL RACK: three capped vials, each lit from the liquid inside (kept stagger pulse)
     px(x + 2, y - 1, 13, 3, '#242e28'); px(x + 3, y - 1, 11, 1, '#3c4840');
     for (let i = 0; i < 3; i++) {
@@ -7151,9 +7066,9 @@ const PropSprites = (() => {
       px(vx - 1, y - 6, 4, 6, LINE);
       px(vx, y - 5, 2, 1, '#8a9a96'); px(vx, y - 5, 1, 1, '#a8b8b4');     // cap
       px(vx, y - 4, 2, 4, '#1c2a30');                                     // glass above the meniscus
-      px(vx, y - 2, 2, 2, shade(ACC.data, -0.30 - 0.16 * (1 - lit)));   // the liquid body
-      px(vx, y - 2, 2, 1, shade(ACC.data, 0.10 * lit));                 // lit meniscus
-      px(vx, y - 4, 1, 3, shade(SKY, -0.30));                           // cool sky catch down the glass
+      px(vx, y - 2, 2, 2, U.shade(ACC.data, -0.30 - 0.16 * (1 - lit)));   // the liquid body
+      px(vx, y - 2, 2, 1, U.shade(ACC.data, 0.10 * lit));                 // lit meniscus
+      px(vx, y - 4, 1, 3, U.shade(SKY, -0.30));                           // cool sky catch down the glass
       bloom(vx, y - 2, 2, 2, ACC.data, (on ? 0.16 : 0.09) + 0.10 * lit);
     }
     spill(x + 3, y + 1, 11, ACC.data, on ? 0.18 : 0.10, 3);    // the rack pools cyan onto the tray
@@ -7165,21 +7080,21 @@ const PropSprites = (() => {
     knurl(x + w, y - 4, 3, 1, r.top);
   };
   F.research_papers = (x, y, w, h, f) => { // v4 printouts (2x1) — the bench's one MATTE prop: no glow, only stacking
-    const paper = '#ded9cc', hi = shade(paper, 0.16), shd = shade(paper, -0.26), ink = '#7e8484';
+    const paper = '#ded9cc', hi = U.shade(paper, 0.16), shd = U.shade(paper, -0.26), ink = '#7e8484';
     const on = !!(f && f.work);
     sh(x + 2, y + h - 2, w - 4);
     ctx.globalAlpha = 0.26; px(x + 2, y + 9, w - 6, 2, '#000'); ctx.globalAlpha = 1;   // the contact shadow does the work
     // manila folder underneath (kept)
     const fold = '#bfa96f';
-    px(x + 1, y + 3, 11, 8, shade(fold, -0.42));
+    px(x + 1, y + 3, 11, 8, U.shade(fold, -0.42));
     px(x + 1, y + 2, 11, 8, fold);
-    px(x + 1, y + 2, 11, 1, shade(fold, 0.20));
-    px(x + 8, y + 2, 4, 1, shade(fold, 0.28));               // raised tab
+    px(x + 1, y + 2, 11, 1, U.shade(fold, 0.20));
+    px(x + 8, y + 2, 4, 1, U.shade(fold, 0.28));               // raised tab
     rimEdge(x + 1, y + 9, 11, 1, 0.10);                        // cool floor bounce into the folder's shade
     // two low stacks — the rise is told by the stacked SHEET EDGES, not by a highlight
     const stack = (sx2, sy2, sw2, sh2) => {
       ctx.globalAlpha = 0.22; px(sx2 - 1, sy2 + sh2 + 1, sw2 + 2, 2, '#000'); ctx.globalAlpha = 1;
-      for (let j = 0; j < 3; j++) px(sx2 + (j % 2), sy2 + sh2 + j, sw2 - (j % 2), 1, shade(paper, -0.20 - j * 0.08));
+      for (let j = 0; j < 3; j++) px(sx2 + (j % 2), sy2 + sh2 + j, sw2 - (j % 2), 1, U.shade(paper, -0.20 - j * 0.08));
       px(sx2, sy2, sw2, sh2, paper);
       px(sx2, sy2, sw2, 1, hi); px(sx2, sy2, 1, sh2, hi);
       keyEdge(sx2, sy2, Math.max(1, sw2 - 3), 1, 0.10);        // a warm ceiling wash, matte — paper takes no sheen
@@ -7196,16 +7111,16 @@ const PropSprites = (() => {
     px(tx, ty, tw, 1, hi); px(tx, ty, 1, th, hi);
     keyEdge(tx, ty, 6, 1, 0.12);
     px(tx + tw - 1, ty + 1, 1, th - 1, shd); px(tx, ty + th - 1, tw, 1, shd);
-    px(tx + tw - 3, ty - 1, 3, 1, shade(paper, -0.30));      // curl shadow (kept)
-    px(tx + tw - 3, ty, 3, 2, hi); px(tx + tw - 1, ty, 1, 1, shade(paper, 0.30)); // curled corner
+    px(tx + tw - 3, ty - 1, 3, 1, U.shade(paper, -0.30));      // curl shadow (kept)
+    px(tx + tw - 3, ty, 3, 2, hi); px(tx + tw - 1, ty, 1, 1, U.shade(paper, 0.30)); // curled corner
     px(tx + 1, ty + 2, 6, 1, ink);
     const bars = [2, 4, 3, 5];
     for (let b = 0; b < bars.length; b++) {
-      px(tx + 1 + b * 2, ty + 8 - bars[b], 1, bars[b], shade(ACC.data, -0.42));   // cyan INK, dimmer than a lamp
-      px(tx + 1 + b * 2, ty + 8 - bars[b], 1, 1, shade(ACC.data, -0.14));
+      px(tx + 1 + b * 2, ty + 8 - bars[b], 1, bars[b], U.shade(ACC.data, -0.42));   // cyan INK, dimmer than a lamp
+      px(tx + 1 + b * 2, ty + 8 - bars[b], 1, 1, U.shade(ACC.data, -0.14));
     }
     const k = Math.floor(now / 600) % bars.length;             // the read-head tick (kept cadence)
-    px(tx + 1 + k * 2, ty + 8 - bars[k], 1, 1, on ? '#f6f2e8' : shade(ACC.data, 0.10));
+    px(tx + 1 + k * 2, ty + 8 - bars[k], 1, 1, on ? '#f6f2e8' : U.shade(ACC.data, 0.10));
     if (on) { px(tx - 2, ty + th - 2, tw + 1, 2, paper); px(tx - 2, ty + th - 2, tw + 1, 1, hi); } // sheet feeding out
   };
   F.comms_dish = (x, y, w, h, f) => {
@@ -7237,7 +7152,7 @@ const PropSprites = (() => {
     px(bx + 1, by + 1, 8, 1, r.mid);
     px(bx + 1, by + 1, 1, 4, r.top); px(bx + 8, by + 1, 1, 4, r.dk);
     px(bx + 2, by + 3, 6, 1, r.ao); px(bx + 2, by + 2, 6, 1, r.top);
-    px(bx + 3, by + 3, 1, 1, active ? ACC.data : shade(ACC.data, -0.6));
+    px(bx + 3, by + 3, 1, 1, active ? ACC.data : U.shade(ACC.data, -0.6));
     px(bx - 1, by - 2, 12, 2, r.ink);                             // azimuth gear
     px(bx, by - 1, 10, 1, r.mid);
     for (let i = 0; i < 5; i++) px(bx + 1 + i * 2, by - 2, 1, 1, r.lit);
@@ -7325,15 +7240,15 @@ const PropSprites = (() => {
     px(x + 2, y - 3, w - 4, 1, r.sheen); keyEdge(x + 2, y - 3, 8, 1, 0.28);
     px(x, y - 1, 1, 4, r.lit); px(x + w - 1, y - 1, 1, 4, r.dk);
     rimEdge(x + w - 1, y - 1, 1, 4, 0.20);
-    px(x + 2, y + 4, w - 4, 1, shade(r.top, -0.18));
-    wear(x + 1, y - 2, w - 2, 5, 3, shade(r.top, -0.10));
+    px(x + 2, y + 4, w - 4, 1, U.shade(r.top, -0.18));
+    wear(x + 1, y - 2, w - 2, 5, 3, U.shade(r.top, -0.10));
     inset(x + 3, y - 2, w - 6, 5, '#07110f');                     // glass tray
     bloom(x + 4, y - 1, w - 8, 3, cy0, on ? 0.18 : 0.10 + 0.05 * Math.sin(now / 640));
     // EMITTER POSTS — the stack read as a second floating object until these carried it
     for (const ex of [x + 3, x + w - 5]) {
       px(ex, y - 7, 2, 5, LINE); px(ex, y - 7, 1, 5, r.lit); px(ex + 1, y - 7, 1, 5, r.dk);
-      px(ex, y - 8, 2, 1, shade(r.top, 0.18));
-      px(ex, y - 7, 2, 1, on ? '#bff5ff' : shade(cy0, -0.45));
+      px(ex, y - 8, 2, 1, U.shade(r.top, 0.18));
+      px(ex, y - 7, 2, 1, on ? '#bff5ff' : U.shade(cy0, -0.45));
       bloom(ex, y - 7, 2, 1, cy0, on ? 0.34 : 0.16);
     }
     // holo receipt stack rising out of the tray (kept 2s cycle), each an envelope with a flap
@@ -7343,18 +7258,18 @@ const PropSprites = (() => {
       let a = (s === 0 ? 0.90 * (1 - t) : 0.82 - s * 0.22);
       if (a <= 0.05) continue;
       ctx.save(); ctx.globalAlpha = a;
-      const col = s === 0 ? '#8ff0ff' : shade(cy0, -0.34);
+      const col = s === 0 ? '#8ff0ff' : U.shade(cy0, -0.34);
       px(cardX, cy, cardW, 1, col); px(cardX, cy + 2, cardW, 1, col);
       px(cardX, cy, 1, 3, col); px(cardX + cardW - 1, cy, 1, 3, col);
-      px(cardX + 3, cy + 1, 2, 1, shade(col, 0.30));            // flap hint
+      px(cardX + 3, cy + 1, 2, 1, U.shade(col, 0.30));            // flap hint
       ctx.restore();
     }
     // unread-count badge on the NE corner (kept tick)
     const cnt = (Math.floor(now / 2000) % 9) + 1, bx = x + w - 7, by = y - 6;
-    px(bx, by, 5, 4, '#0a1614'); px(bx, by, 5, 1, shade(cy0, -0.55));
+    px(bx, by, 5, 4, '#0a1614'); px(bx, by, 5, 1, U.shade(cy0, -0.55));
     const segOn = (U.hash('' + cnt) % 2) === 0;
     px(bx + 1, by + 1, 3, 1, cy0);
-    px(bx + 1, by + 2, segOn ? 3 : 2, 1, shade(cy0, 0.20));
+    px(bx + 1, by + 2, segOn ? 3 : 2, 1, U.shade(cy0, 0.20));
     bloom(bx + 1, by + 1, 3, 2, cy0, 0.26);
     if (on) px(cardX - 1, y - 3, 1, 1, '#dff9ff');                // kept active-use catch
   };
@@ -7380,7 +7295,7 @@ const PropSprites = (() => {
     px(bx + 1, by + 1, 1, 6, r.top); px(bx + 10, by + 1, 1, 6, r.dk);
     for (let i = 0; i < 3; i++) px(bx + 2, by + 3 + i, 5, 1, i % 2 ? r.dk : r.ao);   // louvres
     px(bx + 8, by + 3, 2, 2, r.ao);                               // meter window
-    px(bx + 8, by + 3, 2, 1, active ? ACC.data : shade(ACC.data, -0.62));
+    px(bx + 8, by + 3, 2, 1, active ? ACC.data : U.shade(ACC.data, -0.62));
     px(bx + 2, by + 6, 8, 1, r.dk);
 
     /* ---- THE MAST: two uprights with zig-zag bracing, deck visible between ---- */
@@ -7446,7 +7361,7 @@ const PropSprites = (() => {
     px(x + 1, base - 7, w - 2, 1, r.mid);
     px(x + 1, base - 7, 1, 6, r.top); px(x + w - 2, base - 7, 1, 6, r.dk);
     px(x + 2, base - 5, w - 4, 1, r.ao); px(x + 2, base - 6, w - 4, 1, r.mid);   // service seam
-    px(x + 3, base - 3, 2, 1, active ? ACC.work : shade(ACC.work, -0.62));     // power lamp
+    px(x + 3, base - 3, 2, 1, active ? ACC.work : U.shade(ACC.work, -0.62));     // power lamp
     px(x + 1, base - 9, w - 2, 2, r.ink);                         // collar under the drum
     px(x + 2, base - 8, w - 4, 1, r.lit);
 
@@ -7456,10 +7371,10 @@ const PropSprites = (() => {
     for (let yy = dTop, i = 0; yy < dBot; yy++, i++) {
       const lit = i % 2 === 0;
       if (lit) {
-        px(dx0, yy, dw, 1, active ? G : shade(G, -0.66));       // the ridge itself
-        px(dx0 + 1, yy, 2, 1, active ? '#d6f7ff' : shade(G, -0.42));   // west end catches hardest
+        px(dx0, yy, dw, 1, active ? G : U.shade(G, -0.66));       // the ridge itself
+        px(dx0 + 1, yy, 2, 1, active ? '#d6f7ff' : U.shade(G, -0.42));   // west end catches hardest
       } else {
-        px(dx0, yy, dw, 1, active ? shade(G, -0.72) : '#0d1418');      // the groove between ridges
+        px(dx0, yy, dw, 1, active ? U.shade(G, -0.72) : '#0d1418');      // the groove between ridges
       }
     }
     px(dx0, dTop, 1, dBot - dTop, r.ink);                         // cage uprights, drawn OVER the glass
@@ -7576,8 +7491,8 @@ const PropSprites = (() => {
     px(x - 1, plY, w + 2, 3, r.ink);
     px(x, plY + 1, w, 2, r.face);
     px(x, plY + 1, w, 1, r.mid);
-    px(x + 1, plY + 2, 2, 1, live ? D : shade(D, -0.72));
-    px(x + 4, plY + 2, 2, 1, live ? D : shade(D, -0.72));
+    px(x + 1, plY + 2, 2, 1, live ? D : U.shade(D, -0.72));
+    px(x + 4, plY + 2, 2, 1, live ? D : U.shade(D, -0.72));
     px(x + w - 4, plY + 2, 2, 1, br.mid);
 
     /* ---- a real resolved call: the lens flashes white. Still no halo. ---- */
@@ -7645,7 +7560,7 @@ const PropSprites = (() => {
     px(x + 11, y - 2, 4, 1, b.face);
     px(x + 13, y - 5, 1, 3, r.mid); px(x + 13, y - 6, 1, 1, fired && !bad ? '#ffd0a0' : r.dk);
     px(x + 18, y - 3, 4, 3, b.ink); px(x + 19, y - 2, 2, 1, b.top);  // a meter
-    px(x + 19, y - 2, 1, 1, on ? G : shade(G, -0.66));
+    px(x + 19, y - 2, 1, 1, on ? G : U.shade(G, -0.66));
 
     /* ---- TRUTHFUL PULSE: only when shell/verify really fired ---- */
     if (fired) {
@@ -7654,7 +7569,7 @@ const PropSprites = (() => {
       bloom(x + 2, y + 3, w - 4, 3, c, 0.30);
       spill(x + 2, y + 6, w - 4, c, 0.22, 4);
     } else if (on) {
-      px(x + 2, y + 5, 6, 1, shade(G, -0.30));
+      px(x + 2, y + 5, 6, 1, U.shade(G, -0.30));
       bloom(x + 2, y + 5, 6, 1, G, 0.12);
     }
   };
@@ -7677,8 +7592,8 @@ const PropSprites = (() => {
     px(x + 1, y + 7, w - 2, 1, r.ao);
     for (let i = 0; i < 3; i++) {
       const fx2 = x + 4 + i * 6, c = i === 1 ? '#d8cdb8' : '#e0a256';
-      rr(fx2, y + 5, 3, 3, shade(c, -0.30));
-      px(fx2 + 1, y + 5, 1, 1, shade(c, 0.08)); px(fx2 + 1, y + 6, 1, 1, '#141a1e');   // hub
+      rr(fx2, y + 5, 3, 3, U.shade(c, -0.30));
+      px(fx2 + 1, y + 5, 1, 1, U.shade(c, 0.08)); px(fx2 + 1, y + 6, 1, 1, '#141a1e');   // hub
     }
     const per = on ? 900 : 1800;                               // feed LED runs hot on a live job (kept both rates)
     px(x + w - 3, y + 6, 1, 1, blink(per) ? ACC.flow : '#28323a');
@@ -7688,26 +7603,26 @@ const PropSprites = (() => {
     chamf(x, y - 2, w, 6, r.top, 1);
     px(x + 2, y - 2, w - 4, 1, r.sheen); keyEdge(x + 2, y - 2, 8, 1, 0.26);
     px(x, y - 1, 1, 4, r.lit); px(x + w - 1, y - 1, 1, 4, r.dk); rimEdge(x + w - 1, y - 1, 1, 4, 0.20);
-    px(x + 1, y + 3, w - 2, 1, shade(r.top, -0.18));
+    px(x + 1, y + 3, w - 2, 1, U.shade(r.top, -0.18));
     // upright spools: wound thread reads by BANDING, not by a sheen row — it is fibre, not plastic
     const cols2 = ['#e0a256', '#d8a86a', '#d8cdb8', '#c98a3a'];
     for (let i = 0; i < 4; i++) {
       const sx2 = x + 2 + i * 5, c = cols2[(i + (U.hash('threadrack') % 2)) % cols2.length];   // kept hash seed
       rr(sx2 - 1, y - 5, 6, 6, LINE);
-      px(sx2, y, 4, 1, shade(c, -0.40));                     // base flange under the winding
-      rr(sx2, y - 4, 4, 4, shade(c, -0.12));
-      px(sx2 + 1, y - 4, 2, 1, shade(c, 0.22));
-      for (let j = 0; j < 2; j++) px(sx2, y - 3 + j, 4, 1, shade(c, j ? -0.22 : 0.06));
+      px(sx2, y, 4, 1, U.shade(c, -0.40));                     // base flange under the winding
+      rr(sx2, y - 4, 4, 4, U.shade(c, -0.12));
+      px(sx2 + 1, y - 4, 2, 1, U.shade(c, 0.22));
+      for (let j = 0; j < 2; j++) px(sx2, y - 3 + j, 4, 1, U.shade(c, j ? -0.22 : 0.06));
       px(sx2 + 1, y - 3, 1, 1, '#141a1e');                     // hub hole
-      px(sx2 + 3, y - 3, 1, 2, shade(c, -0.36));             // shaded east of the reel
-      if (i === 1 || i === 3) px(sx2 + 1, y + 1, 1, 3, shade(c, -0.06));   // dangling tails (kept)
+      px(sx2 + 3, y - 3, 1, 2, U.shade(c, -0.36));             // shaded east of the reel
+      if (i === 1 || i === 3) px(sx2 + 1, y + 1, 1, 3, U.shade(c, -0.06));   // dangling tails (kept)
     }
     // a real THREAD PATH: one strand off the west spool up through a guide eye — says what the rack is FOR
     const guide = x + w - 6;
     px(guide, y - 8, 3, 3, LINE); px(guide, y - 8, 3, 1, r.top); px(guide + 1, y - 7, 1, 1, '#0e1311');
     keyEdge(guide, y - 8, 2, 1, 0.22);
-    cable(x + 4, y - 3, guide + 1, y - 7, -1.8, shade('#e0a256', -0.18));
-    if (on) px(x + 5 + Math.floor((now / 260 + ph) % 8), y - 4, 1, 1, shade('#e0a256', 0.24));  // the strand feeding
+    cable(x + 4, y - 3, guide + 1, y - 7, -1.8, U.shade('#e0a256', -0.18));
+    if (on) px(x + 5 + Math.floor((now / 260 + ph) % 8), y - 4, 1, 1, U.shade('#e0a256', 0.24));  // the strand feeding
   };
   F.etsy_dyevat = (x, y, w, h, f) => { // v4 dye vat (2x2) — bolted bath: dark body, LIT MENISCUS, dye light up the rim
     const r = RAMP.steel, on = !!(f && f.work), ph = (f && f.x) || 0;
@@ -7721,8 +7636,8 @@ const PropSprites = (() => {
     px(x + 1, y + 5, 2, 11, r.lit); keyEdge(x + 1, y + 6, 1, 8, 0.18);
     px(x + w - 3, y + 5, 2, 11, r.dk); rimEdge(x + w - 3, y + 6, 1, 8, 0.22);
     px(x + 2, y + 15, w - 4, 1, r.ao);
-    px(x + 1, y + 10, w - 2, 1, shade(r.face, -0.28));       // drum hoop (kept)
-    px(x + 1, y + 11, w - 2, 1, shade(r.face, 0.10));
+    px(x + 1, y + 10, w - 2, 1, U.shade(r.face, -0.28));       // drum hoop (kept)
+    px(x + 1, y + 11, w - 2, 1, U.shade(r.face, 0.10));
     knurl(x + 3, y + 7, 7, 1, r.face);
     // the heating jacket leaks along a seam, hottest west of centre where the element sits
     const warm = on ? 0.44 + 0.18 * Math.sin(now / 400 + ph) : 0.15;
@@ -7750,12 +7665,12 @@ const PropSprites = (() => {
     ctx.globalAlpha = 1;                                        // ^ the bath lighting the far inner wall
     // concentric dye rings core->rim (kept hues), darker at the edge so the bath has depth
     ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.4, w / 2 - 4, 3.8, 0, 0, 6.2832); ctx.fillStyle = on ? '#c9701a' : '#8a5016'; ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.4, w / 2 - 5.5, 3, 0, 0, 6.2832); ctx.fillStyle = shade(on ? '#c9701a' : '#8a5016', 0.16); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.4, w / 2 - 5.5, 3, 0, 0, 6.2832); ctx.fillStyle = U.shade(on ? '#c9701a' : '#8a5016', 0.16); ctx.fill();
     ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.3, w / 2 - 7, 2.2, 0, 0, 6.2832); ctx.fillStyle = on ? '#ff9d2e' : '#a8641e'; ctx.fill();
     ctx.globalAlpha = 0.75; ctx.strokeStyle = '#ffd9a0'; ctx.lineWidth = 1;   // LIT MENISCUS on the near lip
     ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.4, w / 2 - 4.4, 3.3, 0, Math.PI * 0.12, Math.PI * 0.88); ctx.stroke();
     const rp = now / 1400;                                      // drifting ripples (kept)
-    ctx.globalAlpha = 0.5; ctx.strokeStyle = shade('#ff9d2e', 0.30);
+    ctx.globalAlpha = 0.5; ctx.strokeStyle = U.shade('#ff9d2e', 0.30);
     for (let i = 0; i < 3; i++) {
       const cr = (w / 2 - 6) * (0.35 + i * 0.22) + Math.sin(rp + i + ph) * 0.6;
       ctx.beginPath();
@@ -7766,15 +7681,15 @@ const PropSprites = (() => {
     const bt = (now / 2600) % 1;                                // surfacing bubble (kept)
     if (bt < 0.6) {
       const by3 = Math.round(cy2 - bt * 2);
-      px(Math.round(cx2 - 3), by3, 1, 1, shade('#ff9d2e', 0.40));
+      px(Math.round(cx2 - 3), by3, 1, 1, U.shade('#ff9d2e', 0.40));
       if (bt > 0.4) px(Math.round(cx2 - 3), by3, 1, 1, '#ffeccc');
     }
     ctx.restore();
     bloom(x + 4, y, w - 8, 7, '#ff9d2e', (on ? 0.14 : 0.07) + 0.04 * Math.sin(now / 800 + ph));  // pool glow (kept)
     // dip-arm over the east rim, holding a half-submerged swatch that is STAINED below the waterline
-    px(x + w - 7, y - 5, 5, 3, LINE); px(x + w - 6, y - 4, 3, 1, shade('#5a665e', 0.24));
+    px(x + w - 7, y - 5, 5, 3, LINE); px(x + w - 6, y - 4, 3, 1, U.shade('#5a665e', 0.24));
     keyEdge(x + w - 6, y - 4, 2, 1, 0.22);
-    px(x + w - 6, y - 2, 2, 3, '#4a544d'); px(x + w - 6, y - 2, 1, 3, shade('#4a544d', 0.18));
+    px(x + w - 6, y - 2, 2, 3, '#4a544d'); px(x + w - 6, y - 2, 1, 3, U.shade('#4a544d', 0.18));
     px(x + w - 8, y + 1, 3, 2, '#4a544d');
     px(x + w - 12, y + 1, 5, 2, '#e0e4de'); px(x + w - 12, y + 1, 5, 1, '#f2f4ee');   // clean cloth above
     px(x + w - 12, y + 3, 5, 1, '#d8945a'); px(x + w - 11, y + 4, 3, 1, '#c9701a');   // stained below
@@ -7794,14 +7709,14 @@ const PropSprites = (() => {
     px(x, y + 11, w, 1, r.lit); keyEdge(x + 1, y + 11, w - 5, 1, 0.15);
     px(x + w - 1, y + 12, 1, 3, r.dk); rimEdge(x + w - 1, y + 12, 1, 3, 0.20);
     px(x, y + 15, w, 1, r.ao);
-    px(x + 2, y + 11, 10, 5, shade(r.face, -0.10));          // the door plate
-    px(x + 2, y + 11, 1, 5, shade(r.face, 0.16));            // hinge stile
-    px(x + 11, y + 12, 1, 3, shade(r.face, -0.45));          // latch stile
+    px(x + 2, y + 11, 10, 5, U.shade(r.face, -0.10));          // the door plate
+    px(x + 2, y + 11, 1, 5, U.shade(r.face, 0.16));            // hinge stile
+    px(x + 11, y + 12, 1, 3, U.shade(r.face, -0.45));          // latch stile
     for (let i = 0; i < 3; i++) {                              // grille in the door — heat behind each slit (kept)
       px(x + 4 + i * 3, y + 14, 2, 1, '#141a17');
       glow(x + 4 + i * 3, y + 14, 2, 1, '#ff7a1a', heat * 0.26);
     }
-    px(x + 5, y + 12, 3, 1, shade(r.face, 0.10)); px(x + 5, y + 13, 3, 1, shade(r.face, -0.5)); // handle
+    px(x + 5, y + 12, 3, 1, U.shade(r.face, 0.10)); px(x + 5, y + 13, 3, 1, U.shade(r.face, -0.5)); // handle
     for (let j = 0; j < 4; j++) {                              // the DOOR GAP, hottest at the top of the seam
       ctx.globalAlpha = Math.min(0.85, heat * (0.95 - j * 0.19));
       px(x + 12, y + 12 + j, 1, 1, j < 2 ? '#ffd34a' : '#ff7a1a');
@@ -7815,22 +7730,22 @@ const PropSprites = (() => {
     chamf(x, y - 2, w, 12, r.top, 2);
     px(x + 2, y - 2, w - 4, 1, r.sheen); keyEdge(x + 2, y - 2, 8, 1, 0.28);
     px(x, y, 1, 8, r.lit); px(x + w - 1, y, 1, 8, r.dk); rimEdge(x + w - 1, y, 1, 8, 0.20);
-    px(x + 1, y + 9, w - 2, 1, shade(r.top, -0.18));
-    chamf(x + 2, y - 1, w - 4, 9, shade(r.top, 0.08), 2);    // dome step
-    px(x + 3, y - 1, w - 6, 1, shade(r.top, 0.20));
-    px(x + 2, y - 2, 1, 1, shade(r.top, 0.30)); px(x + w - 3, y - 2, 1, 1, shade(r.top, 0.30)); // dome bolts (kept)
-    wear(x + 3, y + 4, w - 6, 4, 3, shade(r.top, -0.12));
+    px(x + 1, y + 9, w - 2, 1, U.shade(r.top, -0.18));
+    chamf(x + 2, y - 1, w - 4, 9, U.shade(r.top, 0.08), 2);    // dome step
+    px(x + 3, y - 1, w - 6, 1, U.shade(r.top, 0.20));
+    px(x + 2, y - 2, 1, 1, U.shade(r.top, 0.30)); px(x + w - 3, y - 2, 1, 1, U.shade(r.top, 0.30)); // dome bolts (kept)
+    wear(x + 3, y + 4, w - 6, 4, 3, U.shade(r.top, -0.12));
     // the LID: a seated ring. Light escapes at the SEAM (a crescent, hottest west) and through the spy-hole.
     const cx2 = x + w / 2, cy2 = y + 4, R2 = 6;
     ctx.save();
     ctx.beginPath(); ctx.ellipse(cx2, cy2, R2 + 1.4, R2 * 0.72 + 1.2, 0, 0, 6.2832); ctx.fillStyle = LINE; ctx.fill();
-    ctx.beginPath(); ctx.ellipse(cx2, cy2, R2 + 0.4, R2 * 0.72 + 0.4, 0, 0, 6.2832); ctx.fillStyle = shade(r.top, -0.20); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx2, cy2, R2 + 0.4, R2 * 0.72 + 0.4, 0, 0, 6.2832); ctx.fillStyle = U.shade(r.top, -0.20); ctx.fill();
     ctx.globalAlpha = 0.9; ctx.strokeStyle = r.sheen; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(cx2, cy2 - 0.4, R2, R2 * 0.72, 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
     ctx.globalAlpha = 0.30; ctx.strokeStyle = SKY;
     ctx.beginPath(); ctx.ellipse(cx2, cy2 - 0.4, R2, R2 * 0.72, 0, Math.PI * 0.10, Math.PI * 0.90); ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.ellipse(cx2, cy2, R2 - 1.2, R2 * 0.72 - 1.0, 0, 0, 6.2832); ctx.fillStyle = shade(r.top, 0.06); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx2, cy2, R2 - 1.2, R2 * 0.72 - 1.0, 0, 0, 6.2832); ctx.fillStyle = U.shade(r.top, 0.06); ctx.fill();
     ctx.globalAlpha = Math.min(0.9, heat); ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 1.3;
     ctx.beginPath(); ctx.ellipse(cx2, cy2 + 0.2, R2 - 0.6, R2 * 0.72 - 0.5, 0, Math.PI * 0.85, Math.PI * 2.05); ctx.stroke();
     ctx.globalAlpha = Math.min(0.8, heat * 0.7); ctx.strokeStyle = '#ffd34a';
@@ -7840,20 +7755,20 @@ const PropSprites = (() => {
     ctx.beginPath(); ctx.ellipse(cx2 + 1, cy2, 1.6, 1.1, 0, 0, 6.2832); ctx.fillStyle = on ? '#ff7a1a' : '#8a3d10'; ctx.fill();
     ctx.beginPath(); ctx.ellipse(cx2 + 1, cy2, 0.8, 0.6, 0, 0, 6.2832); ctx.fillStyle = on ? '#ffd34a' : '#b0561a'; ctx.fill();
     ctx.restore();
-    px(Math.round(cx2) - 5, Math.round(cy2) - 1, 3, 1, shade(r.top, 0.24));   // lid handle
-    px(Math.round(cx2) - 5, Math.round(cy2), 3, 1, shade(r.top, -0.34));
+    px(Math.round(cx2) - 5, Math.round(cy2) - 1, 3, 1, U.shade(r.top, 0.24));   // lid handle
+    px(Math.round(cx2) - 5, Math.round(cy2), 3, 1, U.shade(r.top, -0.34));
     bloom(Math.round(cx2) - 5, Math.round(cy2) - 3, 10, 6, '#ff9d2e', heat * 0.20);
     spill(x + 3, y + 8, w - 6, '#ff9d2e', heat * 0.13, 3);     // seam light washing down the dome's front
     // vent stack on the west shoulder, shimmer rising off it (kept 420)
     chamf(x + 1, y - 7, 6, 6, LINE, 1);
-    px(x + 2, y - 6, 4, 4, shade(r.face, 0.06)); px(x + 2, y - 6, 4, 1, r.top);
+    px(x + 2, y - 6, 4, 4, U.shade(r.face, 0.06)); px(x + 2, y - 6, 4, 1, r.top);
     keyEdge(x + 2, y - 6, 3, 1, 0.24);
     px(x + 5, y - 5, 1, 3, r.dk); rimEdge(x + 5, y - 5, 1, 3, 0.20);
     px(x + 3, y - 5, 2, 2, '#0e1311');                         // the flue's dark mouth
     glow(x + 3, y - 5, 2, 2, '#ff7a1a', heat * 0.30);
     if (blink(420)) px(x + 3, y - 9, 1, 1, '#6a7882');
     else if (blink(420, 0.5)) px(x + 4, y - 10, 1, 1, '#46525a');
-    px(x + 4, y - 8, 1, 1, shade('#6a7882', -0.35));
+    px(x + 4, y - 8, 1, 1, U.shade('#6a7882', -0.35));
   };
   F.etsy_packbot = (x, y, w, h, f) => { // v4 pack bot (2x2) — a machine with INTENT: head, shoulder, elbow, a working dip
     const r = RAMP.steel, on = !!(f && f.work), ph = (f && f.x) || 0;
@@ -7868,32 +7783,32 @@ const PropSprites = (() => {
     px(x, y + 10, w, 1, r.lit); keyEdge(x + 1, y + 10, w - 5, 1, 0.15);
     px(x + w - 1, y + 11, 1, 3, r.dk); rimEdge(x + w - 1, y + 11, 1, 3, 0.20);
     px(x, y + 14, w, 1, r.ao);
-    for (let i = 0; i < 4; i++) { px(x + w - 11 + i * 2, y + 12, 1, 2, r.ao); px(x + w - 10 + i * 2, y + 12, 1, 2, shade(r.face, 0.12)); }
+    for (let i = 0; i < 4; i++) { px(x + w - 11 + i * 2, y + 12, 1, 2, r.ao); px(x + w - 10 + i * 2, y + 12, 1, 2, U.shade(r.face, 0.12)); }
     if (on) {
       px(x + 3, y + 11, 2, 2, blink(420) ? '#ffb43a' : '#28323a');
       if (blink(420)) bloom(x + 3, y + 11, 2, 2, '#ff9d2e', 0.28);
     } else {
       px(x + 3, y + 11, 2, 2, '#28323a'); px(x + 3, y + 11, 1, 1, '#36424c');
-      px(x + 4, y + 12, 1, 1, blink(1800, ph) ? shade(ACC.flow, -0.25) : '#33241a');   // standby heartbeat
+      px(x + 4, y + 12, 1, 1, blink(1800, ph) ? U.shade(ACC.flow, -0.25) : '#33241a');   // standby heartbeat
     }
     // top work deck
     chamf(x - 1, y - 2, w + 2, 13, LINE, 2);
     chamf(x, y - 1, w, 11, r.top, 2);
     px(x + 2, y - 1, w - 4, 1, r.sheen); keyEdge(x + 2, y - 1, 8, 1, 0.28);
     px(x, y + 1, 1, 7, r.lit); px(x + w - 1, y + 1, 1, 7, r.dk); rimEdge(x + w - 1, y + 1, 1, 7, 0.20);
-    px(x + 1, y + 9, w - 2, 1, shade(r.top, -0.18));
-    for (let i = 0; i < 4; i++) { px(x + 1, y + 1 + i * 2, 3, 1, shade(r.top, -0.34)); px(x + 1, y + 2 + i * 2, 3, 1, shade(r.top, 0.08)); } // feed rollers
+    px(x + 1, y + 9, w - 2, 1, U.shade(r.top, -0.18));
+    for (let i = 0; i < 4; i++) { px(x + 1, y + 1 + i * 2, 3, 1, U.shade(r.top, -0.34)); px(x + 1, y + 2 + i * 2, 3, 1, U.shade(r.top, 0.08)); } // feed rollers
     // the shipping case on the deck (kept: flap seam, label, barcode)
     const bx = x + 6, by2 = y, bw = 12, bh = 8;
     chamf(bx - 1, by2 - 1, bw + 2, bh + 2, LINE, 1);
     px(bx, by2, bw, bh, '#36424c');
-    px(bx, by2, bw, 1, shade('#36424c', 0.24)); keyEdge(bx + 1, by2, 5, 1, 0.16);
-    px(bx, by2, 1, bh, shade('#36424c', 0.10));
-    px(bx + bw - 1, by2 + 1, 1, bh - 1, shade('#36424c', -0.30)); rimEdge(bx + bw - 1, by2 + 1, 1, bh - 1, 0.18);
-    px(bx, by2 + bh - 1, bw, 1, shade('#36424c', -0.34));
+    px(bx, by2, bw, 1, U.shade('#36424c', 0.24)); keyEdge(bx + 1, by2, 5, 1, 0.16);
+    px(bx, by2, 1, bh, U.shade('#36424c', 0.10));
+    px(bx + bw - 1, by2 + 1, 1, bh - 1, U.shade('#36424c', -0.30)); rimEdge(bx + bw - 1, by2 + 1, 1, bh - 1, 0.18);
+    px(bx, by2 + bh - 1, bw, 1, U.shade('#36424c', -0.34));
     px(bx + (bw >> 1), by2 + 1, 1, bh - 2, '#28323a');         // half-open flap seam
     px(bx + 1, by2 + 2, (bw >> 1) - 1, 1, '#46525a');          // sealed-side catch
-    px(bx + 1, by2 + 1, 5, 5, '#e08a28'); px(bx + 1, by2 + 1, 5, 1, shade('#e08a28', 0.24)); // label
+    px(bx + 1, by2 + 1, 5, 5, '#e08a28'); px(bx + 1, by2 + 1, 5, 1, U.shade('#e08a28', 0.24)); // label
     px(bx + 2, by2 + 4, 3, 1, '#1a2228'); px(bx + 2, by2 + 5, 3, 1, '#1a2228');                // barcode
     // ---- the ARM. Idle it parks raised with the head watching; working it reaches, DIPS into the case,
     // pinches shut and lifts. This is the family's one prop with agency, so the motion has to carry it.
@@ -7912,18 +7827,18 @@ const PropSprites = (() => {
     px(elX - 1, elY - 1, 3, 3, LINE); px(elX, elY, 1, 1, '#7d8a80');      // elbow puck
     const grip = dip > 0.72 ? 0 : 1;                                      // fingers PINCH at the bottom of the dip
     px(gpX - 3, gpY - 1, 7, 3, LINE);
-    px(gpX - 2, gpY, 5, 1, shade('#6b766e', 0.12));
+    px(gpX - 2, gpY, 5, 1, U.shade('#6b766e', 0.12));
     px(gpX - 2 - grip, gpY + 2, 1, 2, '#8a968e'); px(gpX + 2 + grip, gpY + 2, 1, 2, '#8a968e');
     px(gpX - 2 - grip, gpY + 3, 1, 1, '#3a423c'); px(gpX + 2 + grip, gpY + 3, 1, 1, '#3a423c');
-    if (on && dip > 0.72) { px(gpX - 1, gpY + 3, 3, 1, shade(ACC.work, -0.20)); bloom(gpX - 1, gpY + 3, 3, 1, ACC.work, 0.24); }
+    if (on && dip > 0.72) { px(gpX - 1, gpY + 3, 3, 1, U.shade(ACC.work, -0.20)); bloom(gpX - 1, gpY + 3, 3, 1, ACC.work, 0.24); }
     // HEAD on the mast: a sensor pod whose EYE tracks the gripper — the tell that it is paying attention
     const hx = shX - 5, hy = shY - 6;
     chamf(hx - 1, hy - 1, 9, 7, LINE, 1);
-    px(hx, hy, 7, 5, shade(r.face, 0.04)); px(hx, hy, 7, 1, r.top); keyEdge(hx, hy, 4, 1, 0.26);
+    px(hx, hy, 7, 5, U.shade(r.face, 0.04)); px(hx, hy, 7, 1, r.top); keyEdge(hx, hy, 4, 1, 0.26);
     px(hx + 6, hy + 1, 1, 4, r.dk); rimEdge(hx + 6, hy + 1, 1, 4, 0.20);
     inset(hx + 1, hy + 1, 5, 3, '#0b1a1e');
     const look = on ? Math.round(-1 + reach * 2) : 0;
-    px(hx + 2 + look, hy + 2, 2, 1, on ? '#9fe8ff' : shade(ACC.data, -0.55));
+    px(hx + 2 + look, hy + 2, 2, 1, on ? '#9fe8ff' : U.shade(ACC.data, -0.55));
     if (on) bloom(hx + 2 + look, hy + 2, 2, 1, ACC.data, 0.30);
     px(hx + 3, hy - 2, 1, 2, r.face); px(hx + 3, hy - 3, 1, 1, blink(1200, ph) ? ACC.flow : '#33241a'); // status whip
     cable(hx + 7, hy + 4, shX - 1, shY + 1, 1.2, '#141b20');              // umbilical into the mast
@@ -7932,7 +7847,7 @@ const PropSprites = (() => {
       px(sweep, by2, 1, bh, '#cffcff');
       bloom(sweep - 1, by2, 3, bh, ACC.data, 0.24);
       spill(bx, by2 + bh, bw, ACC.data, 0.16, 3);                         // scan light pools onto the deck
-      if (cyc > 0.78) px(bx + (bw >> 1) - 1, by2, 3, bh, shade('#d8d0c0', -0.10));   // tape laid down the seam
+      if (cyc > 0.78) px(bx + (bw >> 1) - 1, by2, 3, bh, U.shade('#d8d0c0', -0.10));   // tape laid down the seam
     }
   };
   F.gigs_thumbwall = (x, y, w, h, f) => {
@@ -7979,9 +7894,9 @@ const PropSprites = (() => {
       const cx0 = x + 2 + c0 * 7 + (k % 2), cy0 = bt + 3 + r0 * 4 + ((k >>> 4) % 2);
       px(cx0 + 1, cy0 + 1, 5, 3, '#0d0906');                        // the card's cast shadow
       px(cx0, cy0, 5, 3, CARD[i]);
-      px(cx0, cy0, 5, 1, shade(CARD[i], 0.24));                   // its lit top edge
-      px(cx0 + 4, cy0 + 1, 1, 2, shade(CARD[i], -0.34));          // shaded east flank
-      px(cx0 + 1, cy0 + 1, 3, 1, shade(CARD[i], -0.20));          // a line of writing on it
+      px(cx0, cy0, 5, 1, U.shade(CARD[i], 0.24));                   // its lit top edge
+      px(cx0 + 4, cy0 + 1, 1, 2, U.shade(CARD[i], -0.34));          // shaded east flank
+      px(cx0 + 1, cy0 + 1, 3, 1, U.shade(CARD[i], -0.20));          // a line of writing on it
       px(cx0 + 2, cy0, 1, 1, i & 1 ? '#c05a4a' : '#4a8ac0');        // the pin head
     }
 
@@ -8027,7 +7942,7 @@ const PropSprites = (() => {
       const by = y + 3 + k * 2;
       px(x + 3, by, w - 6, 1, r.ao);                               // the reveal
       px(x + 3, by - 1, w - 6, 1, r.top);                          // the blade face above it
-      px(x + w - 5, by, 1, 1, blink(400 + k * 150, k) ? M : shade(M, -0.70));
+      px(x + w - 5, by, 1, 1, blink(400 + k * 150, k) ? M : U.shade(M, -0.70));
     }
     if (on) bloom(x + w - 5, y + 3, 1, 5, M, 0.20);
 
@@ -8073,7 +7988,7 @@ const PropSprites = (() => {
       const b = bays[i];
       for (let k = 0; k < b.n; k++) {                                // countable stock, varied heights
         const px0 = bx + 1 + k * 2 - (b.n === 2 ? 0 : 1), ht = 2 + (k % 2);
-        px(Math.max(bx, px0), bT + 8 - ht, 1, ht, shade(b.c, -0.24));
+        px(Math.max(bx, px0), bT + 8 - ht, 1, ht, U.shade(b.c, -0.24));
         px(Math.max(bx, px0), bT + 8 - ht, 1, 1, b.c);
       }
       px(bx, bT + 8, bw, 1, ST_L);                                   // the lit front sill
@@ -8111,7 +8026,7 @@ const PropSprites = (() => {
     underAO(x + 3, y + 9, w - 6, 2);
     cable(x + w - 3, y + 8, x + w + 2, y + h - 1, 2);             // jack lead flopping onto the deck
     // strap handle — the whole read at 12px
-    px(x + 3, y - 7, 6, 2, LINE); px(x + 4, y - 6, 4, 1, shade(r.top, 0.22));
+    px(x + 3, y - 7, 6, 2, LINE); px(x + 4, y - 6, 4, 1, U.shade(r.top, 0.22));
     px(x + 3, y - 5, 1, 2, LINE); px(x + 8, y - 5, 1, 2, LINE);
     keyEdge(x + 4, y - 6, 3, 1, 0.26);
     // chamfered cab
@@ -8119,7 +8034,7 @@ const PropSprites = (() => {
     chamf(x, y - 4, w, 13, r.face, 2);
     chamf(x + 1, y - 4, w - 2, 4, r.top, 2);                      // crown we look down on
     px(x + 2, y - 4, w - 4, 1, r.sheen); keyEdge(x + 2, y - 4, 5, 1, 0.30);
-    px(x + 1, y - 1, w - 2, 1, shade(r.top, -0.20));            // crown front lip
+    px(x + 1, y - 1, w - 2, 1, U.shade(r.top, -0.20));            // crown front lip
     px(x, y + 1, 1, 6, r.lit); px(x + w - 1, y + 1, 1, 6, r.dk);
     rimEdge(x + w - 1, y + 1, 1, 6, 0.22);
     px(x + 1, y + 8, w - 2, 1, r.ao);
@@ -8134,8 +8049,8 @@ const PropSprites = (() => {
     // the DRIVER itself pushing air — a lit dome that swells with the beat, not a flat backlight rect
     const rad = 1 + Math.round(exc * (beat ? 1.6 : 0.6));
     const dcx = gx + (gw >> 1), dcy = gy + (gh >> 1);
-    px(dcx - rad, dcy - rad, rad * 2, rad * 2, shade(ACC.mem, -0.30));
-    px(dcx - rad, dcy - rad, rad * 2, 1, shade(ACC.mem, 0.20));
+    px(dcx - rad, dcy - rad, rad * 2, rad * 2, U.shade(ACC.mem, -0.30));
+    px(dcx - rad, dcy - rad, rad * 2, 1, U.shade(ACC.mem, 0.20));
     bloom(dcx - rad, dcy - rad, rad * 2, rad * 2, ACC.mem, (beat ? 0.30 : 0.14) + 0.14 * exc);
     spill(gx, gy + gh + 1, gw, ACC.mem, beat ? 0.14 : 0.06, 2);
     // pressure rings breaking off the cab while a run is live
@@ -8173,7 +8088,7 @@ const PropSprites = (() => {
     chamf(x, y - 2, cw, 7, r.top, 2);
     px(x + 2, y - 2, cw - 4, 1, r.sheen); keyEdge(x + 2, y - 2, 8, 1, 0.28);
     px(x, y, 1, 4, r.lit); px(x + cw - 1, y, 1, 4, r.dk); rimEdge(x + cw - 1, y, 1, 4, 0.20);
-    px(x + 1, y + 4, cw - 2, 1, shade(r.top, -0.16));                // deck front lip
+    px(x + 1, y + 4, cw - 2, 1, U.shade(r.top, -0.16));                // deck front lip
     knurl(x + 2, y - 1, 8, 1, r.top);                                  // machined grip along the hopper mouth
     // LEFT 2/3: the recessed sorting bay, open so the coin stacks are visible
     const hw = Math.floor((cw - 2) * 2 / 3);
@@ -8204,7 +8119,7 @@ const PropSprites = (() => {
     const dg = String(100 + Math.floor(now / 1000) % 900);
     for (let d = 0; d < 3; d++) {                                      // three counter digits ticking over
       const litd = (dg.charCodeAt(d) % 2) ? 1 : 0.6;
-      px(sx + 2 + d * 2, y + 6, 1, (d % 2) ? 2 : 1, shade('#9bff4a', -0.65 * (1 - on)));
+      px(sx + 2 + d * 2, y + 6, 1, (d % 2) ? 2 : 1, U.shade('#9bff4a', -0.65 * (1 - on)));
       bloom(sx + 2 + d * 2, y + 6, 1, 2, '#9bff4a', 0.16 + 0.34 * on * litd);
     }
     spill(sx + 1, y + 9, sw - 2, '#9bff4a', 0.12 * on, 3);             // counter light pools down its housing
@@ -8258,10 +8173,10 @@ const PropSprites = (() => {
     px(fx - 1, fT - 1, fw + 2, 11, '#0b100d');
     px(fx, fT, fw, 9, G_D);
     px(fx, fT + 2, fw, 5, G);                                       // the throat
-    px(fx + 1, fT + 3, fw - 2, 3, hot ? G_L : shade(G_L, -0.24));
-    px(fx + 2, fT + 4, 2, 1, hot ? G_HI : shade(G_HI, -0.30));    // the core lick
+    px(fx + 1, fT + 3, fw - 2, 3, hot ? G_L : U.shade(G_L, -0.24));
+    px(fx + 2, fT + 4, 2, 1, hot ? G_HI : U.shade(G_HI, -0.30));    // the core lick
     for (let j = 0; j < 4; j++)                                     // grate bars across the mouth
-      px(fx, fT + 1 + j * 2, fw, 1, shade(G_D, -0.44));
+      px(fx, fT + 1 + j * 2, fw, 1, U.shade(G_D, -0.44));
     bloom(fx, fT, fw, 9, G_L, hot ? 0.30 : 0.20);
     if (blink(190, ph)) px(fx + (U.hash('s1' + Math.floor(now / 190)) % fw), fT - 1, 1, 1, G_HI);   // sparks up the flue
     if (blink(330, ph + 2)) px(fx + (U.hash('s2' + Math.floor(now / 330)) % fw), fT, 1, 1, G_L);
@@ -8269,7 +8184,7 @@ const PropSprites = (() => {
     px(x + 1, fT - 1, 3, 11, EDGE);
     px(x + 1, fT, 2, 9, IR);
     px(x + 1, fT, 1, 9, IR_L);
-    px(x + 3, fT, 1, 9, shade(G_L, -0.34));                       // free edge, lit by the fire
+    px(x + 3, fT, 1, 9, U.shade(G_L, -0.34));                       // free edge, lit by the fire
     px(x + 2, fT + 4, 1, 2, BRS_L);                                 // its handle
     spill(x + 2, fT + 10, fw + 2, G_L, hot ? 0.22 : 0.16, 4);       // firelight pooling on the deck
 
@@ -8319,7 +8234,7 @@ const PropSprites = (() => {
       const bx = startX + b * (bw + gap), by = base - 1 - hgt;
       px(bx, by, bw, hgt, G);
       px(bx, by, bw, 1, GT);                                    // each bar cap is its brightest row
-      px(bx + bw - 1, by + 1, 1, hgt - 1, shade(G, -0.35));   // shaded east face — even light has volume
+      px(bx + bw - 1, by + 1, 1, hgt - 1, U.shade(G, -0.35));   // shaded east face — even light has volume
     }
     ctx.restore();
     ctx.save();                                                 // interlace + one sweeping refresh band
@@ -8365,11 +8280,11 @@ const PropSprites = (() => {
       px(cx - (cw3 >> 1), y + 4 + j, 1, 1, r.lit); px(cx + (cw3 >> 1) - 1, y + 4 + j, 1, 1, r.dk);
     }
     rimEdge(cx + 2, y + 5, 1, 4, 0.18);
-    px(cx - 4, y + 3, 8, 2, shade(r.top, 0.14));                  // yoke collar clamping board to column
+    px(cx - 4, y + 3, 8, 2, U.shade(r.top, 0.14));                  // yoke collar clamping board to column
     px(cx - 4, y + 3, 8, 1, r.sheen);
     // MARKER TRAY slung under the board — the physical detail that says "people decide here"
     chamf(x + 5, y + 1, w - 10, 3, LINE, 1);
-    px(x + 6, y + 2, w - 12, 1, shade(r.face, 0.10)); px(x + 6, y + 2, w - 12, 1, r.lit);
+    px(x + 6, y + 2, w - 12, 1, U.shade(r.face, 0.10)); px(x + 6, y + 2, w - 12, 1, r.lit);
     px(x + 6, y + 3, w - 12, 1, r.ao);
     px(x + 8, y + 2, 3, 1, ROSE); px(x + 13, y + 2, 3, 1, PERI);    // two markers lying in the tray
     // chamfered carcass
@@ -8385,18 +8300,18 @@ const PropSprites = (() => {
     const lx = x + 3;
     px(lx, fy, half - 1, fh, ROSE);                                 // PIVOT
     px(lx, fy, half - 1, 1, ROSEL);
-    px(lx, fy + 1, 1, fh - 2, shade(ROSE, 0.22));
-    px(lx, fy + fh - 1, half - 1, 1, shade(ROSE, -0.40));
+    px(lx, fy + 1, 1, fh - 2, U.shade(ROSE, 0.22));
+    px(lx, fy + fh - 1, half - 1, 1, U.shade(ROSE, -0.40));
     for (let i = 0; i < 5; i++) px(lx + 1 + i * 2, fy + 2, 1, 2, ROSEL);        // PIVOT ticks (kept)
     px(lx + 2, fy + 3, 1, 1, '#a8324a'); px(lx + 6, fy + 3, 1, 1, '#a8324a');
     const sx2 = lx + half;                                          // amber seam (kept)
     px(sx2, fy - 1, 1, fh + 2, AMB); px(sx2, fy - 1, 1, 1, '#ffe1a0');
-    px(sx2, fy, 1, fh, shade(AMB, -0.15));
+    px(sx2, fy, 1, fh, U.shade(AMB, -0.15));
     const rx = sx2 + 1;
     px(rx, fy, half - 1, fh, PERI);                                 // PERSEVERE
     px(rx, fy, half - 1, 1, PERIL);
-    px(rx + half - 2, fy + 1, 1, fh - 2, shade(PERI, -0.28));
-    px(rx, fy + fh - 1, half - 1, 1, shade(PERI, -0.35));
+    px(rx + half - 2, fy + 1, 1, fh - 2, U.shade(PERI, -0.28));
+    px(rx, fy + fh - 1, half - 1, 1, U.shade(PERI, -0.35));
     for (let i = 0; i < 5; i++) px(rx + 1 + i * 2, fy + 2, 1, 2, PERIL);        // PERSEVERE ticks (kept)
     px(rx + 3, fy + 3, 1, 1, '#5a64b8'); px(rx + 7, fy + 3, 1, 1, '#5a64b8');
     const sc = fy + Math.floor((now / (on ? 140 : 240)) % fh);      // drifting scanline (kept)
@@ -8405,7 +8320,7 @@ const PropSprites = (() => {
     const pcx = rx + half - 4, pcy = fy + fh - 3;
     ctx.globalAlpha = 0.30; px(pcx - 1, pcy + 2, 4, 1, '#000'); ctx.globalAlpha = 1;
     px(pcx, pcy, 3, 2, '#c8ccd6'); px(pcx, pcy, 3, 1, '#eef0f6'); px(pcx, pcy + 1, 3, 1, '#8a8e98');
-    px(pcx, pcy, 1, 1, shade('#eef0f6', 0.4));
+    px(pcx, pcy, 1, 1, U.shade('#eef0f6', 0.4));
     // pulsing seam LED (kept) — now with falloff, and the two fields wash the board's frame in their own colours
     const pulse = Math.max(0, Math.sin(now / (on ? 420 : 700)));
     bloom(sx2, fy + Math.floor(fh / 2), 1, 2, AMB, 0.25 + 0.55 * pulse);
@@ -8441,7 +8356,7 @@ const PropSprites = (() => {
     px(x + 2, top + 1, 4, 1, r.hi);                                 // specular chip, west
     px(x + 1, top + 3, w - 2, 1, r.top);
     px(x + 1, top + 4, w - 2, 1, r.dk);
-    px(x + 3, top + 3, w - 6, 1, on ? G : shade(G, -0.62));       // indicator slot in the cap
+    px(x + 3, top + 3, w - 6, 1, on ? G : U.shade(G, -0.62));       // indicator slot in the cap
     if (on) bloom(x + 3, top + 3, w - 6, 1, G, 0.22);
 
     /* ---- BODY ---- */
@@ -8460,14 +8375,14 @@ const PropSprites = (() => {
       px(wellX + 1, uy + 1, wellW - 2, 2, r.top);
       px(wellX + 1, uy + 1, wellW - 2, 1, r.lit);                   // its lit top plate
       px(wellX + 2, uy + 2, 2, 1, r.dk);                            // a slot on the face
-      px(wellX + wellW - 2, uy + 2, 1, 1, blink(420 + k * 160, k) ? G : shade(G, -0.66));
+      px(wellX + wellW - 2, uy + 2, 1, 1, blink(420 + k * 160, k) ? G : U.shade(G, -0.66));
       if (on) bloom(wellX + wellW - 2, uy + 2, 1, 1, G, 0.20);
     }
 
     /* ---- RIGHT COLUMN: one tall glowing channel, dark housing, hot core ---- */
     const chX = x + w - 4;
     px(chX, bTop + 2, 3, base - bTop - 8, r.ink);
-    px(chX + 1, bTop + 3, 1, base - bTop - 10, on ? G : shade(G, -0.70));
+    px(chX + 1, bTop + 3, 1, base - bTop - 10, on ? G : U.shade(G, -0.70));
     if (on) {
       px(chX + 1, bTop + 5, 1, 4, '#d6ffe8');                       // a hotter run partway down
       bloom(chX, bTop + 3, 3, base - bTop - 10, G, 0.24);
@@ -8512,21 +8427,21 @@ const PropSprites = (() => {
     // slim column body + a cap we look down on
     chamf(x, y - 3, w - 1, h - 4, LINE, 2);
     chamf(x + 1, y - 2, w - 3, h - 6, r.face, 2);
-    px(x + 1, y, 1, h - 9, shade(r.face, 0.12)); px(x + w - 3, y, 1, h - 9, r.dk);
+    px(x + 1, y, 1, h - 9, U.shade(r.face, 0.12)); px(x + w - 3, y, 1, h - 9, r.dk);
     rimEdge(x + w - 3, y + 1, 1, h - 11, 0.22);
     chamf(x, y - 6, w - 1, 4, LINE, 1);
     px(x + 1, y - 5, w - 3, 2, r.top); px(x + 1, y - 5, w - 3, 1, r.sheen); keyEdge(x + 1, y - 5, 4, 1, 0.30);
-    px(x + 1, y - 3, w - 3, 1, shade(r.top, -0.24));              // cap lip ties the cap down
+    px(x + 1, y - 3, w - 3, 1, U.shade(r.top, -0.24));              // cap lip ties the cap down
     // EXTERNAL CAGE RAILS standing proud of the column on both flanks — the bulk that separates this from the
     // pylon in silhouette. Each rail carries its OWN outline pixel on its outer edge, so bolting the cage on
     // widens the dark silhouette instead of eating it.
     const rTop = y - 1, rH = h - 12;
     px(x - 1, rTop - 1, 2, rH + 2, LINE); px(x + w - 2, rTop - 1, 2, rH + 2, LINE);
-    px(x, rTop, 1, rH, shade(r.face, 0.18)); keyEdge(x, rTop, 1, 4, 0.20);       // west rail takes the key
+    px(x, rTop, 1, rH, U.shade(r.face, 0.18)); keyEdge(x, rTop, 1, 4, 0.20);       // west rail takes the key
     px(x + w - 2, rTop, 1, rH, r.dk); rimEdge(x + w - 2, rTop, 1, rH, 0.20);       // east rail takes the sky
     for (let j = 0; j < 4; j++) {                                   // cross-ties bolting the rails to the body
       const ry2 = rTop + 1 + j * 4;
-      px(x, ry2, 3, 1, shade(r.face, 0.10)); px(x + w - 4, ry2, 3, 1, shade(r.face, 0.10));
+      px(x, ry2, 3, 1, U.shade(r.face, 0.10)); px(x + w - 4, ry2, 3, 1, U.shade(r.face, 0.10));
       px(x, ry2 + 1, 3, 1, r.ao); px(x + w - 4, ry2 + 1, 3, 1, r.ao);
       px(x, ry2, 1, 1, r.sheen); px(x + w - 2, ry2, 1, 1, r.ao);    // tie bolts
     }
@@ -8542,14 +8457,14 @@ const PropSprites = (() => {
         const isTop = s === seglvl - 1;
         const col = (isTop && topAmber) ? AMB : ROSE;
         px(gx2, sy3, gw2, 1, col);
-        px(gx2, sy3, 2, 1, shade(col, 0.16));                     // west-lit segment edge
+        px(gx2, sy3, 2, 1, U.shade(col, 0.16));                     // west-lit segment edge
         bloom(gx2, sy3, gw2, 1, col, isTop ? 0.30 : 0.16);          // each SEGMENT blooms on its own
       } else {
         px(gx2, sy3, gw2, 1, '#16171a');                            // unlit segments still visible behind glass
         px(gx2, sy3, 1, 1, '#1f2124');
       }
     }
-    px(gx2 - 1, gy2, 1, gh2, shade(r.top, 0.10));                 // smoked-glass sheen down the west edge
+    px(gx2 - 1, gy2, 1, gh2, U.shade(r.top, 0.10));                 // smoked-glass sheen down the west edge
     rimEdge(gx2 + gw2, gy2, 1, gh2, 0.20);
     scanl(gx2, gy2, gw2, gh2, 0.16);
     spill(x + 1, gy2 + gh2 + 1, w - 3, ROSE, 0.16 + 0.08 * hot, 4); // gauge light pooling down the vents
@@ -8557,13 +8472,13 @@ const PropSprites = (() => {
     for (let v = 0; v < 3; v++) {
       const vy = gy2 + gh2 + 2 + v * 2;
       px(x + 3, vy, w - 6, 1, '#0d0e10');
-      px(x + 3, vy + 1, w - 6, 1, shade(r.face, 0.12));
+      px(x + 3, vy + 1, w - 6, 1, U.shade(r.face, 0.12));
     }
     // CROWN: a real orbit RING with the sweep dot riding it — the pylon's crown is a flat mast head
     const hubx = x + Math.floor(w / 2), huby = y - 8;
     px(hubx - 1, huby, 2, 3, LINE); px(hubx - 1, huby, 1, 3, r.lit);
     ctx.save();
-    ctx.strokeStyle = shade(r.top, -0.30); ctx.lineWidth = 1;
+    ctx.strokeStyle = U.shade(r.top, -0.30); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(hubx, huby, 3, 1.4, 0, 0, 6.2832); ctx.stroke();
     ctx.restore();
     const a = now / 600;
@@ -8591,18 +8506,18 @@ const PropSprites = (() => {
     chamf(x, y + 2, w, 17, LINE, 2);
     chamf(x + 1, y + 3, w - 2, 3, r.top, 2);                      // cap
     px(x + 2, y + 3, w - 4, 1, r.sheen); keyEdge(x + 2, y + 3, 8, 1, 0.30);
-    px(x + 2, y + 5, w - 4, 1, shade(r.top, -0.22));            // cap front lip
+    px(x + 2, y + 5, w - 4, 1, U.shade(r.top, -0.22));            // cap front lip
     chamf(x + 1, y + 6, w - 2, 12, r.face, 2);
-    px(x + 1, y + 8, 1, 8, shade(r.face, 0.08)); px(x + w - 2, y + 8, 1, 8, r.dk);
+    px(x + 1, y + 8, 1, 8, U.shade(r.face, 0.08)); px(x + w - 2, y + 8, 1, 8, r.dk);
     rimEdge(x + w - 2, y + 8, 1, 8, 0.20);
     px(x + 2, y + 18, w - 4, 1, r.ao);
-    wear(x + 2, y + 7, w - 4, 10, 4, shade(r.face, -0.12));
+    wear(x + 2, y + 7, w - 4, 10, 4, U.shade(r.face, -0.12));
     // PRESS THROAT
     inset(x + 3, y + 6, w - 6, 9, '#1a1410');                     // y+6..y+14, inner x+4..x+19 / y+7..y+13
     const bedY = y + 12;
     for (let i = 0; i < 2; i++) {                                 // heat bed, amber->gold up the stack
       const base = i === 0 ? '#ff8a1e' : '#ffc24a';
-      px(x + 4, bedY + (1 - i), 16, 1, shade(base, -0.10 + 0.10 * i));
+      px(x + 4, bedY + (1 - i), 16, 1, U.shade(base, -0.10 + 0.10 * i));
     }
     bloom(x + 4, bedY, 16, 2, '#ffb030', 0.14 + 0.34 * heat);
     px(x + 5, bedY, 14, 1, firing ? '#fff0b0' : '#ffcf66');       // hot core line
@@ -8614,8 +8529,8 @@ const PropSprites = (() => {
       px(pxx, y + 7, 1, 1, '#c6cdc7');                            // chrome catch on the rod
     }
     px(x + 4, platY, 16, 2, LINE);
-    px(x + 4, platY, 16, 1, shade(r.top, 0.12)); keyEdge(x + 5, platY, 7, 1, 0.24);
-    px(x + 4, platY + 1, 16, 1, shade('#ff8a1e', -0.55));       // the platen's own hot underside
+    px(x + 4, platY, 16, 1, U.shade(r.top, 0.12)); keyEdge(x + 5, platY, 7, 1, 0.24);
+    px(x + 4, platY + 1, 16, 1, U.shade('#ff8a1e', -0.55));       // the platen's own hot underside
     if (firing) bloom(x + 5, platY + 1, 14, 1, '#ffb030', 0.20 + 0.30 * fire);
     // stock passing through the throat between platen and bed
     px(x + 4, bedY - 1, 16, 1, firing ? '#e8ece4' : '#c4cabf');
@@ -8630,7 +8545,7 @@ const PropSprites = (() => {
       bloom(x + 6, y + 16, w - 12, out, ACC.flow, 0.10);
     }
     chamf(x + 3, y + h - 5, w - 6, 3, LINE, 1);                   // catch tray the sheet tucks behind
-    px(x + 4, y + h - 4, w - 8, 1, shade(r.face, 0.10));
+    px(x + 4, y + h - 4, w - 8, 1, U.shade(r.face, 0.10));
     px(x + 4, y + h - 4, w - 8, 1, r.lit); keyEdge(x + 5, y + h - 4, w - 11, 1, 0.14);
     px(x + 4, y + h - 3, w - 8, 1, r.ao);
     // status LEDs (kept timings) — gold and green only: alert red would claim a failure that has not happened
@@ -8640,15 +8555,15 @@ const PropSprites = (() => {
     if (blink(750)) bloom(x + w - 6, y + 17, 1, 1, ACC.flow, 0.28);
     // STOCK SPOOL on top, web feeding over a drum into the cap — where the paper comes from
     chamf(x + 3, y, w - 6, 4, LINE, 1);
-    px(x + 4, y + 1, w - 8, 2, '#33383a'); px(x + 4, y + 1, w - 8, 1, shade('#33383a', 0.26));
+    px(x + 4, y + 1, w - 8, 2, '#33383a'); px(x + 4, y + 1, w - 8, 1, U.shade('#33383a', 0.26));
     px(x + 4, y + 2, w - 8, 1, '#23272a');
     const spin = Math.floor(now / 120) % 4;
     for (const hx of [x + 4, x + w - 6]) { px(hx, y + 1, 2, 2, '#22262a'); px(hx + (spin & 1), y + 1 + (spin >> 1), 1, 1, '#4d5551'); }
     px(x + 7, y - 8, w - 14, 8, LINE);                            // the roll itself
     px(x + 8, y - 7, w - 16, 6, '#c2c7c0'); px(x + 8, y - 7, w - 16, 1, '#dfe4dc');
     keyEdge(x + 8, y - 7, 4, 1, 0.30);
-    for (let i = 0; i < 3; i++) px(x + 8, y - 6 + i * 2, w - 16, 1, shade('#c2c7c0', -0.14));
-    px(x + 8 + spin, y - 4, 1, 2, shade('#c2c7c0', -0.34));     // one mark so the roll reads as turning
+    for (let i = 0; i < 3; i++) px(x + 8, y - 6 + i * 2, w - 16, 1, U.shade('#c2c7c0', -0.14));
+    px(x + 8 + spin, y - 4, 1, 2, U.shade('#c2c7c0', -0.34));     // one mark so the roll reads as turning
     px(x + 9, y - 1, w - 18, 2, '#b6bbb4');                       // web running down into the cap
     px(x + 9, y - 1, 1, 2, '#d4d9d2');
     // steam wisp off the sheet on the fire pulse (kept)
@@ -8676,22 +8591,22 @@ const PropSprites = (() => {
     // column
     chamf(x - 1, y - 4, w + 2, 23, LINE, 2);
     chamf(x, y - 3, w, 21, r.face, 2);
-    px(x, y - 1, 1, 16, shade(r.face, 0.08)); px(x + w - 1, y - 1, 1, 16, r.dk);
+    px(x, y - 1, 1, 16, U.shade(r.face, 0.08)); px(x + w - 1, y - 1, 1, 16, r.dk);
     rimEdge(x + w - 1, y - 1, 1, 16, 0.22);
     px(x + 1, y + 17, w - 2, 1, r.ao);
-    wear(x + 1, y, w - 2, 12, 4, shade(r.face, -0.12));
+    wear(x + 1, y, w - 2, 12, 4, U.shade(r.face, -0.12));
     // flared hopper mouth — juts 2px proud of the column so the silhouette steps
     chamf(x - 3, y - 11, w + 6, 8, LINE, 2);
     px(x - 2, y - 10, w + 4, 4, r.top); px(x - 2, y - 10, w + 4, 1, r.sheen);
     keyEdge(x - 1, y - 10, 6, 1, 0.30);
     px(x - 2, y - 9, 1, 3, r.lit); px(x + w + 1, y - 9, 1, 3, r.dk);
     rimEdge(x + w + 1, y - 9, 1, 3, 0.22);
-    px(x - 1, y - 6, w + 2, 1, shade(r.top, -0.34));            // flare underside
+    px(x - 1, y - 6, w + 2, 1, U.shade(r.top, -0.34));            // flare underside
     inset(x + 1, y - 9, w - 2, 3, '#0d100c');                     // dark throat
     const dropT = (now / (on ? 1500 : 2100)) % 1;
     const charge = dropT > 0.55 ? (dropT - 0.55) / 0.45 : 0;      // the ring recharges after each dispatch
     const ring = 0.20 + 0.55 * charge;
-    px(x + 1, y - 9, w - 2, 1, shade(ACC.flow, charge > 0.5 ? 0.1 : -0.4));
+    px(x + 1, y - 9, w - 2, 1, U.shade(ACC.flow, charge > 0.5 ? 0.1 : -0.4));
     bloom(x + 1, y - 9, w - 2, 1, ACC.flow, ring);
     spill(x + 1, y - 5, w - 2, ACC.flow, ring * 0.5, 3);
     // GLASS DROP SLIT — the capsule eases in, so the fall has weight
@@ -8704,27 +8619,27 @@ const PropSprites = (() => {
     if (dropT < 0.55) {
       px(sx + 1, py2, 4, 3, '#36424c'); px(sx + 1, py2, 4, 1, '#4d5962');
       px(sx + 1, py2 + 1, 1, 2, '#28323a'); px(sx + 2, py2 + 1, 2, 1, ACC.flow);   // tape strip
-      if (dropT > 0.25) px(sx + 1, py2 - 2, 4, 1, shade('#36424c', -0.4));       // motion smear at speed
+      if (dropT > 0.25) px(sx + 1, py2 - 2, 4, 1, U.shade('#36424c', -0.4));       // motion smear at speed
     }
     ctx.restore();
     px(sx, sy, 1, sh2, '#12170f'); px(sx + sw - 1, sy, 1, sh2, '#12170f');
     // BREECH — flashes as the capsule is fired away down the line
     const land = dropT > 0.50 && dropT < 0.62;
-    px(x + 1, y + 13, w - 2, 1, land ? '#fff0b8' : shade(ACC.flow, -0.62));
+    px(x + 1, y + 13, w - 2, 1, land ? '#fff0b8' : U.shade(ACC.flow, -0.62));
     if (land) { bloom(x + 1, y + 13, w - 2, 1, ACC.flow, 0.42); spill(x, y + 14, w, ACC.flow, 0.22, 3); }
     // chamfered lower barrel: chevrons + barcode band (no text at 12px)
     const by = y + h - 11;
     chamf(x - 1, by, w + 2, 7, LINE, 1);
-    px(x, by + 1, w, 5, shade(r.face, -0.10));
+    px(x, by + 1, w, 5, U.shade(r.face, -0.10));
     px(x, by + 1, w, 1, r.lit); keyEdge(x + 1, by + 1, w - 3, 1, 0.16);
-    px(x, by + 3, w, 1, shade(r.face, -0.38));                  // band seam
+    px(x, by + 3, w, 1, U.shade(r.face, -0.38));                  // band seam
     for (let k = 0; k < 2; k++) {                                 // twin down-chevrons, marching on dispatch
       const cvy = by + 1 + k + (land ? 1 : 0);
       px(x + 3, cvy, 1, 1, '#dfe6da'); px(x + 4, cvy + 1, 2, 1, '#dfe6da'); px(x + 6, cvy, 1, 1, '#dfe6da');
     }
     for (let i = 0; i < 8; i++) px(x + 2 + i, by + 5, 1, 1, (U.hash('bc' + i + ph0) % 2) ? '#cdd6cc' : '#161a12');
     for (const rx of [x + 1, x + w - 2]) for (const ry of [y + 1, y + 11]) {
-      px(rx, ry, 1, 1, shade(r.top, 0.24)); px(rx, ry + 1, 1, 1, r.ao);
+      px(rx, ry, 1, 1, U.shade(r.top, 0.24)); px(rx, ry + 1, 1, 1, r.ao);
     }
   };
   F.pub_mailpod = (x, y, w, h, f) => {
@@ -8747,11 +8662,11 @@ const PropSprites = (() => {
     chamf(x, y - 4, w, 12, r.face, 3);
     chamf(x + 1, y - 4, w - 2, 5, r.top, 3);                      // dome we look down on
     px(x + 3, y - 4, w - 6, 1, r.sheen); keyEdge(x + 3, y - 4, 8, 1, 0.30);
-    px(x + 1, y + 1, w - 2, 1, shade(r.top, -0.20));            // dome lip
+    px(x + 1, y + 1, w - 2, 1, U.shade(r.top, -0.20));            // dome lip
     px(x, y + 2, 1, 5, r.lit); px(x + w - 1, y + 2, 1, 5, r.dk);
     rimEdge(x + w - 1, y + 2, 1, 5, 0.22);
     px(x + 1, y + 7, w - 2, 1, r.ao);
-    wear(x + 2, y - 3, w - 4, 9, 4, shade(r.face, -0.12));
+    wear(x + 2, y - 3, w - 4, 9, 4, U.shade(r.face, -0.12));
     seamH(x + 10, y + 2, 4, r.face);                              // centre feed seam between the bays
     // TWIN GLASS BAYS (kept thunk cycle) — west loaded, east dispatching
     const cyc = (now % 2500) / 2500, thunk = cyc < 0.09, gone = cyc < 0.42;
@@ -8759,18 +8674,18 @@ const PropSprites = (() => {
     for (let b = 0; b < 2; b++) {
       const bx = b ? x + w - 7 : x + 6, empty = b === 1 && gone;
       inset(bx - 4, cy - 4, 8, 8, '#181e1b');
-      px(bx - 3, cy - 3, 6, 6, '#22302c'); px(bx - 3, cy - 3, 6, 1, shade('#22302c', 0.30));
+      px(bx - 3, cy - 3, 6, 6, '#22302c'); px(bx - 3, cy - 3, 6, 1, U.shade('#22302c', 0.30));
       if (!empty) {
         px(bx - 2, cy - 2, 4, 4, '#56646e'); px(bx - 2, cy - 2, 4, 1, '#6d7b85');
         px(bx - 1, cy - 1, 1, 2, '#28323a');
-        px(bx + 1, cy - 1, 1, 2, shade('#56646e', -0.34)); rimEdge(bx + 1, cy - 1, 1, 2, 0.20);
-        px(bx - 2, cy + 1, 4, 1, b ? ACC.flow : shade(ACC.data, -0.20));   // routing band
+        px(bx + 1, cy - 1, 1, 2, U.shade('#56646e', -0.34)); rimEdge(bx + 1, cy - 1, 1, 2, 0.20);
+        px(bx - 2, cy + 1, 4, 1, b ? ACC.flow : U.shade(ACC.data, -0.20));   // routing band
       } else {
         px(bx - 2, cy - 1, 4, 2, '#12180f');
         if (thunk) bloom(bx - 2, cy - 1, 4, 2, ACC.flow, 0.34);   // the breech flash it left behind
       }
       rimEdge(bx - 3, cy - 3, 6, 1, 0.26);                        // sky bounce off the curved glass
-      px(bx - 2, cy - 2, 1, 1, shade('#dff4ff', -0.20));
+      px(bx - 2, cy - 2, 1, 1, U.shade('#dff4ff', -0.20));
     }
     // SNORKEL — a real pneumatic tube arcing off the NE shoulder, with the capsule streaking up it
     const tube = [];
@@ -8787,7 +8702,7 @@ const PropSprites = (() => {
       const tt = Math.min(1, cyc / 0.42), i = Math.min(tube.length - 1, Math.floor(tt * tube.length));
       px(tube[i][0], tube[i][1], 2, 2, '#cfe6f2');
       bloom(tube[i][0], tube[i][1], 2, 2, ACC.flow, 0.34 * (1 - tt));
-      if (i > 1) px(tube[i - 2][0], tube[i - 2][1], 2, 1, shade(ACC.flow, -0.34));   // trail
+      if (i > 1) px(tube[i - 2][0], tube[i - 2][1], 2, 1, U.shade(ACC.flow, -0.34));   // trail
     }
     // indicators above each bay (kept: steady cyan-white west, gold blink east)
     px(x + 6, y - 3, 1, 1, '#dff6ff'); bloom(x + 6, y - 3, 1, 1, ACC.data, 0.30);
@@ -8807,27 +8722,27 @@ const PropSprites = (() => {
     const bt = y - 10, bh = 19;                                   // hangs y-10..y+8
     ctx.globalAlpha = 0.20; px(x + 2, bt + 3, w, bh, '#000'); ctx.globalAlpha = 1;
     for (const lx of [x + 6, x + Math.floor(w / 2), x + w - 8]) {
-      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, shade(r.top, 0.20));
+      px(lx, bt - 3, 2, 4, LINE); px(lx, bt - 3, 2, 1, U.shade(r.top, 0.20));
       rimEdge(lx + 1, bt - 2, 1, 3, 0.18);
     }
     chamf(x - 1, bt - 1, w + 2, bh + 2, LINE, 2);
     chamf(x, bt, w, bh, r.face, 2);
     px(x + 1, bt, w - 2, 1, '#b0b6b2');                           // kept silver top rail
-    px(x + 2, bt + 1, w - 4, 1, shade(r.top, 0.16)); keyEdge(x + 2, bt, 14, 1, 0.28);
+    px(x + 2, bt + 1, w - 4, 1, U.shade(r.top, 0.16)); keyEdge(x + 2, bt, 14, 1, 0.28);
     px(x, bt + 3, 1, bh - 6, r.lit); px(x + w - 1, bt + 3, 1, bh - 6, r.dk);
     rimEdge(x + w - 1, bt + 3, 1, bh - 6, 0.22);
-    px(x + 2, bt + bh - 2, w - 4, 1, shade(r.face, -0.26));
+    px(x + 2, bt + bh - 2, w - 4, 1, U.shade(r.face, -0.26));
     px(x + 2, bt + bh - 1, w - 4, 1, r.ao);                       // shallow underside, not a floor line
     // WEST — three labelled drawers, shallow: 1px proud, brass pull, card-tops just visible in the middle one
     for (let d = 0; d < 3; d++) {
       const dy = bt + 5 + d * 4, open = d === 1;
-      px(x + 2, dy, 13, 3, shade(r.face, open ? 0.10 : 0.02));
+      px(x + 2, dy, 13, 3, U.shade(r.face, open ? 0.10 : 0.02));
       px(x + 2, dy, 13, 1, r.lit); keyEdge(x + 3, dy, 8, 1, 0.14);
       px(x + 2, dy + 2, 13, 1, r.ao);
       px(x + 4, dy + 1, 5, 1, '#9aa29c');                         // label holder
-      px(x + 5, dy + 1, 3, 1, shade('#9aa29c', -0.34));
+      px(x + 5, dy + 1, 3, 1, U.shade('#9aa29c', -0.34));
       px(x + 11, dy + 1, 2, 1, '#8a8256');                        // brass pull
-      if (open) { px(x + 3, dy - 1, 11, 1, '#b8c0bc'); px(x + 3, dy - 1, 11, 1, shade('#b8c0bc', -0.12)); }
+      if (open) { px(x + 3, dy - 1, 11, 1, '#b8c0bc'); px(x + 3, dy - 1, 11, 1, U.shade('#b8c0bc', -0.12)); }
     }
     // CENTRE — backlit index well
     const wx = x + 16, ww = 22, wy = bt + 4, wh = 13;
@@ -8844,13 +8759,13 @@ const PropSprites = (() => {
       px(cx, cy + 3, sw + 1, 1, '#0b110f');                       // slot shadow it came out of
       px(cx, cy, sw + 1, 3, flip ? '#c8f2ff' : '#aab4b0');
       px(cx, cy, sw + 1, 1, flip ? '#e8fbff' : '#c6cec9');
-      px(cx, cy + 1, 1, 2, flip ? '#9fe0f2' : shade('#aab4b0', -0.24));
+      px(cx, cy + 1, 1, 2, flip ? '#9fe0f2' : U.shade('#aab4b0', -0.24));
       if (flip) bloom(cx - 1, cy - 1, sw + 3, 5, ACC.data, 0.32);
     }
     // the carriage itself, riding a rail across the top of the well
-    px(wx + 1, wy + 1, ww - 2, 1, shade(r.face, -0.44));
-    px(carX, wy, 4, 3, LINE); px(carX + 1, wy + 1, 2, 1, shade(r.top, 0.22));
-    px(carX + 1, wy + 2, 2, 1, tt >= 1 ? ACC.data : shade(ACC.data, -0.5));
+    px(wx + 1, wy + 1, ww - 2, 1, U.shade(r.face, -0.44));
+    px(carX, wy, 4, 3, LINE); px(carX + 1, wy + 1, 2, 1, U.shade(r.top, 0.22));
+    px(carX + 1, wy + 2, 2, 1, tt >= 1 ? ACC.data : U.shade(ACC.data, -0.5));
     bloom(carX + 1, wy + 2, 2, 1, ACC.data, tt >= 1 ? 0.30 : 0.14);
     const sweep = wx + 2 + Math.floor((now / (on ? 20 : 34)) % (ww - 5));   // kept 1px query sweep
     glow(sweep, wy + 1, 1, wh - 2, '#cfe0dc', 0.34);
@@ -8860,13 +8775,13 @@ const PropSprites = (() => {
     inset(rx0, wy, 7, wh, '#0a120f');
     for (let j = 0; j < 4; j++) {
       const lw = 1 + ((U.hash('cn' + land + j) % 4));
-      px(rx0 + 1, wy + 2 + j * 2, Math.min(lw + 1, 5), 1, on ? shade(ACC.data, -0.10) : shade(ACC.data, -0.52));
+      px(rx0 + 1, wy + 2 + j * 2, Math.min(lw + 1, 5), 1, on ? U.shade(ACC.data, -0.10) : U.shade(ACC.data, -0.52));
     }
     bloom(rx0 + 1, wy + 2, 5, 7, ACC.data, on ? 0.14 : 0.07);
     px(rx0 + 1, wy + wh - 2, 1, 1, ACC.flow);                     // kept steady amber
     bloom(rx0 + 1, wy + wh - 2, 1, 1, ACC.flow, 0.30);
     px(rx0 + 5, wy + wh - 2, 1, 1, blink(700, ph) ? '#dfe6e2' : '#3a423e');   // kept blinking silver
-    wear(x + 2, bt + 2, w - 4, bh - 4, 5, shade(r.face, -0.10));
+    wear(x + 2, bt + 2, w - 4, bh - 4, 5, U.shade(r.face, -0.10));
   };
   F.arc_microfiche = (x, y, w, h, f) => {
     // MICROFICHE (2x1, blocks:true) — v4. Bolted reader desk. The reels are now ASYMMETRIC — a fat feed reel
@@ -8890,7 +8805,7 @@ const PropSprites = (() => {
     px(x, y + 5, w, 3, r.face);
     px(x, y + 5, w, 1, r.lit); keyEdge(x + 1, y + 5, w - 3, 1, 0.15);
     px(x, y + 7, w, 1, r.ao);
-    px(x + 6, y + 6, w - 13, 1, '#adb3b0'); px(x + 6, y + 6, w - 13, 1, shade('#adb3b0', 0.10));
+    px(x + 6, y + 6, w - 13, 1, '#adb3b0'); px(x + 6, y + 6, w - 13, 1, U.shade('#adb3b0', 0.10));
     for (let i = 0; i < w - 16; i += 3) px(x + 8 + i, y + 6, 2, 1, '#63676a');   // engraved text
     rimEdge(x + w - 7, y + 6, 1, 1, 0.24);
     // desk slab
@@ -8899,19 +8814,19 @@ const PropSprites = (() => {
     px(x + 2, y, w - 4, 1, r.sheen); keyEdge(x + 2, y, 8, 1, 0.28);
     px(x, y + 2, 1, 2, r.lit); px(x + w - 1, y + 2, 1, 2, r.dk);
     rimEdge(x + w - 1, y + 2, 1, 2, 0.20);
-    px(x + 2, y + 4, w - 4, 1, shade(r.top, -0.18));
-    wear(x + 1, y + 1, w - 2, 4, 3, shade(r.top, -0.10));
+    px(x + 2, y + 4, w - 4, 1, U.shade(r.top, -0.18));
+    wear(x + 1, y + 1, w - 2, 4, 3, U.shade(r.top, -0.10));
     dial(x + w - 5, y + 1, r.top, now / 1100 + ph);               // focus knob on the desk
     // reader housing standing on the slab, with a HOOD shading the glass
     chamf(x + 1, y - 12, w - 2, 13, LINE, 2);
     chamf(x + 2, y - 11, w - 4, 11, r.face, 2);
     px(x + 3, y - 11, w - 6, 1, r.top); keyEdge(x + 3, y - 11, 7, 1, 0.26);
-    px(x + 2, y - 9, 1, 8, shade(r.face, 0.08)); px(x + w - 3, y - 9, 1, 8, r.dk);
+    px(x + 2, y - 9, 1, 8, U.shade(r.face, 0.08)); px(x + w - 3, y - 9, 1, 8, r.dk);
     rimEdge(x + w - 3, y - 9, 1, 8, 0.22);
     px(x + 3, y, w - 6, 1, r.ao);                                 // housing AO onto the slab
     // FROSTED VIEWPORT under a jutting hood
     const vx = x + 9, vy = y - 8, vw = 6, vh = 7;
-    px(vx - 2, vy - 2, vw + 4, 2, LINE); px(vx - 1, vy - 2, vw + 2, 1, shade(r.top, 0.14));
+    px(vx - 2, vy - 2, vw + 4, 2, LINE); px(vx - 1, vy - 2, vw + 2, 1, U.shade(r.top, 0.14));
     keyEdge(vx - 1, vy - 2, 4, 1, 0.24);
     px(vx - 1, vy - 1, vw + 2, 1, r.ao);                          // the hood's shadow across the glass top
     inset(vx - 1, vy, vw + 2, vh, '#2f3b39');
@@ -8930,7 +8845,7 @@ const PropSprites = (() => {
       const cx = b ? x + w - 5 : x + 5, rad = b ? 2 : 3, o = (b ? -step : step) & 3;
       px(cx - rad, ry - rad, rad * 2, rad * 2, '#666c6c');
       px(cx - rad + 1, ry - rad + 1, rad * 2 - 2, rad * 2 - 2, '#98a09f');
-      px(cx - rad + 1, ry - rad + 1, rad * 2 - 2, 1, shade('#98a09f', 0.22));
+      px(cx - rad + 1, ry - rad + 1, rad * 2 - 2, 1, U.shade('#98a09f', 0.22));
       rimEdge(cx + rad - 1, ry - rad + 1, 1, rad * 2 - 2, 0.22);
       if (o === 0) px(cx - rad + 1, ry, rad * 2 - 2, 1, '#d6dada');
       else if (o === 1) px(cx, ry - rad + 1, 1, rad * 2 - 2, '#d6dada');
@@ -8940,8 +8855,8 @@ const PropSprites = (() => {
     }
     // film threaded across the housing crown, upper strand bright as it pulls
     px(x + 7, ry - 4, w - 14, 1, advancing ? '#e4e8e8' : '#b0b6b6');
-    for (let i = 0; i < w - 14; i += 2) px(x + 7 + i, ry - 4, 1, 1, shade('#b0b6b6', -0.40));   // sprocket holes
-    px(x + 7, ry + 3, w - 14, 1, shade('#b0b6b6', -0.26));      // slack lower strand
+    for (let i = 0; i < w - 14; i += 2) px(x + 7 + i, ry - 4, 1, 1, U.shade('#b0b6b6', -0.40));   // sprocket holes
+    px(x + 7, ry + 3, w - 14, 1, U.shade('#b0b6b6', -0.26));      // slack lower strand
     const on2 = lit ? blink(900, ph) : blink(2600, ph);           // kept ready-LED timings
     px(x + w - 5, y - 10, 1, 1, on2 ? ACC.work : '#16302a');
     if (on2) bloom(x + w - 5, y - 10, 1, 1, ACC.work, 0.34);
@@ -8953,7 +8868,7 @@ const PropSprites = (() => {
     const well = [[3, 6], [2, 8], [1, 10], [1, 10], [1, 10], [1, 10], [2, 8], [3, 6]];
     well.forEach((s, j) => px(x + s[0], y + 2 + j, s[1], 1, '#171b19'));
     px(x + 3, y + 2, 6, 1, '#101413');                          // deep top lip — light never reaches in here
-    px(x + 3, y + 9, 6, 1, shade('#1f2422', 0.12));           // bottom bevel catch (kept)
+    px(x + 3, y + 9, 6, 1, U.shade('#1f2422', 0.12));           // bottom bevel catch (kept)
     const ring = [[3, 6], [2, 8], [2, 8], [2, 8], [2, 8], [3, 6]];
     ring.forEach((s, j) => px(x + s[0], y + 3 + j, s[1], 1, '#2a302d'));
     px(x + 3, y + 3, 6, 1, '#3d4a43'); keyEdge(x + 3, y + 3, 4, 1, 0.22);   // ring north arc takes the key
@@ -8969,11 +8884,11 @@ const PropSprites = (() => {
     // idle is not "dead" here, it is simply a lamp that is on.
     const LENS = '#79b4cc';
     const lens = [[4, 4], [3, 6], [3, 6], [4, 4]];
-    lens.forEach((s, j) => px(x + s[0], y + 4 + j, s[1], 1, shade(LENS, -0.30)));
-    px(x + 3, y + 5, 6, 1, shade(LENS, 0.22)); px(x + 3, y + 6, 6, 1, shade(LENS, -0.52));  // fresnel ribs
-    px(x + 4, y + 5, 2, 1, shade(LENS, 0.50));                // hot inner glint, west-biased
+    lens.forEach((s, j) => px(x + s[0], y + 4 + j, s[1], 1, U.shade(LENS, -0.30)));
+    px(x + 3, y + 5, 6, 1, U.shade(LENS, 0.22)); px(x + 3, y + 6, 6, 1, U.shade(LENS, -0.52));  // fresnel ribs
+    px(x + 4, y + 5, 2, 1, U.shade(LENS, 0.50));                // hot inner glint, west-biased
     bloom(x + 3, y + 4, 6, 4, LENS, 0.16);                      // real falloff onto the surrounding plating
-    px(x + 4, y + 7, 4, 1, shade(LENS, -0.10));               // the lens's south face, back toward the bezel
+    px(x + 4, y + 7, 4, 1, U.shade(LENS, -0.10));               // the lens's south face, back toward the bezel
     px(cx - 2, y + 10, 1, 1, '#56706e'); px(cx + 1, y + 10, 1, 1, '#56706e');   // aisle chevron (kept)
     px(cx - 1, y + 11, 2, 1, '#56706e');
   };
@@ -8994,7 +8909,7 @@ const PropSprites = (() => {
       const xo = xoAt(i), yy = foot - i;
       px(x + 2 + xo, yy - 1, 8, 3, LINE);
       px(x + 3 + xo, yy, 4, 1, r.sheen);
-      px(x + 3 + xo, yy, 1, 1, shade(r.sheen, 0.14));
+      px(x + 3 + xo, yy, 1, 1, U.shade(r.sheen, 0.14));
       keyEdge(x + 3 + xo, yy, 2, 1, 0.20);                      // warm key along the tread
       px(x + 3 + xo, yy + 1, 4, 1, r.ao);                       // the rung casts its own underside shadow
     }
@@ -9033,48 +8948,48 @@ const PropSprites = (() => {
     shadow2(x + 1, y + h - 1, w - 2);
     for (const lx of [x + 2, x + w - 6]) {                    // four square corner legs (front pair visible)
       px(lx, y + 20, 4, 4, EDGE);
-      px(lx, y + 20, 1, 4, shade(wood, 0.20)); px(lx + 1, y + 20, 2, 4, shade(wood, -0.10));
-      px(lx + 3, y + 20, 1, 4, shade(wood, -0.34)); rimEdge(lx + 3, y + 20, 1, 3, 0.16);
+      px(lx, y + 20, 1, 4, U.shade(wood, 0.20)); px(lx + 1, y + 20, 2, 4, U.shade(wood, -0.10));
+      px(lx + 3, y + 20, 1, 4, U.shade(wood, -0.34)); rimEdge(lx + 3, y + 20, 1, 3, 0.16);
       px(lx, y + 23, 4, 1, '#0a0d10');
     }
     underAO(x + 6, y + 20, w - 12, 3);
     // apron under the bed — routed beading, warm catch under the rail's overhang
     chamf(x - 1, y + 13, w + 2, 7, EDGE, 2);
-    px(x, y + 14, w, 5, shade(wood, -0.16));
-    px(x, y + 14, w, 1, shade(wood, 0.12)); keyEdge(x + 1, y + 14, w - 5, 1, 0.14);
-    px(x, y + 15, 1, 4, shade(wood, 0.06)); px(x + w - 1, y + 15, 1, 4, shade(wood, -0.32));
+    px(x, y + 14, w, 5, U.shade(wood, -0.16));
+    px(x, y + 14, w, 1, U.shade(wood, 0.12)); keyEdge(x + 1, y + 14, w - 5, 1, 0.14);
+    px(x, y + 15, 1, 4, U.shade(wood, 0.06)); px(x + w - 1, y + 15, 1, 4, U.shade(wood, -0.32));
     rimEdge(x + w - 1, y + 15, 1, 4, 0.20);
-    for (let i = 0; i < 3; i++) px(x + 8 + i * 15, y + 16, 9, 1, shade(wood, -0.32));
-    px(x, y + 18, w, 1, shade(wood, -0.46));
+    for (let i = 0; i < 3; i++) px(x + 8 + i * 15, y + 16, 9, 1, U.shade(wood, -0.32));
+    px(x, y + 18, w, 1, U.shade(wood, -0.46));
     // RECTANGULAR mahogany rail ring — chamf k=1 keeps the corners crisp; the oval read belongs to poker
     chamf(x - 1, y - 4, w + 2, 19, EDGE, 1);
     chamf(x, y - 3, w, 17, wood, 1);
-    px(x + 1, y - 3, w - 2, 1, shade(wood, 0.34)); keyEdge(x + 2, y - 3, 12, 1, 0.28);
-    px(x, y - 1, 1, 14, shade(wood, 0.14)); px(x + w - 1, y - 1, 1, 14, shade(wood, -0.30));
+    px(x + 1, y - 3, w - 2, 1, U.shade(wood, 0.34)); keyEdge(x + 2, y - 3, 12, 1, 0.28);
+    px(x, y - 1, 1, 14, U.shade(wood, 0.14)); px(x + w - 1, y - 1, 1, 14, U.shade(wood, -0.30));
     rimEdge(x + w - 1, y - 1, 1, 14, 0.20);
-    px(x + 1, y + 12, w - 2, 1, shade(wood, -0.24));        // rail front lip
+    px(x + 1, y + 12, w - 2, 1, U.shade(wood, -0.24));        // rail front lip
     for (let i = 0; i < 6; i++) {                             // diamond sight inlays — pure billiards vocabulary
-      px(x + 6 + i * 7, y - 2, 1, 1, shade(wood, 0.50));
-      px(x + 6 + i * 7, y + 11, 1, 1, shade(wood, 0.34));
+      px(x + 6 + i * 7, y - 2, 1, 1, U.shade(wood, 0.50));
+      px(x + 6 + i * 7, y + 11, 1, 1, U.shade(wood, 0.34));
     }
-    for (let i = 0; i < 4; i++) px(x + 4 + i * 12, y - 1, 7, 1, shade(wood, 0.10));   // grain along the rail
+    for (let i = 0; i < 4; i++) px(x + 4 + i * 12, y - 1, 7, 1, U.shade(wood, 0.10));   // grain along the rail
     // FELT BED
-    inset(x + 4, y + 1, w - 8, 11, shade(felt, -0.40));
+    inset(x + 4, y + 1, w - 8, 11, U.shade(felt, -0.40));
     px(x + 5, y + 2, w - 10, 9, felt);
     for (let i = 0; i < 9; i++) {                             // west-lit diagonal nap gradient (kept)
       const litw = Math.max(0, Math.floor((w - 10) * (1 - i / 9)) - i * 2);
       if (litw > 0) px(x + 5, y + 2 + i, Math.min(litw, w - 10), 1, feltLit);
     }
-    px(x + 5, y + 2, w - 10, 1, shade(feltLit, 0.14));      // nap sheen along the head cushion
-    px(x + 5, y + 10, w - 10, 1, shade(felt, -0.28));       // cushion shadow at the near rail
+    px(x + 5, y + 2, w - 10, 1, U.shade(feltLit, 0.14));      // nap sheen along the head cushion
+    px(x + 5, y + 10, w - 10, 1, U.shade(felt, -0.28));       // cushion shadow at the near rail
     // SIX POCKETS cut through the rail — jaw, drop and a brass ring, not a black square
     const pk = [[x + 3, y], [x + (w >> 1) - 2, y - 1], [x + w - 8, y],
                 [x + 3, y + 9], [x + (w >> 1) - 2, y + 10], [x + w - 8, y + 9]];
     for (const p of pk) {
       chamf(p[0], p[1], 5, 4, '#0d1310', 1);
-      px(p[0] + 1, p[1], 3, 1, shade(wood, -0.46));         // shadowed jaw
+      px(p[0] + 1, p[1], 3, 1, U.shade(wood, -0.46));         // shadowed jaw
       px(p[0] + 1, p[1] + 1, 3, 2, '#04070a');                // the drop
-      px(p[0], p[1] + 3, 5, 1, shade(wood, 0.20));          // brass pocket ring
+      px(p[0], p[1] + 3, 5, 1, U.shade(wood, 0.20));          // brass pocket ring
     }
     // BALLS — the 8-ball still drifts on its 1400ms clock (kept)
     const drift = Math.round(Math.sin(now / 1400 + ph));
@@ -9083,34 +8998,34 @@ const PropSprites = (() => {
                    [x + w - 13, y + 8, '#caa84a'], [x + (w >> 1) - 6, y + 8, '#3a6a8a'],
                    [x + 21, y + 3, '#4a8a4a']];
     for (const b of balls) {
-      px(b[0], b[1] + 2, 3, 1, shade(felt, -0.36));         // contact shadow ON the felt
+      px(b[0], b[1] + 2, 3, 1, U.shade(felt, -0.36));         // contact shadow ON the felt
       chamf(b[0], b[1], 3, 3, b[2], 1);
-      px(b[0], b[1], 2, 1, shade(b[2], 0.28));
-      px(b[0], b[1], 1, 1, shade(b[2], 0.50));              // soft catch — a white speck reads as a dead pixel
-      px(b[0] + 2, b[1] + 2, 1, 1, shade(b[2], -0.36));
+      px(b[0], b[1], 2, 1, U.shade(b[2], 0.28));
+      px(b[0], b[1], 1, 1, U.shade(b[2], 0.50));              // soft catch — a white speck reads as a dead pixel
+      px(b[0] + 2, b[1] + 2, 1, 1, U.shade(b[2], -0.36));
       rimEdge(b[0] + 2, b[1] + 1, 1, 1, 0.16);
     }
     // a CUE left lying across the bed — the only line on the whole prop that isn't parallel to a rail
     for (let i = 0; i < 26; i++)
       px(x + 9 + i, y + 10 - Math.round(i * 0.3), 1, 1,
-         i < 4 ? '#1c2228' : i < 8 ? '#7a6a4a' : shade('#c9a878', 0.02 + i * 0.004));
+         i < 4 ? '#1c2228' : i < 8 ? '#7a6a4a' : U.shade('#c9a878', 0.02 + i * 0.004));
     px(x + 17, y - 2, 2, 2, '#3d6a5a'); px(x + 17, y - 2, 2, 1, '#548a76');   // chalk cube on the rail
     for (let i = 0; i < 5; i++) {                                             // triangle rack hung on the rail
-      px(x + 24 + i, y - 3 + i, 1, 1, shade(wood, 0.40));
-      px(x + 32 - i, y - 3 + i, 1, 1, shade(wood, 0.24));
+      px(x + 24 + i, y - 3 + i, 1, 1, U.shade(wood, 0.40));
+      px(x + 32 - i, y - 3 + i, 1, 1, U.shade(wood, 0.24));
     }
     // LOW PENDANT BAR — cords, spine, three cone shades. This is the silhouette that does the work.
     for (const cx0 of [x + 14, x + w - 15]) px(cx0, y - 17, 1, 6, '#0b1114');
     chamf(x + 8, y - 12, w - 16, 3, EDGE, 1);
     px(x + 9, y - 11, w - 18, 2, r.face); px(x + 9, y - 11, w - 18, 1, r.lit);
     keyEdge(x + 10, y - 11, 10, 1, 0.24);
-    px(x + 9, y - 10, w - 18, 1, shade(r.face, -0.36));
+    px(x + 9, y - 10, w - 18, 1, U.shade(r.face, -0.36));
     const pulse = 0.28 + 0.16 * (0.5 + 0.5 * Math.sin(now / 760 + ph));   // kept lamp clock
     for (let s = 0; s < 3; s++) {
       const sx0 = x + 8 + s * 14;
       for (let j = 0; j < 4; j++) {                            // cone shade, widening as it drops
         px(sx0 + 3 - j - 1, y - 9 + j, 5 + j * 2, 1, EDGE);
-        px(sx0 + 3 - j, y - 9 + j, 3 + j * 2, 1, j ? shade(r.face, 0.04) : r.lit);
+        px(sx0 + 3 - j, y - 9 + j, 3 + j * 2, 1, j ? U.shade(r.face, 0.04) : r.lit);
       }
       keyEdge(sx0 + 2, y - 9, 3, 1, 0.24);
       px(sx0 + 8, y - 7, 1, 2, r.dk); rimEdge(sx0 + 8, y - 7, 1, 2, 0.20);
@@ -9143,12 +9058,12 @@ const PropSprites = (() => {
     // TALL 3/4 casing: chamfered slab, warm key down the west facet, cool sky bounce down the east
     chamf(x - 1, y - 6, cw + 2, h + 5, EDGE, 2);
     chamf(x, y - 5, cw, h + 3, r.face, 2);
-    px(x, y - 3, 1, h - 2, shade(r.face, 0.10)); keyEdge(x, y - 3, 1, 10, 0.12);
+    px(x, y - 3, 1, h - 2, U.shade(r.face, 0.10)); keyEdge(x, y - 3, 1, 10, 0.12);
     px(x + cw - 1, y - 3, 1, h - 2, r.dk); rimEdge(x + cw - 1, y - 3, 1, h - 2, 0.22);
     chamf(x, y - 9, cw, 4, EDGE, 1);                         // crown cap we look down on
     px(x + 1, y - 8, cw - 2, 2, r.top); px(x + 1, y - 8, cw - 2, 1, r.sheen);
     keyEdge(x + 1, y - 8, 6, 1, 0.26);
-    px(x + 1, y - 6, cw - 2, 1, shade(r.top, -0.24));
+    px(x + 1, y - 6, cw - 2, 1, U.shade(r.top, -0.24));
     // LIT BRAND HEADER, jutting proud — the warm half of the temperature split
     const hb = blink(1600);
     chamf(x - 2, y - 5, cw + 4, 4, EDGE, 1);
@@ -9156,7 +9071,7 @@ const PropSprites = (() => {
     px(x + 1, y - 4, 4, 1, '#ffe2b0');                       // header glint (kept)
     bloom(x - 1, y - 4, cw + 2, 2, amber, hb ? 0.30 : 0.12);
     spill(x - 1, y - 2, cw + 2, amber, 0.16, 3);             // warm wash falling onto the glass frame
-    px(x - 1, y - 2, cw + 2, 1, shade('#8a5f28', -0.42));  // header underside
+    px(x - 1, y - 2, cw + 2, 1, U.shade('#8a5f28', -0.42));  // header underside
     // GLASS: three shelves, each on its own flat tube, stock read as SILHOUETTE not as colour
     inset(x + 2, y - 1, 8, 15, '#0b1418');
     px(x + 3, y, 6, 13, '#16323c');                          // lit back wall of the cabinet
@@ -9167,22 +9082,22 @@ const PropSprites = (() => {
       for (let c = 0; c < 3; c++) {
         const seed = U.hash('vend' + row + c);               // kept seed so the stock layout never reshuffles
         const base = seed % 2 === 0 ? '#7a2e2e' : '#1f5a63';
-        px(x + 3 + c * 2, ry + 1, 2, 2, shade(base, -0.34));
-        px(x + 3 + c * 2, ry + 1, 1, 2, shade(base, 0.12));   // cold rim on the backlit edge
-        px(x + 3 + c * 2, ry + 1, 2, 1, shade(base, 0.26));   // cap glint
+        px(x + 3 + c * 2, ry + 1, 2, 2, U.shade(base, -0.34));
+        px(x + 3 + c * 2, ry + 1, 1, 2, U.shade(base, 0.12));   // cold rim on the backlit edge
+        px(x + 3 + c * 2, ry + 1, 2, 1, U.shade(base, 0.26));   // cap glint
       }
       for (let i = 0; i < 6; i += 2)                         // delivery coil in FRONT of the row —
-        px(x + 3 + i, ry + 1 + ((i >> 1) & 1), 1, 1, shade(cold, -0.38));   // this is what says vending, not shelf
+        px(x + 3 + i, ry + 1 + ((i >> 1) & 1), 1, 1, U.shade(cold, -0.38));   // this is what says vending, not shelf
       px(x + 3, ry + 3, 6, 1, '#0e2029');                    // shelf lip in its own shadow
     }
     px(x + 3, y + 12, 6, 1, '#0a1a20');                      // one sold-out slot at the bottom
     ctx.globalAlpha = 0.12; px(x + 3, y - 1, 2, 9, '#dff4ff'); px(x + 6, y - 1, 1, 5, '#dff4ff'); ctx.globalAlpha = 1;
     spill(x + 2, y + 13, 8, cold, 0.16, 3);                  // chilled glass pools cold light down the front
     // CONTROL PILLAR east: coin slot, keypad, and the READY lamp that reads f.work
-    px(x + 10, y - 1, 2, 15, shade(r.face, 0.06));
-    px(x + 10, y - 1, 1, 15, shade(r.face, 0.20)); px(x + 11, y - 1, 1, 15, r.dk);
+    px(x + 10, y - 1, 2, 15, U.shade(r.face, 0.06));
+    px(x + 10, y - 1, 1, 15, U.shade(r.face, 0.20)); px(x + 11, y - 1, 1, 15, r.dk);
     rimEdge(x + 11, y - 1, 1, 15, 0.18);
-    px(x + 10, y, 2, 1, '#0d1216'); px(x + 10, y + 1, 2, 1, shade(r.face, 0.28));   // coin slot + its lit lip
+    px(x + 10, y, 2, 1, '#0d1216'); px(x + 10, y + 1, 2, 1, U.shade(r.face, 0.28));   // coin slot + its lit lip
     for (let i = 0; i < 4; i++) px(x + 10, y + 3 + i * 2, 2, 1, '#9aa49c');           // keypad rows
     const ready = blink(620);
     px(x + 10, y + 12, 1, 1, ready ? (on ? '#7dffb0' : ACC.work) : '#16302a');
@@ -9198,9 +9113,9 @@ const PropSprites = (() => {
     bloom(x + 2, sy, cw - 4, 2, amber, 0.15 + 0.07 * (0.5 + 0.5 * flick(900, ph)));
     // DISPENSE MOUTH — deep, warm, and with a can actually sitting in the tray waiting to be taken
     chamf(x + 2, y + 17, cw - 4, 5, EDGE, 1);
-    px(x + 3, y + 17, cw - 6, 1, shade(r.face, 0.22)); keyEdge(x + 4, y + 17, cw - 9, 1, 0.16);
+    px(x + 3, y + 17, cw - 6, 1, U.shade(r.face, 0.22)); keyEdge(x + 4, y + 17, cw - 9, 1, 0.16);
     px(x + 3, y + 18, cw - 6, 3, '#0d1110');
-    px(x + 3, y + 18, cw - 6, 1, shade(r.face, -0.46));    // the lip you reach under
+    px(x + 3, y + 18, cw - 6, 1, U.shade(r.face, -0.46));    // the lip you reach under
     bloom(x + 4, y + 19, cw - 8, 1, amber, 0.15 + 0.05 * flick(1300, 1));
     px(x + 5, y + 19, 2, 2, '#7a2e2e'); px(x + 5, y + 19, 1, 2, '#a04a44'); px(x + 5, y + 19, 2, 1, '#8a98a8');
     // kick plate + feet with a real floor gap
@@ -9208,7 +9123,7 @@ const PropSprites = (() => {
     underAO(x + 2, y + 22, cw - 4, 1);
     px(x + 1, y + 22, 2, 2, r.dk); px(x + cw - 3, y + 22, 2, 2, r.dk);
     px(x + 1, y + 22, 1, 1, r.lit); px(x + cw - 3, y + 22, 1, 1, r.lit);
-    wear(x + 1, y + 15, cw - 2, 6, 3, shade(r.face, -0.12));
+    wear(x + 1, y + 15, cw - 2, 6, 3, U.shade(r.face, -0.12));
   };
   F.quarters_lockerbank = (x, y, w, h, f) => {
     /* ⛔ EDGES SOFTENED, NOTHING ELSE — shipped geometry, shading and colour untouched. The
@@ -9231,7 +9146,7 @@ const PropSprites = (() => {
     const r = RAMP.gun;
     const dT = y - 15, dH = 24, cT = y - 20;                  // door bank top / height, crown top
     const STILE = '#121816';                                  // the deep gap between doors
-    const FACE = shade(r.face, 0.26);                       // door faces sit ABOVE the carcass ramp
+    const FACE = U.shade(r.face, 0.26);                       // door faces sit ABOVE the carcass ramp
     const NDOOR = 4, DW = 8, PITCH = 9, OPEN = 2;             // the open one, counting from the west
     shadow2(x + 1, y + h - 1, w - 2);
     for (const lx of [x + 2, x + (w >> 1) - 1, x + w - 5]) {  // three feet along the long footprint
@@ -9246,8 +9161,8 @@ const PropSprites = (() => {
     px(x, cT + 1, w, 4, r.top);
     px(x, cT + 1, w, 1, r.sheen); keyEdge(x + 1, cT + 1, 10, 1, 0.28);
     px(x, cT + 2, 1, 3, r.lit); px(x + w - 1, cT + 2, 1, 3, r.dk); rimEdge(x + w - 1, cT + 2, 1, 3, 0.20);
-    px(x + 1, cT + 4, w - 2, 1, shade(r.top, -0.20));       // front lip of the crown
-    px(x + 6, cT + 2, 9, 1, shade(r.top, 0.10));            // one wipe mark, so the top isn't a blank
+    px(x + 1, cT + 4, w - 2, 1, U.shade(r.top, -0.20));       // front lip of the crown
+    px(x + 6, cT + 2, 9, 1, U.shade(r.top, 0.10));            // one wipe mark, so the top isn't a blank
     // ---- DOOR BANK
     chamf(x - 1, dT - 1, w + 2, dH + 2, EDGE, 2);
     px(x, dT, w, dH, STILE);                                  // the carcass reads as the gaps behind
@@ -9258,22 +9173,22 @@ const PropSprites = (() => {
       // THE DOOR — one tall panel, and its EDGES are the subject: lit west stile, dark east stile,
       // with the carcass colour providing the shadow gap either side for free.
       px(dx, dT + 1, DW, dH - 3, FACE);
-      px(dx, dT + 1, DW, 1, shade(FACE, 0.26));             // the door's own top edge
-      px(dx, dT + 1, 1, dH - 3, shade(FACE, 0.22)); keyEdge(dx, dT + 2, 1, dH - 6, 0.18);
-      px(dx + DW - 1, dT + 1, 1, dH - 3, shade(FACE, -0.34)); rimEdge(dx + DW - 1, dT + 2, 1, dH - 6, 0.20);
-      px(dx, dT + dH - 3, DW, 1, shade(FACE, -0.38));
+      px(dx, dT + 1, DW, 1, U.shade(FACE, 0.26));             // the door's own top edge
+      px(dx, dT + 1, 1, dH - 3, U.shade(FACE, 0.22)); keyEdge(dx, dT + 2, 1, dH - 6, 0.18);
+      px(dx + DW - 1, dT + 1, 1, dH - 3, U.shade(FACE, -0.34)); rimEdge(dx + DW - 1, dT + 2, 1, dH - 6, 0.20);
+      px(dx, dT + dH - 3, DW, 1, U.shade(FACE, -0.38));
       for (let v = 0; v < 3; v++) {                           // ONE short vent at the head of the door
-        px(dx + 2, dT + 3 + v * 2, 4, 1, shade(FACE, -0.52));
-        px(dx + 2, dT + 4 + v * 2, 4, 1, shade(FACE, 0.20));
+        px(dx + 2, dT + 3 + v * 2, 4, 1, U.shade(FACE, -0.52));
+        px(dx + 2, dT + 4 + v * 2, 4, 1, U.shade(FACE, 0.20));
       }
       // FULL-HEIGHT HANDLE BAR — the vertical that says "this pulls open", and the strongest anti-rack
       // cue available: a rack door has a latch, never a stile-length bar.
       px(dx + DW - 3, dT + 10, 2, dH - 16, '#0b100e');
       px(dx + DW - 3, dT + 10, 1, dH - 16, '#8b968f');
       px(dx + DW - 3, dT + 10, 1, 3, '#b9c3bc');              // a glint at the top of the bar
-      px(dx + 1, dT + 11, 3, 3, shade(FACE, -0.30));        // a small recessed name card
-      px(dx + 1, dT + 11, 3, 1, shade(FACE, -0.50));
-      wear(dx + 1, dT + 3, DW - 2, dH - 8, 4, shade(FACE, -0.16));
+      px(dx + 1, dT + 11, 3, 3, U.shade(FACE, -0.30));        // a small recessed name card
+      px(dx + 1, dT + 11, 3, 1, U.shade(FACE, -0.50));
+      wear(dx + 1, dT + 3, DW - 2, dH - 8, 4, U.shade(FACE, -0.16));
     }
     // ---- the OPEN door — the read that separates a locker bank from a fence. Its interior is a dim
     // green-grey, not a hole: pure black at this size is a gap in the prop, not a space inside it.
@@ -9281,23 +9196,23 @@ const PropSprites = (() => {
     px(dx1, dT + 1, DW, dH - 3, '#161d1a');
     px(dx1 + 1, dT + 2, DW - 2, dH - 5, '#1d2622');           // the lit back panel of the cavity
     px(dx1, dT + 1, DW, 1, '#0a0f0d');
-    px(dx1 + 1, dT + 9, DW - 2, 1, shade(r.face, -0.40));   // ONE shelf, barely catching light
+    px(dx1 + 1, dT + 9, DW - 2, 1, U.shade(r.face, -0.40));   // ONE shelf, barely catching light
     px(dx1 + 1, dT + 10, DW - 2, 1, '#0b100e');
     px(dx1 + 1, dT + 2, 5, 6, '#3a4632'); px(dx1 + 1, dT + 2, 5, 1, '#54644a');   // a coat on the rail
-    px(dx1 + 2, dT + 3, 1, 5, shade('#3a4632', -0.34));
+    px(dx1 + 2, dT + 3, 1, 5, U.shade('#3a4632', -0.34));
     px(dx1 + 1, dT + 15, 5, 4, '#2b2118'); px(dx1 + 1, dT + 15, 5, 1, '#463527'); // boots on the floor pan
-    px(dx1 + 2, dT + 19, 3, 1, shade('#2b2118', -0.34));
+    px(dx1 + 2, dT + 19, 3, 1, U.shade('#2b2118', -0.34));
     px(dx1 - 4, dT + 1, 4, dH - 3, EDGE);                     // the leaf, swung west across its neighbour
-    px(dx1 - 3, dT + 2, 3, dH - 5, shade(FACE, 0.14));
-    px(dx1 - 3, dT + 2, 3, 1, shade(FACE, 0.30)); keyEdge(dx1 - 3, dT + 2, 3, 1, 0.22);
-    px(dx1 - 1, dT + 2, 1, dH - 5, shade(FACE, -0.42));     // the leaf's shaded inner face
+    px(dx1 - 3, dT + 2, 3, dH - 5, U.shade(FACE, 0.14));
+    px(dx1 - 3, dT + 2, 3, 1, U.shade(FACE, 0.30)); keyEdge(dx1 - 3, dT + 2, 3, 1, 0.22);
+    px(dx1 - 1, dT + 2, 1, dH - 5, U.shade(FACE, -0.42));     // the leaf's shaded inner face
     px(dx1 - 3, dT + 10, 1, 7, '#8b968f');                    // its handle bar, riding round with it
     ctx.globalAlpha = 0.26; px(dx1 - 6, dT + 3, 2, dH - 7, '#000'); ctx.globalAlpha = 1;   // its cast shadow
     // one amber name-tag, BACKLIT AND STEADY, and SMALL. A name plate has nothing to report, so pulsing
     // it would be the locker bank pretending to be an instrument panel — and at 7x3 with a 0.44 bloom
     // it was the brightest object on a cosmetic prop, out-shouting real telemetry elsewhere in the room.
     inset(x + 29, dT + 15, 4, 3, '#10161a');
-    px(x + 30, dT + 16, 2, 1, shade('#ffb84d', -0.34));
+    px(x + 30, dT + 16, 2, 1, U.shade('#ffb84d', -0.34));
     bloom(x + 30, dT + 16, 2, 1, '#ffb84d', 0.13);           // bloom lays 3 rings: 0.22 spread to ~6x5
     px(x + 3, dT + 19, 3, 2, '#b56a78'); px(x + 3, dT + 19, 3, 1, '#c98592');   // door 0: worn pink sticker
     px(x, y + 8, w, 1, r.ao);                                 // floor-line AO
@@ -9324,7 +9239,7 @@ const PropSprites = (() => {
     px(x + 7, T - 3, 3, 3, '#a8302a'); px(x + 7, T - 3, 1, 3, '#c8564a');
     px(x + 9, T - 3, 1, 3, '#6e1c18');
     px(x + 7, T - 4, 3, 1, '#aeb8bd'); px(x + 8, T - 4, 1, 1, '#d4dbdf');   // aluminium lid
-    px(x + 7, T - 2, 3, 1, shade('#a8302a', 0.22));                       // the label band
+    px(x + 7, T - 2, 3, 1, U.shade('#a8302a', 0.22));                       // the label band
 
     /* ---- CARCASS ---- */
     px(fx - 1, T - 1, fw + 2, 21, EDGE);
@@ -9335,7 +9250,7 @@ const PropSprites = (() => {
     px(fx + fw - 1, T + 2, 1, 17, ST_D); rimEdge(fx + fw - 1, T + 3, 1, 15, 0.18);
 
     /* ---- FREEZER DOOR over a real seam gap ---- */
-    px(fx + 1, T + 3, fw - 2, 4, shade(ST, 0.06));
+    px(fx + 1, T + 3, fw - 2, 4, U.shade(ST, 0.06));
     px(fx + 1, T + 3, fw - 2, 1, ST_L);
     px(fx + 5, T + 4, 3, 1, ST_DK);                                         // the readout panel
     px(fx + 5, T + 4, 1, 1, run ? '#7fd8c0' : '#3d4a4e');
@@ -9344,11 +9259,11 @@ const PropSprites = (() => {
     px(fx + 1, T + 8, fw - 2, 1, ST_L);                                     // lower door's lit top edge
 
     /* ---- MAIN DOOR + the long chrome handle ---- */
-    px(fx + 1, T + 9, fw - 2, 9, shade(ST, 0.03));
+    px(fx + 1, T + 9, fw - 2, 9, U.shade(ST, 0.03));
     px(fx + 1, T + 17, fw - 2, 1, ST_D);
     px(fx + 2, T + 10, 1, 6, '#c2cad0'); px(fx + 2, T + 10, 1, 1, '#e2e8ec');   // the handle
     px(fx + 3, T + 11, 1, 4, '#4a5259');                                        // its shadow on the door
-    wear(fx + 1, T + 9, fw - 2, 8, 3, shade(ST, -0.08));
+    wear(fx + 1, T + 9, fw - 2, 8, 3, U.shade(ST, -0.08));
 
     /* ---- KICK ---- */
     px(fx, T + 19, fw, 1, ST_DK);
@@ -9370,7 +9285,7 @@ const PropSprites = (() => {
     shadow2(x + 1, y + h - 1, w - 2);                                  // floor contact
     // octagonal deck collar, bolted in — warm key across the north rim, cool bounce along the south
     chamf(x - 1, y - 1, w + 2, h + 2, LINE, 3);
-    chamf(x, y, w, h, shade(r.face, -0.18), 3);
+    chamf(x, y, w, h, U.shade(r.face, -0.18), 3);
     px(x + 3, y, w - 6, 1, r.lit); keyEdge(x + 3, y, w - 8, 1, 0.30);
     px(x + 3, y + h - 1, w - 6, 1, r.ao); rimEdge(x + 3, y + h - 2, w - 6, 1, 0.18);
     px(x, y + 3, 1, h - 6, r.lit); px(x + w - 1, y + 3, 1, h - 6, r.dk);
@@ -9387,7 +9302,7 @@ const PropSprites = (() => {
     // IRIS BLADES — machined metal, lit on their north facets and sky-cooled on the south. A jammed iris
     // sits HALF closed (its own silhouette), so the state reads before the colour does.
     const close = jam ? Math.round(rad * 0.55) : sealed ? rad - 1 : 1;
-    const bc = jam ? shade(r.top, -0.42) : shade(r.top, -0.05);
+    const bc = jam ? U.shade(r.top, -0.42) : U.shade(r.top, -0.05);
     for (let dy = -rad + 1; dy <= rad - 1; dy++) {
       const half = Math.floor(Math.sqrt(Math.max(0, (rad - 1) * (rad - 1) - dy * dy)));
       if (half <= 0) continue;
@@ -9395,26 +9310,26 @@ const PropSprites = (() => {
       if (gap >= half) continue;
       px(cx - half, cy + dy, half - gap, 1, bc);
       px(cx + gap, cy + dy, half - gap, 1, bc);
-      if (dy < 0) { px(cx - half, cy + dy, 1, 1, shade(bc, 0.30)); keyEdge(cx + half - 1, cy + dy, 1, 1, 0.16); }
-      else { px(cx - half, cy + dy, 1, 1, shade(bc, -0.40)); rimEdge(cx + half - 1, cy + dy, 1, 1, 0.20); }
+      if (dy < 0) { px(cx - half, cy + dy, 1, 1, U.shade(bc, 0.30)); keyEdge(cx + half - 1, cy + dy, 1, 1, 0.16); }
+      else { px(cx - half, cy + dy, 1, 1, U.shade(bc, -0.40)); rimEdge(cx + half - 1, cy + dy, 1, 1, 0.20); }
     }
-    px(cx - 1, cy - rad + 1, 2, (rad - 1) * 2, shade(bc, -0.5));     // spoke between the blade pairs
+    px(cx - 1, cy - rad + 1, 2, (rad - 1) * 2, U.shade(bc, -0.5));     // spoke between the blade pairs
     if (sealed) {
-      px(cx - 1, cy - rad + 2, 2, rad * 2 - 3, shade(bc, -0.55));    // the sealed seam
-      px(cx - 1, cy - 1, 2, 2, shade(bc, -0.28));                    // centre boss
-      px(cx - 1, cy - 1, 2, 1, shade(bc, 0.18));
+      px(cx - 1, cy - rad + 2, 2, rad * 2 - 3, U.shade(bc, -0.55));    // the sealed seam
+      px(cx - 1, cy - 1, 2, 2, U.shade(bc, -0.28));                    // centre boss
+      px(cx - 1, cy - 1, 2, 1, U.shade(bc, 0.18));
       if (jam) {
         bloom(cx - 1, cy - 2, 2, 4, '#ff5a4a', 0.22 + 0.14 * Math.sin(now / 110));   // the seam glows where it binds
         if (blink(150)) { px(cx, cy - 1, 1, 1, '#ffe6c8'); px(cx + 1, cy - 2, 1, 1, '#ffd9a0'); } // jam spark
       }
     } else {
-      px(cx - 1, cy - 1, 2, 2, shade(ACC.work, -0.05));              // open: the lit eye through the hatch
+      px(cx - 1, cy - 1, 2, 2, U.shade(ACC.work, -0.05));              // open: the lit eye through the hatch
       bloom(cx - 1, cy - 1, 2, 2, ACC.work, 0.26 + 0.10 * Math.sin(now / 400));
     }
     // status lamp on the north lintel — the one piece of signage this prop gets
     const on = jam ? blink(170) : sealed ? blink(680) : true;
     px(cx - 2, y, 4, 2, '#0c1417');
-    px(cx - 1, y, 2, 2, on ? lc : shade(lc, -0.65));
+    px(cx - 1, y, 2, 2, on ? lc : U.shade(lc, -0.65));
     if (on) bloom(cx - 1, y, 2, 1, lc, jam ? 0.42 : sealed ? 0.22 : 0.28);
   };
 
@@ -9444,15 +9359,15 @@ const PropSprites = (() => {
     px(x + 2, y + 4, 6, 6, EN);
     px(x + 2, y + 4, 1, 6, EN_LIT);                                // west highlight column
     px(x + 7, y + 4, 1, 6, EN_DK); rimEdge(x + 7, y + 4, 1, 6, 0.18);
-    px(x + 2, y + 9, 6, 1, shade(EN_DK, -0.2));                  // base shade
+    px(x + 2, y + 9, 6, 1, U.shade(EN_DK, -0.2));                  // base shade
     // RIM — the top surface, looked down into. This ellipse-ish band is the whole projection cue.
     px(x + 1, y + 2, 8, 2, LINE);
-    px(x + 2, y + 3, 6, 1, shade(EN, 0.18));
+    px(x + 2, y + 3, 6, 1, U.shade(EN, 0.18));
     px(x + 3, y + 2, 4, 1, EN_LIT); keyEdge(x + 3, y + 2, 3, 1, 0.30);
     px(x + 3, y + 3, 4, 1, BREW);                                  // the coffee, seen from above
-    px(x + 4, y + 3, 2, 1, shade(BREW, 0.22));                   // one catchlight on the surface
+    px(x + 4, y + 3, 2, 1, U.shade(BREW, 0.22));                   // one catchlight on the surface
     px(x + 2, y + 6, 6, 1, '#8a3f2a');                             // chipped enamel band — the only colour
-    px(x + 2, y + 7, 6, 1, shade('#8a3f2a', -0.34));
+    px(x + 2, y + 7, 6, 1, U.shade('#8a3f2a', -0.34));
     if (blink(3000, ph + x)) { ctx.globalAlpha = 0.13; px(x + 4, y, 1, 3, '#dfe8ea'); px(x + 5, y - 1, 1, 2, '#dfe8ea'); ctx.globalAlpha = 1; }   // one thin curl, never a cloud
   };
 
@@ -9461,18 +9376,18 @@ const PropSprites = (() => {
     // bottom -> top, each shorter and offset, so the stack reads as separate objects not one block
     const vol = (bx, by, bw, c, pages) => {
       px(bx - 1, by - 1, bw + 2, 4, LINE);
-      px(bx, by, bw, 1, shade(c, 0.26));                         // the COVER's top face — what the camera sees
+      px(bx, by, bw, 1, U.shade(c, 0.26));                         // the COVER's top face — what the camera sees
       px(bx, by + 1, bw, 2, c);
-      px(bx, by + 2, bw, 1, shade(c, -0.34));
-      px(bx, by + 1, 1, 2, shade(c, 0.14));
+      px(bx, by + 2, bw, 1, U.shade(c, -0.34));
+      px(bx, by + 1, 1, 2, U.shade(c, 0.14));
       px(bx + bw - 1, by + 1, 1, 2, pages);                        // page block on the fore edge
-      px(bx + bw - 1, by, 1, 1, shade(pages, 0.2));
+      px(bx + bw - 1, by, 1, 1, U.shade(pages, 0.2));
       keyEdge(bx, by, Math.max(2, bw - 3), 1, 0.18);
     };
     vol(x + 1, y + 7, 10, '#5b3a52', '#d9d2bd');                   // plum
     vol(x + 2, y + 4, 8, '#2f5a56', '#cfc8b3');                    // teal, offset east
     vol(x + 1, y + 1, 7, '#7a4a2e', '#d9d2bd');                    // tan, offset west — the overhang breaks the column
-    px(x + 3, y + 2, 3, 1, shade('#c9a24a', 0.1));               // one gilt title bar, the only bright mark
+    px(x + 3, y + 2, 3, 1, U.shade('#c9a24a', 0.1));               // one gilt title bar, the only bright mark
   };
 
   F.desklamp = (x, y, w, h, f) => {   // task lamp — an OFF-AXIS "7": base east, arm over, cone hanging west
@@ -9483,7 +9398,7 @@ const PropSprites = (() => {
     // the cone WEST puts real negative space under the arm — that gap is what names it from across the
     // room, and it is the same trick the crane-armed props use.
     px(x + 5, y + 9, 7, 3, LINE);                                  // weighted base, EAST
-    px(x + 6, y + 9, 5, 1, shade(r.top, 0.22)); keyEdge(x + 6, y + 9, 3, 1, 0.26);
+    px(x + 6, y + 9, 5, 1, U.shade(r.top, 0.22)); keyEdge(x + 6, y + 9, 3, 1, 0.26);
     px(x + 6, y + 10, 5, 1, r.face); px(x + 6, y + 11, 5, 1, r.ao);
     px(x + 7, y + 4, 2, 6, LINE); px(x + 7, y + 4, 1, 6, r.lit); px(x + 8, y + 5, 1, 5, r.dk);   // upright
     px(x + 2, y + 3, 6, 2, LINE);                                  // forearm reaching WEST, over open air
@@ -9493,7 +9408,7 @@ const PropSprites = (() => {
     px(x + 0, y + 5, 6, 1, LINE);
     px(x + 0, y + 6, 6, 1, LINE);
     px(x + 1, y + 5, 4, 1, r.face); px(x + 1, y + 5, 2, 1, r.sheen);
-    px(x + 1, y + 6, 4, 1, shade(r.face, -0.34));                // shaded underside of the shade
+    px(x + 1, y + 6, 4, 1, U.shade(r.face, -0.34));                // shaded underside of the shade
     px(x + 1, y + 7, 4, 1, WARM);                                  // the mouth
     bloom(x + 1, y + 7, 4, 1, WARM, 0.62);
     spill(x + 1, y + 8, 4, WARM, 0.18, 3);                         // a hint of pool, never a wash
@@ -9504,10 +9419,10 @@ const PropSprites = (() => {
     const r = RAMP.fabric, ph = (f && f.x) || 0;
     ctx.globalAlpha = 0.22; px(x + 1, y + 11, 10, 1, '#000'); ctx.globalAlpha = 1;
     chamf(x + 1, y + 3, 10, 9, LINE, 2);
-    px(x + 2, y + 4, 8, 1, shade('#4a352b', 0.30));              // the CASE TOP — walnut, lit
+    px(x + 2, y + 4, 8, 1, U.shade('#4a352b', 0.30));              // the CASE TOP — walnut, lit
     keyEdge(x + 2, y + 4, 5, 1, 0.26);
     px(x + 2, y + 5, 8, 5, '#4a352b');
-    px(x + 2, y + 5, 1, 5, shade('#4a352b', 0.18)); px(x + 9, y + 5, 1, 5, shade('#4a352b', -0.30));
+    px(x + 2, y + 5, 1, 5, U.shade('#4a352b', 0.18)); px(x + 9, y + 5, 1, 5, U.shade('#4a352b', -0.30));
     rimEdge(x + 9, y + 5, 1, 5, 0.20);
     px(x + 2, y + 10, 8, 1, r.ao);
     // grille cloth, west 2/3 — horizontal weave, dark
@@ -9531,15 +9446,15 @@ const PropSprites = (() => {
     px(x + 1, y + 8, 1, 1, r.lit); px(x + 10, y + 8, 1, 1, r.dk);
     // the OPEN tray above, cantilevered west — the overhang is the silhouette
     px(x + 0, y + 3, 9, 3, LINE);
-    px(x + 1, y + 4, 7, 2, shade(r.face, -0.18));
+    px(x + 1, y + 4, 7, 2, U.shade(r.face, -0.18));
     px(x + 1, y + 4, 7, 1, '#141c20');                             // looking into the tray
     px(x + 1, y + 4, 2, 1, ACC.flow);                              // a brass fitting
     px(x + 4, y + 4, 1, 1, '#b8452f'); px(x + 6, y + 4, 2, 1, '#7f8f97');   // a red grip + a steel shank
-    px(x + 3, y + 5, 5, 1, shade(r.face, -0.34));
+    px(x + 3, y + 5, 5, 1, U.shade(r.face, -0.34));
     // handle arching over the top — the one curved line in a boxy prop
     px(x + 2, y + 1, 5, 1, LINE); px(x + 1, y + 2, 1, 1, LINE); px(x + 7, y + 2, 1, 1, LINE);
     px(x + 3, y + 1, 3, 1, r.sheen);
-    px(x + 9, y + 7, 2, 2, shade('#8a7434', 0.05));              // hazard tick on the flank
+    px(x + 9, y + 7, 2, 2, U.shade('#8a7434', 0.05));              // hazard tick on the flank
   };
 
   F.figurine = (x, y, w, h, f) => {   // a carved BUST on a plinth — three shapes, no limbs
@@ -9548,9 +9463,9 @@ const PropSprites = (() => {
     ctx.globalAlpha = 0.24; px(x + 2, y + 11, 8, 1, '#000'); ctx.globalAlpha = 1;
     // PLINTH — wide and squat, so the thing standing on it reads as small and precious
     px(x + 1, y + 8, 10, 4, LINE);
-    px(x + 2, y + 8, 8, 1, shade(r.top, 0.20)); keyEdge(x + 2, y + 8, 4, 1, 0.26);
-    px(x + 2, y + 9, 8, 2, r.face); px(x + 2, y + 10, 8, 1, shade(r.face, -0.24));
-    px(x + 3, y + 10, 6, 1, shade('#c9a24a', -0.05));            // brass name plate
+    px(x + 2, y + 8, 8, 1, U.shade(r.top, 0.20)); keyEdge(x + 2, y + 8, 4, 1, 0.26);
+    px(x + 2, y + 9, 8, 2, r.face); px(x + 2, y + 10, 8, 1, U.shade(r.face, -0.24));
+    px(x + 3, y + 10, 6, 1, U.shade('#c9a24a', -0.05));            // brass name plate
     // BUST — v1 tried a whole mech (legs, feet, pauldrons, head) inside 8px and resolved to mush.
     // A bust is THREE masses: a flared base, a tapering body, a domed head. That survives 12px.
     px(x + 3, y + 6, 6, 2, LINE); px(x + 4, y + 6, 4, 1, ST); px(x + 4, y + 7, 4, 1, ST_DK);   // shoulders, flared
@@ -9558,14 +9473,14 @@ const PropSprites = (() => {
     px(x + 5, y + 4, 2, 3, ST); px(x + 5, y + 4, 1, 3, ST_LIT); px(x + 6, y + 5, 1, 2, ST_DK);
     px(x + 4, y + 1, 4, 3, LINE);                                  // head
     px(x + 5, y + 2, 2, 2, ST); px(x + 5, y + 2, 1, 1, ST_LIT); rimEdge(x + 6, y + 2, 1, 2, 0.20);
-    px(x + 5, y + 3, 2, 1, blink(2400, ph + x) ? ACC.alert : shade(ACC.alert, -0.62));   // the eye band, waking
+    px(x + 5, y + 3, 2, 1, blink(2400, ph + x) ? ACC.alert : U.shade(ACC.alert, -0.62));   // the eye band, waking
   };
 
   F.deskterminal = (x, y, w, h, f) => {   // a little CRT on a swivel — the one lit face in the set
     const r = RAMP.steel, ph = (f && f.x) || 0, on = !!(f && f.work);
     ctx.globalAlpha = 0.22; px(x + 2, y + 11, 8, 1, '#000'); ctx.globalAlpha = 1;
     px(x + 2, y + 9, 8, 3, LINE);                                  // weighted foot, wide enough to read
-    px(x + 3, y + 9, 6, 1, shade(r.top, 0.18)); keyEdge(x + 3, y + 9, 3, 1, 0.24);
+    px(x + 3, y + 9, 6, 1, U.shade(r.top, 0.18)); keyEdge(x + 3, y + 9, 3, 1, 0.24);
     px(x + 3, y + 10, 6, 2, r.face);
     px(x + 5, y + 7, 2, 2, LINE); px(x + 5, y + 7, 1, 2, r.lit);   // stalk
     // the tube: chamfered, bulging — never a plain rectangle
@@ -9575,10 +9490,10 @@ const PropSprites = (() => {
     px(x + 10, y + 2, 1, 4, r.dk); rimEdge(x + 10, y + 2, 1, 4, 0.20);
     px(x + 1, y + 6, 10, 1, r.ao);                                 // under-bezel shade
     inset(x + 2, y + 2, 8, 4, '#08120e');
-    const g = on ? scr(ph) : shade(scr(ph), -0.45);
+    const g = on ? scr(ph) : U.shade(scr(ph), -0.45);
     codeRow(x + 3, y + 2, 7, 1 + ph, g, '#d9ffe8');
-    codeRow(x + 3, y + 3, 7, 3 + ph, shade(g, -0.18), '#d9ffe8');
-    codeRow(x + 3, y + 4, 7, 5 + ph, shade(g, -0.34), '#d9ffe8');
+    codeRow(x + 3, y + 3, 7, 3 + ph, U.shade(g, -0.18), '#d9ffe8');
+    codeRow(x + 3, y + 4, 7, 5 + ph, U.shade(g, -0.34), '#d9ffe8');
     if (blink(520, ph)) px(x + 3, y + 5, 2, 1, g);                 // cursor
     scanl(x + 2, y + 2, 8, 4, 0.22);
     bloom(x + 2, y + 2, 8, 4, g, on ? 0.30 : 0.13);
@@ -9592,9 +9507,9 @@ const PropSprites = (() => {
     const cx = x + (cw >> 1);
     ctx.globalAlpha = 0.24; px(cx - 5, y + 11, 10, 1, '#000'); ctx.globalAlpha = 1;
     px(cx - 4, y + 9, 9, 3, LINE);                                 // display base
-    px(cx - 3, y + 9, 7, 1, shade(r.top, 0.18)); keyEdge(cx - 3, y + 9, 4, 1, 0.24);
+    px(cx - 3, y + 9, 7, 1, U.shade(r.top, 0.18)); keyEdge(cx - 3, y + 9, 4, 1, 0.24);
     px(cx - 3, y + 10, 7, 2, r.face);
-    px(cx - 2, y + 11, 5, 1, shade('#c9a24a', -0.1));            // brass plate, like the figurine's
+    px(cx - 2, y + 11, 5, 1, U.shade('#c9a24a', -0.1));            // brass plate, like the figurine's
     px(cx, y + 7, 2, 2, LINE); px(cx, y + 7, 1, 2, r.dk);          // support rod
     // HULL — a LONG lens in plan, nose EAST, spanning nearly the whole 2-tile width. v2 built a compact
     // delta centred on cx, which on a 24px footprint is a small grey clump with room to spare either
@@ -9603,20 +9518,20 @@ const PropSprites = (() => {
     rows.forEach((s, j) => px(x + s[0] - 1, y + 2 + j, s[1] + 2, 1, LINE));
     rows.forEach((s, j) => {
       const bx = x + s[0], mid = j === 2;
-      px(bx, y + 2 + j, s[1], 1, j < 2 ? r.top : mid ? r.face : shade(r.face, -0.26));
+      px(bx, y + 2 + j, s[1], 1, j < 2 ? r.top : mid ? r.face : U.shade(r.face, -0.26));
       px(bx, y + 2 + j, 1, 1, r.dk);                               // blunt tail, west
       px(bx + s[1] - 1, y + 2 + j, 1, 1, r.lit);                   // the nose edge, east, takes the key
     });
     px(x + 6, y + 2, 8, 1, r.sheen); keyEdge(x + 6, y + 2, 6, 1, 0.28);      // lit spine along the top
-    px(x + 5, y + 4, 15, 1, shade(r.top, 0.12));                 // centreline
+    px(x + 5, y + 4, 15, 1, U.shade(r.top, 0.12));                 // centreline
     px(x + 17, y + 3, 4, 3, LINE);                                 // the drawn-out nose
-    px(x + 17, y + 4, 4, 1, shade(r.top, 0.24));
-    px(x + 6, y + 1, 6, 1, LINE); px(x + 7, y + 1, 4, 1, shade(r.top, -0.10));   // dorsal fin, aft
+    px(x + 17, y + 4, 4, 1, U.shade(r.top, 0.24));
+    px(x + 6, y + 1, 6, 1, LINE); px(x + 7, y + 1, 4, 1, U.shade(r.top, -0.10));   // dorsal fin, aft
     px(x + 4, y + 7, 6, 1, LINE); px(x + 4, y + 7, 6, 1, r.dk);    // swept wing slung under, west
     const lit = blink(2200, ph + x);
-    px(x + 3, y + 3, 2, 3, lit ? ACC.data : shade(ACC.data, -0.62));       // engine block, aft
+    px(x + 3, y + 3, 2, 3, lit ? ACC.data : U.shade(ACC.data, -0.62));       // engine block, aft
     if (lit) bloom(x + 2, y + 3, 2, 3, ACC.data, 0.34);
-    for (let i = 0; i < 5; i++) px(x + 7 + i * 2, y + 4, 1, 1, shade(ACC.flow, -0.15));   // porthole row
+    for (let i = 0; i < 5; i++) px(x + 7 + i * 2, y + 4, 1, 1, U.shade(ACC.flow, -0.15));   // porthole row
   };
 
   /* ============ FREESTANDING LOUNGE SET (2026-07-29) ============
@@ -9661,20 +9576,20 @@ const PropSprites = (() => {
     /* ---- THE TOP PLANE we look down onto: 4 rows ramping far->near, keyed down the WEST rail ---- */
     // ⛔ the far row is INSET 1px to sit inside the carcass chamfer — a full-width row here leaves a
     //    bare lit corner outside the contour and the whole plane reads as a lid laid on top.
-    for (let j = 0; j < 4; j++) { const i = j ? 0 : 1; px(x + i, TP + j, cw - i * 2, 1, shade(WD, -0.20 + j * 0.11)); }
+    for (let j = 0; j < 4; j++) { const i = j ? 0 : 1; px(x + i, TP + j, cw - i * 2, 1, U.shade(WD, -0.20 + j * 0.11)); }
     px(x + 1, TP + 1, 1, 3, WD_LIT); keyEdge(x + 1, TP + 1, 1, 3, 0.20);   // WEST RAIL — end to end, the plane cue
     px(x + cw - 2, TP + 1, 1, 3, WD_DK); rimEdge(x + cw - 2, TP + 1, 1, 3, 0.18);
-    px(x + 3, TP + 2, cw - 8, 1, shade(WD, 0.02));                     // ONE long seam, not a dashed grain
+    px(x + 3, TP + 2, cw - 8, 1, U.shade(WD, 0.02));                     // ONE long seam, not a dashed grain
     px(x + 2, TP + 3, cw - 4, 1, WD_SHN);                                // the front nosing takes the strip
     keyEdge(x + 2, TP + 3, 8, 1, 0.22);
     /* the top rail's own FACE — short, because height reads and depth does not */
     px(x, RAIL, cw, 1, WD_LIT);
     px(x, RAIL + 1, cw, 1, WD_DK);
-    px(x, TP + 3, 1, 3, WD_DK); px(x + cw - 1, TP + 3, 1, 3, shade(WD_DK, -0.30));   // corner mitres
+    px(x, TP + 3, 1, 3, WD_DK); px(x + cw - 1, TP + 3, 1, 3, U.shade(WD_DK, -0.30));   // corner mitres
 
     px(x, U0, 2, 12, WD); px(x + 1, U0, 1, 12, WD_LIT);                  // west stile, inner face lit
     px(x + cw - 2, U0, 2, 12, WD_DK);                                    // east stile, falling away
-    px(x + cw - 1, U0, 1, 12, shade(WD_DK, -0.32));
+    px(x + cw - 1, U0, 1, 12, U.shade(WD_DK, -0.32));
     rimEdge(x + cw - 1, U0 + 1, 1, 10, 0.18);
 
     /* ---- THE WELL, given three walls ---- */
@@ -9688,9 +9603,9 @@ const PropSprites = (() => {
        flank. `base` is the board's FAR edge — books are pushed to the back of the shelf. */
     const spine = (bx, bw, c, bh, gilt, base) => {
       px(bx, base - bh, bw, bh, c);                                      // spine face
-      px(bx, base - bh, bw, 1, shade(c, 0.34));                        // where the face turns over
-      px(bx, base - bh - 1, bw, 1, shade(c, 0.16));                    // THE TOP CAP — the plane from above
-      px(bx + bw - 1, base - bh, 1, bh, shade(c, -0.36));
+      px(bx, base - bh, bw, 1, U.shade(c, 0.34));                        // where the face turns over
+      px(bx, base - bh - 1, bw, 1, U.shade(c, 0.16));                    // THE TOP CAP — the plane from above
+      px(bx + bw - 1, base - bh, 1, bh, U.shade(c, -0.36));
       if (gilt) px(bx, base - bh + 2, bw, 1, '#8a6a2e');
     };
     const row = (bx, base, list) => { for (const e of list) { if (e[0]) spine(bx, e[0], e[1], e[2], e[3], base); bx += e[0] || 1; } };
@@ -9707,7 +9622,7 @@ const PropSprites = (() => {
 
     /* ---- MIDDLE BOARD: 2 rows of TOP SURFACE (the books stand on its far edge) + a front edge ---- */
     px(x + 2, BRD, cw - 4, 2, WD);
-    px(x + 2, BRD, cw - 4, 1, shade(WD, 0.14));
+    px(x + 2, BRD, cw - 4, 1, U.shade(WD, 0.14));
     px(x + 2, BRD + 1, cw - 4, 1, WD_LIT);                               // the strip we see IN FRONT of the books
     px(x + 2, BRD, 1, 2, WD_LIT);                                        // keyed down the west rail again
     px(x + cw - 3, BRD, 1, 2, WD_DK);
@@ -9725,15 +9640,15 @@ const PropSprites = (() => {
     for (let s = 0; s < 2; s++) {                                               // the books beneath, edges only
       const c = ['#2f4a7a', '#b8b2a0'][s];
       px(x + 16 - s, L0 + 3 + s, 5, 1, c);
-      px(x + 16 - s, L0 + 3 + s, 1, 1, shade(c, 0.30));
+      px(x + 16 - s, L0 + 3 + s, 1, 1, U.shade(c, 0.30));
     }
 
     /* ---- PLINTH ---- */
     px(x, PL, cw, 1, WD_LIT); keyEdge(x + 1, PL, 8, 1, 0.18);
     px(x, PL + 1, cw, 1, WD);
     px(x + 1, PL + 2, cw - 2, 1, WD_DK);
-    wear(x, TP + 1, cw, 2, 3, shade(WD, -0.12));
-    wear(x, PL, cw, 2, 3, shade(WD, -0.12));
+    wear(x, TP + 1, cw, 2, 3, U.shade(WD, -0.12));
+    wear(x, PL, cw, 2, 3, U.shade(WD, -0.12));
     px(x + 1, y + h - 1, cw - 2, 1, '#0b0704');                          // toe shadow on the deck
   };
 
@@ -9753,25 +9668,25 @@ const PropSprites = (() => {
     const rows = [[4, 5], [3, 7], [2, 9], [1, 10], [1, 11], [0, 12], [0, 12], [0, 12], [1, 11]];
     rows.forEach((s, j) => px(x + s[0] - 1, y + 2 + j - 1, s[1] + 2, 3, EDGE));      // tinted halo, blob not box
     rows.forEach((s, j) => px(x + s[0], y + 2 + j, s[1], 1,
-      j < 2 ? lit : j < 5 ? c : j < 7 ? shade(c, -0.14) : dk));                   // crown -> swell -> tuck
+      j < 2 ? lit : j < 5 ? c : j < 7 ? U.shade(c, -0.14) : dk));                   // crown -> swell -> tuck
 
     /* ---- THE SITTING BOWL: far rim lit, near wall shaded, floor deep ---- */
-    px(x + 4, y + 2, 4, 1, shade(lit, 0.26)); keyEdge(x + 4, y + 2, 4, 1, 0.22);  // far rim takes the key
-    px(x + 4, y + 3, 4, 1, shade(c, -0.22));                                      // the bowl's near wall
+    px(x + 4, y + 2, 4, 1, U.shade(lit, 0.26)); keyEdge(x + 4, y + 2, 4, 1, 0.22);  // far rim takes the key
+    px(x + 4, y + 3, 4, 1, U.shade(c, -0.22));                                      // the bowl's near wall
     px(x + 4, y + 4, 3, 1, deep);                                                   // its floor
-    px(x + 3, y + 5, 3, 1, shade(c, -0.10));                                      // crease running out of it
+    px(x + 3, y + 5, 3, 1, U.shade(c, -0.10));                                      // crease running out of it
 
     /* ---- PIPING SEAM round the middle: lit on the west shoulder, lost on the east ---- */
-    px(x + 1, y + 6, 5, 1, shade(c, 0.16));
-    px(x + 6, y + 6, 5, 1, shade(c, -0.24));
-    px(x + 1, y + 4, 1, 3, shade(lit, 0.04));                                     // west flank highlight
+    px(x + 1, y + 6, 5, 1, U.shade(c, 0.16));
+    px(x + 6, y + 6, 5, 1, U.shade(c, -0.24));
+    px(x + 1, y + 4, 1, 3, U.shade(lit, 0.04));                                     // west flank highlight
 
     /* ---- THE TUCK: fabric spreading under its own weight, and the deck line under it ---- */
-    px(x + 1, y + 9, 10, 1, shade(dk, -0.24));
+    px(x + 1, y + 9, 10, 1, U.shade(dk, -0.24));
     px(x + 1, y + 10, 10, 1, deep);
     for (let i = 0; i < 5; i++) {                                                   // sparse nap, kept off the bowl
       const k = U.hash('bb' + x + i);
-      px(x + 2 + (k % 9), y + 6 + ((k >>> 5) % 3), 1, 1, shade(c, 0.12));
+      px(x + 2 + (k % 9), y + 6 + ((k >>> 5) % 3), 1, 1, U.shade(c, 0.12));
     }
     px(x + 10, y + 5, 1, 1, '#8a6f34');                                             // the little brand tag
   };
@@ -9807,12 +9722,12 @@ const PropSprites = (() => {
     px(x + 1, y - 1, w - 2, 1, SHELL_DK);
     /* (2) THE WELL — cold glass, and the SLEEPER behind it */
     px(x + 1, y, w - 2, 15, GLS);
-    px(x + 2, y, 1, 15, shade(GLS, 0.22)); px(x + w - 3, y, 1, 15, shade(GLS, -0.24));
+    px(x + 2, y, 1, 15, U.shade(GLS, 0.22)); px(x + w - 3, y, 1, 15, U.shade(GLS, -0.24));
     px(x + 4, y + 1, 4, 4, '#1b3a48');                           // the head
-    px(x + 5, y + 1, 2, 1, shade('#1b3a48', 0.30));
+    px(x + 5, y + 1, 2, 1, U.shade('#1b3a48', 0.30));
     px(x + 3, y + 5, 6, 8, '#17323e');                           // shoulders + torso, sinking into the dark
-    px(x + 3, y + 5, 1, 8, shade('#17323e', 0.26));            // the cold light catching one side
-    px(x + 8, y + 6, 1, 6, shade('#17323e', -0.30));
+    px(x + 3, y + 5, 1, 8, U.shade('#17323e', 0.26));            // the cold light catching one side
+    px(x + 8, y + 6, 1, 6, U.shade('#17323e', -0.30));
     px(x + 4, y + 13, 5, 2, '#122a34');
     /* (3) THE FROST — thickest at the corners, wiped clear across the middle */
     for (let i = 0; i < 5; i++) {
@@ -9821,17 +9736,17 @@ const PropSprites = (() => {
       ctx.globalAlpha = 1;
     }
     ctx.globalAlpha = 0.16; px(x + 1, y + 5, 2, 6, '#dff3ff'); px(x + w - 3, y + 5, 2, 6, '#dff3ff'); ctx.globalAlpha = 1;
-    px(x + 2, y + 6, 1, 3, shade(ICE, -0.20)); px(x + w - 3, y + 8, 1, 2, shade(ICE, -0.30));   // crystals on the pane
-    px(x + 1, y, w - 2, 1, shade(ICE, -0.10));                 // the pane's own top edge
+    px(x + 2, y + 6, 1, 3, U.shade(ICE, -0.20)); px(x + w - 3, y + 8, 1, 2, U.shade(ICE, -0.30));   // crystals on the pane
+    px(x + 1, y, w - 2, 1, U.shade(ICE, -0.10));                 // the pane's own top edge
     /* (4) the CONTROL BAND — a readout and two coolant valves */
     px(x + 1, y + 15, w - 2, 4, SHELL);
     px(x + 1, y + 15, w - 2, 1, SHELL_LIT);
     px(x + 2, y + 16, 5, 2, '#0e1c24');
     for (let i = 0; i < 3; i++) px(x + 3 + i, y + 17, 1, 1, i < 1 + ((now / 900 + x) % 3 | 0) ? ICE : '#1d3a46');
-    px(x + 8, y + 16, 2, 2, ICE_DK); px(x + 8, y + 16, 2, 1, shade(ICE_DK, 0.28));
+    px(x + 8, y + 16, 2, 2, ICE_DK); px(x + 8, y + 16, 2, 1, U.shade(ICE_DK, 0.28));
     /* (5) the PLINTH — pipes running into the deck, breathing cold */
     px(x + 1, y + 19, w - 2, 3, SHELL_DK);
-    px(x + 1, y + 19, w - 2, 1, shade(SHELL, -0.06));
+    px(x + 1, y + 19, w - 2, 1, U.shade(SHELL, -0.06));
     px(x + 2, y + 20, 2, 2, '#0e1418'); px(x + 8, y + 20, 2, 2, '#0e1418');
     px(x + 1, y + 22, w - 2, 2, '#0f1418');
     spill(x + 1, y + 15, w - 2, ICE, 0.14 + 0.06 * br, 4);
@@ -9864,16 +9779,16 @@ const PropSprites = (() => {
     px(x + 1, y - 6, w - 2, 3, MET);
     px(x + 1, y - 6, w - 2, 1, MET_LIT); keyEdge(x + 1, y - 6, 4, 1, 0.24);
     px(x + 2, y - 5, 1, 1, MET_LIT); px(x + w - 3, y - 5, 1, 1, MET_DK);          // collar bolts
-    px(x + 1, y - 4, w - 2, 1, shade(LIQ, -0.10));                              // the cap's underside, lit green
+    px(x + 1, y - 4, w - 2, 1, U.shade(LIQ, -0.10));                              // the cap's underside, lit green
     /* (3) THE TANK — glass walls, liquid, and a brighter core column */
     px(x + 1, y - 3, w - 2, 18, GLS);
     /* the culture, BRIGHTEST AT ITS FLOOR — the reference's light pools in the sediment and fades
        upward, which is what stops the tank reading as a backlit panel. A bright vertical core stripe
        did exactly that, and it also competed with the specimen for the eye. */
     px(x + 2, y - 1, w - 4, 16, LIQ);
-    for (let i = 0; i < 5; i++) px(x + 2, y + 10 - i * 2, w - 4, 2, shade(LIQ, 0.05 + i * 0.06));
+    for (let i = 0; i < 5; i++) px(x + 2, y + 10 - i * 2, w - 4, 2, U.shade(LIQ, 0.05 + i * 0.06));
     px(x + 2, y - 1, w - 4, 1, HOT);                                              // the meniscus
-    px(x + 2, y + 11, w - 4, 4, shade(LIQ_LIT, 0.04));                          // the sediment bed, glowing
+    px(x + 2, y + 11, w - 4, 4, U.shade(LIQ_LIT, 0.04));                          // the sediment bed, glowing
     px(x + 3, y + 12, w - 6, 3, LIQ_LIT);
     px(x + 4, y + 13, w - 8, 2, HOT);
     bloom(x + 2, y + 11, w - 4, 4, HOT, 0.30);
@@ -9882,11 +9797,11 @@ const PropSprites = (() => {
     px(x + 4, sy, 4, 2, DARK);                                                    // the curled body: head...
     px(x + 3, sy + 2, 6, 3, DARK);                                                // ...shoulders...
     px(x + 4, sy + 5, 4, 2, DARK);                                                // ...and the curl of its tail
-    px(x + 3, sy + 2, 1, 3, HOT); px(x + 4, sy, 1, 2, shade(HOT, -0.18));       // the glow rims its WEST edge
-    px(x + 4, sy, 3, 1, shade(LIQ_LIT, 0.10));                                  // and lands along its crown
-    px(x + 8, sy + 2, 1, 3, shade(LIQ, -0.30));                                 // its east side keeps the dark
-    px(x + 5, sy + 3, 1, 1, shade(HOT, -0.30));                                 // one lit fleck inside it
-    px(x + 5, sy + 7, 2, 1, shade(DARK, 0.30));                                 // a wisp trailing below
+    px(x + 3, sy + 2, 1, 3, HOT); px(x + 4, sy, 1, 2, U.shade(HOT, -0.18));       // the glow rims its WEST edge
+    px(x + 4, sy, 3, 1, U.shade(LIQ_LIT, 0.10));                                  // and lands along its crown
+    px(x + 8, sy + 2, 1, 3, U.shade(LIQ, -0.30));                                 // its east side keeps the dark
+    px(x + 5, sy + 3, 1, 1, U.shade(HOT, -0.30));                                 // one lit fleck inside it
+    px(x + 5, sy + 7, 2, 1, U.shade(DARK, 0.30));                                 // a wisp trailing below
     bloom(x + 3, sy - 1, 6, 9, LIQ_LIT, 0.10);                                    // it displaces the glow around it
     /* (5) MOTES rising — one per column, each on its own loop, deterministic per station */
     for (let i = 0; i < 9; i++) {
@@ -9897,25 +9812,25 @@ const PropSprites = (() => {
       px(mx, my, 1, 1, (i % 3) ? MOTE : HOT);
     }
     /* (6) the GLASS itself — cylinder shading last, over the contents */
-    px(x + 1, y - 3, 1, 18, shade(HOT, -0.36));                                 // lit west wall
-    px(x + w - 2, y - 3, 1, 18, shade(GLS, 0.10));                              // shaded east wall
+    px(x + 1, y - 3, 1, 18, U.shade(HOT, -0.36));                                 // lit west wall
+    px(x + w - 2, y - 3, 1, 18, U.shade(GLS, 0.10));                              // shaded east wall
     rimEdge(x + w - 2, y - 2, 1, 16, 0.18);
     ctx.globalAlpha = 0.30; px(x + 3, y - 2, 1, 8, '#eafff4'); ctx.globalAlpha = 1;   // the specular streak
     ctx.globalAlpha = 0.14; px(x + w - 4, y + 2, 1, 9, '#eafff4'); ctx.globalAlpha = 1;
     bloom(x + 1, y - 3, w - 2, 18, LIQ_LIT, 0.16 + 0.05 * Math.sin(now / 620));
     /* (7) THE PEDESTAL — heavy, stepped, and lit green from above rather than from the ceiling */
     px(x + 1, y + 15, w - 2, 2, MET);
-    px(x + 1, y + 15, w - 2, 1, shade(LIQ_LIT, -0.30));                         // its crown takes the tank's light
+    px(x + 1, y + 15, w - 2, 1, U.shade(LIQ_LIT, -0.30));                         // its crown takes the tank's light
     px(x, y + 17, w, 4, MET);
     px(x, y + 17, w, 1, MET_LIT);
-    px(x, y + 17, 1, 4, shade(MET_LIT, -0.10)); px(x + w - 1, y + 17, 1, 4, MET_DK);
+    px(x, y + 17, 1, 4, U.shade(MET_LIT, -0.10)); px(x + w - 1, y + 17, 1, 4, MET_DK);
     for (let i = 0; i < 3; i++) {                                                 // three indicator lamps
       const on = ((now / 700 + i) % 3 | 0) === i;
       px(x + 3 + i * 3, y + 19, 1, 1, on ? '#ffb347' : '#4a3a1c');
       if (on) bloom(x + 3 + i * 3, y + 19, 1, 1, '#ffb347', 0.30);
     }
     px(x - 1, y + 21, w + 2, 2, MET_DK);
-    px(x, y + 21, w, 1, shade(MET, 0.10));
+    px(x, y + 21, w, 1, U.shade(MET, 0.10));
     px(x, y + 23, w, 1, '#0b0f12');
     spill(x - 1, y + 15, w + 2, LIQ_LIT, 0.34, 5);
     glow(x - 3, y + 21, w + 6, 3, LIQ_LIT, 0.20);                                 // the deck around its foot
@@ -9956,17 +9871,17 @@ const PropSprites = (() => {
       for (let i = 0; i < 10; i++) px(lx + Math.round(dx * i * 0.5), y + 12 + i, 1, 1, dx < 0 ? MET_LIT : (dx > 0 ? MET_DK : MET));
       px(lx + Math.round(dx * 5), y + 22, 2, 1, '#0d1215');
     }
-    px(x + 3, y + 17, 6, 1, MET_DK); px(x + 3, y + 16, 6, 1, shade(MET, 0.12));   // the spreader
+    px(x + 3, y + 17, 6, 1, MET_DK); px(x + 3, y + 16, 6, 1, U.shade(MET, 0.12));   // the spreader
     px(x + 4, y + 9, 4, 4, INK); px(x + 5, y + 10, 2, 3, MET); px(x + 5, y + 10, 1, 3, MET_LIT);
     /* (2) THE FORK MOUNT — two prongs and a pivot bolt the tube tips about */
     px(x + 4, y + 3, 2, 7, INK); px(x + 7, y + 3, 2, 7, INK);
     px(x + 4, y + 4, 1, 6, MET_LIT); px(x + 5, y + 4, 1, 6, MET);
-    px(x + 7, y + 4, 1, 6, shade(MET, -0.20)); px(x + 8, y + 4, 1, 6, MET_DK);
+    px(x + 7, y + 4, 1, 6, U.shade(MET, -0.20)); px(x + 8, y + 4, 1, 6, MET_DK);
     px(x + 5, y + 3, 3, 1, MET_DK);
-    px(x + 6, y + 3, 1, 1, shade(MET_LIT, 0.20));                                 // the pivot bolt
+    px(x + 6, y + 3, 1, 1, U.shade(MET_LIT, 0.20));                                 // the pivot bolt
     /* (3) THE COUNTERWEIGHT — a short shaft down-east with a disc, so the tube reads as balanced */
     px(x + 8, y + 6, 3, 1, MET_DK);
-    px(x + 10, y + 5, 3, 4, INK); px(x + 11, y + 6, 1, 2, shade(MET, 0.10)); px(x + 12, y + 6, 1, 2, MET_DK);
+    px(x + 10, y + 5, 3, 4, INK); px(x + 11, y + 6, 1, 2, U.shade(MET, 0.10)); px(x + 12, y + 6, 1, 2, MET_DK);
     /* (4) THE TUBE — perpendicular slices up the diagonal, tapering toward the objective */
     for (let i = 0; i < 15; i++) {
       const bx = x - 1 + i, by = y + 8 - i;
@@ -9978,25 +9893,25 @@ const PropSprites = (() => {
       px(bx, top + 2, 1, wide ? 2 : 1, BRS_MID);                                    // the mid band
       px(bx, top + (wide ? 4 : 3), 1, 1, BRS_DK);                                   // shaded belly
       px(bx, top + (wide ? 5 : 4), 1, 1, INK);                                      // contour below
-      if (i === 5 || i === 10) { px(bx, top, 1, wide ? 5 : 4, shade(BRS_DK, 0.14)); px(bx, top, 1, 1, BRS_LIT); }   // tube rings
+      if (i === 5 || i === 10) { px(bx, top, 1, wide ? 5 : 4, U.shade(BRS_DK, 0.14)); px(bx, top, 1, 1, BRS_LIT); }   // tube rings
     }
     /* (5) THE OBJECTIVE — a dark mouth ring at the high end, cold sky caught in the glass */
     px(x + 13, y - 8, 3, 7, INK);
     px(x + 14, y - 7, 2, 5, BRS_DK); px(x + 14, y - 7, 2, 1, BRS_MID);
-    px(x + 14, y - 6, 1, 3, '#bfe6ff'); px(x + 15, y - 6, 1, 3, shade('#bfe6ff', -0.40));
+    px(x + 14, y - 6, 1, 3, '#bfe6ff'); px(x + 15, y - 6, 1, 3, U.shade('#bfe6ff', -0.40));
     bloom(x + 14, y - 6, 2, 3, '#bfe6ff', 0.22);
     /* (6) THE FINDER SCOPE — a small tube on brackets, parallel, above the eyepiece end */
     for (let i = 0; i < 6; i++) {
       const fx = x + 1 + i, fy = y + 3 - i;
-      px(fx, fy - 1, 1, 1, INK); px(fx, fy, 1, 1, shade(MET_LIT, 0.10));
+      px(fx, fy - 1, 1, 1, INK); px(fx, fy, 1, 1, U.shade(MET_LIT, 0.10));
       px(fx, fy + 1, 1, 1, MET_DK); px(fx, fy + 2, 1, 1, INK);
     }
     px(x + 2, y + 4, 1, 2, MET); px(x + 5, y + 1, 1, 2, MET);                       // its two brackets
     /* (7) THE EYEPIECE — a stub standing PERPENDICULAR out of the low end, and a focuser knob */
     px(x - 3, y + 8, 3, 4, INK);
     px(x - 2, y + 9, 2, 1, MET_LIT); px(x - 2, y + 10, 2, 1, MET);
-    px(x - 3, y + 9, 1, 2, shade(MET_LIT, 0.14));
-    px(x + 1, y + 10, 2, 2, INK); px(x + 1, y + 10, 2, 1, shade(MET, 0.16));      // focuser knob
+    px(x - 3, y + 9, 1, 2, U.shade(MET_LIT, 0.14));
+    px(x + 1, y + 10, 2, 2, INK); px(x + 1, y + 10, 2, 1, U.shade(MET, 0.16));      // focuser knob
   };
   F.telescope_r = mirrorV(F.telescope);
 
@@ -10021,7 +9936,7 @@ const PropSprites = (() => {
       }
       px(lx + Math.round(dx * 6), y + 22, 2, 1, '#0d1215');
     }
-    px(x + 3, y + 15, 6, 1, MET_DK); px(x + 3, y + 14, 6, 1, shade(MET, 0.10));
+    px(x + 3, y + 15, 6, 1, MET_DK); px(x + 3, y + 14, 6, 1, U.shade(MET, 0.10));
     px(x + 5, y + 5, 2, 4, MET); px(x + 5, y + 5, 1, 4, MET_LIT);                   // centre column
     px(x + 4, y + 4, 4, 2, INK); px(x + 5, y + 4, 2, 1, MET_LIT);                   // pan head
     px(x + 9, y + 5, 3, 1, MET); px(x + 11, y + 6, 1, 2, MET_DK);                   // pan handle, out east
@@ -10031,15 +9946,15 @@ const PropSprites = (() => {
     px(x + 5, y - 2, 6, 6, BODY);
     px(x + 3, y, 2, 4, BODY);                                                       // the taper toward the lens
     px(x + 5, y - 2, 6, 1, BODY_LIT); keyEdge(x + 5, y - 2, 3, 1, 0.24);
-    px(x + 3, y, 2, 1, shade(BODY_LIT, -0.14));
+    px(x + 3, y, 2, 1, U.shade(BODY_LIT, -0.14));
     px(x + 10, y - 1, 1, 5, BODY_DK); rimEdge(x + 10, y - 1, 1, 5, 0.20);
-    px(x + 6, y, 3, 2, shade(BODY, 0.12));                                        // the cassette door
-    px(x + 6, y, 3, 1, shade(BODY_LIT, -0.24));
-    for (let i = 0; i < 3; i++) px(x + 9, y + 1 + i, 1, 1, shade(BODY_LIT, -0.16));   // vents
+    px(x + 6, y, 3, 2, U.shade(BODY, 0.12));                                        // the cassette door
+    px(x + 6, y, 3, 1, U.shade(BODY_LIT, -0.24));
+    for (let i = 0; i < 3; i++) px(x + 9, y + 1 + i, 1, 1, U.shade(BODY_LIT, -0.16));   // vents
     /* (3) THE EYEPIECE, jutting BACK over the operator's shoulder */
     px(x + 10, y - 4, 4, 4, INK);
     px(x + 11, y - 3, 3, 2, BODY); px(x + 11, y - 3, 3, 1, BODY_LIT);
-    px(x + 13, y - 2, 1, 1, shade('#7fd8ff', -0.30));
+    px(x + 13, y - 2, 1, 1, U.shade('#7fd8ff', -0.30));
     px(x + 10, y - 5, 1, 1, hot ? '#ff3b30' : '#5a1a16');                           // the TALLY
     if (hot) bloom(x + 10, y - 5, 1, 1, '#ff3b30', 0.34);
     /* (4) THE CARRY HANDLE — daylight under it is the outline break the whole prop hangs on */
@@ -10048,8 +9963,8 @@ const PropSprites = (() => {
     px(x + 5, y - 5, 1, 2, MET); px(x + 10, y - 5, 1, 2, MET_DK);                   // its two posts
     /* (5) THE LENS — a stepped barrel narrowing to the glass, west */
     px(x, y - 1, 3, 6, INK);
-    px(x + 1, y, 2, 4, shade(BODY, 0.06));                                        // the wide ring
-    px(x + 1, y, 2, 1, shade(BODY_LIT, -0.10));
+    px(x + 1, y, 2, 4, U.shade(BODY, 0.06));                                        // the wide ring
+    px(x + 1, y, 2, 1, U.shade(BODY_LIT, -0.10));
     px(x - 1, y + 1, 2, 3, INK);
     px(x, y + 1, 1, 2, BODY_DK);                                                    // the narrow ring
     px(x - 1, y + 1, 1, 2, '#7fd8ff'); px(x - 1, y + 1, 1, 1, '#cfefff');           // the glass
@@ -10077,16 +9992,16 @@ const PropSprites = (() => {
     px(x + 5, y + 18, 7, 4, INK);
     px(x + 6, y + 19, 5, 2, MET); px(x + 6, y + 19, 5, 1, MET_LIT);
     px(x + 6, y + 21, 5, 1, '#0d1215');
-    px(x + 7, y + 16, 4, 3, INK); px(x + 8, y + 17, 2, 2, shade(MET, -0.16));     // ballast discs
-    px(x + 8, y + 16, 2, 1, shade(MET_LIT, -0.10));
+    px(x + 7, y + 16, 4, 3, INK); px(x + 8, y + 17, 2, 2, U.shade(MET, -0.16));     // ballast discs
+    px(x + 8, y + 16, 2, 1, U.shade(MET_LIT, -0.10));
     px(x + 8, y - 7, 4, 25, INK);
     px(x + 9, y - 6, 1, 24, MET_LIT); px(x + 10, y - 6, 2, 24, MET);                // the mast
     for (let i = 0; i < 4; i++) px(x + 9, y + 2 + i * 5, 3, 1, MET_DK);             // its sleeve joints
     for (let i = 0; i < 4; i++) px(x + 8 - i, y + 13 + i, 1, 1, MET);               // a brace down to the plate
     px(x + 1, y - 8, 11, 4, INK);
     px(x + 2, y - 7, 9, 1, MET_LIT); px(x + 2, y - 6, 9, 2, MET);                   // the arm
-    px(x + 2, y - 5, 9, 1, shade(MET, -0.30));
-    px(x + 9, y - 7, 3, 3, shade(MET_LIT, 0.10));                                 // the elbow gusset
+    px(x + 2, y - 5, 9, 1, U.shade(MET, -0.30));
+    px(x + 9, y - 7, 3, 3, U.shade(MET_LIT, 0.10));                                 // the elbow gusset
     /* (2) THE CHAIN + SWIVEL, leaning with the bag */
     px(x + 5 + sw, y - 4, 1, 3, MET_DK);
     px(x + 5 + sw, y - 4, 1, 1, MET_LIT);
@@ -10095,16 +10010,16 @@ const PropSprites = (() => {
     const bx = x + 1 + sw;
     rr(bx, y - 2, 8, 18, INK);                                                      // rounded: a bag has no corners
     px(bx + 1, y, 6, 2, LTH_LIT); keyEdge(bx + 1, y, 3, 1, 0.26);                   // crown
-    px(bx + 1, y + 2, 6, 1, shade(LTH_LIT, -0.20));
+    px(bx + 1, y + 2, 6, 1, U.shade(LTH_LIT, -0.20));
     px(bx + 1, y + 3, 6, 7, LTH);
-    px(bx + 1, y + 3, 1, 7, shade(LTH_LIT, -0.14)); px(bx + 6, y + 3, 1, 7, LTH_DK);
+    px(bx + 1, y + 3, 1, 7, U.shade(LTH_LIT, -0.14)); px(bx + 6, y + 3, 1, 7, LTH_DK);
     rimEdge(bx + 6, y + 4, 1, 6, 0.18);
     px(bx + 1, y + 10, 6, 3, LTH_DK);                                               // the fall into shade
-    px(bx + 1, y + 13, 6, 2, shade(LTH_DK, -0.34));                               // worn where the fists land
+    px(bx + 1, y + 13, 6, 2, U.shade(LTH_DK, -0.34));                               // worn where the fists land
     px(bx + 2, y + 15, 4, 1, '#100a08');
-    px(bx + 1, y + 6, 6, 1, shade(LTH, -0.26));                                   // a seam round its middle
-    px(bx + 1, y + 7, 6, 1, shade(LTH, 0.08));
-    px(bx + 3, y + 11, 2, 1, shade(LTH_DK, 0.18));                                // a scuff
+    px(bx + 1, y + 6, 6, 1, U.shade(LTH, -0.26));                                   // a seam round its middle
+    px(bx + 1, y + 7, 6, 1, U.shade(LTH, 0.08));
+    px(bx + 3, y + 11, 2, 1, U.shade(LTH_DK, 0.18));                                // a scuff
     /* (4) THE STRAPS — two, from the ring down onto the crown */
     px(bx + 2, y - 1, 1, 2, MET_DK); px(bx + 5, y - 1, 1, 2, MET_DK);
     px(bx + 2, y - 1, 1, 1, MET_LIT);
@@ -10131,19 +10046,19 @@ const PropSprites = (() => {
       px(lx, y + 6, 1, 5, MET_LIT); px(lx + 1, y + 6, 1, 5, MET); px(lx + 2, y + 6, 1, 5, MET_DK);
       px(lx - 1, y + 11, 5, 1, '#0d1215');
     }
-    px(x + 15, y + 8, 15, 1, MET_DK); px(x + 15, y + 7, 15, 1, shade(MET, 0.14));   // the frame rail
+    px(x + 15, y + 8, 15, 1, MET_DK); px(x + 15, y + 7, 15, 1, U.shade(MET, 0.14));   // the frame rail
     px(x + 9, y + 1, 25, 6, INK);
     px(x + 10, y + 2, 23, 2, PAD_LIT); keyEdge(x + 10, y + 2, 6, 1, 0.24);            // the pad's top plane
     px(x + 10, y + 4, 23, 2, PAD);
-    px(x + 10, y + 6, 23, 1, shade(PAD, -0.34));                                    // its underside
+    px(x + 10, y + 6, 23, 1, U.shade(PAD, -0.34));                                    // its underside
     px(x + 9, y - 1, 8, 4, INK);
-    px(x + 10, y, 6, 2, shade(PAD_LIT, 0.10));                                      // the HEAD, a row proud
+    px(x + 10, y, 6, 2, U.shade(PAD_LIT, 0.10));                                      // the HEAD, a row proud
     px(x + 10, y + 2, 6, 1, PAD);
-    for (const sx of [x + 18, x + 24, x + 30]) px(sx, y + 3, 1, 1, shade(PAD_LIT, -0.26));   // stitching
+    for (const sx of [x + 18, x + 24, x + 30]) px(sx, y + 3, 1, 1, U.shade(PAD_LIT, -0.26));   // stitching
     /* (2) THE RACK — a STUB, not a tower: two uprights barely clearing the pad */
     px(x + 5, y - 6, 4, 13, INK);
     px(x + 6, y - 5, 1, 12, MET_LIT); px(x + 7, y - 5, 1, 12, MET);
-    px(x + 9, y - 4, 2, 10, INK); px(x + 9, y - 3, 1, 9, shade(MET, -0.28));       // the far upright, behind
+    px(x + 9, y - 4, 2, 10, INK); px(x + 9, y - 3, 1, 9, U.shade(MET, -0.28));       // the far upright, behind
     px(x + 5, y - 3, 4, 1, MET_DK);                                                   // the hook notch
     px(x + 4, y + 7, 6, 4, INK); px(x + 5, y + 8, 4, 2, MET); px(x + 5, y + 8, 4, 1, MET_LIT);
     px(x + 4, y + 11, 6, 1, '#0d1215');                                               // the rack's foot
@@ -10154,19 +10069,19 @@ const PropSprites = (() => {
     px(x + 22, y - 4, 1, 1, MET_DK);
     /* (4) THE PLATES — discs on the bar's near and far ends, hanging LOW beside the head */
     rr(x + 8, y - 8, 5, 6, INK);
-    rr(x + 9, y - 7, 3, 4, shade(DISC, 0.16));
-    px(x + 10, y - 7, 1, 1, shade(RIM, -0.10));                                     // the FAR plate's crown
+    rr(x + 9, y - 7, 3, 4, U.shade(DISC, 0.16));
+    px(x + 10, y - 7, 1, 1, U.shade(RIM, -0.10));                                     // the FAR plate's crown
     rr(x + 1, y - 8, 7, 9, INK);
     rr(x + 2, y - 7, 5, 7, DISC);                                                     // the NEAR plate
     px(x + 3, y - 7, 3, 1, RIM_LIT); px(x + 3, y - 1, 3, 1, RIM);
-    px(x + 2, y - 6, 1, 5, RIM); px(x + 6, y - 6, 1, 5, shade(RIM, -0.36));
+    px(x + 2, y - 6, 1, 5, RIM); px(x + 6, y - 6, 1, 5, U.shade(RIM, -0.36));
     keyEdge(x + 3, y - 7, 2, 1, 0.28); rimEdge(x + 6, y - 5, 1, 3, 0.20);
-    px(x + 3, y - 5, 1, 4, shade(DISC, 0.30));                                      // the lit facet on its face
+    px(x + 3, y - 5, 1, 4, U.shade(DISC, 0.30));                                      // the lit facet on its face
     px(x + 4, y - 5, 2, 2, MET_DK); px(x + 4, y - 5, 2, 1, MET_LIT);                  // the collar at its hub
     /* (5) a spare plate leaning at the foot end — the detail that says GYM, not machine shop */
     rr(x + 33, y + 4, 4, 7, INK);
-    rr(x + 34, y + 5, 2, 5, DISC); px(x + 34, y + 5, 2, 1, shade(RIM, 0.10));
-    px(x + 33, y + 6, 1, 3, shade(RIM, -0.20));
+    rr(x + 34, y + 5, 2, 5, DISC); px(x + 34, y + 5, 2, 1, U.shade(RIM, 0.10));
+    px(x + 33, y + 6, 1, 3, U.shade(RIM, -0.20));
   };
   F.benchpress_r = mirrorV(F.benchpress);
 
@@ -10191,14 +10106,14 @@ const PropSprites = (() => {
     chamf(x + 1, y - 16, w - 2, 22, FRM_DK, 2);
     px(x + 2, y - 15, w - 4, 20, FRM);
     px(x + 2, y - 15, w - 4, 1, FRM_LIT); keyEdge(x + 2, y - 15, 7, 1, 0.26);
-    px(x + 2, y - 15, 1, 20, shade(FRM_LIT, -0.16)); px(x + w - 3, y - 15, 1, 20, FRM_DK);
+    px(x + 2, y - 15, 1, 20, U.shade(FRM_LIT, -0.16)); px(x + w - 3, y - 15, 1, 20, FRM_DK);
     rimEdge(x + w - 3, y - 14, 1, 18, 0.18);
     px(x + 3, y - 14, w - 6, 18, WELL);
-    px(x + 3, y - 14, w - 6, 1, shade(WELL, -0.44));
+    px(x + 3, y - 14, w - 6, 1, U.shade(WELL, -0.44));
     px(x + 4, y - 13, w - 8, 1, WELL_LIT);
-    px(x + 3, y - 1, w - 6, 1, shade(FRM, -0.26));                               // the shelf between the two arms
+    px(x + 3, y - 1, w - 6, 1, U.shade(FRM, -0.26));                               // the shelf between the two arms
     for (const [bx, by] of [[x + 2, y - 15], [x + w - 3, y - 15], [x + 2, y + 3], [x + w - 3, y + 3]]) {
-      px(bx, by, 1, 1, shade(FRM_LIT, 0.24)); px(bx, by + 1, 1, 1, FRM_DK);
+      px(bx, by, 1, 1, U.shade(FRM_LIT, 0.24)); px(bx, by + 1, 1, 1, FRM_DK);
     }
     /* (2) THE ARMS. This prop has now failed in both directions and the useful part is WHY:
        ⛔ v5 was 1.6x oversize (a 30px rifle against a 35px body — "too big for the agents").
@@ -10216,27 +10131,27 @@ const PropSprites = (() => {
       const bl = x0 + 15;                                                          // where the barrel starts
       /* stock — a solid block with a dark comb line, then daylight before the grip */
       px(x0, y0 - 3, 7, 6, GUN_DK);
-      px(x0 + 1, y0 - 2, 5, 4, shade(GUN_MID, -0.06));
+      px(x0 + 1, y0 - 2, 5, 4, U.shade(GUN_MID, -0.06));
       px(x0 + 1, y0 - 2, 5, 1, GUN);
-      px(x0 + 1, y0, 4, 1, shade(GUN_DK, 0.30));                                 // the comb
-      px(x0, y0 - 2, 1, 4, shade(GUN_DK, 0.26));                                 // butt pad
+      px(x0 + 1, y0, 4, 1, U.shade(GUN_DK, 0.30));                                 // the comb
+      px(x0, y0 - 2, 1, 4, U.shade(GUN_DK, 0.26));                                 // butt pad
       /* pistol grip, hanging clear below the receiver */
       px(x0 + 6, y0 + 3, 3, 4, GUN_DK);
-      px(x0 + 7, y0 + 3, 1, 3, shade(GUN_MID, 0.06));
+      px(x0 + 7, y0 + 3, 1, 3, U.shade(GUN_MID, 0.06));
       /* receiver — the widest, lightest block on the weapon: this is what says "gun" */
       px(x0 + 5, y0 - 3, 9, 6, GUN_DK);
       px(x0 + 6, y0 - 2, 7, 2, GUN);
       px(x0 + 6, y0, 7, 2, GUN_MID);
-      px(x0 + 9, y0 - 2, 3, 2, shade(GUN_DK, 0.40));                             // ejection port, a real hole
+      px(x0 + 9, y0 - 2, 3, 2, U.shade(GUN_DK, 0.40));                             // ejection port, a real hole
       px(x0 + 6, y0 - 3, 2, 1, '#cfd7dc');                                         // charging handle
       px(x0 + 7, y0 + 2, 1, 1, '#ffb347');                                         // selector
       /* magazine — long enough to read, curving forward as it drops */
       px(x0 + 9, y0 + 3, 4, 3, GUN_DK); px(x0 + 10, y0 + 6, 4, 2, GUN_DK);
-      px(x0 + 10, y0 + 3, 2, 2, shade(GUN_MID, 0.04)); px(x0 + 11, y0 + 6, 2, 1, shade(GUN_MID, -0.20));
+      px(x0 + 10, y0 + 3, 2, 2, U.shade(GUN_MID, 0.04)); px(x0 + 11, y0 + 6, 2, 1, U.shade(GUN_MID, -0.20));
       /* handguard, then the barrel — one row, with a front sight standing off it */
       px(x0 + 13, y0 - 2, 4, 4, GUN_DK);
       px(x0 + 13, y0 - 1, 4, 2, GUN_MID);
-      px(x0 + 14, y0 - 1, 1, 2, shade(GUN_DK, 0.30)); px(x0 + 16, y0 - 1, 1, 2, shade(GUN_DK, 0.30));
+      px(x0 + 14, y0 - 1, 1, 2, U.shade(GUN_DK, 0.30)); px(x0 + 16, y0 - 1, 1, 2, U.shade(GUN_DK, 0.30));
       px(x0 + 15, y0 - 4, 1, 2, GUN_MID);                                          // front sight post
       for (let i = 0; i < 4; i++) {
         px(bl + i, y0 - 2, 1, 1, GUN_DK);
@@ -10254,7 +10169,7 @@ const PropSprites = (() => {
       /* the sling, drooping under the whole thing — the one curve on the prop */
       for (let i = 0; i < 11; i++) {
         const sx = x0 + 3 + i, sy = y0 + 4 + Math.round(2.2 * Math.sin((i / 10) * Math.PI));
-        px(sx, sy, 1, 1, shade(GUN_DK, 0.14));
+        px(sx, sy, 1, 1, U.shade(GUN_DK, 0.14));
       }
     };
     /* ⛔ A 22px RIFLE NEEDS THREE TILES OF BOARD, NOT TWO. At 2x1 the muzzle came out through the
@@ -10262,7 +10177,7 @@ const PropSprites = (() => {
        round. 36px of board holds a 22px arm with a hand's width either side. */
     weapon(x + 7, y - 8);                                                          // ONE rifle, 22px, with room
     /* (3) the CHARGE CELL on the top arm — the one live thing on the prop */
-    px(x + 27, y - 9, 2, 1, shade('#ffb347', -0.30 + 0.30 * cell));
+    px(x + 27, y - 9, 2, 1, U.shade('#ffb347', -0.30 + 0.30 * cell));
     bloom(x + 27, y - 9, 2, 1, '#ffb347', 0.12 + 0.18 * cell);
     /* (4) a BLADE hung VERTICALLY at the east end — a third rifle would be a fence, and a blade
        across the whole board (v4) crowded both arms out of their own space */
@@ -10273,9 +10188,9 @@ const PropSprites = (() => {
       px(bx, y + 3, 1, 1, i > 1 ? '#79838b' : GUN_DK);
       px(bx, y + 4, 1, 1, GUN_DK);
     }
-    px(x + 24, y + 1, 2, 4, GUN_DK); px(x + 24, y + 2, 2, 1, shade('#cfd7dc', -0.20));   // its point
+    px(x + 24, y + 1, 2, 4, GUN_DK); px(x + 24, y + 2, 2, 1, U.shade('#cfd7dc', -0.20));   // its point
     px(x + 6, y + 1, 4, 4, GUN_DK); px(x + 7, y + 2, 3, 2, STK); px(x + 7, y + 2, 3, 1, STK_LIT);
-    px(x + 9, y, 1, 5, shade(GUN_MID, 0.10));                                    // the guard between grip and blade
+    px(x + 9, y, 1, 5, U.shade(GUN_MID, 0.10));                                    // the guard between grip and blade
     /* (5) HOOKS the arms rest on, and spare cells clipped at the end — a rack that is USED */
     for (const hx of [x + 5, x + 30]) { px(hx, y - 6, 1, 2, FRM_LIT); px(hx, y + 1, 1, 2, FRM_LIT); }
   };
@@ -10335,16 +10250,16 @@ const PropSprites = (() => {
     px(x, base - 16, 13, 11, r.face);
     px(x, base - 16, 1, 11, r.lit); keyEdge(x, base - 16, 1, 6, 0.22);          // lit west wall
     px(x + 12, base - 16, 1, 11, r.dk); rimEdge(x + 12, base - 16, 1, 11, 0.20); // shaded east wall
-    px(x, base - 9, 1, 3, ACC.lounge); px(x, base - 12, 1, 2, shade(ACC.lounge, -0.30));   // side art flash
+    px(x, base - 9, 1, 3, ACC.lounge); px(x, base - 12, 1, 2, U.shade(ACC.lounge, -0.30));   // side art flash
     // PLAYFIELD — the raked plane, far edge lifted: brighter at the north, falling to the near lip
     const pf = base - 15, pw = 9, pfx = x + 2;                  // field x+2..x+10; x+11 is the shooter lane
     px(pfx - 1, pf - 1, pw + 3, 9, EDGE);
     for (let j = 0; j < 8; j++) {
       const t = j / 7;
-      px(pfx, pf + j, pw, 1, shade('#1b3038', 0.30 - t * 0.52));   // rake: light falls off toward the player
+      px(pfx, pf + j, pw, 1, U.shade('#1b3038', 0.30 - t * 0.52));   // rake: light falls off toward the player
     }
     px(pfx, pf - 1, pw, 1, '#4d666f');                          // far edge catches the room — the tilt's tell
-    px(pfx + pw, pf - 1, 1, 9, shade(r.face, -0.34));         // shooter-lane wall
+    px(pfx + pw, pf - 1, 1, 9, U.shade(r.face, -0.34));         // shooter-lane wall
     px(pfx + pw + 1, pf, 1, 8, '#101b20');                      // the lane itself
     // rollover arcs at the head of the field — two stepped guides, pure pinball vocabulary
     px(pfx, pf, 2, 1, '#33555f'); px(pfx + 1, pf + 1, 1, 1, '#33555f');
@@ -10352,16 +10267,16 @@ const PropSprites = (() => {
     // pop bumpers — round caps with a lit core; they FIRE under play, breathe dim in attract
     const bump = (bx, by, c, per, k) => {
       const on = played ? blink(per, ph + k) : blink(per * 3, ph + k);
-      px(bx, by, 2, 2, shade(c, on ? -0.05 : -0.55));
-      px(bx, by, 1, 1, shade(c, on ? 0.38 : -0.35));
+      px(bx, by, 2, 2, U.shade(c, on ? -0.05 : -0.55));
+      px(bx, by, 1, 1, U.shade(c, on ? 0.38 : -0.35));
       if (on && played) bloom(bx, by, 2, 2, c, 0.30);
     };
     bump(pfx + 1, pf + 2, ACC.alert, 430, 0);
     bump(pfx + 5, pf + 1, ACC.flow, 610, 1);
     bump(pfx + 3, pf + 4, ACC.data, 790, 2);
     // slingshots + flippers at the near end — the two little levers ARE the game
-    px(pfx + 1, pf + 6, 2, 1, '#9fb0b2'); px(pfx + 1, pf + 5, 1, 1, shade('#9fb0b2', -0.3));
-    px(pfx + 6, pf + 6, 2, 1, '#9fb0b2'); px(pfx + 7, pf + 5, 1, 1, shade('#9fb0b2', -0.3));
+    px(pfx + 1, pf + 6, 2, 1, '#9fb0b2'); px(pfx + 1, pf + 5, 1, 1, U.shade('#9fb0b2', -0.3));
+    px(pfx + 6, pf + 6, 2, 1, '#9fb0b2'); px(pfx + 7, pf + 5, 1, 1, U.shade('#9fb0b2', -0.3));
     // the ball: in play it ricochets the field on a hash walk; idle it waits in the shooter lane
     if (played) {
       const bk = U.hash('pb' + (Math.floor(now / 240) + ph));
@@ -10370,18 +10285,18 @@ const PropSprites = (() => {
       px(pfx + pw + 1, pf + 7, 1, 1, '#b9c6cb');
     }
     // FRONT FACE under the near lip — coin door west, and the plunger knob jutting out the east flank
-    px(x + 1, base - 6, 11, 1, shade(r.face, -0.42));         // near lip shadow line
+    px(x + 1, base - 6, 11, 1, U.shade(r.face, -0.42));         // near lip shadow line
     px(x + 3, base - 5, 3, 2, '#10161a'); px(x + 4, base - 4, 1, 1, '#c9a24a');   // coin door + slot glint
     px(x + 12, base - 8, 3, 2, EDGE); px(x + 13, base - 8, 2, 1, '#b8434f');      // plunger rod + red knob
-    px(x + 14, base - 8, 1, 1, shade('#b8434f', 0.30));
+    px(x + 14, base - 8, 1, 1, U.shade('#b8434f', 0.30));
     // BACKBOX — narrower than the cab, standing at the head: marquee, score reels, speaker dots
     px(x + 1, base - 27, 11, 11, EDGE);
     px(x + 2, base - 26, 9, 9, '#161d24');
     px(x + 2, base - 26, 9, 1, '#2c3944'); keyEdge(x + 2, base - 26, 5, 1, 0.24);
     px(x + 10, base - 25, 1, 8, '#0c1116');                     // shaded east reveal
     const hot = played || blink(1400, ph);
-    px(x + 3, base - 25, 7, 2, shade(ACC.lounge, hot ? 0.05 : -0.45));          // marquee band
-    px(x + 4, base - 25, 2, 1, '#ffd0ee'); px(x + 7, base - 24, 2, 1, shade(ACC.lounge, 0.30));  // title
+    px(x + 3, base - 25, 7, 2, U.shade(ACC.lounge, hot ? 0.05 : -0.45));          // marquee band
+    px(x + 4, base - 25, 2, 1, '#ffd0ee'); px(x + 7, base - 24, 2, 1, U.shade(ACC.lounge, 0.30));  // title
     bloom(x + 3, base - 25, 7, 2, ACC.lounge, played ? 0.40 : hot ? 0.22 : 0.10);
     px(x + 3, base - 22, 7, 3, '#0d0a14');                      // backglass art well
     for (let i = 0; i < 4; i++) {                               // score reels — they ROLL under play
@@ -10390,7 +10305,7 @@ const PropSprites = (() => {
     }
     px(x + 3, base - 18, 1, 1, '#232d33'); px(x + 9, base - 18, 1, 1, '#232d33'); // speaker dots
     scanl(x + 3, base - 22, 7, 3, 0.16);
-    px(x + 2, base - 16, 9, 1, shade(r.face, -0.30));         // neck shadow where the head meets the body
+    px(x + 2, base - 16, 9, 1, U.shade(r.face, -0.30));         // neck shadow where the head meets the body
     spill(pfx, pf, pw, ACC.lounge, played ? 0.16 : 0.06, 3);    // marquee light pooling down the glass
   };
 
@@ -10949,7 +10864,7 @@ const PropSprites = (() => {
       px(x + 2, y + 3, 1, 1, '#4a8a82'); px(x + 9, y + 3, 1, 1, '#26554e');
       px(x + 3, y + 3, 1, 1, '#26554e'); px(x + 8, y + 3, 1, 1, '#26554e');   // piping stitches
       px(x + 3, y + 4, 6, 1, r.dk);                               // rounded underside rim
-      px(x + 4, y + 5, 4, 1, shade(r.dk, -0.30));               // seat AO onto the stem
+      px(x + 4, y + 5, 4, 1, U.shade(r.dk, -0.30));               // seat AO onto the stem
     } else if (f.t === 'chair') {
       px(x + 2, y + 6, 8, 1, '#2f6a62');                          // pad south row
       px(x + 3, y + 6, 1, 1, '#26554e'); px(x + 8, y + 6, 1, 1, '#26554e');   // seat stitches
@@ -11023,11 +10938,9 @@ const PropSprites = (() => {
       MIRROR = !!mir;
       // finally, not a plain call: a throwing prop must never strand MIRROR set (it would re-light
       // every prop drawn after it this frame) or leak an unbalanced ctx state onto the world pass.
-      _curId = f.t; inkBegin(f.t);
-      try { view.fn(X, Y, BW, BH, o); } finally { MIRROR = false; ctx.restore(); inkEnd(); _curId = null; }
+      try { view.fn(X, Y, BW, BH, o); } finally { MIRROR = false; ctx.restore(); }
     } else {
-      _curId = f.t; inkBegin(f.t);
-      try { view.fn(X, Y, W, H, o); } finally { inkEnd(); _curId = null; }
+      view.fn(X, Y, W, H, o);
     }
     /* the status overlays below stay in SCREEN space on the EFFECTIVE box: a progress bar or a
        tool-fire charge bar reads left-to-right regardless of which way its prop is turned. */
@@ -11061,113 +10974,6 @@ const PropSprites = (() => {
     }
   }
 
-  /* ======================= CAST SHADOWS + EMISSIVE LIGHT (world overhaul, 2026-09-03) =======================
-     Two things every prop in a shipped pixel-art game has and ours had neither of:
-
-     1. A CAST SHADOW ON THE DECK. `shadow2` is a contact line — the 2px dark seam where the object meets the
-        floor. It seats the prop but it does not give it HEIGHT. The station's key light is high and
-        north-west (every prop's sheen is west-biased, every top face is north-lit), so a standing object
-        throws a soft pool to its SOUTH-EAST. Painted by world.js in ONE pass over the deck (after the floor
-        decals, before the y-sorted items), so a shadow lands on rugs and under neighbours and never on top of
-        another prop's body. Hard-edged stepped rects, not a blur — the light idiom is dithered steps.
-        A table-top object (mount:'surface') casts nothing: its shadow would fall on the table, which the
-        table's own art already carries. Floor decals (flat) cast nothing: paint has no height.
-
-     2. EMITTED LIGHT. A lit screen, a plasma core, a kiln, a desk lamp — these are light SOURCES, and until
-        now they lit nothing: the lightmap only knows the ceiling fixtures. `lightOf` answers, per prop,
-        "what colour, how far, how strong" and world.js paints it as an additive pool over the lightmap each
-        frame (drawPropLights), so the floor and anything standing near a source takes its colour. Screens
-        flicker; fire and plasma breathe; lamps hold steady. `work` gates a workstation: an idle desk's CRT is
-        a dark slab (that is what the art shows), so it emits only while its agent is actually working —
-        truthful telemetry, not a mood light. Values are WORLD px (TILE = 12), authored for camera scale 2. */
-  const SHADOW_RGB = '8,10,24';                     // a shadow has a colour: cool, the bounce-lit unlit side
-  // standing height in shadow REACH px beyond the footprint's south-east edges; footprint h>=2 adds its own
-  const SHADOW_TALL = { vault: 4, core: 4, connector_portal: 3, arcade: 3, arcade2: 3, bookshelf: 3, rackV: 3, cryopod: 3,
-    telescope: 2, telescope_r: 2, tallplant: 2, quarters_vending: 3, quarters_lockerbank: 3, jukebox: 3, pinball: 2, safe: 3,
-    war_intelcab: 3, comms_beacon: 3, bridge_relaystack: 3, incubator: 2, fabricator: 3, vat: 3, etsy_kiln: 3, etsy_dyevat: 2,
-    commswall: 3, bigscreen: 3, calwall: 2, chartwall: 2, arc_indexwall: 2, weaponrack: 2, weaponrack_r: 2, shelf: 2, rack: 2,
-    war_threatcore: 3, bridge_dispatch_pylon: 3, research_corelens: 3, research_trendpillar: 3, pub_outboundchute: 3,
-    punchbag: 2, punchbag_r: 2, camerarig: 2, camerarig_r: 2, treasury_token_furnace: 3, monstera: 1, tv: 2, couch: 1 };
-  function drawShadow(f, mounted) {
-    if (!ctx) return;
-    if ((mounted || f.mount) === 'surface') return;
-    const s = spec(f.t); if (s && s.flat) return;
-    const X = f.x * TILE, Y = f.y * TILE, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
-    const reach = 3 + (SHADOW_TALL[f.t] || 0) + ((f.h || 1) >= 2 ? 2 : 0);
-    // three nested steps, each smaller and darker, spreading south-east from the footprint's lower half
-    const steps = [[0, 0.09], [0.35, 0.11], [0.7, 0.14]];
-    for (const [k, a] of steps) {
-      const rx = Math.round(reach * (1 - k));
-      const ox = 2 + Math.round(k * 2), oy = Math.round(H * (0.45 + 0.25 * k));
-      ctx.fillStyle = 'rgba(' + SHADOW_RGB + ',' + a + ')';
-      ctx.fillRect(X + ox, Y + oy, W + rx - ox, H - oy + rx);
-    }
-  }
-  /* colour [r,g,b] · radius (world px) · strength · mode:
-       'screen' flickers (phosphor), 'fire' breathes fast and ragged, 'pulse' breathes slow, 'steady' holds.
-     `work: 1` = emits only while the prop is lit by real work (workstations). `y` = where the source sits
-     in the footprint (0 = north edge, 1 = south) — a desk's CRT is at the back, a floor lamp's head is up. */
-  const SCR_RGB = [98, 255, 158], BLUE_RGB = [110, 190, 255], AMBER_RGB = [255, 190, 110], WARM_RGB = [255, 214, 150];
-  const EMIT = {
-    desk: { c: SCR_RGB, r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, desk2: { c: SCR_RGB, r: 28, a: 0.18, m: 'screen', work: 1, y: 0.25 },
-    console: { c: SCR_RGB, r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, consoleL: { c: SCR_RGB, r: 32, a: 0.18, m: 'screen', work: 1, y: 0.25 },
-    pixelrig: { c: [255, 120, 200], r: 26, a: 0.16, m: 'screen', work: 1, y: 0.25 }, bench: { c: SCR_RGB, r: 34, a: 0.16, m: 'screen', work: 1, y: 0.25 },
-    workbench: { c: [255, 200, 120], r: 22, a: 0.10, m: 'screen', work: 1, y: 0.3 },
-    core: { c: [186, 110, 255], r: 32, a: 0.22, m: 'pulse', y: 0.35 }, comms_beacon: { c: [255, 200, 120], r: 30, a: 0.16, m: 'pulse', y: 0.2 },
-    comms_dish: { c: [74, 217, 255], r: 22, a: 0.10, m: 'steady', y: 0.5 }, comms_uplink: { c: [74, 217, 255], r: 22, a: 0.10, m: 'steady', y: 0.5 },
-    studio: { c: [255, 106, 213], r: 30, a: 0.16, m: 'pulse', y: 0.4 }, connector_portal: { c: [120, 220, 255], r: 22, a: 0.12, m: 'pulse', y: 0.35 },
-    bigscreen: { c: BLUE_RGB, r: 46, a: 0.12, m: 'screen', y: 0.4 }, holotable: { c: [120, 200, 255], r: 30, a: 0.14, m: 'screen', y: 0.45 },
-    screens: { c: BLUE_RGB, r: 24, a: 0.12, m: 'screen', y: 0.35 }, tank: { c: [80, 200, 220], r: 22, a: 0.12, m: 'pulse', y: 0.45 },
-    ticker: { c: AMBER_RGB, r: 26, a: 0.10, m: 'screen', y: 0.35 }, chartwall: { c: BLUE_RGB, r: 26, a: 0.10, m: 'screen', y: 0.35 },
-    wartable: { c: [120, 200, 255], r: 34, a: 0.12, m: 'screen', y: 0.45 }, calwall: { c: BLUE_RGB, r: 30, a: 0.10, m: 'screen', y: 0.35 },
-    bridge_tacscreen: { c: BLUE_RGB, r: 24, a: 0.12, m: 'screen', y: 0.35 }, bridge_dispatch_pylon: { c: AMBER_RGB, r: 22, a: 0.12, m: 'pulse', y: 0.3 },
-    bridge_orderqueue: { c: AMBER_RGB, r: 22, a: 0.10, m: 'screen', y: 0.35 }, war_pivotpanel: { c: BLUE_RGB, r: 22, a: 0.10, m: 'screen', y: 0.35 },
-    war_threatcore: { c: [255, 90, 80], r: 26, a: 0.14, m: 'pulse', y: 0.3 },
-    tv: { c: [140, 200, 255], r: 26, a: 0.14, m: 'screen', y: 0.4 }, arcade: { c: [255, 120, 200], r: 22, a: 0.14, m: 'screen', y: 0.3 },
-    arcade2: { c: [120, 255, 200], r: 22, a: 0.14, m: 'screen', y: 0.3 }, pinball: { c: [255, 190, 90], r: 20, a: 0.12, m: 'screen', y: 0.4 },
-    jukebox: { c: [255, 180, 80], r: 22, a: 0.12, m: 'pulse', y: 0.35 }, djbooth: { c: [255, 90, 190], r: 30, a: 0.12, m: 'pulse', y: 0.4 },
-    fishtank: { c: [80, 200, 220], r: 22, a: 0.12, m: 'pulse', y: 0.45 }, bar: { c: AMBER_RGB, r: 24, a: 0.08, m: 'steady', y: 0.3 },
-    quarters_vending: { c: [120, 220, 255], r: 20, a: 0.12, m: 'screen', y: 0.35 }, speaker: { c: [255, 120, 120], r: 10, a: 0.05, m: 'pulse', y: 0.5 },
-    fabricator: { c: [255, 150, 70], r: 26, a: 0.10, m: 'fire', y: 0.45 }, vat: { c: [120, 255, 170], r: 28, a: 0.14, m: 'pulse', y: 0.45 },
-    tube: { c: [120, 255, 170], r: 20, a: 0.12, m: 'pulse', y: 0.4 }, research_corelens: { c: [180, 200, 255], r: 24, a: 0.14, m: 'pulse', y: 0.3 },
-    research_trendpillar: { c: [120, 200, 255], r: 20, a: 0.10, m: 'screen', y: 0.3 }, etsy_kiln: { c: [255, 120, 50], r: 28, a: 0.18, m: 'fire', y: 0.5 },
-    etsy_dyevat: { c: [200, 100, 255], r: 20, a: 0.10, m: 'pulse', y: 0.5 }, easel: { c: WARM_RGB, r: 16, a: 0.05, m: 'steady', y: 0.4 },
-    desklamp: { c: WARM_RGB, r: 26, a: 0.22, m: 'steady', y: 0.3 }, arc_floorlight: { c: [255, 220, 170], r: 36, a: 0.24, m: 'steady', y: 0.2 },
-    lavalamp: { c: [255, 90, 140], r: 18, a: 0.14, m: 'pulse', y: 0.4 }, plasmaglobe: { c: [170, 110, 255], r: 22, a: 0.16, m: 'fire', y: 0.4 },
-    holopet: { c: [120, 255, 220], r: 16, a: 0.12, m: 'pulse', y: 0.4 }, deskterminal: { c: SCR_RGB, r: 18, a: 0.10, m: 'screen', y: 0.35 },
-    treasury_pnl_holo: { c: [120, 255, 180], r: 18, a: 0.12, m: 'screen', y: 0.35 }, cryopod: { c: [120, 210, 255], r: 24, a: 0.14, m: 'pulse', y: 0.4 },
-    incubator: { c: [255, 170, 90], r: 20, a: 0.12, m: 'steady', y: 0.4 }, crt_pile: { c: SCR_RGB, r: 14, a: 0.06, m: 'screen', y: 0.4 },
-    radio: { c: [255, 120, 80], r: 10, a: 0.06, m: 'steady', y: 0.5 }, terrarium: { c: [120, 255, 170], r: 14, a: 0.06, m: 'steady', y: 0.4 },
-    bay: { c: AMBER_RGB, r: 28, a: 0.08, m: 'steady', y: 0.45 }, intake: { c: [255, 170, 80], r: 22, a: 0.08, m: 'steady', y: 0.45 },
-    outbox: { c: [255, 170, 80], r: 22, a: 0.08, m: 'steady', y: 0.45 },
-    missionboard: { c: WARM_RGB, r: 28, a: 0.08, m: 'steady', y: 0.3 }, trophycase: { c: [255, 214, 120], r: 24, a: 0.10, m: 'steady', y: 0.35 },
-    commswall: { c: BLUE_RGB, r: 42, a: 0.10, m: 'screen', y: 0.35 }, comms_inbox: { c: AMBER_RGB, r: 16, a: 0.06, m: 'steady', y: 0.4 },
-    gigs_amp: { c: [255, 120, 120], r: 14, a: 0.08, m: 'pulse', y: 0.4 }, pub_publishpress: { c: AMBER_RGB, r: 22, a: 0.08, m: 'steady', y: 0.45 },
-    arc_indexwall: { c: [120, 200, 255], r: 26, a: 0.08, m: 'screen', y: 0.35 }, arc_microfiche: { c: [140, 255, 190], r: 18, a: 0.10, m: 'screen', y: 0.4 },
-    gigs_thumbwall: { c: [255, 150, 200], r: 20, a: 0.08, m: 'screen', y: 0.35 }, pub_mailpod: { c: AMBER_RGB, r: 16, a: 0.06, m: 'steady', y: 0.4 },
-    treasury_token_furnace: { c: [255, 130, 50], r: 26, a: 0.16, m: 'fire', y: 0.45 }, goldcrate: { c: [255, 214, 120], r: 14, a: 0.06, m: 'steady', y: 0.4 },
-    gigs_servercart: { c: [120, 255, 180], r: 14, a: 0.08, m: 'screen', y: 0.4 }, bridge_relaystack: { c: [120, 200, 255], r: 20, a: 0.10, m: 'screen', y: 0.3 },
-    airlock: { c: [255, 90, 70], r: 18, a: 0.10, m: 'pulse', y: 0.5 }, steamvent: { c: [255, 170, 120], r: 12, a: 0.05, m: 'fire', y: 0.5 },
-  };
-  /* the light a placed prop emits THIS frame, or null. `work` is the same lit flag `draw` receives. The
-     modulation is deterministic on `now` + the prop's position, so two identical screens never flicker in
-     lockstep; under reduced motion every mode holds steady (`still`). */
-  function lightOf(f, work, still) {
-    const e = EMIT[f.t]; if (!e) return null;
-    if (e.work && !work) return null;
-    const lift = f.mount === 'surface' ? SURFACE_RISE : 0;
-    const W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
-    const x = f.x * TILE + W / 2, y = f.y * TILE - lift + H * e.y;
-    let k = 1;
-    if (!still) {
-      const seed = (f.x * 7.31 + f.y * 3.17) % 6.28;
-      if (e.m === 'screen') k = 0.86 + 0.09 * Math.sin(now / 90 + seed) + 0.05 * Math.sin(now / 610 + seed * 1.7);
-      else if (e.m === 'fire') k = 0.78 + 0.14 * Math.sin(now / 130 + seed) + 0.08 * Math.sin(now / 47 + seed * 2.3);
-      else if (e.m === 'pulse') k = 0.82 + 0.18 * Math.sin(now / 900 + seed);
-    }
-    return { x, y, r: e.r, c: e.c, a: e.a * k };
-  }
-
   return {
     setCtx(c) { ctx = c; },
     setNow(t) { now = t; },
@@ -11176,7 +10982,6 @@ const PropSprites = (() => {
     setChroma(k) { CHROMA = (k == null ? 1 : +k) || 1; _cboost.clear(); },
     getChroma: () => CHROMA,
     draw, drawOver, hasOver, drawSeatFront, CATALOG, CATS, spec, has, TILE,
-    drawShadow, lightOf, EMIT,
     // ORIENTATION: what each prop's art can honestly do, and the box it covers once turned. The
     // builder asks BEFORE offering an R/M affordance — never an input that produces broken art.
     facings, canRotate, canMirror, nextFacing, footprintAt, viewAt, hasView, NO_MIRROR, PLAN_FOOTPRINT,
