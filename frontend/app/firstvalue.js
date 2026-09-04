@@ -17,7 +17,7 @@
   function suggest(texts) {
     const pain = (Array.isArray(texts) ? texts : [texts]).map(clean).filter(Boolean).join('\n');
     const matched = TASKS.find(t => t.words && t.words.test(pain));
-    return { task: matched || (pain ? TASKS[3] : TASKS[0]), pain, reason: pain ? 'Based on what you said takes your time' : 'One concrete place to begin; change it to fit your work' };
+    return { task: matched || (pain ? TASKS[3] : TASKS[0]), pain, reason: pain ? 'Based on your current work profile; change it if it does not fit' : 'One concrete place to begin; change it to fit your work' };
   }
   function approvedProjects(rows, sources) {
     const projects = (Array.isArray(rows) ? rows : []).filter(p => p && p.blessed === true && clean(p.root)).map(p => ({ root: p.root, name: clean(p.displayPath) || p.root }));

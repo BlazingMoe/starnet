@@ -74,9 +74,13 @@
     if(!body || pane==='start' || pane==='sources') return;
     const next=snapshot(), q=body.querySelector('.wh-search'), search=(q && q.value || '').toLowerCase();
     const journey=data('journey'), cron=data('cron');
-    const sig=JSON.stringify([next,journey,cron,search,warnings(),pane]);
+    const sig=JSON.stringify([next,journey,cron,search,warnings(),pane,KEYS.map(k=>QuerySpine.state(k).hasData)]);
     if(!force && sig===signature) return; signature=sig;current=next;
     const content=body.querySelector('.wh-content');if(!content)return;
+    const needed=pane==='station'?['journey','cron']:['work-deliverables','work-discovery'];
+    if(needed.some(k=>{const s=QuerySpine.state(k);return !s.hasData && !s.error;})) {
+      content.innerHTML='<p class="muted">Reading the station’s recorded work…</p>';return;
+    }
     const expanded=Array.from(content.querySelectorAll('details[open][data-detail]')).map(el=>el.dataset.detail);
     if(preview.blobUrl) URL.revokeObjectURL(preview.blobUrl);preview={}; artifactRows=[];
     if(pane==='station') content.innerHTML=stationHtml(journey && journey.journey,cron);
