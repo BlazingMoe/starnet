@@ -5565,57 +5565,53 @@ const PropSprites = (() => {
     wear(x + 5, y + 5, w - 10, h - 10, 22, shade(RUGL_BASE, -0.14));
   };
 
-  // Compact flight chair: shouldered shell, suspended arms, bucket seat and swivel foot.
-  // Seat surface stays y+4, front band y+6..8 and foot y+11: body anchors do not move.
-  const PILOT_TEAL = {top:'#609c96',face:'#3b7771',lit:'#7ab1a9',dk:'#28534f',ink:'#203338'};
-  const pilotFront = (x,y,p) => {
-    px(x+2,y+6,8,1,p.face); px(x+3,y+6,1,1,p.dk); px(x+8,y+6,1,1,p.dk);
-    px(x+2,y+7,8,1,EQUIPMENT.face);px(x+2,y+7,3,1,EQUIPMENT.lit);
-    px(x+3,y+8,6,1,EQUIPMENT.dk);
+  F.seatchair = (x, y, w, h, f) => {
+    /* SEAT CHAIR (1x1) — the chair world.js draws at a workstation seat. NOT in the CATALOG, so the
+       PLACEABLE chair prop (F.chair) keeps its shipped art untouched.
+       ⛔ THIS IS F.chair's SILHOUETTE, PIXEL FOR PIXEL. Only the MATERIAL changed. Two rewrites failed
+          before this: one baked the chair into the desk sprite (the sitter sorts a tile south, so the
+          agent floated in front of a chair it could not sit in), and one gave it a solid 8x6 slab back
+          that SWALLOWED THE SEATED AGENT'S HEAD. The shipped back is deliberately WAISTED — a narrow
+          headrest bar clear of the shoulders, pinched at the lumbar — precisely so a body sitting in
+          front of it still reads. That profile is load-bearing; do not 'improve' it into a slab.
+       ⛔ Rows are F.chair's rows (pad y+3..y+7, column y+7..y+9, base y+10, casters y+11) because the
+          sitter anchor is calibrated to them. */
+    const r = RAMP.steel, s = MAT.seat;
+    shadow2(x + 3, y + 10, 7);
+    px(x + 2, y + 10, 8, 1, '#10161a');                          // star base — low and dark, hides under a body
+    px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
+    px(x + 2, y + 9, 1, 1, '#242e35'); px(x + 9, y + 9, 1, 1, '#242e35');
+    for (const cw of [x + 2, x + 5, x + 8]) px(cw, y + 11, 2, 1, '#1a1e22');   // casters
+    px(x + 4, y + 7, 4, 3, s.ink);                               // gas-lift column
+    px(x + 5, y + 7, 1, 3, '#8b959c'); px(x + 6, y + 7, 1, 3, '#5c666e');
+    keyEdge(x + 5, y + 7, 1, 2, 0.20); rimEdge(x + 6, y + 7, 1, 3, 0.22);
+    /* WAISTED BACK — the silhouette that lets a seated head read. */
+    px(x + 4, y - 4, 4, 1, s.ink); px(x + 3, y - 3, 6, 1, s.ink);
+    px(x + 2, y - 2, 8, 4, s.ink); px(x + 3, y + 2, 6, 1, s.ink);
+    px(x + 4, y - 3, 4, 1, s.hi);                                // headrest bar
+    keyEdge(x + 4, y - 3, 2, 1, 0.26);
+    px(x + 3, y - 2, 6, 3, s.face);                              // shoulders
+    px(x + 3, y - 2, 1, 3, s.lit); px(x + 8, y - 2, 1, 3, s.dk);
+    rimEdge(x + 8, y - 2, 1, 3, 0.20);
+    for (let j = 0; j < 3; j++) px(x + 4, y - 2 + j, 4, 1, shade(s.face, j % 2 ? -0.13 : 0.03));
+    px(x + 4, y + 1, 4, 1, shade(s.face, -0.26));              // pinched lumbar
+    /* SEAT PAD — silver where the shipped chair is teal. */
+    px(x + 1, y + 3, 10, 5, s.ink);
+    px(x + 2, y + 4, 8, 1, s.hi); px(x + 2, y + 4, 4, 1, s.sheen);
+    keyEdge(x + 2, y + 4, 4, 1, 0.20);
+    px(x + 2, y + 5, 8, 2, s.face);
+    px(x + 2, y + 5, 1, 2, s.lit); px(x + 9, y + 5, 1, 2, s.dk);
+    rimEdge(x + 9, y + 5, 1, 2, 0.18);
+    px(x + 3, y + 6, 1, 1, s.dk); px(x + 8, y + 6, 1, 1, s.dk);  // seat stitches
+    px(x + 2, y + 7, 8, 1, r.face); px(x + 2, y + 7, 3, 1, r.lit);
+    px(x + 3, y + 8, 6, 1, r.dk);
+    /* ARMRESTS last, so they read in FRONT of the pad. */
+    px(x, y + 2, 2, 4, s.ink); px(x + 10, y + 2, 2, 4, s.ink);
+    px(x, y + 3, 2, 1, shade(s.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);
+    px(x, y + 4, 2, 1, shade(s.face, -0.18));
+    px(x + 10, y + 3, 2, 1, shade(s.face, -0.04));
+    px(x + 10, y + 4, 2, 1, s.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
-  function pilotChair(x,y,p,view) {
-    const r=EQUIPMENT, b=INSTRUMENT;
-    shadow2(x+2,y+11,8);
-    // Octagonal swivel shoe: broad silhouette, open gap below the cushion.
-    px(x+3,y+9,6,3,b.ink); px(x+2,y+10,8,1,b.ink);
-    px(x+3,y+9,6,1,r.mid);px(x+3,y+10,3,1,r.face);px(x+6,y+10,3,1,r.dk);
-    px(x+4,y+11,4,1,b.ao);
-    px(x+5,y+7,2,3,b.ink);px(x+5,y+8,1,2,r.lit);
-    if(view==='e') {
-      // Raked back shell and open arm bracket, authored for the side projection.
-      px(x+2,y-5,3,2,b.ink);px(x+2,y-4,2,1,r.mid);
-      px(x+2,y-3,3,1,r.face);
-      px(x+1,y-2,4,3,b.ink);px(x+2,y-2,2,3,p.face);
-      px(x+2,y+1,4,2,b.ink);px(x+3,y+1,2,1,p.top);
-      px(x+4,y+3,7,4,b.ink);px(x+5,y+3,5,1,p.top);px(x+5,y+4,6,2,p.face);
-      px(x+10,y+4,1,2,p.dk);px(x+5,y+6,5,1,r.face);px(x+6,y+7,4,1,r.dk);
-      px(x+4,y+1,7,1,b.ink);px(x+5,y+1,5,1,r.mid);
-      px(x+4,y+4,7,2,b.ink);px(x+5,y+4,5,1,r.lit);px(x+5,y+5,1,2,r.face);
-      return;
-    }
-    // Detached headrest above a tapered shoulder shell. Gaps are deliberate negative space.
-    px(x+3,y-5,6,2,b.ink);px(x+4,y-5,4,1,r.mid);px(x+4,y-4,4,1,p.top);
-    px(x+4,y-3,4,1,r.face);px(x+5,y-3,2,1,r.mid);
-    px(x+2,y-2,8,1,b.ink);px(x+1,y-1,10,2,b.ink);px(x+2,y+1,8,1,b.ink);px(x+3,y+2,6,1,b.ink);
-    if(view==='n') {
-      px(x+2,y-1,8,2,r.face);px(x+2,y-1,2,1,r.mid);px(x+8,y-1,2,2,r.dk);
-      px(x+5,y-1,2,3,b.ink);px(x+5,y-1,1,2,r.mid); // exposed back spine
-    } else {
-      px(x+2,y-1,3,2,p.top);px(x+7,y-1,3,2,p.face);
-      px(x+3,y+1,2,1,p.face);px(x+7,y+1,2,1,p.dk);
-      px(x+5,y-1,2,3,shade(p.face,-0.16)); // upholstered centre channel
-    }
-    // Bucket seat widens toward the knees, with separate side bolsters.
-    px(x+3,y+3,6,1,b.ink);px(x+2,y+4,8,1,p.top);px(x+1,y+5,10,2,b.ink);
-    px(x+2,y+5,8,1,p.face);px(x+2,y+4,2,2,p.lit);px(x+8,y+4,2,2,p.dk);
-    pilotFront(x,y,p);
-    // Cantilever arm caps stand clear of the cushion on thin structural brackets.
-    px(x,y+3,3,2,b.ink);px(x+9,y+3,3,2,b.ink);
-    px(x,y+3,3,1,r.lit);px(x+9,y+3,3,1,r.mid);
-    px(x+1,y+5,1,2,r.face);px(x+10,y+5,1,2,r.dk);
-  }
-
-  F.seatchair = (x,y,w,h,f) => { pilotChair(x,y,MAT.seat,'s'); };
 
   F.chair = (x, y, w, h, f) => {
     // CHAIR — the renderer draws this at EVERY agent's seat, so it appears more often than any other prop
@@ -5642,8 +5638,49 @@ const PropSprites = (() => {
       px(x + 5, y + 10, 2, 1, '#1c0a0a');
       return;
     }
-    pilotChair(x,y,PILOT_TEAL,'s');
+    const r = RAMP.steel;
+    shadow2(x + 3, y + 10, 7);                                  // blocks:true — a real solid, real contact
+    // star base: arm bar + casters. Kept low and dark so it disappears under a seated body.
+    px(x + 2, y + 10, 8, 1, '#10161a');
+    px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
+    px(x + 2, y + 9, 1, 1, '#242e35'); px(x + 9, y + 9, 1, 1, '#242e35');   // NW/NE arm tips
+    for (const cw of [x + 2, x + 5, x + 8]) px(cw, y + 11, 2, 1, '#1a1e22');   // casters
+    // chrome gas-lift column: warm west / cold east, matching the stool
+    px(x + 4, y + 7, 4, 3, LINE);
+    px(x + 5, y + 7, 1, 3, '#54616a'); px(x + 6, y + 7, 1, 3, '#39434b');
+    keyEdge(x + 5, y + 7, 1, 2, 0.20); rimEdge(x + 6, y + 7, 1, 3, 0.22);
+    // BACKREST — a WAISTED mesh back, not a slab. At 12px the PROFILE is the only thing that says
+    // "chair" rather than "small appliance": a headrest bar clear of the shoulders, then a pinch at
+    // the lumbar. Legibility bought from silhouette costs no brightness, so the prop stays quiet.
+    px(x + 4, y - 4, 4, 1, LINE); px(x + 3, y - 3, 6, 1, LINE);
+    px(x + 2, y - 2, 8, 4, LINE); px(x + 3, y + 2, 6, 1, LINE);
+    px(x + 4, y - 3, 4, 1, shade(r.face, 0.16));              // headrest bar
+    keyEdge(x + 4, y - 3, 2, 1, 0.26);
+    px(x + 3, y - 2, 6, 3, r.face);                             // shoulders — the widest span
+    px(x + 3, y - 2, 1, 3, shade(r.face, 0.12)); px(x + 8, y - 2, 1, 3, r.dk);
+    rimEdge(x + 8, y - 2, 1, 3, 0.20);
+    for (let j = 0; j < 3; j++)                                 // mesh weave, alternating rows
+      px(x + 4, y - 2 + j, 4, 1, shade(r.face, j % 2 ? -0.13 : 0.03));
+    px(x + 4, y + 1, 4, 1, shade(r.face, -0.26));             // pinched waist = the lumbar read
+    // seat pad, middle-south — stays visible under a seated agent
+    px(x + 1, y + 3, 10, 5, LINE);
+    px(x + 2, y + 4, 8, 1, '#4a8a82'); px(x + 2, y + 4, 4, 1, '#5aa89c');
+    keyEdge(x + 2, y + 4, 4, 1, 0.20);
+    px(x + 2, y + 5, 8, 2, '#2f6a62');
+    px(x + 2, y + 5, 1, 2, '#4a8a82'); px(x + 9, y + 5, 1, 2, '#26554e');
+    rimEdge(x + 9, y + 5, 1, 2, 0.18);
+    px(x + 3, y + 6, 1, 1, '#26554e'); px(x + 8, y + 6, 1, 1, '#26554e');   // seat stitches (kept)
+    px(x + 2, y + 7, 8, 1, r.face); px(x + 2, y + 7, 3, 1, r.lit);          // front lip
+    px(x + 3, y + 8, 6, 1, r.dk);                                          // rounded skirt
+    // ARMRESTS — the second tell, and the cheapest one: two nubs breaking the outline east and west,
+    // riding just above the seat. Drawn last so they read as in FRONT of the pad, not sunk into it.
+    px(x, y + 2, 2, 4, LINE); px(x + 10, y + 2, 2, 4, LINE);
+    px(x, y + 3, 2, 1, shade(r.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);   // west arm takes the key
+    px(x, y + 4, 2, 1, shade(r.face, -0.18));
+    px(x + 10, y + 3, 2, 1, shade(r.face, -0.04));            // east arm sits in shade
+    px(x + 10, y + 4, 2, 1, r.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
+
   /* ---- CHAIR, TURNED. The south view spends its silhouette on WIDTH (shoulders, armrests out, a
      wide pad); a chair seen from the side has none of that to spend, so the profile is carried by
      three horizontal BREAKS stacked against one vertical: a thin raked back at the tail, the seat
@@ -5652,7 +5689,60 @@ const PropSprites = (() => {
      Rows are held in lockstep with F.chair (pad top y+4, front lip y+7, column y+7..y+9, base y+10,
      casters y+11) so a turned chair stands at exactly the same height as an unturned one beside it.
      WEST (r=1) is this view mirrored — px()'s LSWAP re-lights it, so the key stays high-west. */
-  F['chair:e'] = (x,y,w,h,f) => { pilotChair(x,y,PILOT_TEAL,'e'); };
+  F['chair:e'] = (x, y, w, h, f) => {
+    const r = RAMP.steel;
+    shadow2(x + 3, y + 10, 7);
+    // star base in profile: the arms fore-and-aft read as one low bar, casters under its ends
+    px(x + 2, y + 10, 8, 1, '#10161a');
+    px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
+    px(x + 2, y + 9, 1, 1, '#242e35'); px(x + 9, y + 9, 1, 1, '#242e35');
+    for (const cw of [x + 2, x + 5, x + 8]) px(cw, y + 11, 2, 1, '#1a1e22');
+    // gas-lift column, west of the seat's midpoint (the seat runs east off the back)
+    px(x + 4, y + 7, 4, 3, LINE);
+    px(x + 5, y + 7, 1, 3, '#54616a'); px(x + 6, y + 7, 1, 3, '#39434b');
+    keyEdge(x + 5, y + 7, 1, 2, 0.20); rimEdge(x + 6, y + 7, 1, 3, 0.22);
+    /* THE BACK — one RAKED mass from crown to seat, silhouette first, fills after. The first draft
+       stacked a proud headrest block on a thin straight post and the profile read as a CISTERN ON A
+       BOWL: what says "office chair" from the side is the RAKE — the crown hangs a step further
+       west every row up, and the foot tucks into the seat ink with no gap. Height stays in lockstep
+       with F.chair (crown y-4, foot at the pad). */
+    px(x + 3, y - 4, 4, 1, LINE);                               // crown, eased a px at each end
+    px(x + 2, y - 3, 6, 1, LINE);
+    px(x + 2, y - 2, 6, 2, LINE);
+    px(x + 3, y + 0, 5, 2, LINE);
+    px(x + 4, y + 2, 4, 1, LINE);                               // lumbar foot, tucked into the seat ink
+    px(x + 3, y - 3, 4, 1, r.lit); keyEdge(x + 3, y - 3, 3, 1, 0.28);   // the crown catches the strip
+    px(x + 3, y - 2, 4, 2, shade(r.face, -0.04));             // mesh, edge-on — a full slab, not a stalk
+    px(x + 3, y - 2, 1, 2, shade(r.face, 0.12)); keyEdge(x + 3, y - 2, 1, 2, 0.18);
+    px(x + 6, y - 2, 1, 2, r.dk); rimEdge(x + 6, y - 2, 1, 2, 0.20);
+    px(x + 4, y + 0, 3, 1, shade(r.face, -0.10));             // weave row
+    px(x + 4, y + 0, 1, 1, shade(r.face, 0.06)); px(x + 6, y + 0, 1, 1, shade(r.dk, 0.04));
+    px(x + 4, y + 1, 3, 1, shade(r.face, -0.26));             // lumbar pinch
+    /* THE FAR ARMREST, behind the seat plane. The camera looks down, so the far arm rides HIGH and
+       dark and the near arm LOW and lit, with the seat plane between them — that pair of offset
+       rails IS the side view. It stops a px short of the seat's front: arms never reach the knees. */
+    px(x + 5, y + 1, 6, 2, LINE);
+    px(x + 6, y + 1, 4, 1, shade(r.face, -0.18));
+    px(x + 6, y + 2, 4, 1, shade(r.dk, -0.06));
+    /* THE SEAT — its top plane running east off the back, still the biggest patch of colour, and
+       its east END is the seat's FRONT: below it the profile stays OPEN down to the base, because
+       the daylight under the knees is the thing that makes it furniture. */
+    px(x + 3, y + 3, 9, 5, LINE);
+    px(x + 4, y + 3, 7, 1, '#4a8a82'); px(x + 4, y + 3, 4, 1, '#5aa89c');
+    keyEdge(x + 4, y + 3, 3, 1, 0.20);
+    px(x + 4, y + 4, 7, 2, '#2f6a62');
+    px(x + 4, y + 4, 1, 2, '#4a8a82'); px(x + 10, y + 4, 1, 2, '#26554e');
+    rimEdge(x + 10, y + 3, 1, 3, 0.22);
+    px(x + 6, y + 5, 1, 1, '#26554e'); px(x + 9, y + 5, 1, 1, '#26554e');   // seat stitches
+    px(x + 4, y + 6, 7, 1, r.face); px(x + 4, y + 6, 3, 1, r.lit);          // front lip
+    px(x + 5, y + 7, 5, 1, r.dk);                                           // rounded skirt
+    /* THE NEAR ARMREST last, so it reads in FRONT of the pad — the LIGHT rail against the far one's
+       dark, and with both drawn the profile can never collapse into one grey mass. */
+    px(x + 4, y + 5, 7, 2, LINE);
+    px(x + 5, y + 5, 5, 1, r.lit); keyEdge(x + 5, y + 5, 3, 1, 0.30);
+    px(x + 5, y + 6, 5, 1, shade(r.face, -0.10));
+    px(x + 9, y + 5, 1, 2, r.dk); rimEdge(x + 9, y + 5, 1, 2, 0.22);
+  };
 
   /* ---- CHAIR FROM BEHIND. The one back view worth authoring in the whole catalog: a chair pushed
      up to a desk, or one with a body sitting in it, genuinely is seen from behind. It is the south
@@ -5660,7 +5750,40 @@ const PropSprites = (() => {
      what is left has to be the back's outer SHELL: one continuous surface, seamed down the spine,
      with the pad's rear edge showing under it. ⛔ A back is the emptiest surface a prop owns: give it
      ONE organising shape and keep every mark touching it, or the marks read as glyphs. */
-  F['chair:n'] = (x,y,w,h,f) => { pilotChair(x,y,PILOT_TEAL,'n'); };
+  F['chair:n'] = (x, y, w, h, f) => {
+    const r = RAMP.steel;
+    shadow2(x + 3, y + 10, 7);
+    px(x + 2, y + 10, 8, 1, '#10161a');
+    px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
+    px(x + 2, y + 9, 1, 1, '#242e35'); px(x + 9, y + 9, 1, 1, '#242e35');
+    for (const cw of [x + 2, x + 5, x + 8]) px(cw, y + 11, 2, 1, '#1a1e22');
+    px(x + 4, y + 7, 4, 3, LINE);
+    px(x + 5, y + 7, 1, 3, '#54616a'); px(x + 6, y + 7, 1, 3, '#39434b');
+    keyEdge(x + 5, y + 7, 1, 2, 0.20); rimEdge(x + 6, y + 7, 1, 3, 0.22);
+    // the pad, seen from behind: only its rear edge and underside are left
+    px(x + 1, y + 3, 10, 5, LINE);
+    px(x + 2, y + 4, 8, 2, shade('#2f6a62', -0.22));           // upholstery in its own shadow
+    px(x + 2, y + 4, 8, 1, shade('#4a8a82', -0.26));
+    px(x + 2, y + 6, 8, 1, r.dk); px(x + 3, y + 7, 6, 1, shade(r.dk, -0.30));
+    // the SHELL: same waisted outline as the front, but a solid moulded back instead of mesh
+    px(x + 4, y - 4, 4, 1, LINE); px(x + 3, y - 3, 6, 1, LINE);
+    px(x + 2, y - 2, 8, 4, LINE); px(x + 3, y + 2, 6, 1, LINE);
+    px(x + 4, y - 3, 4, 1, shade(r.face, 0.10));               // headrest bar, dimmer than its front
+    keyEdge(x + 4, y - 3, 2, 1, 0.20);
+    px(x + 3, y - 2, 6, 3, shade(r.face, -0.10));
+    px(x + 3, y - 2, 1, 3, shade(r.face, 0.04)); px(x + 8, y - 2, 1, 3, shade(r.dk, 0.06));
+    rimEdge(x + 8, y - 2, 1, 3, 0.20);
+    px(x + 5, y - 2, 2, 3, shade(r.face, -0.02));              // the shell's crowned spine
+    px(x + 5, y + 1, 2, 1, shade(r.face, -0.30));
+    px(x + 4, y + 1, 4, 1, shade(r.face, -0.26));              // lumbar pinch
+    px(x + 4, y + 2, 4, 1, shade(r.dk, -0.10));                // the mounting bracket under it
+    // armrests from behind: their far ends only, breaking the outline east and west
+    px(x, y + 2, 2, 4, LINE); px(x + 10, y + 2, 2, 4, LINE);
+    px(x, y + 3, 2, 1, shade(r.face, 0.06)); keyEdge(x, y + 3, 1, 1, 0.22);
+    px(x, y + 4, 2, 1, shade(r.face, -0.24));
+    px(x + 10, y + 3, 2, 1, shade(r.face, -0.14));
+    px(x + 10, y + 4, 2, 1, r.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
+  };
 
   /* ============ TABLES (2026-07-26) ============
      The catalog had big hero surfaces (holotable, wartable, bar, bench) and nothing in between, so
@@ -10881,7 +11004,7 @@ const PropSprites = (() => {
   function drawSeatFront(f) {
     const lift = f.mount === 'surface' ? SURFACE_RISE : 0;
     const x = f.x * TILE, y = f.y * TILE - lift;
-    const r = f.t === 'chair' ? EQUIPMENT : RAMP.steel;
+    const r = RAMP.steel;
     if (f.t === 'stool') {
       px(x + 2, y + 3, 8, 1, '#2f6a62');                          // pad south face (lower body row)
       px(x + 2, y + 3, 1, 1, '#4a8a82'); px(x + 9, y + 3, 1, 1, '#26554e');
@@ -10889,7 +11012,10 @@ const PropSprites = (() => {
       px(x + 3, y + 4, 6, 1, r.dk);                               // rounded underside rim
       px(x + 4, y + 5, 4, 1, shade(r.dk, -0.30));               // seat AO onto the stem
     } else if (f.t === 'chair') {
-      pilotFront(x,y,PILOT_TEAL);
+      px(x + 2, y + 6, 8, 1, '#2f6a62');                          // pad south row
+      px(x + 3, y + 6, 1, 1, '#26554e'); px(x + 8, y + 6, 1, 1, '#26554e');   // seat stitches
+      px(x + 2, y + 7, 8, 1, r.face); px(x + 2, y + 7, 3, 1, r.lit);          // front lip
+      px(x + 3, y + 8, 6, 1, r.dk);                               // rounded skirt
     } else if (F[f.t] && RECLINER_FRONT_Y[f.t] != null) {
       /* A PROFILE SEAT covers its sitter with the whole near arm, not a pad rim: at this scale that arm
          IS what a person's shins disappear behind (the stool's 2-row sliver would leave the legs
