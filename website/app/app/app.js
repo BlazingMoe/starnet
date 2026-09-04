@@ -4585,7 +4585,7 @@ const App = (() => {
         return;
       }
       const degraded = await probeDegraded();
-      setStatus((degraded ? degraded + ' — ' : 'still unreachable — ') + 'retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core || degraded ? '' : ' ' + BROWSER_HINT));
+      setStatus((degraded ? degraded + ' — ' : 'still unreachable — ') + 'retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core ? '' : ' ' + BROWSER_HINT));
       checking = false;
     };
     const btn = el('btn-unreachable-retry');
