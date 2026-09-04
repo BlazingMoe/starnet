@@ -42,7 +42,7 @@
   const LEDGER_CAP = 50;
   const DENYLIST_CAP = 120;
   const RESOLVED_CAP = 120;
-  const KINDS = ['todo', 'wip'];
+  const KINDS = ['todo', 'wip', 'client-update'];
   const TITLE_MAX = 90, QUOTE_MAX = 200, REASON_MAX = 200;
 
   const str = (v) => (v == null ? '' : String(v));
@@ -112,7 +112,15 @@
       const id = str(f.id), rootReal = str(f.root), fp = str(f.fingerprint);
       const title = clip(f.title, TITLE_MAX), quote = clip(f.quote, QUOTE_MAX);
       if (!id || !kind || !rootReal || !fp || !title || !quote) return null;   // no citation, no row
-      return { id, root: rootReal, displayPath: str(f.displayPath) || rootReal, kind, title, quote, fingerprint: fp, at: num(f.at) };
+      const row = { id, root: rootReal, displayPath: str(f.displayPath) || rootReal, kind, title, quote, fingerprint: fp, at: num(f.at) };
+      if (kind === 'client-update') {
+        row.sourceId = 'client-update';
+        row.evidence = (Array.isArray(f.evidence) ? f.evidence : []).slice(0, 6)
+          .map(e => ({ path: str(e.path).slice(0, 500), line: Math.max(1, num(e.line)), quote: clip(e.quote, QUOTE_MAX), modifiedAt: num(e.modifiedAt) }))
+          .filter(e => e.path && e.quote);
+        if (!row.evidence.length) return null;
+      }
+      return row;
     }).filter(Boolean).slice(-STAGED_CAP);
     const caplist = (v, cap) => (Array.isArray(v) ? v : []).map(s => str(s).slice(0, 240)).filter(Boolean).slice(-cap);
     const perRoot = {};
@@ -129,6 +137,9 @@
       ledger: (Array.isArray(x.ledger) ? x.ledger : []).filter(e => e && typeof e === 'object')
         .map(e => ({ at: num(e.at), outcome: clip(e.outcome, 24), reason: clip(e.reason, REASON_MAX), title: clip(e.title, TITLE_MAX) }))
         .slice(-LEDGER_CAP),
+      sources: (Array.isArray(x.sources) ? x.sources : []).filter(s => s && s.id === 'client-update' && typeof s.root === 'string' && s.root)
+        .slice(0, 1).map(s => ({ id: 'client-update', kind: 'client-update', root: s.root, enabled: s.enabled === true,
+          lookbackDays: 7, lastScanAt: num(s.lastScanAt), status: clip(s.status, 80) || 'not-scanned' })),
       perRoot, lastCycleAt: num(x.lastCycleAt)
     };
   }
@@ -222,7 +233,7 @@
     const s = normalize(state);
     const cap = Number.isFinite(limit) && limit > 0 ? limit : 2;
     return s.staged.filter(f => f.root === str(rootReal)).slice(-cap)
-      .map(f => ({ quote: (f.kind === 'todo' ? 'its own code says: "' : 'the working tree holds ') + (f.kind === 'todo' ? f.quote + '"' : f.quote) }));
+      .map(f => ({ quote: (f.kind === 'todo' ? 'its own code says: "' : f.kind === 'client-update' ? 'a selected document says: ' : 'the working tree holds ') + (f.kind === 'todo' ? f.quote + '"' : f.quote) }));
   }
 
   return {

@@ -60,6 +60,9 @@
     // capability your agents can use, grouped into toolsets…"). Every pane in this console had the same
     // stutter. The `desc` is the one that stays — it is also what the search box matches on.
     const secToolsets =
+      '<label class="mc-hint" for="ts-agent">Capabilities for agent</label><select id="ts-agent" class="key-input" aria-label="Capabilities for agent"></select>' +
+      '<button class="bb xs" id="ts-refresh" type="button">REFRESH AUTHORITY</button>' +
+      '<div id="ts-authority" class="set-about" role="status"></div>' +
       '<div class="ts-core set-row"><span class="ts-glyph" aria-hidden="true">◉</span>' +
         '<span class="ts-main"><span class="ts-name">COMPUTE <span class="ts-core-tag">CORE</span></span>' +
         '<span class="ts-desc dim">The compute gate — an agent can always think. Always on.</span></span></div>' +
@@ -281,7 +284,7 @@
       '</div>';
 
     const host = mountConsole(body, 'connectors', [
-      { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Every capability your agents can use, grouped and switchable. A prop grants a toolset; the switch is the kill-switch on top.', build: frag(secToolsets) },
+      { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
       { id: 'catalog', label: 'CATALOG', glyph: '⊞', desc: 'Browse vetted connectors and platform APIs — including POD services — then plug them into your agents.', build: frag(secCatalog) },
       { id: 'keys', label: 'KEYS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
       { id: 'mcp', label: 'MCP CONNECTORS', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Their tools run through the same approval gate as the built-ins.', build: frag(secMcp) },
@@ -506,8 +509,8 @@
     // full list is still one click away — this hides nothing, it just stops one row eating the pane.
     const TS_TOOLS_SHOWN = 8;
     function tsRowHTML(t, ri) {
-      const off = !t.enabled;
-      const inert = !t.placed;
+      const off = !t.available;
+      const inert = !t.placed && !t.profileGranted && t.switchEffective;
       // A DIAGNOSIS WITHOUT A CURE. This span named the exact missing prop and offered nothing to click,
       // so the one row that knows what is wrong was the one row you could not act on. The button hands
       // off to the same REFIT deep-link the SKILLS library's PLACE uses (arms the palette on the prop),
@@ -517,7 +520,7 @@
             (t.object ? '<button class="bb xs ts-place" type="button" data-ts-place="' + esc(t.object) + '">⚒ PLACE ONE</button>' : '') +
           '</span>'
         : '';
-      const consent = t.consentGated ? '<span class="ts-tag">asks first</span>' : '';
+      const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource || 'granted') : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
       const isJuke = t.id === 'jukebox';
       const all = (t.tools && t.tools.length) ? t.tools : [];
       const rest = all.length - TS_TOOLS_SHOWN;
@@ -528,7 +531,7 @@
           '</div>'
         : '';
       return '<div class="set-row ts-row' + (off ? ' ts-off' : '') + (inert ? ' ts-inert-row' : '') + '" data-id="' + esc(t.id) + '" style="--ci:' + (ri || 0) + '">' +
-          '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '">' +
+          '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '"' + (t.switchEffective ? '' : ' disabled data-tip="Full Access overrides this saved switch. Change authority first."') + '>' +
           '<span class="ts-glyph" aria-hidden="true">' + esc(t.glyph || '▪') + '</span>' +
           '<span class="ts-main">' +
             '<span class="ts-name">' + esc(t.label) + ' ' + consent +
@@ -538,13 +541,27 @@
           '</span>' +
         '</div>';
     }
+    const tsAgentEl = body.querySelector('#ts-agent');
+    const tsAuthorityEl = body.querySelector('#ts-authority');
+    const agents = H.present || [];
+    tsAgentEl.innerHTML = agents.map(a => '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>').join('') || '<option value="">Station defaults</option>';
+    if (agents[H.sel]) tsAgentEl.value = agents[H.sel].id;
+    let tsRequest = 0;
+    tsAgentEl.addEventListener('change', tsRefresh);
+    body.querySelector('#ts-refresh').addEventListener('click', tsRefresh);
     async function tsRefresh() {
+      const request = ++tsRequest;
       try {
-        const j = await Harness.api.get('/api/toolsets?placed=' + encodeURIComponent(placedTypes.join(',')));
+        try { placedTypes = (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps().map(c => c.objectType) : []; } catch (_) {}
+        const j = await Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(tsAgentEl.value) + '&placed=' + encodeURIComponent(placedTypes.join(',')));
+        if (request !== tsRequest || !body.isConnected) return;
+        if (!j || j.error || !j.authority) throw new Error((j && j.error) || 'authority unavailable');
+        const a = j.authority;
+        tsAuthorityEl.textContent = a.name + ' · ' + a.approvalLabel + ' · ' + a.filesystemLabel + '. ' + a.revoke + ' Capability grants shown here; the current task, service connection and operating system can still limit execution.';
         const list = (j && j.toolsets) || [];
         tsListEl.innerHTML = list.map(tsRowHTML).join('');
         if (body.querySelector('#sp-connect')) setupSpotify(body);   // wire Spotify now the sp-* markup is in the JUKEBOX row
-      } catch (_) { tsListEl.innerHTML = '<div class="mc-detail">sidecar offline — start it to manage toolsets.</div>'; }
+      } catch (_) { if (request !== tsRequest) return; tsAuthorityEl.textContent = 'Effective authority unavailable.'; tsListEl.innerHTML = '<div class="mc-detail">Cannot read current capabilities. Reopen ABILITIES after reconnecting.</div>'; }
     }
     tsListEl.addEventListener('change', async ev => {
       const cb = ev.target.closest('input[data-ts-toggle]'); if (!cb) return;

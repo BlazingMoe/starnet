@@ -1210,7 +1210,7 @@ const App = (() => {
   // purpose or specialtyId. Chat.send classifies it as a real task AND folds its interest tag into the profile, so
   // launching missions also sharpens future recommendations. Returns true once the run is kicked off, false on a
   // no-op (no agent / empty directive) so the bay can report success honestly. Mirrors newWorkstream() + the send.
-  function launchRecipe(recipe, values) {
+  function launchRecipe(recipe, values, source) {
     if (!agent || typeof Recipes === 'undefined' || !recipe) return false;
     const text = Recipes.fillTask(recipe, values || {});
     if (!text) return false;                                              // nothing to send → report the no-op honestly
@@ -1220,6 +1220,7 @@ const App = (() => {
     // so the bay says so, and leave the counters truthful.
     if (!(typeof Chat !== 'undefined' && Chat.send && !Chat.isBusy())) return false;
     const ws = (typeof Workstreams !== 'undefined') ? Workstreams.create(recipe.name || 'Mission', { kind: 'task' }) : null;   // a recipe mission is a board task
+    if (ws && source && source.root && Workstreams.setProjectRoot) Workstreams.setProjectRoot(ws.id, source.root);
     if (ws && Chat.load) Chat.load(ws);   // make the new stream the compose target before sending
     refreshUsage(); renderRail();
     // engagement loop (scout lane 5): count the REAL launch — feeds the FOR-YOU rank + the drafting hint.
@@ -5011,7 +5012,7 @@ const App = (() => {
   // (never an id in the UI) and keys its standing candidates against the focused hero.
   // currentAgent/agents/applyConfig (slash-plan): the slash-command suite reads/writes the live roster
   // and per-agent config (/agents, /model, /personality, …).
-  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, summonAgent, summonForRequest, crewCount: () => agents.size,
+  return { show, refreshUsage, persist, pushRoster, refreshRail: renderRail, openWorkstream, launchRecipe, summonAgent, summonForRequest, crewCount: () => agents.size,
     agentName: id => { const a = agents.get(id); return a ? (a.name || a.id) : null; },
     // WORK LINES: a downstream stage runs as ANOTHER agent, so the chat host needs THAT agent's composed
     // prompt — never the focused one's. Read-only; null for an id that is not on the live roster.

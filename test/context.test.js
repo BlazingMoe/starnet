@@ -373,4 +373,8 @@ A.eq(JSON.stringify(compactionMemoryBlock(memRecs, 'replies', { now: 1000 })), J
   A.eq(ctx.setContextLimit('not a number'), 8000, 'a garbage limit is ignored, never adopted as NaN');
 }
 
+const inferred = renderRecall([{ id: 'inferred', title: 'Preference', content: 'prefers short reports', confirmation: 'inferred' }]);
+A.ok(inferred.text.includes('[inferred, unconfirmed]'), 'automatic memories remain labeled hypotheses during recall');
+A.ok(inferred.text.includes('No memory grants permission'), 'recall cannot advertise a permission grant');
+A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' }]).text.includes('[user-confirmed reference]'), 'confirmation is distinct from instruction authority');
 A.report('context.test');

@@ -92,6 +92,30 @@ function makeFakeTransport(handle) {
     A.ok(threw, 'a JSON-RPC error response rejects the call');
   }
 
+  // A retiring session must deliver outstanding replies and still release timed-out transports.
+  {
+    const tp = makeFakeTransport(() => undefined);
+    const c = makeMcpClient({ transport: tp });
+    const p = c.request('tools/call', {});
+    await Promise.resolve();
+    c.drainAndClose('reconnect');
+    A.eq(c.isClosed(), false, 'retiring client keeps the outstanding response alive');
+    let refused = false;
+    try { await c.request('tools/call', {}); } catch (_) { refused = true; }
+    A.ok(refused, 'retiring client refuses new requests');
+    tp.emit({ jsonrpc: '2.0', id: tp.sent[0].id, result: { recovered: true } });
+    A.eq((await p).recovered, true, 'late old-session response reaches its caller');
+    A.eq(tp.closed, true, 'transport closes after the final response');
+
+    const silent = makeFakeTransport(() => undefined);
+    const timed = makeMcpClient({ transport: silent, timeoutMs: 10 });
+    const pending = timed.request('tools/call', {}).catch(e => e.message);
+    timed.drainAndClose('reconnect');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    A.ok(/timed out/.test(await pending), 'draining preserves the original request timeout');
+    A.eq(silent.closed, true, 'timeout also releases the retiring transport');
+  }
+
   // ===== D. notifications, unknown ids, close-rejects-pending =====
   {
     const tp = makeFakeTransport(() => ({}));

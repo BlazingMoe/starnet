@@ -137,7 +137,10 @@
       try { return String(validateConfig(c) || ''); } catch (_) { return 'connector runtime ownership could not be verified'; }
     }
     function closeResources(client, transport, reason) {
-      if (client) { try { client.close(reason || 'reconfigured'); } catch (_) {} }
+      if (client) { try {
+        if (reason === 'reconnect' && typeof client.drainAndClose === 'function') client.drainAndClose(reason);
+        else client.close(reason || 'reconfigured');
+      } catch (_) {} }
       else if (transport && typeof transport.close === 'function') { try { transport.close(); } catch (_) {} }
     }
     function teardown(c) {
@@ -221,7 +224,7 @@
       // DRAIN, DON'T KILL. A reconnect used to close the old client immediately, which REJECTED every sibling
       // call still in flight on it ("mcp client closed: reconnect") — so when two calls hit an expired session
       // together, the first one's recovery turned the second's honest 404/401 into an unrelated failure. The old
-      // connection is detached now and closed only once this attempt settles; a sibling's reply arrives as what
+      // connection is detached now and drains outstanding requests after this attempt settles; a sibling's reply arrives as what
       // the server actually said, and that sibling joins the shared reconnect on its own.
       const drained = c.client ? { client: c.client, transport: c.transport } : null;
       c.client = null; c.transport = null;

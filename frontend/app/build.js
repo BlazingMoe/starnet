@@ -2402,17 +2402,30 @@ const Build = (() => {
         const lname2 = lineNameOf(comp);
         const name = (lname2 ? lname2 + ' — ' : '') + (prompt.length > 48 ? prompt.slice(0, 45) + '…' : prompt);
         fetch(finApi('/api/cron'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, prompt, schedule, agentId: trgDock, provider, tz, runsLine: true }) })
-          .then(r => r.json()).then(r => {
-            btn.disabled = false;
-            if (r && r.error) { sfx('bad'); say('✕ ' + r.error, true); return; }
+          .then(async response => {
+            const r = await response.json();
+            const refuse = message => { btn.disabled = false; sfx('bad'); say('✕ ' + message, true); };
+            if (r && r.error) { refuse(r.error); return; }
             // mint-gate refusals are 200s with no error key (declined / near-duplicate name — the auto-named
             // "<LINE> — <prompt…>" form collides easily): claiming "✓ routine scheduled" over them discarded
             // the new trigger silently. Same fix as AUTOMATION / MAKE ROUTINE.
-            if (r && r.declined) { sfx('bad'); say('✕ ' + (r.message || 'this routine name was deleted before — reword the brief'), true); return; }
-            if (r && r.duplicate) { sfx('bad'); say('✕ a similar routine already exists' + (r.job && r.job.name ? (' ("' + r.job.name + '")') : '') + ' — reword the brief; nothing new was created', true); return; }
+            if (r && r.declined) { refuse(r.message || 'this routine name was deleted before — reword the brief'); return; }
+            if (r && r.duplicate) { refuse('a similar routine already exists' + (r.job && r.job.name ? (' ("' + r.job.name + '")') : '') + ' — reword the brief; nothing new was created'); return; }
+            if (!response.ok || !r || r.ok !== true || !r.job || !r.job.id) {
+              refuse('save not confirmed — check AUTOMATION before retrying'); return;
+            }
+            // The open card's scheduler snapshot can be stale, and a create acknowledgement alone is not
+            // proof that the job is visible. Confirm the exact saved id through the same list AUTOMATION reads.
+            const readback = await fetch(finApi('/api/cron'), { cache: 'no-store' });
+            const current = readback.ok ? await readback.json() : null;
+            const saved = current && Array.isArray(current.jobs) && current.jobs.find(job => job.id === r.job.id);
+            if (!saved || current.degraded) { refuse('save not confirmed — check AUTOMATION before retrying'); return; }
+            schedulerArmed = !!(current.enabled && !current.halted);
+            btn.disabled = false;
             sfx('chime');
-            // honest confirm: never claim "scheduled" over a disarmed scheduler (same law as AUTOMATION)
-            say(schedulerArmed ? '✓ routine scheduled — fires at ' + agentLabelFor(trgDock) : '✓ saved — but the scheduler is OFF; enable it in AUTOMATION', !schedulerArmed);
+            if (saved.state === 'completed') say('✓ routine completed — see its result in AUTOMATION');
+            else if (!saved.enabled) say('✓ saved — this routine is paused; manage it in AUTOMATION', true);
+            else say(schedulerArmed ? '✓ routine scheduled — fires at ' + agentLabelFor(trgDock) : '✓ saved — but scheduling is OFF or STOPPED; enable it in AUTOMATION', !schedulerArmed);
             // clear the BRIEF (the next routine is a different job) but keep the WHEN preview: the picker
             // still holds that schedule, so blanking its "next fires" line left the form looking unset
             // while it was in fact still armed on the same cadence.
@@ -2424,7 +2437,7 @@ const Build = (() => {
             if (opts && opts.world && typeof opts.world.pollFeed === 'function') {
               try { Promise.resolve(opts.world.pollFeed()).then(paintFeed).catch(() => {}); } catch (e) {}
             }
-          }).catch(() => { btn.disabled = false; sfx('bad'); say('✕ could not reach the sidecar — nothing was created', true); });
+          }).catch(() => { btn.disabled = false; sfx('bad'); say('✕ save not confirmed — check AUTOMATION before retrying', true); });
       };
       // the two doors: the SAME openers the finish card / NO FEED nag promise. Both leave REFIT (saving).
       g.querySelector('#trg-chan').onclick = () => { sfx('click'); closeP(); close(); if (typeof StationUI !== 'undefined' && StationUI.openTerm) StationUI.openTerm('messaging'); };

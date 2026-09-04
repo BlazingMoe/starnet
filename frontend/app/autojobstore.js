@@ -237,6 +237,8 @@ const AutoJobStore = (() => {
     if (deps.scheduleJob) { try { const r = await deps.scheduleJob(AutoJobs.toCronBody(pr)); duplicate = !!(r && r.duplicate); ok = !!(r && r.ok !== false); } catch (_) { ok = false; } }
     // a real success OR a server-reported duplicate both retire the card (a dup is "already handled", not a failure).
     if (ok || duplicate) { state.pending = state.pending.filter(p => p && p.id !== id); save(); ledgerPost({ id: pr.recommendationId, state: 'completed', reason: duplicate ? 'already_done' : 'completed' }); }
+    // Only a newly scheduled, explicitly approved routine proves adoption; dedup retirement does not.
+    if (ok && !duplicate) ledgerPost({ id: pr.recommendationId, outcome: { adopted: true } });
     // ARM-STATE (item #1): on a genuine schedule, tell the render site whether the scheduler that fires it is armed,
     // so the board/quest-log can surface AutoJobs.armStateLine() honestly ("saved, but the scheduler is off …").
     // Only probed on a real success (a dup/failure needs no arm hint). undefined → the render site shows no line.
