@@ -15,6 +15,12 @@ const VoiceStream = (() => {
   }
   function open({ rate, onUpdate = () => {}, onError = () => {} }) {
     let id = '', frames = [], count = 0, closed = false, finishing = false, failed = false, pumping = null;
+    let lastUpdate = '';
+    function publish(update) {
+      const key = JSON.stringify([update.stable, update.partial, update.text]);
+      if (key === lastUpdate) return;
+      lastUpdate = key; onUpdate(update);
+    }
     const ac = new AbortController();
     async function request(action, body) {
       const requestAbort = new AbortController();
@@ -51,7 +57,7 @@ const VoiceStream = (() => {
         count -= samples;
         const pcm = mono16k(batch, rate);
         const update = await request('audio', pcm.buffer);
-        if (!closed) onUpdate(update);
+        if (!closed) publish(update);
       }
     }
     const timer = setInterval(() => {
@@ -72,7 +78,7 @@ const VoiceStream = (() => {
         await flush();
         const result = await request('finish');
         if (closed) throw new Error('Voice turn cancelled.');
-        closed = true; onUpdate(result); return result;
+        closed = true; publish(result); return result;
       },
       cancel() {
         closed = true; clearInterval(timer); frames = []; count = 0;
