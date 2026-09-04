@@ -148,6 +148,18 @@ No browser warnings/errors. Focused control-floor (101) and workstream (193)
 assertions passed.
 Standard-terminal follow-up: all 702 fast steps passed (`dev/group-terminal-fast.log`).
 
+## Selectable agent list and ADD
+
+Removed picker checkboxes. Full-width agent rows now support mouse and keyboard
+selection, with `aria-pressed` and an Added indicator. Search filters names without
+clearing selection. The explicit ADD action saves the chosen roster through the
+existing endpoint. The standard terminal and COMMS identity line are preserved.
+Live checks counted zero picker checkboxes, observed the selection count change
+from two to three on click and back to two on Enter, and verified ADD closed cleanly
+with the two-agent roster intact. Browser error/warning log was empty. Focused
+workstream (193), control-floor (101), and mirror (8) assertions passed.
+Full fast suite: 702 steps green (`dev/group-select-fast.log`).
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.
