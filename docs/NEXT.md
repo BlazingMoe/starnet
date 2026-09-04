@@ -2,7 +2,7 @@
 
 ## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
 
-Implemented in `b4d83cf56` and `ff2946022`; isolated branch, not integrated or packaged.
+Initial slices: `b4d83cf56` and `ff2946022`. Final integration and verification are recorded below.
 Standard recording can preview with installed local/native recognition even when its final transcriber
 uses a cloud credential. Local Live requests previews at a 650ms cadence, keeps words visible, reuses an
 exact completed preview instead of transcribing the same final audio again, extends a pending turn when
@@ -20,7 +20,7 @@ an installed-desktop proof. Windows hands-free fallback without local models rem
 Full gates passed: **test:fast 703/703**, **test:http 90/90**. Source verification was mechanically
 refreshed in `acd6eed27` without changing claim verdicts. The first HTTP attempt hit workspace-lease
 timing assertions (passed alone and in the full retry); earlier fast attempts caught the generated
-website mirror and source record needing refresh. Both are now verified. No merge or desktop build.
+website mirror and source record needing refresh. Both were verified at that checkpoint; integration followed in the second round. No desktop build.
 
 Second round (2026-09-04): incremental local PCM sessions in both recording and hands-free modes;
 eight-second ASR windows with retained boundary context; stable/provisional text; adaptive pause option;
@@ -37,11 +37,27 @@ Real browser receipt: ordered audio chunks, five recognitions, max window6784ms;
 heavily loaded shared host. Separate warm engine check first partial583ms. These are different checks,
 not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
 server stopped. Focused voice button105, media36, draft protection21 assertions, adaptive timing, six flow
-scenarios, transport bounds/recovery, and UI checks pass. Full second-round gates pending serialized
-handoff from support-mail lane. The subsequent real 16.66-second speech check crossed two window
+scenarios, transport bounds/recovery, and UI checks pass. The subsequent real 16.66-second speech check crossed two window
 boundaries and retained all three repeated sentences exactly; max decode window8000ms, first partial605ms.
 It exposed timestamp drift that could duplicate an overlap word; the corrected path and its regression
 now preserve both real repetition and overlap deduplication.
+
+Final integration: `1c835fad3` on `feat/harness-backend`. Fast gate **709/709** on
+`0de259466` (`voice-fast-final.log`); HTTP **93/93** on `069fff836` (`voice-http-combined.log`).
+The final change after HTTP was frontend caption continuity only; the sidecar subtree remained exactly
+`4f1a4f6b5897efb975574ef655fc089ea275d52a`. The integration merge tree exactly matched the verified
+voice tree `b9a12d461cd8b2bb4a8ea6f56c57c7fc938b6436`; foreign QA/room handoff files were hash-checked
+and preserved. Final seeded UI + real Whisper proof showed first live words in **546ms**, continuous
+captions across a thinking pause, one complete submitted turn, and working pause/resume/end. Speech was
+a generated PCM fixture, submission was captured without invoking a provider, and output-model warmup
+was disabled for this last recognition-only check. No attended microphone/speaker or installed EXE proof.
+All temporary frontend proof files were removed; the test server was stopped.
+
+Earlier full fast gate caught direct clock reads in the new backend; injected clocks and a timing test
+fixed it. An earlier HTTP run was intentionally stopped to include the concurrent connector-security
+merge. Final gates above passed on the combined support, security, and voice code. Steady-caption UI
+polish triggered the final fast rerun; the backend and HTTP test surface were unchanged.
+
 
 ## VERIFIED 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
 
