@@ -872,11 +872,11 @@ const Voice = (() => {
   }
   function maybeRearm() {
     if (!convoMode || !canListen() || rearmTimer) return;
-    if (busyNow() || listening || talking()) return;   // not ready — a finishing event re-calls this
+    if ((busyNow() && !coordinator) || coordinatorPaused || listening || talking()) return;
     const delay = REARM_DELAY;   // neural <audio> stops cleanly → a short echo guard is enough
     rearmTimer = setTimeout(() => {
       rearmTimer = null;
-      if (convoMode && !busyNow() && !listening && !talking()) startListening();
+      if (convoMode && (!busyNow() || coordinator) && !coordinatorPaused && !listening && !talking()) startListening();
     }, delay);
   }
 
@@ -922,6 +922,7 @@ const Voice = (() => {
   // a silent listen in voice mode: try again a few times, then go passive so the mic isn't hot forever.
   function handleEmptyListen() {
     emptyStreak++;
+    if (coordinator && !pendingDiag) { maybeRearm(); return; }
     // Hands-free gave up after three "empty" listens without ever naming why. If those listens failed for a
     // REASON (a 403 after a respawn, a provider 500), say that instead of implying nobody spoke.
     if (emptyStreak >= MAX_EMPTY) { emptyStreak = 0; setStatus(takeDiag() || 'voice mode — tap 🎤 when ready'); return; }
@@ -1039,8 +1040,8 @@ const Voice = (() => {
     let previewPending = false, previewAbort = null, previewSeq = 0, previewLastAt = 0;
     let cb = null, mime = '';
     let aborted = false, delivered = false, hardCapTimer = null;
-    const LOCAL_PREVIEW_MIN_MS = 650;
-    const LOCAL_PREVIEW_INTERVAL_MS = 900;
+    const LOCAL_PREVIEW_MIN_MS = 400;
+    const LOCAL_PREVIEW_INTERVAL_MS = 650;
 
     function pickMime() {
       const prefs = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -1082,10 +1083,10 @@ const Voice = (() => {
       }
       return output;
     }
-    async function transcribeLocalFrames(frames, signal) {
+    async function transcribeLocalFrames(frames, signal, mode = 'local') {
       const pcm = mono16k(frames, pcmRate || 48000);
       if (!pcm.length) return { text: '', reason: 'local microphone capture produced no audio', failed: true };
-      const r = await fetch('/api/local-voice/transcribe', {
+      const r = await fetch(mode === 'native' ? '/api/stt/native' : '/api/local-voice/transcribe', {
         method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: pcm.buffer, signal
       });
       const j = await r.json().catch(() => ({}));
@@ -1113,7 +1114,8 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     function requestLocalPreview() {
-      if (takeSttMode !== 'local' || previewPending || delivered || aborted || !cb || !cb.onInterim) return;
+      const previewMode = takeSttMode === 'local' || takeSttMode === 'native' ? takeSttMode : classicPreviewMode;
+      if (!previewMode || previewPending || delivered || aborted || !cb || !cb.onInterim) return;
       const capturedMs = pcmSamples / Math.max(1, pcmRate || 48000) * 1000;
       const now = Date.now();
       if (capturedMs < LOCAL_PREVIEW_MIN_MS || (previewLastAt && now - previewLastAt < LOCAL_PREVIEW_INTERVAL_MS)) return;
@@ -1122,14 +1124,13 @@ const Voice = (() => {
       const seq = previewSeq;
       const ac = new AbortController();
       previewAbort = ac;
-      transcribeLocalFrames(pcmFrames.slice(), ac.signal).then(({ text }) => {
+      transcribeLocalFrames(pcmFrames.slice(), ac.signal, previewMode).then(({ text }) => {
         if (!text || ac.signal.aborted || seq !== previewSeq || delivered || aborted) return;
         cb && cb.onInterim && cb.onInterim(String(text).trim());
       }).catch(error => {
         if (!error || error.name !== 'AbortError') console.warn('[voice] local preview failed:', (error && error.message) || error);
       }).finally(() => {
-        if (previewAbort === ac) previewAbort = null;
-        previewPending = false;
+        if (previewAbort === ac) { previewAbort = null; previewPending = false; }
       });
     }
     async function transcribe(blob) {
@@ -1296,11 +1297,14 @@ const Voice = (() => {
     (canRecordMic ? recorderProvider : webSpeechProvider);
   let sttProvider = classicSttProvider;
   let classicSttMode = 'cloud';
+  let classicPreviewMode = '';
+  let coordinatorPaused = false;
   let classicProviderReady = !!(forceRecorder || forceWebSpeech);
   let classicProviderProbe = null;
   let startAfterProbe = false;
   function applyClassicSttStatus(status) {
     const preferred = String((status && status.preferred) || '');
+    classicPreviewMode = status && status.local ? 'local' : status && status.native ? 'native' : '';
     if (!forceRecorder && !forceWebSpeech) {
       if (preferred === 'native' && canRecordMic) { classicSttProvider = recorderProvider; classicSttMode = 'native'; }
       else if (preferred === 'native') { classicSttProvider = nativeSpeechProvider; classicSttMode = 'native'; }
@@ -1336,6 +1340,7 @@ const Voice = (() => {
   function busyNow() { return typeof Chat !== 'undefined' && Chat.isBusy && Chat.isBusy(); }
 
   function startListening() {
+    if (coordinatorPaused) return;
     // init probes the sidecar in the background. If the first click wins that race, preserve the click and
     // begin as soon as the truthful provider snapshot arrives instead of guessing from WebView browser APIs.
     if (!coordinator && !classicProviderReady && classicProviderProbe) {
@@ -1404,6 +1409,7 @@ const Voice = (() => {
     // before the failure existed, so it can never carry it.
     if (!busyNow() && !speaking) setStatus(takeDiag() || savedStatus || (convoMode ? 'voice mode on' : 'online'));
     coordinatorEvent('onState', busyNow() ? 'thinking' : 'ready');
+    if (coordinator && convoMode) maybeRearm();
   }
 
   // a final transcript from the mic — sent exactly like a typed message (busy/purpose/task/cost logic
@@ -1466,9 +1472,19 @@ const Voice = (() => {
     return true;
   }
   function stopCoordinator() {
+    coordinatorPaused = false;
     if (convoMode) stopConvo();
     coordinator = null;
     sttProvider = classicSttProvider;
+  }
+  function pauseCoordinator() {
+    coordinatorPaused = true;
+    clearTimeout(rearmTimer); rearmTimer = null;
+    if (listening) { discarding = true; sttProvider.abort(); listening = false; setMicState(false); }
+  }
+  function resumeCoordinator() {
+    coordinatorPaused = false;
+    if (coordinator && convoMode && !listening) startListening();
   }
   // The downloaded local speech surface owns its persistent microphone/VAD loop, but still needs the mature
   // reply-stream hooks (captions, speaking state, barge-in) from this module.
@@ -1616,7 +1632,7 @@ const Voice = (() => {
     init, speak, speakChunk, endReply, mutter, ambientLine, setAgent, isOn, setSpeakReplies,
     startListening, stopListening, toggleListen, stopSpeaking,
     toggleVoiceMode, stopConvo, onTurnEnd,
-    canListen, canSpeak, startCoordinator, stopCoordinator, attachCoordinator, detachCoordinator,
+    canListen, canSpeak, startCoordinator, stopCoordinator, pauseCoordinator, resumeCoordinator, attachCoordinator, detachCoordinator,
     canOAuthLive: () => !!SR || typeof fetch !== 'undefined', personaId: () => activePersonaId,
     setLocalTts,
     /* LIVE VOICE MUST ARRIVE AUDIBLE. Opening a hands-free session with the speaker muted is a room where you

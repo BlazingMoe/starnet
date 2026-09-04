@@ -257,6 +257,29 @@ async function opensWithin(t, ms) {
 
   A.ok(!/cb\.onInterim\([\s\S]{0,100}repeat\(/.test(SRC), 'recorder progress never writes fake dot or bullet text into the composer');
 
+  // Final recognition and live previews are independent: having a cloud credential must not disable
+  // the installed local preview engine. Windows-only stations preview their captured PCM as well.
+  for (const preferred of ['cloud', 'native']) {
+    const t = boot({ desktop: true, fetch: (url) => {
+      if (url === '/api/stt/status') return Promise.resolve({ ok: true, json: async () => ({
+        available: true, preferred, local: preferred === 'cloud', native: true
+      }) });
+      if (url === (preferred === 'cloud' ? '/api/local-voice/transcribe' : '/api/stt/native')) {
+        return Promise.resolve({ ok: true, json: async () => ({ok: true, text: 'visible before I finish'}) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    } });
+    await tick(); t.Voice.startListening();
+    await until(() => processorInstances.length > 0, 500);
+    const processor = processorInstances[processorInstances.length - 1];
+    const speech = new Float32Array(2048).fill(.18);
+    for (let i=0;i<18;i++) processor.fire(speech);
+    await until(() => t.nodes['chat-input'].value === 'visible before I finish', 1000);
+    A.eq(t.nodes['chat-input'].value, 'visible before I finish', preferred + ' voice exposes interim words before the second click');
+    A.eq(t.sandbox.__sent.length, 0, preferred + ' preview does not send a task');
+    t.Voice.stopConvo(); await tick();
+  }
+
   // Browser recognition may end its own instance after a pause even in continuous mode. Standard voice
   // keeps the take open, retains those words, and sends them only when the Commander clicks again.
   {

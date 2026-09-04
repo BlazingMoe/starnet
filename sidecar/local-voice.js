@@ -249,7 +249,13 @@ async function warm(options = {}) {
   return status();
 }
 
-async function transcribe(buffer) {
+async function transcribe(buffer, options = {}) {
+  const checkAbort = () => {
+    if (options.signal && options.signal.aborted) {
+      const error = new Error('transcription cancelled'); error.name = 'AbortError'; throw error;
+    }
+  };
+  checkAbort();
   if (!Buffer.isBuffer(buffer) || buffer.length < 4 || buffer.length % 4) {
     throw new Error('invalid 16 kHz Float32 PCM payload');
   }
@@ -264,11 +270,14 @@ async function transcribe(buffer) {
   const rms = Math.sqrt(energy / samples.length);
   if (rms < 0.0025) return '';
   const run = async () => {
+    checkAbort();
     asrBusy++;
     const started = monotonicMs();
     try {
       const pipe = await loadAsr();
+      checkAbort();
       const result = await pipe(samples, { chunk_length_s: 20, stride_length_s: 3 });
+      checkAbort();
       let text = String(result && result.text || '').replace(/\[(?:blank_audio|blank audio|silence|music)\]/ig, '').trim();
       if (rms < 0.006 && /^(?:you|thank you|thanks for watching|the end)[.!]?$/i.test(text)) text = '';
       return text;

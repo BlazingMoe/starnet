@@ -235,6 +235,7 @@ test/slash.palette.test.js
 test/slash.config.test.js
 test/voice.button.test.js
 test/voice-live-ui.test.js
+test/voice-flow.test.js
 test/voice.draftguard.test.js
 test/save.test.js
 test/saveversion.test.js

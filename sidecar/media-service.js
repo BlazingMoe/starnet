@@ -658,14 +658,17 @@ function makeMediaService(options) {
   }
 
   async function handleLocalVoiceTranscribe(req, res) {
+    const ac = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     const json = (code, value) => {
+      if (res.destroyed || res.writableEnded) return;
       res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(value));
     };
     let pcm;
     try { pcm = await readBodyBuffer(req, 4 * 16000 * 120, res); }
     catch (error) { if (!res.headersSent) json(error && error.tooLarge ? 413 : 400, { error: 'invalid audio payload' }); return; }
-    try { json(200, { ok: true, text: await localVoice.transcribe(pcm) }); }
+    try { json(200, { ok: true, text: await localVoice.transcribe(pcm, { signal: ac.signal }) }); }
     catch (error) { json(error && error.unavailable ? 501 : 503, { ok: false, error: String((error && error.message) || error) }); }
   }
 
