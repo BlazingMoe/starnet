@@ -165,7 +165,7 @@ const SYNC_BASELINE = {
   'loopjob-driver.js': 10,
   'lsp-manager.js': 10,
   'mcp/client.js': 1,
-  'mcp/manager.js': 14,
+  'mcp/manager.js': 13,
   'mcp/oauth.js': 2,
   'mcp/serve.js': 5,
   'mcp/translate.js': 1,

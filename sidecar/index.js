@@ -4194,10 +4194,30 @@ const CONNECTOR_OAUTH_FLOW_MS = 60000;
 // `force` (the manager's 401 path) refreshes on the SERVER'S word regardless of the local expiry clock — a live 401
 // outranks needsRefresh, which only guesses from expires_in.
 const connectorOauthRefreshInFlight = new Map();   // connector id -> the ONE in-flight refresh promise
+/* TYPED REFRESH OUTCOME (2026-09-04, GitHub #5 residue). This helper used to swallow EVERY refresh failure and hand
+   back the stale token — so the manager's 401 path could not tell "the authorization server said invalid_grant"
+   (the grant is dead: reauth) from "the token endpoint timed out" (an outage: keep the old token, back off). It now
+   returns { token, refreshError } where refreshError is null on success or { kind, message } with kind
+   'invalid_grant' | 'network' | 'other'. The manager reads the string OR the typed shape (resolveToken). A network
+   miss also arms a short in-memory backoff so a burst of 401s cannot hammer an unreachable token endpoint. */
+const connectorOauthRefreshBackoff = new Map();    // connector id -> { until, attempt }
+const CONNECTOR_OAUTH_REFRESH_BACKOFF_BASE_MS = 15000;
+const CONNECTOR_OAUTH_REFRESH_BACKOFF_MAX_MS = 5 * 60 * 1000;
+function classifyOauthRefreshError(msg) {
+  const m = String(msg || '');
+  if (/invalid_grant|invalid_client|unauthorized_client|invalid_scope/i.test(m)) return 'invalid_grant';
+  if (/HTTP \d{3}/.test(m) || /non-JSON|could not be saved|token_type|access_token/i.test(m)) return 'other';
+  return 'network';   // fetch failed / timed out / DNS / connection reset / private-host refusal — the AS never answered
+}
 async function ensureConnectorOauthToken(id, force) {
   const t = connectorOauth.byId[id];
-  if (!t || !t.accessToken) return '';
+  if (!t || !t.accessToken) return { token: '', refreshError: null };
   if ((force === true || mcpOauth.needsRefresh(t.expiresAt, Date.now())) && t.refreshToken && t.tokenEndpoint) {
+    const bo = connectorOauthRefreshBackoff.get(id);
+    if (bo && bo.until > Date.now() && !connectorOauthRefreshInFlight.get(id)) {
+      // still inside the backoff from the last network miss: keep the old token, report the outage, do not dial
+      return { token: t.accessToken, refreshError: { kind: 'network', message: 'token refresh backing off after a network failure (' + Math.ceil((bo.until - Date.now()) / 1000) + 's left)' } };
+    }
     /* SINGLE-FLIGHT per connector — same law as ensureCodexAccessToken/ensureOAuthAccessToken above.
        OAuth 2.1 servers ROTATE refresh tokens, so two agents 401ing the same connector in parallel raced
        two refreshes with the SAME refresh token: the loser got invalid_grant (swallowed), returned its
@@ -4207,7 +4227,7 @@ async function ensureConnectorOauthToken(id, force) {
     if (live) return live;
     const flight = (async () => {
       const cur = connectorOauth.byId[id];              // freshest view once we own the flight
-      if (!cur || !cur.accessToken || !cur.refreshToken || !cur.tokenEndpoint) return (cur && cur.accessToken) || '';
+      if (!cur || !cur.accessToken || !cur.refreshToken || !cur.tokenEndpoint) return { token: (cur && cur.accessToken) || '', refreshError: null };
       try {
         const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
           clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
@@ -4215,17 +4235,25 @@ async function ensureConnectorOauthToken(id, force) {
         const next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), id, Object.assign({}, cur, nt));
         if (!persistConnectorState(next.configs, next.oauth)) throw new Error('refreshed token could not be saved');
         adoptConnectorState(next);
-        return nt.accessToken;
+        connectorOauthRefreshBackoff.delete(id);
+        return { token: nt.accessToken, refreshError: null };
       } catch (e) {
-        console.warn('[connectors] oauth refresh failed for ' + id + ':', (e && e.message) || e);
+        const message = (e && e.message) || String(e);
+        const kind = classifyOauthRefreshError(message);
+        console.warn('[connectors] oauth refresh failed for ' + id + ' (' + kind + '):', message);
+        if (kind === 'network') {
+          const prev = connectorOauthRefreshBackoff.get(id);
+          const attempt = prev ? prev.attempt + 1 : 0;
+          connectorOauthRefreshBackoff.set(id, { until: Date.now() + Math.min(CONNECTOR_OAUTH_REFRESH_BACKOFF_MAX_MS, CONNECTOR_OAUTH_REFRESH_BACKOFF_BASE_MS * Math.pow(2, attempt)), attempt });
+        }
         const after = connectorOauth.byId[id];          // hand back the freshest token we still have
-        return (after && after.accessToken) || cur.accessToken;
+        return { token: (after && after.accessToken) || cur.accessToken, refreshError: { kind, message } };
       }
     })().finally(() => { connectorOauthRefreshInFlight.delete(id); });
     connectorOauthRefreshInFlight.set(id, flight);
     return flight;
   }
-  return t.accessToken;
+  return { token: t.accessToken, refreshError: null };
 }
 // configure a connector, injecting a fresh OAuth bearer for oauth connectors (kept out of the persisted config).
 async function configureConnectorCfg(cfg, options) {
