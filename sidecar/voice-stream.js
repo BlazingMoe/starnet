@@ -41,7 +41,7 @@ function createVoiceStream({ transcribe, now = () => performance.now() }) {
       let overlap = 0;
       for (let n = 1; n <= Math.min(12, committed.length, words.length); n++) {
         const last = words[n - 1];
-        if (last.start < through && last.end <= through + .12 &&
+        if (last.start < through &&
             committed.slice(-n).every((w, i) => normalized(w.text) === normalized(words[i].text))) overlap = n;
       }
       if (overlap) words = words.slice(overlap);

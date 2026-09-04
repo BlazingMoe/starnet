@@ -38,7 +38,10 @@ heavily loaded shared host. Separate warm engine check first partial583ms. These
 not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
 server stopped. Focused voice button105, media36, draft protection21 assertions, adaptive timing, six flow
 scenarios, transport bounds/recovery, and UI checks pass. Full second-round gates pending serialized
-handoff from support-mail lane.
+handoff from support-mail lane. The subsequent real 16.66-second speech check crossed two window
+boundaries and retained all three repeated sentences exactly; max decode window8000ms, first partial605ms.
+It exposed timestamp drift that could duplicate an overlap word; the corrected path and its regression
+now preserve both real repetition and overlap deduplication.
 
 ## VERIFIED 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
 
