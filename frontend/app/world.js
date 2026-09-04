@@ -6301,80 +6301,30 @@ const World = (() => {
      is a light source too, and PropSprites.lightOf says what each emits this frame (colour, reach, strength,
      flicker). Painted ADDITIVELY over the lightmap, so the deck under a screen takes its phosphor, a body at a
      lamp takes its warmth, and the source itself glows — the same 'lighter' pass the lamp shimmer uses.
-     One radial gradient per source, cached by (position, radius, colour). Geometry clips are cached too.
-     A reflected-colour pass and restrained additive pass preserve material contrast under the light.
+     One radial gradient per source, cached by (position, radius, colour): the gradient never changes, only
+     the alpha it is painted at, so a busy station costs one fillRect per source per frame and no allocation.
      CRT.emit scales the whole pass (0 = off = the pre-overhaul deck). */
   const _emitGrad = new Map();
-  // Visibility is geometric, not walkability: props do not become opaque walls.
-  // Grid traversal stops rays exactly on sealed seams and exterior edges. Open
-  // joins and doorways transmit light. Cache until station geometry changes.
-  let emitClipGeo = null;
-  const emitClips = new Map();
-  function lightBoundary(g, l, tile) {
-    const points = [];
-    for (let i = 0; i < 96; i++) {
-      const angle = i * Math.PI * 2 / 96;
-      const dx = Math.cos(angle), dy = Math.sin(angle);
-      let x = Math.floor(l.x / tile), y = Math.floor(l.y / tile), distance = l.r;
-      const sx = dx >= 0 ? 1 : -1, sy = dy >= 0 ? 1 : -1;
-      let tx = Math.abs(dx) < 1e-9 ? Infinity : ((x + (sx > 0 ? 1 : 0)) * tile - l.x) / dx;
-      let ty = Math.abs(dy) < 1e-9 ? Infinity : ((y + (sy > 0 ? 1 : 0)) * tile - l.y) / dy;
-      const stepX = tile / Math.abs(dx), stepY = tile / Math.abs(dy);
-      while (Math.min(tx, ty) < l.r) {
-        const crossX = tx <= ty, nextX = x + (crossX ? sx : 0), nextY = y + (crossX ? 0 : sy);
-        const at = crossX ? tx : ty;
-        if (!g.canStep(x, y, nextX, nextY)) { distance = Math.max(0, at); break; }
-        x = nextX; y = nextY;
-        if (crossX) tx += stepX; else ty += stepY;
-      }
-      points.push([l.x + dx * distance, l.y + dy * distance]);
-    }
-    return points;
-  }
-  function propLightClip(l) {
-    if (!geo || !geo.canStep || typeof Path2D === 'undefined') return null;
-    if (emitClipGeo !== geo) { emitClipGeo = geo; emitClips.clear(); }
-    const key = [l.x, l.y, l.r, T].join(',');
-    if (emitClips.has(key)) return emitClips.get(key);
-    const path = new Path2D(), points = lightBoundary(geo, l, T);
-    points.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y));
-    path.closePath();
-    if (emitClips.size >= 600) emitClips.clear();
-    emitClips.set(key, path);
-    return path;
-  }
   function drawPropLights(now, lights) {
     const k = +CRT.emit;
     if (!lights || !lights.length || !(k > 0.001)) return;
-    ctx.save();
-    try {
-      ctx.globalCompositeOperation = 'lighter';
-      for (const l of lights) {
-        const key = l.x + ',' + l.y + ',' + l.r + ',' + l.c[0] + ',' + l.c[1] + ',' + l.c[2];
-        let g = _emitGrad.get(key);
-        if (!g) {
-          if (_emitGrad.size > 600) _emitGrad.clear();   // a station is rebuilt, not grown, past this — never let the cache grow unbounded
-          g = ctx.createRadialGradient(l.x, l.y, 1, l.x, l.y, l.r);
-          const rgb = l.c[0] + ',' + l.c[1] + ',' + l.c[2];
-          g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(0.3, 'rgba(' + rgb + ',0.55)');
-          g.addColorStop(0.65, 'rgba(' + rgb + ',0.18)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
-          _emitGrad.set(key, g);
-        }
-        ctx.save();
-        try {
-          const clip = propLightClip(l);
-          if (clip) ctx.clip(clip);
-          // Reflected colour reveals existing material shading without filling its
-          // dark seams with a uniform luminous wash. Keep a restrained additive glow.
-          ctx.globalCompositeOperation = 'soft-light';
-          ctx.globalAlpha = Math.max(0, Math.min(1, l.a * k * 2.4));
-          ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
-          ctx.globalCompositeOperation = 'lighter';
-          ctx.globalAlpha = Math.max(0, Math.min(1, l.a * k * 0.65));
-          ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
-        } finally { ctx.restore(); }
+    ctx.globalCompositeOperation = 'lighter';
+    for (const l of lights) {
+      const key = l.x + ',' + l.y + ',' + l.r + ',' + l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+      let g = _emitGrad.get(key);
+      if (!g) {
+        if (_emitGrad.size > 600) _emitGrad.clear();   // a station is rebuilt, not grown, past this — never let the cache grow unbounded
+        g = ctx.createRadialGradient(l.x, l.y, 1, l.x, l.y, l.r);
+        const rgb = l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+        g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(0.3, 'rgba(' + rgb + ',0.55)');
+        g.addColorStop(0.65, 'rgba(' + rgb + ',0.18)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+        _emitGrad.set(key, g);
       }
-    } finally { ctx.restore(); }
+      ctx.globalAlpha = Math.max(0, Math.min(1, l.a * k));
+      ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   /* ---- THE DECKHEAD (depth pass, 2026-09-03) ----

@@ -3332,20 +3332,7 @@ const StationBake = (() => {
 
   /* a doorway threshold: a recessed metal track + lit lip across the open seam */
   function bakeThreshold(b, e, X, Y) {
-    // Machined sill: recessed channel, shaded bevel, brushed top and thin catch-light.
-    // Only actual door thresholds reach this function; open floor joins stay clean.
-    const horizontal = e.side === 'n' || e.side === 's';
-    const edge = horizontal ? Y + (e.side === 's' ? T : 0) : X + (e.side === 'e' ? T : 0);
-    const courses = ['rgba(5,9,16,0.48)', '#161e29', '#343f4b', '#52616e', '#202a35'];
-    courses.forEach((ink, i) => {
-      b.fillStyle = ink;
-      if (horizontal) b.fillRect(X, edge - 2 + i, T, 1);
-      else b.fillRect(edge - 2 + i, Y, 1, T);
-    });
-    b.fillStyle = 'rgba(163,188,201,0.28)';
-    if (horizontal) b.fillRect(X + 2, edge, T - 4, 1);
-    else b.fillRect(edge, Y + 2, 1, T - 4);
-    const track = '#18212b', lip = 'rgba(177,205,219,0.24)';
+    const track = '#3a352c', lip = 'rgba(255,236,196,0.18)';
     // hazard chevrons on the sill (2026-09-03 depth pass) — 3px yellow / 3px black, low alpha so the deck shows through
     const hz = (x, y, w, h, along) => { for (let i = 0; i < (along ? w : h); i += 3) { b.fillStyle = ((i / 3) & 1) ? 'rgba(20,18,12,0.55)' : 'rgba(214,178,52,0.45)'; if (along) b.fillRect(x + i, y, Math.min(3, w - i), h); else b.fillRect(x, y + i, w, Math.min(3, h - i)); } };
     if (e.side === 'n') hz(X, Y + 2, T, 2, true); else if (e.side === 's') hz(X, Y + T - 4, T, 2, true); else if (e.side === 'w') hz(X + 2, Y, 2, T, false); else hz(X + T - 4, Y, 2, T, false);
