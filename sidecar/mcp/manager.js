@@ -218,7 +218,13 @@
     async function connect(c) {
       if (c.reconnectTimer != null) { try { clearTimeoutImpl(c.reconnectTimer); } catch (_) {} c.reconnectTimer = null; }
       if (c.connecting) { closeResources(c.connecting.client, c.connecting.transport, 'superseded'); c.connecting = null; }
-      if (c.client) { closeResources(c.client, c.transport, 'reconnect'); c.client = null; c.transport = null; }
+      // DRAIN, DON'T KILL. A reconnect used to close the old client immediately, which REJECTED every sibling
+      // call still in flight on it ("mcp client closed: reconnect") — so when two calls hit an expired session
+      // together, the first one's recovery turned the second's honest 404/401 into an unrelated failure. The old
+      // connection is detached now and closed only once this attempt settles; a sibling's reply arrives as what
+      // the server actually said, and that sibling joins the shared reconnect on its own.
+      const drained = c.client ? { client: c.client, transport: c.transport } : null;
+      c.client = null; c.transport = null;
       const epoch = bumpEpoch(c);
       const isCurrent = () => conns.get(c.id) === c && c._epoch === epoch;
       const attempt = { epoch: epoch, transport: null, client: null };
@@ -232,7 +238,7 @@
         // connector surfaces an HONEST 401/error (visible + reloadable), never a crash or a silently-frozen stale token.
         let liveToken = c.token;
         if (typeof c.tokenProvider === 'function') { const got = await resolveToken(c, false); if (got.token != null) liveToken = got.token; }
-        if (!isCurrent()) return { ok: false, state: 'down', toolCount: 0, superseded: true };
+        if (!isCurrent()) { if (drained) closeResources(drained.client, drained.transport, 'reconnect'); return { ok: false, state: 'down', toolCount: 0, superseded: true }; }
         attempt.transport = makeTransport({
           transport: c.transportKind,
           url: c.url,
@@ -290,6 +296,7 @@
         }
         if (!isCurrent()) {
           closeResources(attempt.client, attempt.transport, 'superseded');
+          if (drained) closeResources(drained.client, drained.transport, 'reconnect');
           return { ok: false, state: 'down', toolCount: 0, superseded: true };
         }
         c.connecting = null;
@@ -305,8 +312,10 @@
         c.authRequired = false;                                 // the server accepted this credential — auth truth restored
         c._callFails = 0;
         setState(c, 'up');
+        if (drained) closeResources(drained.client, drained.transport, 'reconnect');
         return { ok: true, state: 'up', toolCount: tools.length, resourceCount: resources.length, promptCount: prompts.length };
       } catch (e) {
+        if (drained) closeResources(drained.client, drained.transport, 'reconnect');
         closeResources(attempt.client, attempt.transport, 'connect failed');
         if (!isCurrent()) return { ok: false, state: 'down', toolCount: 0, superseded: true };
         if (c.connecting === attempt) c.connecting = null;
