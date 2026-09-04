@@ -897,7 +897,7 @@ const StationBake = (() => {
   // FALLBACK ONLY — projected geometry always carries matOf, so this map is not what you see in
   // game. WorldModel.ROOM_KINDS[kind].mat is the authority; keep the two in step.
   const MAT_BY_KIND = { hab: 'spine', corridor: 'spine', bridge: 'panel', lab: 'tile', factory: 'tread', storage: 'tread', quarters: 'soft' };
-  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [4, 3], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
+  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [2, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
   const MAT_NO_WEAR = { tile: 1, grate: 1, turf: 1 };   // gloss, open mesh and growth don't take boot scuffs
   // the room's deck material — the model's per-room choice when it has one, else the kind default
   // (a station built before the material axis existed has none, and bakes exactly as it always did).
@@ -1152,38 +1152,41 @@ const StationBake = (() => {
      full-height vertical line here without looking at a whole room first — the trench looked
      correct in every close-up and wrong in every wide shot, which is the trap this deck sets. */
   function deckSpine(b, base, x, y, X, Y, z, n, fd) {
+    /* SPINE, rebuilt to the reference (2026-09-03, Andrew's "Pixel Art Space Station" inspo): BIG BOLTED
+       PLATES. A plate is 2x2 tiles (24px) — large enough to read as a panel at zoom 2 — with a 2px dark seam
+       between plates, a 1px lit bevel inside the seam on the north/west edges and a 1px shaded bevel on the
+       south/east, a bolt in every corner, and a faint diamond cross-hatch across the body so the surface has
+       tooth. Contrast is the point: the old 1px ±0.03 marks vanished under the lightmap; these are authored
+       at the strength the reference uses (seam -0.55, bevel +0.18) and `deckSeam` still scales the joint. */
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
     const sh = d => shade(base, d * fd);
-    const sk = Math.max(0, DEPTH.deckSeam);
-    const band = Math.floor(y / 3), off = (band % 2) * 2;
-    const pcx = Math.floor((x - off) / 4);
-    const lx = ((x - off) % 4 + 4) % 4, ly = ((y % 3) + 3) % 3;
-    const pn = h2(pcx, band, ':sp');   // world-keyed, never per-zone — see deckSlab's note
+    const sk = Math.max(0.35, DEPTH.deckSeam);   // a plate deck needs its joint: the knob dials it, it cannot delete it
+    const PW = 2, PH = 2;
+    const pcx = Math.floor(x / PW), pcy = Math.floor(y / PH);
+    const lx = ((x % PW) + PW) % PW, ly = ((y % PH) + PH) % PH;
+    const pn = h2(pcx, pcy, ':sp');
     const body = ((pn % 5) - 2) * 0.03;
     px(X, Y, T, T, sh(body));
-    for (let i = 1; i < T; i += 3) px(X, Y + i, T, 1, sh(body + ((i & 1) ? 0.05 : -0.04)));   // brushed grain
-    // PLATE AS A PANEL — a 1px recess just inside the joint on the plate's own outer edges, so a
-    // plate reads as a discrete bolted panel instead of a cell in a grid.
-    if (lx === 0) px(X + 2, Y, 1, T, sh(body - 0.16));
-    if (lx === 3) px(X + T - 3, Y, 1, T, sh(body - 0.16));
-    if (ly === 0) px(X, Y + 2, T, 1, sh(body - 0.16));
-    if (ly === 2) px(X, Y + T - 3, T, 1, sh(body - 0.16));
-    if (lx === 0) { px(X, Y, 1, T, sh(-0.45 * sk)); px(X + 1, Y, 1, T, sh(body + 0.12 * sk)); } // plate joint
-    if (ly === 0) { px(X, Y, T, 1, sh(-0.45 * sk)); px(X, Y + 1, T, 1, sh(body + 0.12 * sk)); }
-    // bolts at EVERY plate corner, not one — four fixings is what makes it read as fastened down
-    const bolt = (bx, by) => { px(bx, by, 2, 2, sh(0.22)); px(bx, by, 1, 1, sh(0.40)); px(bx + 1, by + 1, 1, 1, sh(-0.35)); };
-    if (ly === 0 && lx === 0) bolt(X + 3, Y + 3);
-    if (ly === 0 && lx === 3) bolt(X + T - 5, Y + 3);
-    if (ly === 2 && lx === 0) bolt(X + 3, Y + T - 5);
-    if (ly === 2 && lx === 3) bolt(X + T - 5, Y + T - 5);
-    /* NO TRANSVERSE STRUCTURAL SEAM EITHER — cut 2026-08-10, and it is the SAME mistake as the
-       service trench above, rotated 90°. A `-0.34` line ruled the full width of the deck every 9
-       tiles: at close range it reads as the hierarchy this recipe wanted (one strong line, then
-       joints, then grain), and at station scale a room shows exactly ONE of it, so it is not a
-       rhythm — it is a black line drawn across the floor. Andrew, on the default hab: "remove the
-       black line." It also survived every attempt to dial the deck back, because unlike the plate
-       joint it was never scaled by `DEPTH.deckSeam`.
-       The plate joints (scaled by deckSeam) and the brushed grain carry the deck on their own. */
+    // diamond cross-hatch: two diagonal families on an 6px pitch, keyed on bake-pixel coords so it never
+    // breaks at a tile or chunk edge
+    for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+      const gx = X + i, gy = Y + j;
+      if (((gx + gy) % 6) === 0 || ((gx - gy + 600) % 6) === 0) px(gx, gy, 1, 1, sh(body - 0.045));
+      if (((gx + gy) % 6) === 1 && ((gx - gy + 600) % 6) !== 0) px(gx, gy, 1, 1, sh(body + 0.02));
+    }
+    // the seam: 2px dark on the plate's north and west edges (the neighbour's south/east are the same rows)
+    if (lx === 0) { px(X, Y, 2, T, sh(-0.55 * sk)); px(X + 2, Y, 1, T, sh(body + 0.18 * sk)); }
+    if (ly === 0) { px(X, Y, T, 2, sh(-0.55 * sk)); px(X, Y + 2, T, 1, sh(body + 0.18 * sk)); }
+    if (lx === PW - 1) px(X + T - 1, Y, 1, T, sh(body - 0.28 * sk));
+    if (ly === PH - 1) px(X, Y + T - 1, T, 1, sh(body - 0.28 * sk));
+    // bolts at every plate corner: a 3x3 washer, lit north-west, shaded south-east, dark pin
+    const bolt = (bx, by) => { px(bx, by, 3, 3, sh(0.10)); px(bx, by, 2, 1, sh(0.34)); px(bx, by, 1, 2, sh(0.34)); px(bx + 2, by + 1, 1, 2, sh(-0.3)); px(bx + 1, by + 2, 2, 1, sh(-0.3)); px(bx + 1, by + 1, 1, 1, sh(-0.5)); };
+    if (ly === 0 && lx === 0) bolt(X + 4, Y + 4);
+    if (ly === 0 && lx === PW - 1) bolt(X + T - 6, Y + 4);
+    if (ly === PH - 1 && lx === 0) bolt(X + 4, Y + T - 6);
+    if (ly === PH - 1 && lx === PW - 1) bolt(X + T - 6, Y + T - 6);
+    // one plate in ~9 carries a recessed hatch: a deck is not just plates
+    if (pn % 9 === 2 && lx === 0 && ly === 0) { px(X + 8, Y + 8, 8, 8, sh(-0.32)); px(X + 8, Y + 8, 8, 1, sh(-0.5)); px(X + 8, Y + 8, 1, 8, sh(-0.5)); px(X + 15, Y + 9, 1, 7, sh(0.12)); px(X + 9, Y + 15, 7, 1, sh(0.12)); px(X + 11, Y + 11, 2, 2, sh(-0.55)); }
   }
 
   /* ---------- THE CORRIDOR DECK CANDIDATES (2026-07-28) ----------
@@ -1603,6 +1606,18 @@ const StationBake = (() => {
     b.fillStyle = shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
     // THE FACE — per material
     (WALL_RECIPES[wallMatOf(e.z)] || WALL_RECIPES.plating)(b, pal, X, topY, h, e, n, room, Y + inFace);
+    /* THE SEGMENT FRAME (2026-09-03, from the reference): a wall is built of panels, and each panel has a
+       thick bevelled edge — lit on top and the west, shaded on the east — that catches the ceiling light
+       and separates it from its neighbour. Two tiles per segment. Painted over the recipe so every material
+       reads as panels bolted to the frame; `wallDetail` scales it. */
+    if (room && DEPTH.wallDetail > 0.001) {
+      const seg = ((e.x % 2) + 2) % 2, wd = Math.max(0, DEPTH.wallDetail);
+      const fr = shade(pal.face, 0.22 * wd), fd2 = shade(pal.face, -0.45 * wd), fx = shade(pal.face, -0.62 * wd);
+      b.fillStyle = fr; b.fillRect(X, topY + 2, T, 1);                                 // lit top rail of the panel
+      if (seg === 0) { b.fillStyle = fx; b.fillRect(X, topY + 2, 1, h - 2); b.fillStyle = fr; b.fillRect(X + 1, topY + 3, 1, h - 4); }   // west edge: dark seam + lit bevel
+      else { b.fillStyle = fd2; b.fillRect(X + T - 2, topY + 3, 1, h - 4); b.fillStyle = fx; b.fillRect(X + T - 1, topY + 2, 1, h - 2); }  // east edge: shaded bevel + dark seam
+      b.fillStyle = fx; b.fillRect(X, topY + 3 + Math.round((h - 4) * 0.55), T, 1);   // the panel's mid seam
+    }
     // FLOOR-CONTACT SEAM. This used to be a LIGHT line (wallTop), which is exactly backwards: a
     // highlight at the junction fuses the wall into the deck. Where a vertical surface meets a
     // horizontal one, no light reaches — it is the darkest line in the room, and it is what tells
