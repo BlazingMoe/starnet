@@ -10,6 +10,9 @@ assert.equal(F.suggest(['My inbox is overwhelming']).task.id, 'inbox-replies');
 assert.equal(F.suggest(['prepare ceramics glaze inventory']).task.id, 'custom');
 assert.match(F.suggest([]).reason, /place to begin/); // defaults never assert learned affinity
 assert.equal(F.approvedProjects([{ root: '/a' }, { root: '/b', blessed: false }, { root: '/c', blessed: true }]).map(p => p.root).join(), '/c');
+assert.deepEqual(F.approvedProjects([{ root: '/a', blessed: true }], [{ root: '/a/notes', available: true }]).map(p => p.root), ['/a', '/a/notes']);
+assert.deepEqual(F.approvedProjects([{ root: '/a', blessed: true }], [{ root: '/a/notes', available: false }, { root: '/a/unknown' }]).map(p => p.root), ['/a']);
+assert.equal(F.approvedProjects([{ root: '/a', blessed: true }], [{ root: '/a', available: true }]).length, 1);
 assert.ok(F.compose({ intent: 'custom', sample: 'real source' }).error);
 assert.ok(F.compose({ intent: 'client-update' }).error);
 assert.ok(F.compose({ source: 'folder' }).error);
@@ -38,4 +41,4 @@ F.configure({ onOpen: opts => { called = opts.root === '/chosen'; return true; }
 F.configure({ onLaunch: () => true });
 assert.equal(F.open({ root: '/chosen' }), true);
 assert.equal(called, true); // app and Work configure independently without erasing callbacks
-console.log('first-value: 29 assertions passed');
+console.log('first-value: assertions passed');
