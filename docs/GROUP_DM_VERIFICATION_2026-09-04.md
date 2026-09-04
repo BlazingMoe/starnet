@@ -120,6 +120,17 @@ Browser warning/error log was empty. Focused control-floor tests passed 101 asse
 and workstream tests passed 193 assertions.
 The full styling follow-up fast suite passed all 702 steps (`dev/group-theme-fast.log`).
 
+## Existing identity-line integration
+
+Per the user's annotated screenshot, removed the extra roster row entirely.
+The original `comms-idbar` now owns the add button and group roster. Direct sessions
+retain the NOVA selector and pinned readout; group sessions show the names/count
+in that same line. Live verification found no `gc-launch` element, no header inside
+the group transcript, and a 41 px identity row in both modes. The existing selector
+and add button shared the same vertical center. The group picker still opened from
+the inline button. Focused workstream (193) and website mirror (8) assertions passed.
+Full fast regression: 702 steps green (`dev/group-inline-fast.log`).
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.
