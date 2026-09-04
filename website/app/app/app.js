@@ -4537,6 +4537,27 @@ const App = (() => {
     const status = el('unreachable-status');
     let attempts = 0, timer = null, checking = false, resetting = false, browserResetBlocked = false, preservedReset = null;
     const setStatus = m => { if (status) status.textContent = '＋ ' + m; };
+    // DEGRADED TRUTH (2026-09-03 crash-loop breaker). A sidecar that is ALIVE but holding itself degraded — the
+    // crash-loop breaker tripped, or the workspace owner claim is unavailable — answers GET /api/health with 503
+    // and a verbatim reason. Show THAT reason on this screen instead of the generic "not answering": the text is
+    // produced by the sidecar from its own ledger, so it is proof, not a guess. Likewise, if the desktop guardian
+    // has HALTED respawns (starnet_sidecar_status.halted), say so — the retry poll can never heal that on its own.
+    let degradedReason = '';
+    const probeDegraded = async () => {
+      let reason = '';
+      try {
+        const r = await fetch('/api/health', { cache: 'no-store' });
+        if (r && r.status === 503) { const t = String(await r.text() || '').trim(); if (/^degraded/i.test(t)) reason = t; }
+      } catch (_) { reason = ''; }
+      if (!reason && core && core.invoke) {
+        try { const g = await core.invoke('starnet_sidecar_status'); if (g && g.halted && g.reason) reason = 'station service halted: ' + String(g.reason); } catch (_) {}
+      }
+      if (reason === degradedReason) return reason;
+      degradedReason = reason;
+      if (sub) { if (reason) sub.textContent = reason; else if (/^(degraded|station service halted)/i.test(sub.textContent)) sub.textContent = 'station service not answering'; }
+      if (code && reason) code.innerHTML = '<b>RECOVERY CODE: ' + (/owner unavailable/i.test(reason) ? 'SAVE-OWNER · WORKSPACE OWNED BY ANOTHER PROCESS' : /crash-loop/i.test(reason) ? 'SAVE-LOOP · STATION SERVICE CRASH LOOP' : 'SAVE-DEGRADED · STATION SERVICE DEGRADED') + '</b><br>' + reason.replace(/</g, '&lt;') + '<br>Send a screenshot of this code to support.';
+      return reason;
+    };
     // BROWSER MODE (no desktop shell): there is no sidecar to restart and no workspace to quarantine, so this
     // screen used to offer nothing but the 5s poll — a dead end (audit: "first run fails silently"). Say plainly
     // where the service lives, on the subtitle AND on every poll line, so the exit is never a mystery.
@@ -4546,6 +4567,7 @@ const App = (() => {
       if (sub && reason !== 'forbidden') sub.textContent = 'station service not answering (browser mode)';
       setStatus(BROWSER_HINT);
     }
+    probeDegraded().then(r => { if (r) setStatus(r); });   // a live-but-degraded sidecar names its reason before the first poll
     const attempt = async () => {
       if (checking || resetting || browserResetBlocked) return;
       checking = true;
@@ -4562,7 +4584,8 @@ const App = (() => {
         try { location.reload(); } catch (_) {}
         return;
       }
-      setStatus('still unreachable — retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core ? '' : ' ' + BROWSER_HINT));
+      const degraded = await probeDegraded();
+      setStatus((degraded ? degraded + ' — ' : 'still unreachable — ') + 'retrying every 5s (attempt ' + attempts + '). Your save is untouched.' + (core || degraded ? '' : ' ' + BROWSER_HINT));
       checking = false;
     };
     const btn = el('btn-unreachable-retry');
