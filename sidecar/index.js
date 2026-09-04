@@ -5604,17 +5604,66 @@ async function handleScoutDecide(req, res) {
    authority: a finding is an offer, and only the Commander's accept turns it into work (propose-and-confirm).
    The personalization PAUSE gates the whole engine — a paused station scans nothing and stages nothing. */
 const DISCOVERY_FILE = path.join(WORKSPACES, 'discovery.state.json');
+const DiscoveryDocuments = require('./discovery-documents.js');
+function isDocumentSourceAuthorized(root) {
+  return blessedRoots().some(approved => { const rel = path.relative(approved, root); return !rel || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel)); });
+}
+const documentDiscovery = DiscoveryDocuments.makeDocumentDiscovery({ fsp, path, isBlessed: isDocumentSourceAuthorized,
+  canScan: root => personalizationStore.read().enabled && discoveryState.sources.some(s => s.enabled && s.root === root),
+  hash: text => crypto.createHash('sha256').update(text).digest('hex') });
 const DISCOVERY_TICK_MS = Math.max(60 * 1000, Number(process.env.SKYNET_ENV_DISCOVERY_TICK_MS) || 15 * 60 * 1000);
 let discoveryState = (() => { try { const o = loadResilient(DISCOVERY_FILE, 'discovery'); return Discovery.normalize(o && o.state); } catch (_) { return Discovery.normalize(null); } })();
 function persistDiscovery() { try { saveResilient(DISCOVERY_FILE, { v: 1, state: discoveryState }); } catch (e) { console.warn('[discovery] state persist failed:', (e && e.message) || e); } }
 let discoveringNow = false;
+let documentSourceRevision = 0;
+function activeDocumentSource() {
+  return discoveryState.sources.find(s => s.enabled && isDocumentSourceAuthorized(s.root)) || null;
+}
+function pruneDocumentFindings() {
+  const source = activeDocumentSource();
+  const before = discoveryState.staged.length;
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || (source && f.root === source.root));
+  return before !== discoveryState.staged.length;
+}
+async function scanDocumentSource(now, force) {
+  const source = activeDocumentSource();
+  const revision = documentSourceRevision;
+  pruneDocumentFindings();
+  if (!source) return { fired: false, binding: discoveryState.sources.length ? 'source-paused-or-revoked' : 'no-document-source' };
+  if (!force && source.lastScanAt && now - source.lastScanAt < Discovery.ROOT_SCAN_GAP_MS) return { fired: false, binding: 'source-fresh' };
+  const scanned = await documentDiscovery.scan(source, now);
+  // Selection or pause may change while filesystem IO is in flight. Never publish that stale scan.
+  const currentSource = activeDocumentSource();
+  if (revision !== documentSourceRevision || !currentSource || currentSource.root !== source.root || !personalizationStore.read().enabled) return { fired: false, binding: 'source-changed-or-paused' };
+  currentSource.lastScanAt = now;
+  currentSource.status = scanned.ok ? (scanned.findings.length ? 'evidence-found' : scanned.reason) : scanned.reason;
+  // Findings represent the CURRENT selected documents. Deleted/edited evidence must disappear on rescan.
+  const current = new Set(scanned.findings.map(f => f.fingerprint));
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || current.has(f.fingerprint));
+  let staged = 0;
+  for (const finding of scanned.findings) {
+    if (!Discovery.eligible(discoveryState, finding)) continue;
+    discoveryState = Discovery.stage(discoveryState, finding, { now });
+    staged++;
+    await recommendationLedger.record({ id: 'discovery:' + finding.fingerprint.slice(0, 100),
+      surface: 'discovery', kind: finding.kind, title: finding.title, target: finding.root,
+      evidence: finding.evidence.map((e, i) => ({ id: 'document-' + i, type: 'quote', quote: e.path + ':' + e.line + ': ' + e.quote })),
+      readiness: { ready: true, reasons: [] }, projectId: finding.root, modelVersion: 'document-discovery-v1',
+      expiresAt: now + Discovery.FINDING_TTL_MS }, now).catch(swallow('recledger.document-record'));
+  }
+  discoveryState = Discovery.note(discoveryState, { outcome: staged ? 'scanned' : 'none',
+    reason: scanned.reason || (staged ? 'recent document evidence' : 'unchanged or previously decided evidence'),
+    title: 'Weekly client update' }, { now });
+  return { fired: true, staged, status: currentSource.status, files: scanned.files || 0, limited: !!scanned.limited };
+}
 async function runDiscoveryCycle(opts) {
   opts = opts || {};
   const now = Date.now();
   discoveryState = Discovery.sweep(discoveryState, now);   // expiries first, so the shelf read stays truthful
+  const documents = await scanDocumentSource(now, !!opts.force);
   const roots = blessedRoots();
   const d = Discovery.decide(discoveryState, { now: now, roots: roots, force: !!opts.force });
-  if (!d.fire) { persistDiscovery(); return { ok: true, fired: false, binding: d.binding }; }
+  if (!d.fire) { persistDiscovery(); return { ok: true, fired: documents.fired, binding: d.binding, documents }; }
   const declinedIdx = buildDeclinedIndex('agent');
   let staged = 0;
   for (const root of d.roots) {
@@ -5658,7 +5707,7 @@ async function runDiscoveryCycle(opts) {
     }
   }
   persistDiscovery();
-  return { ok: true, fired: true, scanned: d.roots.length, staged: staged };
+  return { ok: true, fired: true, scanned: d.roots.length, staged: staged, documents };
 }
 let discoveryTimer = null;
 function discoveryTick(force) {
@@ -5685,6 +5734,7 @@ function handleDiscoveryGet(req, res) {
   // to mutate in memory only, so expired findings + their ledger notes resurrected on the next restart.
   const _preSweepStaged = discoveryState.staged.length;
   discoveryState = Discovery.sweep(discoveryState, Date.now());
+  pruneDocumentFindings();
   if (discoveryState.staged.length !== _preSweepStaged) persistDiscovery();
   const roots = (() => { try { return blessedRoots(); } catch (_) { return []; } })();
   const d = Discovery.decide(discoveryState, { now: Date.now(), roots: roots });
@@ -5694,28 +5744,75 @@ function handleDiscoveryGet(req, res) {
     enabled: String(process.env.SKYNET_ENV_DISCOVERY || '') !== '0' && personalizationStore.read().enabled,
     personalizationEnabled: personalizationStore.read().enabled,
     rootsBlessed: roots.length,
+    sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
     binding: d.fire ? 'due' : d.binding,
     staged: discoveryState.staged,
     ledger: discoveryState.ledger.slice(-20),
     lastCycleAt: discoveryState.lastCycleAt
   }));
 }
-// POST /api/discovery/decide { id, decision:'accept'|'dismiss' } — the Commander's verdict on a finding.
+// POST /api/discovery/decide { id, decision:'validate'|'accept'|'dismiss' } — freshness check or verdict.
+// validate is read-only: launching work can fail, so only a successful launch should be followed by accept.
 // dismiss denylists the fingerprint forever; accept resolves it (picked up — never re-nag). Unknown id → ok:false.
 async function handleDiscoveryDecide(req, res) {
   let body; try { body = JSON.parse(await readBody(req, 1 << 14)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const id = String(body.id || '');
-  const decision = body.decision === 'accept' ? 'accept' : (body.decision === 'dismiss' ? 'dismiss' : '');
-  if (!decision) return json(400, { ok: false, error: 'decision must be accept|dismiss' });
+  const decision = ['validate', 'accept', 'dismiss'].includes(body.decision) ? body.decision : '';
+  if (!decision) return json(400, { ok: false, error: 'decision must be validate|accept|dismiss' });
   const item = discoveryState.staged.find(f => f.id === id) || null;
   if (!item) return json(200, { ok: false, error: 'unknown id' });
+  if (decision === 'validate' && (item.at < Date.now() - Discovery.FINDING_TTL_MS || !personalizationStore.read().enabled)) return json(409, { ok: false, error: 'finding expired or discovery paused; scan again' });
+  if (decision === 'validate' && item.kind !== 'client-update' && !isBlessedRoot(item.root)) return json(409, { ok: false, error: 'project permission revoked; approve and scan again' });
+  if (item.kind === 'client-update' && decision !== 'dismiss') {
+    const source = activeDocumentSource();
+    const revision = documentSourceRevision;
+    if (!source || source.root !== item.root || !personalizationStore.read().enabled) return json(409, { ok: false, error: 'source paused or revoked; scan again after enabling it' });
+    const fresh = await documentDiscovery.scan(source, Date.now());
+    if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint) || !discoveryState.staged.some(f => f.id === id)) {
+      if (decision !== 'validate') {
+        discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
+        persistDiscovery();
+      }
+      return json(409, { ok: false, error: 'source evidence changed; scan again before starting this work' });
+    }
+  }
+  if (decision === 'validate') return json(200, { ok: true, validated: true, item });
   discoveryState = decision === 'accept' ? Discovery.accept(discoveryState, id, { now: Date.now() }) : Discovery.dismiss(discoveryState, id, { now: Date.now() });
   await recommendationLedger.verdict('discovery:' + item.fingerprint.slice(0, 100),
     decision === 'accept' ? 'accepted' : 'declined',
     decision === 'accept' ? 'accepted' : String(body.reason || 'not_relevant'), Date.now()).catch(swallow('recledger.verdict', null));
   persistDiscovery();
   json(200, { ok: true, item: item });
+}
+
+// Explicit opt-in to one bounded source. This never modifies grantsPermanent or execution permissions.
+function handleDiscoverySourcesGet(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ ok: true, sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
+    approvedRoots: blessedRoots(), policy: DiscoveryDocuments.POLICY }));
+}
+async function handleDiscoverySourcesPost(req, res) {
+  const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  let body;
+  try { body = JSON.parse(await readBody(req, 1 << 14)); } catch (_) { return json(400, { ok: false, error: 'bad json' }); }
+  if (!body || typeof body !== 'object') return json(400, { ok: false, error: 'source settings required' });
+  let sources;
+  if (body.remove === true) sources = [];
+  else if (body.enabled === false && !body.root) sources = discoveryState.sources.map(s => ({ ...s, enabled: false, status: 'paused' }));
+  else {
+    if (body.enabled !== true && body.enabled !== false) return json(400, { ok: false, error: 'enabled must be true or false' });
+    let root;
+    try { root = await documentDiscovery.canonicalRoot(body.root); } catch (e) { return json(400, { ok: false, error: e.message }); }
+    sources = [{ id: 'client-update', kind: 'client-update', root, enabled: body.enabled, lookbackDays: 7, lastScanAt: 0, status: body.enabled ? 'not-scanned' : 'paused' }];
+  }
+  // Save before publishing success; unlike best-effort tick persistence, a settings write must not lie.
+  const next = Discovery.normalize({ ...discoveryState, sources });
+  next.staged = next.staged.filter(f => f.kind !== 'client-update');
+  try { saveResilient(DISCOVERY_FILE, { v: 1, state: next }); } catch (_) { return json(500, { ok: false, error: 'could not persist source settings' }); }
+  discoveryState = next;
+  documentSourceRevision++;
+  return json(200, { ok: true, sources: discoveryState.sources, grantsChanged: false });
 }
 // POST /api/discovery/scan — the Commander's own SCAN NOW: forces one cycle past cooldown/freshness. Still
 // refuses while paused (the pause is authority) and while a cycle is already in flight (honest 'busy').
@@ -5836,6 +5933,9 @@ function nightshiftDecideLearn(agentId, runId, useful) {
   if (!arch) return;   // not a night-shift act (or already reaped) → nothing to learn
   if (learning) {
     recommendationLedger.verdict('nightshift:' + String(runId || ''), useful ? 'completed' : 'declined', useful ? 'completed' : 'bad_quality', Date.now()).catch(swallow('recledger.verdict'));
+    // This is the Commander's explicit KEEP/DISCARD, unlike the preceding machine completion.
+    // Record adoption separately; keeping a file does not invent a satisfaction rating.
+    recommendationLedger.outcome('nightshift:' + String(runId || ''), { adopted: useful === true }, Date.now()).catch(swallow('recledger.outcome'));
   }
   try { recordAutonomy({ ts: Date.now(), source: 'nightshift', kind: 'note', agentId: String(agentId || ''), runId: String(runId || ''), reason: useful ? 'approved' : 'denied', detail: { phase: 'verdict', archetype: arch, useful: !!useful } }); } catch (_) {}
   try { delete nightshiftActs[String(runId || '')]; saveResilient(NIGHTSHIFT_ACTS_FILE, { v: 1, acts: nightshiftActs }); } catch (_) {}   // decided once
@@ -7456,7 +7556,7 @@ async function mintQuestRecommendations(quests, why) {
 async function completeQuestRecommendationIds(ids) {
   for (const id of (Array.isArray(ids) ? ids : [])) {
     recommendationLedger.verdict('quest:' + id, 'completed', 'completed', Date.now()).catch(swallow('recledger.verdict'));
-    recommendationLedger.outcome('quest:' + id, { adopted: true, quality: 1, completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
+    recommendationLedger.outcome('quest:' + id, { completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
     // The quest store is the completion authority. Only AFTER it says done do we fold the exact persisted record
     // into the journey ledger; duplicate sweeps are idempotent by quest id.
     try { const q = questStore.get(id); if (q && q.status === 'done') await journeyStore.recordQuest(q, commanderGoals.get(), q.completedAt || Date.now()); } catch (e) { console.warn('[journey] quest fold failed:', (e && e.message) || e); }
@@ -8775,6 +8875,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/scout/telemetry', h: handleScoutTelemetry },
   // ENVIRONMENT DISCOVERY: findings from the Commander's own blessed roots (verbatim citations, no model spend)
   { m: 'GET', exact: '/api/discovery', h: handleDiscoveryGet },
+  { m: 'GET', exact: '/api/discovery/sources', h: handleDiscoverySourcesGet },
+  { m: 'POST', exact: '/api/discovery/sources', h: handleDiscoverySourcesPost },
   { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
   { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
@@ -10274,26 +10376,20 @@ async function handleSetChannelToken(req, res) {
    station-wide placement source SKILLS uses; we never guess). POST /api/toolsets/:id { enabled } flips the
    persisted kill-switch and applies LIVE (the next resolveTools call reflects it). `compute` is refused. ---- */
 function handleToolsetsList(req, res) {
-  let placedTypes = [];
-  try {
-    const u = new URL(req.url, 'http://127.0.0.1');
-    placedTypes = placedTypesFrom(u.searchParams.get('placed') || '');
-  } catch (_) {}
-  const placedSet = {}; for (const t of placedTypes) placedSet[t] = true;
-  const rows = toolsetRows(CAP_REGISTRY).map(r => ({
-    id: r.id,
-    label: r.label,
-    glyph: r.glyph,
-    desc: r.desc,
-    object: r.object,                         // the objectType that must be placed to grant this family
-    tools: r.tools,
-    toolCount: r.tools.length,
-    enabled: toolsetDisabled[r.id] !== false, // default ON; only false when explicitly persisted OFF
-    placed: !!(r.object && placedSet[r.object]),
-    consentGated: r.consentGated              // does any tool in the family ask first?
-  }));
+  const u = new URL(req.url, 'http://127.0.0.1');
+  const agentId = u.searchParams.get('agent') || '';
+  if (agentId && !agentRoster.has(agentId)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'unknown agent' }));
+  }
+  const view = require('./capability/effective-toolsets.js').effectiveToolsets({
+    registry: CAP_REGISTRY, agentId, agent: agentRoster.get(agentId),
+    placed: placedTypesFrom(u.searchParams.get('placed') || ''), disabled: toolsetDisabled,
+    fullAccess: FULL_ACCESS, masterBypass: masterBypassOn(),
+    backendId: executionEnvironment.backendIdFor(agentId)
+  });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ toolsets: rows }));
+  res.end(JSON.stringify(view));
 }
 async function handleToolsetToggle(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -12244,7 +12340,10 @@ async function handleQuestsRefreshNorthStar(req, res) {
   persistQuestRefresh();
   let minted = 0;
   if (had && decision === 'confirm' && staged.length) minted = await mintQuestRecommendations(staged, 'confirmed-direction');
-  await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+  if (had) {
+    const decided = await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+    if (decided) await recommendationLedger.outcome(decided.id, { adopted: decision === 'confirm' }, Date.now()).catch(swallow('recledger.outcome'));
+  }
   const s = QuestRefresh.normalize(questRefreshState);
   json(200, { ok: true, applied: had, decision: decision, minted: minted, northStar: QuestRefresh.effectiveNorthStar(s), northStarProposed: !!s.proposedNorthStar });
 }
@@ -19615,7 +19714,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
   await notebookStore.update('notebook:' + agentId, (stored) => {
     const list = Array.isArray(stored) ? stored : [];
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
-    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin });
+    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
@@ -19721,7 +19820,7 @@ async function handleMemoryTurnin(req, res) {
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
   const content = (verdict === 'edit' ? String(body.content != null ? body.content : prop.content) : prop.content).trim();
   const w = await writeMemoryRecord(agentId, prop, {
-    content, runId, trustDelta: fb.delta, origin: prop.origin,   // the surface that PROPOSED it, not the one approving it
+    content, runId, trustDelta: fb.delta, origin: prop.origin, userConfirmed: true,   // the surface that PROPOSED it, not the one approving it
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });

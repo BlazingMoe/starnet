@@ -239,6 +239,9 @@
       title: KIND_LABEL[kind] || 'Note', body: content, content: content,
       scope: prop.scope || 'global', streamId: prop.streamId || null,
       sourceRunId: opts.runId || prop.sourceRunId || null,
+      // Only the host Keep/Edit handler can stamp confirmation; model proposal fields are ignored.
+      confirmation: opts.userConfirmed === true ? 'user-confirmed' : 'inferred',
+      authority: 'reference-only',
       // WHICH SURFACE formed this belief (memcore.originOf). Unattended runs reflect now, so a record can come
       // from a routine, a night shift, or a messaging channel — the Commander must be able to tell those apart
       // from their own conversation. Absent => 'commander', the historical meaning of an untagged record.
@@ -279,10 +282,19 @@
     /\+?\d(?:[\s().-]*\d){9,}/,                                      // a phone number (>=10 digits, common seps between)
     /\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+)*\s+(?:st(?:reet)?|ave(?:nue)?|road|rd|blvd|boulevard|lane|ln|drive|dr|court|ct|way|place|pl)\b/i,   // a street address
     /(?:^|[^A-Za-z])(?:always|never)\b/i,                           // a standing instruction ("always …", "never …")
-    /\bfrom now on\b/i
+    /\bfrom now on\b/i,
+    // Authority preferences are still instructions when paraphrased as facts about the user.
+    /\b(?:approval|consent|confirmation|permission)[\s-]*(?:free|less|optional)\b/i,
+    /\b(?:skip|bypass|disable|waive|avoid|without|no|stop|omit)\b.{0,65}\b(?:ask(?:ing)?|approvals?|consent|confirm(?:ation|ing)?|permissions?|safety|sandbox|restrictions?)\b/i,
+    /\b(?:full|unrestricted|unlimited|autonomous)\s+(?:access|authority|permissions?|execution|control)\b/i,
+    /\b(?:standing|permanent|blanket|pre[ -]?approved)\s+(?:instructions?|authorization|permissions?|approval|consent)\b/i,
+    /\b(?:for (?:all|every|future|subsequent)|in (?:all|every|future|subsequent))\b.{0,55}\b(?:tasks?|runs?|requests?|sessions?|work)\b/i,
+    /\b(?:must|shall|should|do not|don't|instructs?|directs?|requires?)\b.{0,75}\b(?:agent|assistant|you|execute|deploy|send|delete|approve|confirm|ask|share|publish|run)\b/i,
+    /\b(?:agent|assistant|you)\b.{0,40}\b(?:must|shall|should|is authorized|has permission|may execute|may send|may delete)\b/i,
+    /\b(?:social security|ssn|passport|bank account|credit card|medical diagnosis|health condition|sexual orientation|religious beliefs)\b/i
   ];
   function highStakes(content) {
-    const c = String(content == null ? '' : content);
+    const c = String(content == null ? '' : content).normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/[\u2010-\u2015]/g, '-').replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, ' ');
     if (!c.trim()) return false;
     for (const re of HIGH_STAKES) if (re.test(c)) return true;
     return false;

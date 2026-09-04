@@ -22,6 +22,7 @@
 <link rel="stylesheet" href="css/warroom.css">
 <link rel="stylesheet" href="css/safety.css">
 <link rel="stylesheet" href="css/tutorial.css">
+<link rel="stylesheet" href="css/workhub.css">
 <link rel="stylesheet" href="css/refit.css"><!-- REFIT build-modal form polish: rides the .refit-guide card, before motion.css so its focus ring layers on top -->
 <!-- motion.css last: the Phase-1 premium motion + feedback layer builds ON TOP of every screen's styles -->
 <link rel="stylesheet" href="css/motion.css">
@@ -636,6 +637,7 @@
         <!-- WORK menu, one axis per entry (UX confusion audit 2026-07-15): RECIPES = WHAT to run,
              ROUTINES = WHEN it runs, LOOPS = UNTIL it is done, TASKS = WHERE live work sits,
              QUESTS = progress only. -->
+        <button class="bb" data-term="work"><span class="bb-i">◈</span><span class="bb-tx"><b>MY WORK</b><small>suggestions, progress, decisions &amp; results</small></span></button>
         <button class="bb" data-term="tasks" data-hint="task"><span class="bb-i">☑</span><span class="bb-tx"><b>TASKS</b><small>planned work — queued, active &amp; shipped</small></span></button>
         <button class="bb" data-term="deliverables" data-hint="deliverable"><span class="bb-i">▣</span><span class="bb-tx"><b>DELIVERABLES</b><small>outputs, Workshop builds &amp; cleanup</small></span></button>
         <button class="bb" id="bb-missions" data-hint="recipe"><span class="bb-i">❒</span><span class="bb-tx"><b>RECIPES</b><small>ready-made jobs to launch — they land on TASKS</small></span></button>
@@ -850,6 +852,8 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/onboarding.js"></script>
 <script src="app/intake.js"></script>
 <script src="app/tutorial.js"></script>
+<script src="app/firstvalue.js"></script>
+<script src="app/workview.js"></script>
 <script src="app/marketplace.js"></script>
 <script src="app/xpstore.js"></script>
 <script src="app/profilestore.js"></script>
@@ -900,6 +904,7 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
      already-registered live region, so stationui.js appends transient cards here. -->
 <div id="toast-stack" role="status" aria-live="polite" aria-atomic="false" aria-relevant="additions text"></div>
 <script src="app/app.js"></script>
+<script src="app/workhub.js"></script>
 <script src="app/keycta.js"></script><!-- cold-start honesty: after a KEYLESS awakening, one standing world banner "agent is awake but has no key" → SETTINGS; pure projection of Harness.hasStoredCredential, vanishes the instant a key lands (after app.js so App/Harness/StationUI exist) -->
 <script src="app/topbar.js"></script><!-- topbar instrument cluster: read-only STATION-XP + live SPEND-TODAY wiring (after app.js so Harness/Xp/XpStore/U exist) -->
 <script src="app/widgets.js"></script><!-- widget rails: pinnable read-only telemetry instruments (insights/cron polls + run.end/queue.status/cron.fire folds); own localStorage key, never emits -->
