@@ -2,6 +2,7 @@
    Every read rechecks the existing project grant and canonical path; no model calls here. */
 'use strict';
 const Discovery = require('./discovery.js');
+const { note: failNote } = require('./failopen.js');
 const POLICY = Object.freeze({ lookbackDays: 7, maxFiles: 48, maxEntries: 600, maxDepth: 3,
   maxFileBytes: 65536, maxTotalBytes: 524288, maxEvidence: 6, extensions: ['.md', '.txt', '.csv'] });
 const PRIVATE_NAME = /(^\.|(?:^|[-_. ])(?:secrets?|credentials?|passwords?|tokens?|private|keys?|keychains?|backups?)(?:[-_. ]|$))/i;
@@ -70,10 +71,18 @@ function makeDocumentDiscovery({ fsp, path, hash, isBlessed, canScan = () => tru
               evidence.push({ path: rel.replace(/\\/g, '/'), line: i + 1, quote, modifiedAt: Math.floor(stat.mtimeMs) });
               break; // one excerpt per document, so one long note cannot crowd out the others
             }
-          } catch (_) { /* unreadable or changed files are omitted, never fabricated */ }
+          } catch (_) {
+            limited = true;
+            // Files can disappear/become unreadable during a scan. Record the omission without paths,
+            // excerpts, or OS error messages (which can contain private filenames).
+            failNote('discovery.documents.file-read', 'A document became unavailable and was omitted from this scan.');
+          }
           finally { if (file) await file.close(); }
         }
-      } catch (_) { /* inaccessible directory contributes no evidence */ }
+      } catch (_) {
+        limited = true;
+        failNote('discovery.documents.directory-read', 'A directory became unavailable; this document scan is partial.');
+      }
     }
     limited = limited || queue.length > 0 || entries >= POLICY.maxEntries || files >= POLICY.maxFiles || bytes >= POLICY.maxTotalBytes;
     if (!isBlessed(root) || !canScan(root)) return { ok: false, reason: 'source-unavailable-or-revoked', findings: [] };
