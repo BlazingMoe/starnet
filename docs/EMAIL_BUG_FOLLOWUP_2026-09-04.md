@@ -46,6 +46,9 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
 - Subsequent verification exposed a moving-HEAD assertion in the loop undo test. It now inspects
   the exact `undoCommit` returned by the operation; checks were not weakened. A workshop deliverable
   timeout passed its standalone 65-assertion rerun; it still requires a green full HTTP gate.
+- Under concurrent full-suite load, the workspace-lease test's 500 ms head start let the intended
+  waiter acquire first. Its fixture now waits for the holder's actual write and uses an explicit
+  release barrier. All 13 assertions pass, including no write before the lease handoff.
 - The live restart proof also passed after incorporating `c0a2ca521`.
 - Before/after local HTTP adapter reproduction: malformed request rejected before; labeled recovery
   accepted afterward, with `Recovered` text and a normal finish.
