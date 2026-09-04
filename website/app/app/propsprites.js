@@ -1234,6 +1234,9 @@ const PropSprites = (() => {
     /* ---- PC SCREEN on a stand ---- */
     const mX = x + 10, mW = 12, mT = y - 13, sx = mX + 2, sy = mT + 2, sw = mW - 4;
     px(mX + 5, y - 4, 2, 3, b.face); px(mX + 5, y - 4, 1, 3, b.top);   // neck
+    // Forked monitor mount: two visible supports and a small hinge under the bezel.
+    px(mX + 3, y - 4, 1, 3, b.mid); px(mX + 8, y - 4, 1, 3, b.dk);
+    px(mX + 3, y - 4, 6, 1, b.top);
     chamf(mX + 2, y - 2, 8, 2, b.ink, 1); px(mX + 3, y - 1, 6, 1, b.top);
     chamf(mX - 1, mT - 1, mW + 2, 12, b.ink, 2);
     panelFinish(mX, mT, mW, 10, b);
@@ -2277,6 +2280,9 @@ const PropSprites = (() => {
 
     /* ---- THE INSTRUMENT BANK: its own casting, raised across the back ---- */
     equipmentApron(x, y + 5, w, r);
+    // Raised end housings protect the inset controls and break up the flat desk profile.
+    chamf(x, y - 1, 3, 6, r.ink, 1); px(x + 1, y, 1, 3, r.lit);
+    chamf(x + w - 3, y - 1, 3, 6, r.ink, 1); px(x + w - 2, y, 1, 3, r.mid);
     const bX = x + 1, bW = w - 2, bT = y - 11;
     px(bX + 1, bT, bW - 2, 1, b.ink);
     px(bX, bT + 1, bW, 8, b.ink);
@@ -4431,6 +4437,9 @@ const PropSprites = (() => {
     if (on) bloom(x + 4, top + 3, 4, 1, M, 0.22);
 
     /* ---- SIDE RAILS clamping the tube, pinned at three points ---- */
+    // A split heat-sink crown gives the memory column a more engineered silhouette.
+    px(x + 2, top - 1, 3, 2, r.ink); px(x + 7, top - 1, 3, 2, r.ink);
+    px(x + 2, top - 1, 2, 1, r.mid); px(x + 7, top - 1, 2, 1, r.face);
     const cTop = top + 6, cBot = base - 10;
     for (const rx of [x, x + w - 2]) {
       px(rx, cTop - 1, 2, cBot - cTop + 2, r.ink);
@@ -5567,7 +5576,7 @@ const PropSprites = (() => {
           front of it still reads. That profile is load-bearing; do not 'improve' it into a slab.
        ⛔ Rows are F.chair's rows (pad y+3..y+7, column y+7..y+9, base y+10, casters y+11) because the
           sitter anchor is calibrated to them. */
-    const r = RAMP.steel, s = MAT.seat;
+    const r = EQUIPMENT, s = MAT.seat;
     shadow2(x + 3, y + 10, 7);
     px(x + 2, y + 10, 8, 1, '#10161a');                          // star base — low and dark, hides under a body
     px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
@@ -5584,7 +5593,10 @@ const PropSprites = (() => {
     px(x + 3, y - 2, 6, 3, s.face);                              // shoulders
     px(x + 3, y - 2, 1, 3, s.lit); px(x + 8, y - 2, 1, 3, s.dk);
     rimEdge(x + 8, y - 2, 1, 3, 0.20);
-    for (let j = 0; j < 3; j++) px(x + 4, y - 2 + j, 4, 1, shade(s.face, j % 2 ? -0.13 : 0.03));
+    // Two padded bolsters separated by a recessed centre seam, inside the waisted shell.
+    px(x + 4, y - 2, 1, 3, s.lit); px(x + 7, y - 2, 1, 3, s.face);
+    px(x + 5, y - 2, 2, 3, shade(s.face, -0.19));
+    px(x + 4, y, 4, 1, s.dk);
     px(x + 4, y + 1, 4, 1, shade(s.face, -0.26));              // pinched lumbar
     /* SEAT PAD — silver where the shipped chair is teal. */
     px(x + 1, y + 3, 10, 5, s.ink);
@@ -5596,11 +5608,14 @@ const PropSprites = (() => {
     px(x + 3, y + 6, 1, 1, s.dk); px(x + 8, y + 6, 1, 1, s.dk);  // seat stitches
     px(x + 2, y + 7, 8, 1, r.face); px(x + 2, y + 7, 3, 1, r.lit);
     px(x + 3, y + 8, 6, 1, r.dk);
+    // Segmented cushion and a short adjustment lever; neither changes the sitter anchor.
+    px(x + 5, y + 5, 2, 2, shade(s.face, -0.12));
+    px(x + 8, y + 8, 2, 1, r.mid);
     /* ARMRESTS last, so they read in FRONT of the pad. */
     px(x, y + 2, 2, 4, s.ink); px(x + 10, y + 2, 2, 4, s.ink);
-    px(x, y + 3, 2, 1, shade(s.face, 0.14)); keyEdge(x, y + 3, 1, 1, 0.26);
+    px(x, y + 3, 2, 1, r.lit); keyEdge(x, y + 3, 1, 1, 0.26);
     px(x, y + 4, 2, 1, shade(s.face, -0.18));
-    px(x + 10, y + 3, 2, 1, shade(s.face, -0.04));
+    px(x + 10, y + 3, 2, 1, r.mid);
     px(x + 10, y + 4, 2, 1, s.dk); rimEdge(x + 10, y + 3, 1, 2, 0.22);
   };
 
@@ -5629,7 +5644,7 @@ const PropSprites = (() => {
       px(x + 5, y + 10, 2, 1, '#1c0a0a');
       return;
     }
-    const r = RAMP.steel;
+    const r = EQUIPMENT;
     shadow2(x + 3, y + 10, 7);                                  // blocks:true — a real solid, real contact
     // star base: arm bar + casters. Kept low and dark so it disappears under a seated body.
     px(x + 2, y + 10, 8, 1, '#10161a');
@@ -5650,8 +5665,8 @@ const PropSprites = (() => {
     px(x + 3, y - 2, 6, 3, r.face);                             // shoulders — the widest span
     px(x + 3, y - 2, 1, 3, shade(r.face, 0.12)); px(x + 8, y - 2, 1, 3, r.dk);
     rimEdge(x + 8, y - 2, 1, 3, 0.20);
-    for (let j = 0; j < 3; j++)                                 // mesh weave, alternating rows
-      px(x + 4, y - 2 + j, 4, 1, shade(r.face, j % 2 ? -0.13 : 0.03));
+    px(x + 4, y - 2, 1, 3, r.mid); px(x + 7, y - 2, 1, 3, r.face);
+    px(x + 5, y - 2, 2, 3, r.dk); // lumbar channel between upholstered bolsters
     px(x + 4, y + 1, 4, 1, shade(r.face, -0.26));             // pinched waist = the lumbar read
     // seat pad, middle-south — stays visible under a seated agent
     px(x + 1, y + 3, 10, 5, LINE);
@@ -5681,7 +5696,7 @@ const PropSprites = (() => {
      casters y+11) so a turned chair stands at exactly the same height as an unturned one beside it.
      WEST (r=1) is this view mirrored — px()'s LSWAP re-lights it, so the key stays high-west. */
   F['chair:e'] = (x, y, w, h, f) => {
-    const r = RAMP.steel;
+    const r = EQUIPMENT;
     shadow2(x + 3, y + 10, 7);
     // star base in profile: the arms fore-and-aft read as one low bar, casters under its ends
     px(x + 2, y + 10, 8, 1, '#10161a');
@@ -5742,7 +5757,7 @@ const PropSprites = (() => {
      with the pad's rear edge showing under it. ⛔ A back is the emptiest surface a prop owns: give it
      ONE organising shape and keep every mark touching it, or the marks read as glyphs. */
   F['chair:n'] = (x, y, w, h, f) => {
-    const r = RAMP.steel;
+    const r = EQUIPMENT;
     shadow2(x + 3, y + 10, 7);
     px(x + 2, y + 10, 8, 1, '#10161a');
     px(x + 3, y + 10, 6, 1, '#2a343c'); keyEdge(x + 3, y + 10, 3, 1, 0.16);
@@ -10995,7 +11010,7 @@ const PropSprites = (() => {
   function drawSeatFront(f) {
     const lift = f.mount === 'surface' ? SURFACE_RISE : 0;
     const x = f.x * TILE, y = f.y * TILE - lift;
-    const r = RAMP.steel;
+    const r = f.t === 'chair' ? EQUIPMENT : RAMP.steel;
     if (f.t === 'stool') {
       px(x + 2, y + 3, 8, 1, '#2f6a62');                          // pad south face (lower body row)
       px(x + 2, y + 3, 1, 1, '#4a8a82'); px(x + 9, y + 3, 1, 1, '#26554e');
