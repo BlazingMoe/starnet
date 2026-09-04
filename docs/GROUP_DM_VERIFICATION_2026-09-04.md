@@ -131,6 +131,23 @@ and add button shared the same vertical center. The group picker still opened fr
 the inline button. Focused workstream (193) and website mirror (8) assertions passed.
 Full fast regression: 702 steps green (`dev/group-inline-fast.log`).
 
+## Standard terminal picker
+
+Replaced the custom body-level picker with `StationUI.toggleTerm` / `closeTerm`.
+The old popup's z-index 50000 placed it above the CRT scanline layer at 950.
+The picker now mounts in `.term-body` under `#terms` (stacking layer 50), with the
+standard `.term` glass overlay, chrome, window sizing, power animation, focus/close
+behavior, and resize handle. It uses shared `key-input`, `set-row`, `fbc-sel`, and
+button styling. The accepted COMMS identity line was not changed.
+
+Live checks verified `#gc-picker` inside `.term-body`, its window under `#terms`,
+the shared scanline background and glass gradients, `.term-chrome` and `.term-x`.
+Search, Cancel, reopen, and Done worked; saving preserved the existing two-agent
+roster, removed the picker cleanly, and retained exactly one top-bar add button.
+No browser warnings/errors. Focused control-floor (101) and workstream (193)
+assertions passed.
+Standard-terminal follow-up: all 702 fast steps passed (`dev/group-terminal-fast.log`).
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.
