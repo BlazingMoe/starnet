@@ -3839,7 +3839,7 @@ const Build = (() => {
     const bits = [rooms + (rooms === 1 ? ' ROOM' : ' ROOMS')];
     if (halls) bits.push(halls + (halls === 1 ? ' HALL' : ' HALLS'));
     bits.push(tiles + ' TILES');
-    if (machines) bits.push(machines + (machines === 1 ? ' MACHINE' : ' MACHINES'));
+    if (machines) bits.push(machines + (machines === 1 ? ' OBJECT' : ' OBJECTS'));
     /* THE STATION'S OWN NAME FOR ITS SIZE. A pure LABEL on a number already shown — no gauge, no
        gate, nothing unlocks at a threshold (sandbox law); crossing one is simply the floor earning
        a bigger word, which is the whole point of building. Announced once, when it happens. */

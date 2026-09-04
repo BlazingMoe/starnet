@@ -3658,7 +3658,7 @@ const StationBake = (() => {
          rhythm is most of why its floor reads as lit. Same formula either way, resolved on the
          space's own long/cross axes rather than assuming width-is-long — a vertical corridor is the
          case that assumption gets wrong, and it is the commonest shape on a real station.
-         `LIGHT.corridor` stays BELOW `LIGHT.room`: a hallway should still be the dimmer space. */
+         `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
