@@ -37,15 +37,15 @@ const GroupChat = (() => {
     element.replaceChildren(h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
     const people = h('div', { class: 'gc-people', 'aria-label': 'Agents in this session' });
     for (const id of ids) people.append(h('span', { class: 'gc-person' }, name(id)));
-    element.append(people, button('+ Add agents', () => picker(true)));
+    element.append(people);
   }
   function init() {
     if (root) return;
     const bar = $('comms-idbar'); if (!bar) return;
-    const launch = h('div', { id: 'gc-launch', class: 'gc-launch' });
-    bar.before(launch);
     root = h('section', { id: 'group-chat', 'aria-label': 'Group conversation', hidden: '' });
-    const header = h('div', { id: 'gc-header', class: 'gc-header' });
+    const header = h('div', { id: 'gc-header', class: 'gc-header', hidden: '' });
+    const addAgents = button('+ Add agents', () => picker(true)); addAgents.id = 'gc-add-agents';
+    bar.append(header, addAgents);
     const tools = h('div', { class: 'gc-actions' });
     tools.append(button('PAUSE', () => action('pause')), button('RESUME', () => action('resume')));
     const more = h('details', { id: 'gc-options' }); more.append(h('summary', {}, 'Chat options'));
@@ -88,18 +88,19 @@ const GroupChat = (() => {
     advancedSend.append(button('ASK EVERYONE', () => sendText(input.value, { all: true })), button('INTERRUPT & SEND', () => sendText(input.value, { interrupt: true })), independent, summary);
     composer.append(recipient, h('div', { id: 'gc-mentions', role: 'listbox', 'aria-label': 'Mention participants' }), sendOptions);
     more.append(tools, advancedSend, pins, activity);
-    root.append(header, transcript, files, states, composer, h('div', { id: 'gc-notice', role: 'status' }), more);
+    root.append(transcript, files, states, composer, h('div', { id: 'gc-notice', role: 'status' }), more);
     $('chat-log').before(root);
     const css = h('style'); css.textContent = `
       #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:var(--panel);padding:0;gap:0}
-      #group-chat[hidden],.gc-launch[hidden]{display:none}
-      .gc-header,.gc-launch{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;flex:0 0 auto;padding:6px 12px;border-bottom:1px solid var(--ph-faint);background:var(--panel2);color:var(--ph)}
-      .gc-count{grid-column:1;grid-row:1;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}
-      .gc-header>.bb,.gc-launch>.bb{grid-column:2;grid-row:1;white-space:nowrap}
-      .gc-people{grid-column:1/-1;grid-row:2;display:flex;gap:14px;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ph-dim) transparent}
+      #group-chat[hidden],#gc-header[hidden]{display:none}
+      #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model{display:none}
+      #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
+      .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
+      #gc-add-agents{flex:0 0 auto;white-space:nowrap}
+      .gc-people{display:flex;flex:1;gap:14px;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ph-dim) transparent}
       .gc-person{flex:0 0 auto;font-size:14px;line-height:18px;letter-spacing:1px;color:var(--ph);white-space:nowrap}.gc-person::before{content:'▪';margin-right:6px;color:var(--ph-dim)}
-      #group-chat .bb,.gc-launch .bb,.gc-picker .bb{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise);white-space:normal}
-      #group-chat .bb:hover,.gc-launch .bb:hover,.gc-picker .bb:hover{border-color:var(--ph);background:var(--ph-faint)}
+      #group-chat .bb,#gc-add-agents,.gc-picker .bb{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise)}
+      #group-chat .bb:hover,#gc-add-agents:hover,.gc-picker .bb:hover{border-color:var(--ph);background:var(--ph-faint)}
       #group-chat :focus-visible,.gc-picker :focus-visible{outline:1px solid var(--ph);outline-offset:2px}
       #gc-log{flex:1 1 0;min-height:0;min-width:0;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:5px;background:var(--panel);user-select:text;scrollbar-color:var(--ph-dim) transparent}
       #gc-log>.gc-message{flex:0 0 auto;margin:0;background:none;overflow-wrap:anywhere;white-space:normal}#gc-log .body{margin:0}.gc-message .bb{align-self:flex-start;font-size:11px!important;min-height:20px!important;padding:0 5px!important;margin-top:5px!important}
@@ -133,9 +134,10 @@ const GroupChat = (() => {
   function bind(ws) {
     init(); if (!root) return;
     const enabled = !!ws && ws.conversationMode === 'group';
-    $('gc-launch').hidden = enabled;
-    if (!enabled) participantsHeader($('gc-launch'), [ws?.agentId || 'agent']);
-    for (const id of ['chat-log', 'chat-inputrow', 'chat-queued', 'comms-idbar']) { const e = $(id); if (e) e.style.display = enabled ? 'none' : ''; }
+    $('gc-header').hidden = !enabled;
+    $('comms-idbar').classList.toggle('gc-group', enabled);
+    $('comms-idbar').hidden = false;
+    for (const id of ['chat-log', 'chat-inputrow', 'chat-queued']) { const e = $(id); if (e) e.style.display = enabled ? 'none' : ''; }
     root.hidden = !enabled;
     if (active?.id === ws?.id) return;
     if (openedFileUrl) { URL.revokeObjectURL(openedFileUrl); openedFileUrl = null; $('gc-preview').replaceChildren(); }
