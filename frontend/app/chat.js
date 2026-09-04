@@ -1071,6 +1071,7 @@ const Chat = (() => {
     else if (modelEl) { modelEl.classList.remove('comms-agent-warn'); renderIdBar(); }
   }
   function renderIdBar() {
+    if (typeof GroupChat !== 'undefined') GroupChat.bind(activeWs);
     const sel = el('comms-agent-select'); const modelEl = el('comms-agent-model'); const bar = el('comms-idbar');
     if (!sel) return;
     // an active roster-out-of-sync notice wins the model slot: don't overwrite the honest state with a stale
@@ -1199,6 +1200,10 @@ const Chat = (() => {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
     activeWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      GroupChat.bind(activeWs);
+      return; // Group history/recovery is backend-owned; never auto-resume it through the direct-run path.
+    }
     // SPEAKER IDENTITY: re-resolve `name` (the reply-chip + agent-beat speaker, else stuck at init's hero) from the
     // displayed stream's agent, so switching agents relabels replies. Guard: an unknown id keeps the current name.
     if (activeWs && typeof App !== 'undefined' && App.agentName) { const nm = App.agentName(activeWs.agentId || 'agent'); if (nm) name = nm; }
@@ -7827,6 +7832,7 @@ const Chat = (() => {
   }
 
   async function send(text, opts) {
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.sendText(text);
     const retry = !!(opts && opts.retry);   // retry/recovery reuses a durable user turn — don't echo it again
     const recoveryResume = !!(opts && opts.recoveryResume && opts.recovery);
     // ATTACHMENTS: photos/files staged in the composer, snapshotted by the Enter handler into opts.attachments as
@@ -8602,5 +8608,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, stopActive, status, localLine, broadcast, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, sendOrQueue, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();

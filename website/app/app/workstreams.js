@@ -58,6 +58,7 @@
       id: opts.id || uid(),
       title: opts.title != null ? clamp(opts.title, 80) : null,    // null = the General default stream
       agentId: opts.agentId || 'agent',
+      conversationMode: opts.conversationMode === 'group' ? 'group' : 'direct',
       roomId: opts.roomId != null ? opts.roomId : null,            // dormant builder seam: a room IS a channel, later
       lane: lane,
       // TASK-BOARD TRUTH: 'task' = a deliberate board directive (renders as a card); 'chat' = a plain session
@@ -190,7 +191,7 @@
     const wantedRoot = scoped && opts.projectRoot != null ? String(opts.projectRoot) : null;
     const sameScope = !scoped || ((cur && cur.projectRoot) || null) === wantedRoot;
     const c = cur && cur.cost || {};
-    const untouched = !!cur && !cur.archived && cur.kind === 'chat' && cur.title == null
+    const untouched = !!cur && cur.conversationMode !== 'group' && !cur.archived && cur.kind === 'chat' && cur.title == null
       && cur.titleAuto !== false && !cur.pinned && cur.roomId == null && !cur.goalLoop
       && (!cur.history || cur.history.length === 0)
       && (!cur.runIds || cur.runIds.length === 0)
@@ -275,7 +276,7 @@
     const aid = String(agentId == null ? '' : agentId);
     if (!aid) return 0;
     let n = 0;
-    for (const w of ws.slice()) { if (w.id !== generalId && w.agentId === aid && del(w.id)) n++; }
+    for (const w of ws.slice()) { if (w.conversationMode !== 'group' && w.id !== generalId && w.agentId === aid && del(w.id)) n++; }
     return n;
   }
 

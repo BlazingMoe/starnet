@@ -3826,7 +3826,7 @@ const App = (() => {
     menu.querySelector('.ws-menu-item').focus();
     SFX.click();
   }
-  function wsMenuAction(act, id) {
+  async function wsMenuAction(act, id) {
     const w = Workstreams.get(id); if (!w) return;
     if (act === 'rename') { beginRenameRow(id); return; }
     if (act === 'pin') { Workstreams.pin(id, !w.pinned); SFX.click(); renderRail(); persist(); return; }
@@ -3835,6 +3835,9 @@ const App = (() => {
     if (act === 'archive') {
       const wasActive = (id === Workstreams.activeId());
       const nowArchived = !w.archived, label = w.title || 'General';
+      if (nowArchived && w.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+        try { await GroupChat.pause(id); } catch (e) { StationUI.notify(e.message, 'bad'); return; }
+      }
       if (!Workstreams.archive(id, nowArchived)) { SFX.bad(); return; }
       SFX.close();
       if (wasActive && Workstreams.activeId() !== id) loadActiveStream();   // archiving the OPEN stream falls back to General
@@ -3842,8 +3845,12 @@ const App = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify((nowArchived ? 'archived ' : 'restored ') + '“' + label + '”', '', undefined, { transient: true });
     }
   }
-  function deleteWorkstream(id) {
+  function deleteWorkstream(id, groupDeleted) {
     const w = Workstreams.get(id); const label = w ? (w.title || 'General') : '';
+    if (w && w.conversationMode === 'group' && !groupDeleted && typeof GroupChat !== 'undefined') {
+      GroupChat.remove(id).then(() => deleteWorkstream(id, true)).catch(e => StationUI.notify(e.message, 'bad'));
+      return false;
+    }
     const agentId = w ? (w.agentId || 'agent') : 'agent';
     // Recheck after the destructive-confirmation click: a session may have started while its menu was open.
     if (w && typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(id)) {
@@ -3886,11 +3893,14 @@ const App = (() => {
     titleSpan.replaceWith(input);
     input.focus(); input.select();
     let done = false;
-    const finish = (save) => {
+    const finish = async (save) => {
       if (done) return; done = true;
       let changed = false;
       if (save) {
         const v = input.value.trim();
+        if (v && w.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+          try { await GroupChat.rename(id, v); } catch (e) { StationUI.notify(e.message, 'bad'); renderRail(); return; }
+        }
         if (v || id === Workstreams.generalId()) changed = Workstreams.rename(id, v);   // empty on a normal stream = cancel
       }
       if (changed) {
