@@ -98,6 +98,8 @@ Done converts that same session; the header shows three names and "3 agents".
 Removing an agent changes the count to two; adding it back restores three.
 Reload preserves the roster. Workstream tests: 193 assertions passed; website mirror
 check: 8 assertions passed. No backend execution behavior changed in this follow-up.
+The follow-up fast suite passed all 702 steps (`dev/group-simple-fast.log`).
+Keyboard focus was also verified to skip collapsed settings and loop within the picker.
 
 ## Scope of the evidence
 
