@@ -82,6 +82,23 @@ provider, writes/publishes/reviews a real file, and checks durable recovery.
   including `route-honesty.e2e: OK (66 assertions)`. No assertions or test steps were
   removed or relaxed. Logs: `dev/group-fast-final.log` and `dev/group-http-complete.log`.
 
+## Simplified session UI follow-up
+
+User feedback: the initial group controls were confusing. Replaced the separate
+GROUP CHAT / ADD AGENTS / PARTICIPANTS entry points with one **+ Add agents**
+button in the session header. The header shows the count and every selected name.
+The picker opens directly to searchable agent checkboxes and **Done**; session
+naming, default responder, and saved groups are optional collapsed settings.
+The main group view contains the transcript and one send button. Workflow controls,
+instructions, and historical run/cost details are under **Chat options**. Active
+work and approvals remain visible; shared files appear when present.
+
+Verified in the live browser: new direct session -> Add agents -> search/select ->
+Done converts that same session; the header shows three names and "3 agents".
+Removing an agent changes the count to two; adding it back restores three.
+Reload preserves the roster. Workstream tests: 193 assertions passed; website mirror
+check: 8 assertions passed. No backend execution behavior changed in this follow-up.
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.

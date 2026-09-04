@@ -270,7 +270,16 @@ const GroupChat = (() => {
     }
     dialog.addEventListener('keydown', e => {
       if (e.key === 'Escape') dialog.remove();
-      if (e.key === 'Tab') { const nodes = [...dialog.querySelectorAll('input,select,button,summary')].filter(e => e.getClientRects().length); const first = nodes[0], last = nodes.at(-1); if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
+      if (e.key === 'Tab') {
+        const nodes = [...dialog.querySelectorAll('input,select,button,summary')].filter(el => {
+          for (let parent = el.parentElement; parent && parent !== dialog; parent = parent.parentElement)
+            if (parent.hidden || (parent.tagName === 'DETAILS' && !parent.open && el !== parent.querySelector('summary'))) return false;
+          return el.getClientRects().length;
+        });
+        const first = nodes[0], last = nodes.at(-1);
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     });
     document.body.append(dialog); search.focus();
   }
