@@ -21,6 +21,8 @@
         status = channel.pending ? 'Waiting for your decision' : channel.runId ? 'Working' : 'Connecting';
       } else if (s.lastRunOk === false) {
         bucket = 'needs-you'; status = 'Run stopped or failed — review the conversation';
+      } else if (files.some(a => a.status === 'failed' || a.status === 'pending')) {
+        bucket = 'needs-you'; status = files.some(a => a.status === 'failed') ? 'Output failed — review details' : 'Output waiting for your review';
       } else if (s.lane === 'shipped') {
         bucket = 'finished'; status = 'Marked shipped by you';
       } else if (s.lastRunOk === true) {
@@ -46,9 +48,11 @@
   }
   function routineView(job, scheduler) {
     job = job || {};
+    const state = typeof scheduler === 'object' && scheduler ? scheduler : {enabled:scheduler};
+    const healthy = state.enabled === true && !state.halted && !state.degraded && (!state.health || state.health.healthy === true);
     return { id: text(job.id), title: text(job.name) || 'Recurring work',
-      status: job.inFlight === true ? 'Working' : job.enabled === false ? 'Paused' : scheduler === true ? 'Scheduled' : 'Scheduler paused',
-      next: job.enabled !== false && scheduler === true ? text(job.nextRunAt) : '',
+      status: job.inFlight === true ? 'Working' : state.halted ? 'Stopped by E-STOP' : state.degraded ? 'Scheduler storage needs recovery' : job.enabled === false ? 'Paused' : healthy ? 'Scheduled' : state.enabled ? 'Scheduler health unconfirmed' : 'Scheduler paused',
+      next: job.enabled !== false && healthy ? text(job.nextRunAt) : '',
       last: job.lastRunAt ? (job.lastStatus === 'ok' ? 'Last run completed' : 'Last run: ' + (text(job.lastReason) || 'failed')) : 'Has not run yet',
       agentId: job.agentId, recipeId: job.meta && job.meta.recipeId || null };
   }

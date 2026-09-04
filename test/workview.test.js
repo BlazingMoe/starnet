@@ -17,4 +17,8 @@ assert.equal(V.routineView({enabled:false,lastRunAt:1,lastStatus:'error'},true).
 assert.equal(V.stationView(null).known,false);
 assert.equal(V.stationView({evolution:{name:'DRIFT'},outcomes:[{title:'model says done'}]}).outcomes.length,0);
 assert.equal(V.stationView({evolution:{name:'VECTOR'},outcomes:[{sourceId:'q',evidence:'file verified',verifiedBy:'harness-contract',title:'Update delivered',at:1}]}).reason,'Update delivered');
-console.log('workview.test: OK (15 assertions)');
+assert.equal(V.project({streams:[{...stream,lastRunOk:true}],deliverables:[{id:'review',runId:'r',status:'pending'}]}).needsYou.length,1);
+assert.equal(V.routineView({enabled:true,nextRunAt:'tomorrow'},{enabled:true,halted:true}).status,'Stopped by E-STOP');
+assert.equal(V.routineView({enabled:true,nextRunAt:'tomorrow'},{enabled:true,halted:true}).next,'');
+assert.equal(V.routineView({enabled:true},{enabled:true,health:{healthy:false}}).status,'Scheduler health unconfirmed');
+console.log('workview.test: OK (19 assertions)');

@@ -29,10 +29,10 @@
     if(timer) clearInterval(timer);timer=null;
     if(firstForm && firstForm.destroy) firstForm.destroy();firstForm=null;
     if(preview.blobUrl) URL.revokeObjectURL(preview.blobUrl);preview={};
-    body=null;
+    body=null;selectedFinding=null;
   }
   function open(next, opts) {
-    pane=next || 'overview';startOpts=opts || {};
+    pane=next || 'overview';startOpts=opts || {};selectedFinding=startOpts.findingId || null;
     StationUI.openTerm('work');
     if(body) mountPane();
   }
@@ -51,7 +51,7 @@
       '<div class="muted">'+esc(App.agentName(item.agentId) || item.agentId || 'Agent')+(item.projectRoot ? ' · '+esc(item.projectRoot) : '')+'</div>'+
       item.artifacts.map(fileHtml).join('')+
       '<details class="wh-detail" data-detail="'+esc(item.id)+'"><summary>Objective, result & controls</summary>'+
-      (objective ? '<h4>WHAT YOU ASKED FOR</h4><p class="wh-prose">'+esc(objective.content.slice(0,3500))+'</p>' : '')+
+      (objective ? '<h4>WHAT YOU ASKED FOR</h4><p class="wh-prose">'+esc(objective.content.startsWith('Task: ')?objective.content.split('\n')[0].slice(6):objective.content.slice(0,3500))+'</p>' : '')+
       (answer ? '<h4>LATEST RESPONSE</h4><p class="wh-prose">'+esc(answer.content.slice(0,5000))+'</p>' : '<p class="muted">No response has been recorded yet.</p>')+
       '<div class="wh-actions">'+(item.streamId ? '<button class="bb sm" data-session="'+esc(item.streamId)+'">OPEN CONVERSATION</button><button class="bb sm" data-correct="'+esc(item.streamId)+'">CORRECT THIS</button>' : '')+
       (objective ? '<button class="bb sm" data-repeat="'+esc(item.id)+'">MAKE RECURRING</button>' : '')+
@@ -95,7 +95,7 @@
     return '<section class="wh-station"><span class="wh-eyebrow">YOUR WORK LEAVES A MARK</span><h2>'+esc(v.name)+'</h2><p>'+esc(v.reason)+'</p>'+
       '<p class="muted">Your station changes through recorded goal outcomes. Tools and customization are available from the start.</p></section>'+
       '<section class="wh-group"><h3>WORK THAT COMES BACK TO YOU</h3>'+(cron && cron.jobs.length ? cron.jobs.map(job=>{
-        const r=WorkView.routineView(job,cron.enabled);return '<article class="wh-card"><b>'+esc(r.title)+'</b><p>'+esc(r.status)+' · '+esc(r.last)+'</p>'+(r.next?'<p>Next: '+esc(date(r.next))+'</p>':'')+
+        const r=WorkView.routineView(job,cron);return '<article class="wh-card"><b>'+esc(r.title)+'</b><p>'+esc(r.status)+' · '+esc(r.last)+'</p>'+(r.next?'<p>Next: '+esc(date(r.next))+'</p>':'')+
           '<button class="bb sm" data-term-link="automation">VIEW RESULTS & SCHEDULE</button></article>';
       }).join(''):'<p class="muted">No recurring work recorded. Use MAKE RECURRING on a useful result to prepare its schedule.</p>')+'</section>'+
       '<section class="wh-group"><h3>WHAT CHANGED YOUR STATION</h3>'+(v.outcomes.length?v.outcomes.map(o=>'<article class="wh-card"><b>'+esc(o.title)+'</b><p>'+esc(o.evidence)+'</p><div class="muted">'+esc(o.verifiedBy==='harness-contract'?'Verified by harness':o.verifiedBy==='commander-confirmed'?'Confirmed by you':'Recorded by you')+' · '+esc(date(o.at))+'</div><button class="bb sm" data-term-link="quests">VIEW GOAL & EVIDENCE</button></article>').join(''):'<p class="muted">No verified outcomes recorded yet. Running tools or spending tokens does not advance this record.</p>')+'</section>'+
@@ -127,10 +127,13 @@
       if(typeof FirstValue==='undefined') {content.textContent='The first-work guide is unavailable. Your agent is available in COMMS.';return;}
       firstForm=FirstValue.mount(content,Object.assign({},startOpts,{onLaunch:async(recipe,values,source)=>{
         if (selectedFinding) {
-          await post('/api/discovery/decide',{id:selectedFinding,decision:'accept'});
-          selectedFinding=null; QuerySpine.refresh('work-discovery').catch(()=>{});
+          await post('/api/discovery/decide',{id:selectedFinding,decision:'validate'});
         }
         const launched=App.launchRecipe(recipe,values,source);
+        if(launched && selectedFinding) {
+          const id=selectedFinding; selectedFinding=null;
+          post('/api/discovery/decide',{id,decision:'accept'}).then(()=>QuerySpine.refresh('work-discovery')).catch(()=>say('Request sent; suggestion history could not be updated. Refresh before retrying.',true));
+        }
         return launched;
       },onProjects:showProjects,onModelSetup:()=>StationUI.openTerm('settings','providers'),onOpenWork:()=>open('overview')}));
       return;
@@ -155,7 +158,7 @@
     }
     if(b.dataset.finding) {
       const f=(data('work-discovery').staged || []).find(f=>f.id===b.dataset.finding);if(!f)return;
-      selectedFinding=f.id;open('start',{root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title});return;
+      open('start',{findingId:f.id,root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title});return;
     }
     if(b.hasAttribute('data-projects')){showProjects();return;}
     if(!b.dataset.dismiss && !b.hasAttribute('data-source-save') && !b.dataset.sourceToggle && !b.hasAttribute('data-source-remove') && !b.hasAttribute('data-scan') && !b.hasAttribute('data-refresh')) return;
@@ -171,7 +174,7 @@
     } catch(e) {say(e.message,true);} finally {if(b.isConnected)b.disabled=false;}
   }
   function mount(el) {
-    cleanup();body=el;
+    cleanup();body=el;selectedFinding=startOpts.findingId || null;
     body.innerHTML='<div class="wh"><div class="wh-header"><div><span class="wh-eyebrow">LESS TO MANAGE. MORE DONE.</span><h2>YOUR WORK, IN ONE PLACE</h2></div><button class="bb" data-pane="start">START SOMETHING USEFUL</button></div>'+
       '<nav class="wh-tabs" aria-label="Work views"><button class="bb sm" data-pane="overview">MY WORK</button><button class="bb sm" data-pane="sources">FIND WORK</button><button class="bb sm" data-pane="station">MY STATION</button><button class="bb sm" data-refresh>REFRESH</button></nav>'+
       '<label class="wh-search-label"><input class="key-input wh-search" type="search" aria-label="Search your work" placeholder="Find a result, task or suggestion…"></label>'+

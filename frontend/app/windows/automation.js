@@ -33,6 +33,10 @@
     StationUI.h.mountConsole(body, 'automation', sections, { search: false });
     built.forEach(b => { if (typeof b.wire === 'function') b.wire(); });
     if (draft) {
+      if(String(draft.prompt || '').includes('Pasted source (JSON string):')) {
+        const note=document.createElement('p');note.className='warn';note.textContent='This draft contains a fixed pasted sample. For fresh updates on each run, replace that sample with an approved source folder before adding the routine.';
+        const prompt=body.querySelector('#rt-prompt');if(prompt)prompt.insertAdjacentElement('beforebegin',note);
+      }
       for (const [selector, key] of [['#rt-name','name'],['#rt-prompt','prompt'],['#rt-workdir','workdir']]) {
         const el = body.querySelector(selector); if (el) el.value = String(draft[key] || '');
       }

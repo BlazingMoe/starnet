@@ -704,3 +704,4 @@ test/workview.test.js
 test/first-value.test.js
 test/effective-toolsets.test.js
 test/discovery-documents.test.js
+test/value-loop-replay.test.mjs
