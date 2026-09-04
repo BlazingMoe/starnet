@@ -31,10 +31,13 @@ The app ran at `http://127.0.0.1:8964/` against a local deterministic provider a
 - Real process restart: the source, enabled setting, last-scan timestamp, candidate citation, existing conversation, and saved output survived. The workspace was resumed without reseeding.
 - Discovered task: the folder was preselected, evidence was revalidated, a real read/write run completed, and the accepted suggestion left the shelf.
 - Recurring result: saved a clearly labeled local verification routine, left scheduling off, ran it once manually, and observed the completed result. MY STATION showed **Scheduler paused · Last run completed**, with the actual recorded output.
+- Recurring-session restoration: reloaded the app after the run. Existing sessions healed their underlying run IDs and completion metadata; MY WORK showed one completed item with its output attached and no false unconfirmed item.
 - Browser inspection: no warning/error entries were observed during the integrated walkthrough. Window layout, source controls, file preview, and station view were inspected in the running app.
 - The trust lane separately exercised effective permissions, override disclosure, revocation, authentication, and persistence against a real seeded sidecar.
 
 The replay proves application wiring, persisted state, and tool execution. It does not evaluate production-model judgment or writing quality.
+
+Full gates on the combined implementation and synchronized provider changes (`63a0ac6a3`): **707/707 fast test steps passed; 92/92 HTTP test steps passed**. The HTTP runner budget increased from ten to fifteen minutes after the expanded suite twice reached its final steps without assertion failures before the old deadline. All test steps and bounded process-tree termination remain enabled. The fail-open ratchet passed with its index baseline lowered; no allowance was raised.
 
 ## Boundaries that remain
 
