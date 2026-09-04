@@ -1,5 +1,48 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
+
+Implemented in `b4d83cf56` and `ff2946022`; isolated branch, not integrated or packaged.
+Standard recording can preview with installed local/native recognition even when its final transcriber
+uses a cloud credential. Local Live requests previews at a 650ms cadence, keeps words visible, reuses an
+exact completed preview instead of transcribing the same final audio again, extends a pending turn when
+speech resumes, and preserves successive finalized turns in order. Cancelled preview requests now reach
+the backend ASR queue. Pause/resume and Send Now are explicit; diagnostics expand only by deliberate click.
+Late local/native recognition cannot overwrite a newer call or a resumed listener.
+
+Evidence: voice button **100 assertions**, draft protection **21**, five new behavioral scenarios,
+Local Live UI, local voice, and media service **36 assertions** pass. In the running UI with synthetic
+microphone/recognition, HEARING displayed the actual supplied transcript before any task was sent;
+silence and Send Now submitted it; first-click pause/resume and end worked. A separate real bundled
+Whisper run transcribed a generated speech fixture in **3529ms cold / 586ms warm** on this host.
+These are synthetic-input and local-engine checks, not an attended microphone/speaker conversation or
+an installed-desktop proof. Windows hands-free fallback without local models remains utterance-based.
+Full gates passed: **test:fast 703/703**, **test:http 90/90**. Source verification was mechanically
+refreshed in `acd6eed27` without changing claim verdicts. The first HTTP attempt hit workspace-lease
+timing assertions (passed alone and in the full retry); earlier fast attempts caught the generated
+website mirror and source record needing refresh. Both are now verified. No merge or desktop build.
+
+Second round (2026-09-04): incremental local PCM sessions in both recording and hands-free modes;
+eight-second ASR windows with retained boundary context; stable/provisional text; adaptive pause option;
+prewarm while the microphone opens; interrupted reply tokens reject late chunks; subsequent speech
+clauses start without waiting for a 200-character sentence. Voice Details measures observed first words,
+last voiced frame to submission, and latest spoken chunk queued to actual playback (unobserved stages remain “—”).
+Fallback retains the original recording when streaming fails. Sessions expire and cap buffered audio.
+
+Live evidence: seeded server port8896, production voice UI and real bundled Whisper, with a generated
+speech PCM fixture injected only at the microphone seam and task submission captured without a provider
+call. Observed live transcript before submission, ordered open/audio/finish requests, the exact final
+“Please show my words while I am speaking. Then send a complete sentence.”, pause/resume, and end.
+Real browser receipt: ordered audio chunks, five recognitions, max window6784ms; first-partial2701ms on this
+heavily loaded shared host. Separate warm engine check first partial583ms. These are different checks,
+not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
+server stopped. Focused voice button105, media36, draft protection21 assertions, adaptive timing, six flow
+scenarios, transport bounds/recovery, and UI checks pass. Full second-round gates pending serialized
+handoff from support-mail lane. The subsequent real 16.66-second speech check crossed two window
+boundaries and retained all three repeated sentences exactly; max decode window8000ms, first partial605ms.
+It exposed timestamp drift that could duplicate an overlap word; the corrected path and its regression
+now preserve both real repetition and overlap deduplication.
+
 ## VERIFIED 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
 
 Own INBOX routine create/readback, compatible-provider tool-history repair and the MCP session-drain

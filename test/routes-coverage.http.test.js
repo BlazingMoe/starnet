@@ -78,8 +78,20 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     apiToken = await bootToken(B, B);
     A.ok(apiToken.length >= 32, 'served index.html carried a high-entropy API token');
 
+    const streaming = await j('POST', '/api/local-voice/stream?action=audio&id=expired');
+    A.eq(streaming.status, 200, 'stream route accepts query parameters');
+    A.ok(/expired/.test(streaming.body.error || ''), 'unknown streaming session returns a JSON recovery reason');
+    const opened = await j('POST', '/api/local-voice/stream?action=open');
+    A.eq(opened.status, 200, 'open uses the same authenticated query route');
+    if (opened.body.id) {
+      const cancelled = await j('POST', '/api/local-voice/stream?action=cancel&id=' + encodeURIComponent(opened.body.id));
+      A.eq(cancelled.status, 200, 'stream session is released without running a model');
+      const again = await j('POST', '/api/local-voice/stream?action=finish&id=' + encodeURIComponent(opened.body.id));
+      A.ok(/expired/.test(again.body.error || ''), 'cancelled session cannot be finalized');
+    } else A.ok(/unavailable/.test(opened.body.error || ''), 'missing local models are explicit');
+
     // ---- the auth seam gates these data routes (spot-check across GET + POST; the finding notes none are exempt) ----
-    for (const [m, p] of [['GET', '/api/quests'], ['GET', '/api/journey'], ['GET', '/api/toolsets'], ['GET', '/api/widgets'], ['GET', '/api/workspace/dir?agent=agent'], ['POST', '/api/activity'], ['POST', '/api/dev/inbound']]) {
+    for (const [m, p] of [['GET', '/api/quests'], ['GET', '/api/journey'], ['GET', '/api/toolsets'], ['GET', '/api/widgets'], ['GET', '/api/workspace/dir?agent=agent'], ['POST', '/api/activity'], ['POST', '/api/dev/inbound'], ['POST', '/api/local-voice/stream?action=open']]) {
       const g = await raw(m, p, m === 'POST' ? {} : undefined);
       A.eq(g.status, 403, m + ' ' + p + ' WITHOUT a token -> 403 (auth seam holds)');
     }

@@ -2129,6 +2129,7 @@ const media = makeMediaService({
   redact,
   logger: console,
   now: () => Date.now(),
+  monotonicNow: () => performance.now(),
   randomUUID: () => crypto.randomUUID()
 });
 function providerCredentialError(provider) {
@@ -8827,8 +8828,9 @@ const ROUTES = [
   { m: 'GET', exact: '/api/stt/status', h: media.handleSttStatus },
   { m: 'GET', exact: '/api/stt/native/status', h: media.handleNativeSttStatus },
   { m: 'POST', exact: '/api/stt/native', h: media.handleNativeStt },
+  { m: 'POST', qsplit: '/api/local-voice/stream', h: media.handleLocalVoiceStream },
   { m: 'GET', exact: '/api/local-voice/status', h: media.handleLocalVoiceStatus },
-  { m: 'POST', exact: '/api/local-voice/warm', h: media.handleLocalVoiceWarm },
+  { m: 'POST', qsplit: '/api/local-voice/warm', h: media.handleLocalVoiceWarm },
   { m: 'POST', exact: '/api/local-voice/transcribe', h: media.handleLocalVoiceTranscribe },
   { m: 'POST', exact: '/api/run', h: handleRun, errorPolicy: runFailPolicy },
   { m: 'POST', exact: '/api/run-recoveries/resolve', h: handleRunRecoveryResolve },

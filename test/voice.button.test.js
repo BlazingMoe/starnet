@@ -257,8 +257,49 @@ async function opensWithin(t, ms) {
 
   A.ok(!/cb\.onInterim\([\s\S]{0,100}repeat\(/.test(SRC), 'recorder progress never writes fake dot or bullet text into the composer');
 
+  // Final recognition and live previews are independent: having a cloud credential must not disable
+  // the installed local preview engine. Windows-only stations preview their captured PCM as well.
+  for (const preferred of ['cloud', 'native']) {
+    const t = boot({ desktop: true, fetch: (url) => {
+      if (url === '/api/stt/status') return Promise.resolve({ ok: true, json: async () => ({
+        available: true, preferred, local: preferred === 'cloud', native: true
+      }) });
+      if (url === (preferred === 'cloud' ? '/api/local-voice/transcribe' : '/api/stt/native')) {
+        return Promise.resolve({ ok: true, json: async () => ({ok: true, text: 'visible before I finish'}) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
+    } });
+    await tick(); t.Voice.startListening();
+    await until(() => processorInstances.length > 0, 500);
+    const processor = processorInstances[processorInstances.length - 1];
+    const speech = new Float32Array(2048).fill(.18);
+    for (let i=0;i<18;i++) processor.fire(speech);
+    await until(() => t.nodes['chat-input'].value === 'visible before I finish', 1000);
+    A.eq(t.nodes['chat-input'].value, 'visible before I finish', preferred + ' voice exposes interim words before the second click');
+    A.eq(t.sandbox.__sent.length, 0, preferred + ' preview does not send a task');
+    t.Voice.stopConvo(); await tick();
+  }
+
   // Browser recognition may end its own instance after a pause even in continuous mode. Standard voice
   // keeps the take open, retains those words, and sends them only when the Commander clicks again.
+  {
+    const pending = [], heard = [];
+    const t = boot({ desktop: true, fetch: url => {
+      if (url === '/api/stt/native') return new Promise(resolve => pending.push(text => resolve({ok:true,json:async()=>({ok:true,text})})));
+      return Promise.resolve({ok:true,json:async()=>({available:true,preferred:'native'})});
+    } });
+    await tick();
+    t.Voice.startCoordinator({onTranscript:text=>{heard.push(text);return true;}});
+    await tick();
+    t.Voice.pauseCoordinator(); t.Voice.resumeCoordinator(); await tick();
+    A.eq(pending.length, 2, 'resume starts a new Windows recognition');
+    pending[0]('discarded before pause'); await tick();
+    A.eq(heard.length, 0, 'a late native result cannot submit speech discarded by pause');
+    A.ok(t.Voice.isListening(), 'old native completion cannot clear the resumed listener');
+    pending[1]('fresh after resume'); await tick();
+    A.eq(heard[0], 'fresh after resume', 'the resumed recognition still delivers');
+    t.Voice.stopCoordinator(); await tick();
+  }
   {
     const t = boot();
     t.nodes['chat-mic'].onclick(); await tick();
@@ -474,6 +515,7 @@ async function opensWithin(t, ms) {
       return Promise.resolve({ ok: true, headers: { get: () => 'application/json' }, json: () => Promise.resolve({ text: 'words' }), blob: () => Promise.resolve({ size: 1 }) });
     };
     const t = boot({ audio: true, Audio: AutoEndAudio, fetch: stableVoiceFetch });
+    const timings=[];t.Voice.attachCoordinator({onTiming:value=>timings.push(value)});
     t.sandbox.localStorage.setItem('starnet.liveVoice.localVoice.v1', 'am_onyx');
     t.Voice.setSpeakReplies(true);
     t.Voice.setLocalTts(true);
@@ -485,6 +527,8 @@ async function opensWithin(t, ms) {
     A.eq(requests[0].localVoice, 'am_onyx', 'Local Live snapshots the selected voice when the session begins');
     A.eq(requests[1].localVoice, 'am_onyx', 'a mid-session picker change cannot switch the conversation voice');
     A.eq(requests[1].localEngine, 'local-kokoro', 'the first serving engine is pinned on later turns');
+    await until(()=>timings.length > 0,1000);
+    A.ok(timings.length > 0 && timings.every(v=>Number.isFinite(v.audioStartMs) && v.audioStartMs >= 0), 'latency is emitted only when actual audio playback starts');
     A.ok(requests.every(r => r.local === true), 'the stable-voice requests remain on the built-in Live Voice path');
   }
 
@@ -663,5 +707,27 @@ async function opensWithin(t, ms) {
     A.eq(muted.opened, true, 'the mic RE-OPENS after muting mid-reply (no wedge)');
   }
 
+  {
+    const t = boot({recorder:true, ttsKey:true});
+    const token = t.Voice.replyToken();
+    t.Voice.stopSpeaking();
+    t.Voice.speakChunk('A late chunk must stay silent.', 'agent', {replyToken:token});
+    A.eq(t.Voice.isReplyPending(), false, 'interrupted reply cannot restart from a late model chunk');
+  }
+  {
+    const pending=[];let cancelled=0;
+    const t=boot({desktop:true,fetch:url=>Promise.resolve({ok:true,json:async()=>({available:true,preferred:'local',local:true})})});
+    t.sandbox.VoiceStream={open:()=>({failed:false,push(){},cancel(){cancelled++;},finish:()=>new Promise(resolve=>pending.push(resolve))})};
+    await tick();t.Voice.startListening();await until(()=>processorInstances.length>0,1000);
+    processorInstances[processorInstances.length-1].fire(new Float32Array(2048).fill(.2));
+    t.Voice.stopListening();await until(()=>pending.length===1,1000);
+    t.Voice.pauseCoordinator();t.Voice.resumeCoordinator();t.Voice.startListening();
+    await until(()=>t.Voice.isListening(),1000);
+    A.ok(cancelled>0,'pause cancels a stream whose final recognition is still pending');
+    pending[0]({text:'old interrupted take'});await tick();
+    A.eq(t.sandbox.__sent.length,0,'late recorder result cannot submit into a resumed take');
+    A.ok(t.Voice.isListening(),'late recorder result cannot end the resumed listener');
+    t.Voice.stopConvo();
+  }
   A.report('voice.button.test');
 })().catch(e => { console.log('FAIL: harness threw — ' + (e && e.stack || e)); process.exit(1); });
