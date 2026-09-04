@@ -43,6 +43,9 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
 - Initial combined-code pre-merge gates: `npm run test:fast` **707/707** and `npm run test:http` **92/92**, exit 0.
   The first post-merge HTTP gate then exposed the MCP race above; that merge was backed out. Final
   gates must include its repair before integration is considered complete.
+- Subsequent verification exposed a moving-HEAD assertion in the loop undo test. It now inspects
+  the exact `undoCommit` returned by the operation; checks were not weakened. A workshop deliverable
+  timeout passed its standalone 65-assertion rerun; it still requires a green full HTTP gate.
 - The live restart proof also passed after incorporating `c0a2ca521`.
 - Before/after local HTTP adapter reproduction: malformed request rejected before; labeled recovery
   accepted afterward, with `Recovered` text and a normal finish.
