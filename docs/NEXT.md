@@ -17,8 +17,10 @@ silence and Send Now submitted it; first-click pause/resume and end worked. A se
 Whisper run transcribed a generated speech fixture in **3529ms cold / 586ms warm** on this host.
 These are synthetic-input and local-engine checks, not an attended microphone/speaker conversation or
 an installed-desktop proof. Windows hands-free fallback without local models remains utterance-based.
-Full gates are being completed. The first HTTP attempt hit workspace-lease timing assertions (passed
-alone); the first fast attempt required regenerating the website mirror, now included above.
+Full gates passed: **test:fast 703/703**, **test:http 90/90**. Source verification was mechanically
+refreshed in `acd6eed27` without changing claim verdicts. The first HTTP attempt hit workspace-lease
+timing assertions (passed alone and in the full retry); earlier fast attempts caught the generated
+website mirror and source record needing refresh. Both are now verified. No merge or desktop build.
 
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
 
