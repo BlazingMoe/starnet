@@ -33,10 +33,12 @@ Live evidence: seeded server port8896, production voice UI and real bundled Whis
 speech PCM fixture injected only at the microphone seam and task submission captured without a provider
 call. Observed live transcript before submission, ordered open/audio/finish requests, the exact final
 “Please show my words while I am speaking. Then send a complete sentence.”, pause/resume, and end.
-Real browser receipt: 25 audio chunks, five recognitions, max window6784ms; first-partial2701ms on this
+Real browser receipt: ordered audio chunks, five recognitions, max window6784ms; first-partial2701ms on this
 heavily loaded shared host. Separate warm engine check first partial583ms. These are different checks,
 not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
-server stopped. Full second-round gates pending serialized handoff from support-mail lane.
+server stopped. Focused voice button105, media36, draft protection21 assertions, adaptive timing, six flow
+scenarios, transport bounds/recovery, and UI checks pass. Full second-round gates pending serialized
+handoff from support-mail lane.
 
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
 
