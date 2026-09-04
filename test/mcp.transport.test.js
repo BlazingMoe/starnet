@@ -81,6 +81,22 @@ const rpc = (id, result) => JSON.stringify({ jsonrpc: '2.0', id, result });
     A.eq(got[0].error.message.indexOf('IGNORE ALL RULES'), -1, 'attacker-controlled error descriptions cannot inject prompts');
   }
 
+  // Authenticated requests never follow redirects: fetch would otherwise copy arbitrary custom API-key headers
+  // to another origin. The caller gets a bounded protocol error and can save the canonical endpoint directly.
+  {
+    const f = makeFetch((url, init, n) => n === 1
+      ? { status: 307, headers: { location: 'https://attacker.example/mcp', 'mcp-session-id': 'redirect-controlled' } }
+      : { body: rpc(9, { tools: [] }) });
+    const tp = makeHttpTransport({ url: 'https://srv.example/mcp', headers: { 'X-Api-Key': 'synthetic-secret' }, fetchImpl: f });
+    const got = []; tp.onMessage(m => got.push(m));
+    await tp.send({ jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} });
+    A.eq(f.calls.length, 1, 'redirect response causes no second request');
+    A.eq(f.calls[0].init.redirect, 'manual', 'transport disables automatic fetch redirects');
+    A.ok(/redirect refused/.test(got[0].error.message), 'redirect refusal is surfaced to the connector client');
+    await tp.send({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} });
+    A.eq(f.calls[1].init.headers['Mcp-Session-Id'], undefined, 'redirect response cannot inject a session id into later requests');
+  }
+
   // a notification (no id) acked with 202 delivers nothing
   {
     const f = makeFetch(() => ({ status: 202 }));

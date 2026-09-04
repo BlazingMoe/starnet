@@ -58,11 +58,54 @@
     return { value: out, redacted };
   }
 
+  // Connector header/env values are an open-ended credential surface. Names such as ACCESS or X-CUSTOM do not
+  // reliably reveal whether the value is a secret, so a portable "secrets excluded" export keeps names only.
+  function redactAllMap(obj, prefix) {
+    const redacted = [];
+    if (!isObj(obj)) return { value: {}, redacted };
+    for (const k of Object.keys(obj)) redacted.push((prefix || '') + k);
+    return { value: {}, redacted };
+  }
+
+  const SECRET_ARG_RE = /(?:token|key|secret|password|passwd|auth|bearer|credential|cookie|session)/i;
+  function redactArgs(args) {
+    const value = [], redacted = [];
+    let redactNext = false;
+    for (const raw of (Array.isArray(args) ? args : []).slice(0, 32)) {
+      const arg = clampStr(raw, 256);
+      const index = value.length;
+      if (redactNext) { value.push('<redacted>'); redacted.push('args:' + index); redactNext = false; continue; }
+      const eq = arg.match(/^(--?[^=]+)=(.*)$/);
+      if (eq && SECRET_ARG_RE.test(eq[1])) { value.push(eq[1] + '=<redacted>'); redacted.push('args:' + index); continue; }
+      if (/^--?/.test(arg) && SECRET_ARG_RE.test(arg)) { value.push(arg); redactNext = true; continue; }
+      if (/^https?:\/\//i.test(arg)) {
+        try {
+          const u = new URL(arg); let changed = !!(u.username || u.password);
+          u.username = ''; u.password = '';
+          for (const k of Array.from(u.searchParams.keys())) {
+            if (SECRET_ARG_RE.test(k)) { u.searchParams.set(k, '<redacted>'); changed = true; }
+          }
+          u.hash = '';
+          value.push(u.href);
+          if (changed) redacted.push('args:' + index);
+          continue;
+        } catch (_) {
+          // A value claiming to be a URL but failing parsing is not safe to export verbatim: it can still contain
+          // credential text in a malformed query/userinfo fragment.
+          value.push('<redacted>'); redacted.push('args:' + index); continue;
+        }
+      }
+      value.push(arg);
+    }
+    return { value, redacted };
+  }
+
   // sanitize ONE connector config for export: keep identity/shape, drop every secret field + any auth in the url.
   function redactConnector(c) {
     if (!isObj(c)) return null;
-    const hdr = redactMap(c.headers || {});
-    const env = redactMap(c.env || {});
+    const hdr = redactAllMap(c.headers || {}, 'header:');
+    const env = redactAllMap(c.env || {}, 'env:');
+    const args = redactArgs(c.args);
     // a url can carry a token in the query/userinfo — keep only origin+path, note if auth was present.
     let url = clampStr(c.url || c.endpoint || '', 1024);
     let urlHadAuth = false;
@@ -72,21 +115,34 @@
         if (u.username || u.password || u.searchParams.toString()) urlHadAuth = true;
         u.username = ''; u.password = ''; u.search = '';
         url = u.toString();
-      } catch (_) { /* not a parseable url — leave as-is (best effort) */ }
+      } catch (_) {
+        // An invalid URL cannot be separated safely into public routing data and private auth material.
+        // Fail closed: keep a re-entry marker, never copy the opaque value into a portable backup.
+        url = '<redacted>'; urlHadAuth = true;
+      }
     }
-    const configured = (hdr.redacted.length + env.redacted.length > 0) || urlHadAuth || !!c.hasToken;
+    const redactedFields = hdr.redacted.concat(env.redacted, args.redacted)
+      .concat(urlHadAuth ? ['url:auth'] : [])
+      .concat(c.hasToken ? ['token'] : [])
+      .concat(c.oauth === true ? ['oauth'] : []);
+    const configured = redactedFields.length > 0;
     return {
       id: clampStr(c.id || c.name || '', 120),
       transport: (c.transport === 'stdio') ? 'stdio' : 'http',
       url: url,
       command: clampStr(c.command || '', 512),         // stdio command (executable) — not a secret
-      args: Array.isArray(c.args) ? c.args.map(a => clampStr(a, 256)).slice(0, 32) : undefined,
+      args: args.value,
+      cwd: clampStr(c.cwd || '', 1024),
+      agentId: clampStr(c.agentId || '', 40),
+      label: clampStr(c.label || c.id || '', 120),
+      enabled: c.enabled !== false,
+      oauth: c.oauth === true,
       headers: hdr.value,
       env: env.value,
       timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
       // the honest "you'll need to re-enter this" markers — NAMES only, never values.
       configured: configured,
-      redactedFields: hdr.redacted.concat(env.redacted).concat(urlHadAuth ? ['url:auth'] : [])
+      redactedFields: redactedFields
     };
   }
 
@@ -170,17 +226,28 @@
       out.permissions = { allow: inSec.permissions.allow.filter(x => typeof x === 'string').slice(0, 256) };
     }
     if (Array.isArray(inSec.connectors)) {
-      out.connectors = inSec.connectors.map(c => isObj(c) ? {
-        id: clampStr(c.id, 120),
-        transport: c.transport === 'stdio' ? 'stdio' : 'http',
-        url: clampStr(c.url, 1024),
-        command: clampStr(c.command, 512),
-        args: Array.isArray(c.args) ? c.args.map(a => clampStr(a, 256)).slice(0, 32) : [],
-        headers: isObj(c.headers) ? c.headers : {},
-        env: isObj(c.env) ? c.env : {},
-        timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
-        redactedFields: Array.isArray(c.redactedFields) ? c.redactedFields.filter(x => typeof x === 'string') : []
-      } : null).filter(c => c && c.id);
+      out.connectors = inSec.connectors.map(c => {
+        if (!isObj(c)) return null;
+        const row = {
+          id: clampStr(c.id, 120),
+          transport: c.transport === 'stdio' ? 'stdio' : 'http',
+          url: clampStr(c.url, 1024),
+          command: clampStr(c.command, 512),
+          args: Array.isArray(c.args) ? c.args.map(a => clampStr(a, 256)).slice(0, 32) : [],
+          headers: isObj(c.headers) ? c.headers : {},
+          env: isObj(c.env) ? c.env : {},
+          timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
+          redactedFields: Array.isArray(c.redactedFields) ? c.redactedFields.filter(x => typeof x === 'string').slice(0, 128) : []
+        };
+        // These fields were absent from schema-1 exports before 0.10.13. Preserve absence here so the live
+        // importer can use an existing row's value, or choose the safe disabled default for a new old-format row.
+        if (typeof c.enabled === 'boolean') row.enabled = c.enabled;
+        if (typeof c.oauth === 'boolean') row.oauth = c.oauth;
+        if (typeof c.agentId === 'string') row.agentId = clampStr(c.agentId, 40);
+        if (typeof c.cwd === 'string') row.cwd = clampStr(c.cwd, 1024);
+        if (typeof c.label === 'string') row.label = clampStr(c.label, 120);
+        return row;
+      }).filter(c => c && c.id);
       // any connector that carried redacted secrets needs re-entry after import.
       for (const c of out.connectors) {
         if (c.redactedFields && c.redactedFields.length) secretsNeeded.push({ kind: 'connector', id: c.id, fields: c.redactedFields });
