@@ -101,6 +101,25 @@ check: 8 assertions passed. No backend execution behavior changed in this follow
 The follow-up fast suite passed all 702 steps (`dev/group-simple-fast.log`).
 Keyboard focus was also verified to skip collapsed settings and loop within the picker.
 
+## StarNet styling and alignment follow-up
+
+Replaced generic pill/box styling with the existing phosphor, panel, text, border,
+and raised-control tokens. Message markup now reuses COMMS `.cmsg`, `.who`, and
+`.body` styling. The composer is a compact inline prompt/input/send row. The roster
+header uses a stable grid, with names in a horizontally scrollable line. The picker
+has a phosphor title bar, aligned search/selection rows, and a right-aligned footer.
+
+Found the narrow-window bug: at a 591 x 912 viewport, COMMS is 200 px tall but the
+old transcript minimum height pushed the composer below its bottom edge. Replaced
+that minimum and whole-panel scrolling with a shrinking transcript and fixed composer.
+Live DOM measurements after the change: COMMS bottom 836 px, composer bottom 809 px,
+group scroll height equals client height. The same held with the 12-message proof
+conversation. Picker is centered at x=85.5, width=420, height=355.47; its search and
+agent rows share x=98.5 and width=394. Theme-control scan found no native white paint.
+Browser warning/error log was empty. Focused control-floor tests passed 101 assertions
+and workstream tests passed 193 assertions.
+The full styling follow-up fast suite passed all 702 steps (`dev/group-theme-fast.log`).
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.
