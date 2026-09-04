@@ -116,61 +116,10 @@
     </div>
   </section>
 
-  <!-- ===== how work flows ===== -->
-  <section id="flow" class="section">
-    <div class="section-head">
-      <span class="section-no">02</span>
-      <h2>HOW WORK FLOWS</h2>
-    </div>
-    <div class="flow-wrap" data-reveal>
-      <svg viewBox="0 0 900 170" role="img" aria-label="A job enters at the INBOX, rides a belt to a researcher's bay, then to a writer's bay, and leaves finished at the OUTBOX" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <clipPath id="hb-c1"><rect x="110" y="62" width="190" height="28"/></clipPath>
-          <clipPath id="hb-c2"><rect x="400" y="62" width="160" height="28"/></clipPath>
-          <clipPath id="hb-c3"><rect x="660" y="62" width="130" height="28"/></clipPath>
-          <g id="hb-chevs"><polyline points="-22,66 -14,76 -22,86"/><polyline points="8,66 16,76 8,86"/><polyline points="38,66 46,76 38,86"/><polyline points="68,66 76,76 68,86"/><polyline points="98,66 106,76 98,86"/><polyline points="128,66 136,76 128,86"/><polyline points="158,66 166,76 158,86"/><polyline points="188,66 196,76 188,86"/></g>
-        </defs>
-        <!-- belts -->
-        <rect class="hb-belt" x="110" y="62" width="190" height="28"/><line class="hb-rail" x1="110" y1="62" x2="300" y2="62"/><line class="hb-rail" x1="110" y1="90" x2="300" y2="90"/>
-        <g clip-path="url(#hb-c1)"><g transform="translate(110 0)"><g class="hb-chev hb-march"><use href="#hb-chevs"/></g></g></g>
-        <rect class="hb-belt" x="400" y="62" width="160" height="28"/><line class="hb-rail" x1="400" y1="62" x2="560" y2="62"/><line class="hb-rail" x1="400" y1="90" x2="560" y2="90"/>
-        <g clip-path="url(#hb-c2)"><g transform="translate(400 0)"><g class="hb-chev hb-march"><use href="#hb-chevs"/></g></g></g>
-        <rect class="hb-belt" x="660" y="62" width="130" height="28"/><line class="hb-rail" x1="660" y1="62" x2="790" y2="62"/><line class="hb-rail" x1="660" y1="90" x2="790" y2="90"/>
-        <g clip-path="url(#hb-c3)"><g transform="translate(660 0)"><g class="hb-chev hb-march"><use href="#hb-chevs"/></g></g></g>
-        <!-- machines -->
-        <rect class="hb-machine lit" x="20" y="36" width="90" height="80"/><rect class="hb-inner" x="30" y="46" width="70" height="60"/><circle class="hb-led" cx="102" cy="44" r="2.5"/>
-        <text class="hb-label" x="65" y="136">INBOX</text><text class="hb-sub" x="65" y="152">the job comes in</text>
-        <rect class="hb-machine lit" x="300" y="36" width="100" height="80"/><rect class="hb-inner" x="310" y="46" width="80" height="60"/><circle class="hb-led" cx="392" cy="44" r="2.5"/>
-        <rect class="hb-glow hb-work" x="304" y="40" width="92" height="72"/>
-        <text class="hb-label" x="350" y="136">BAY &middot; RESEARCHER</text><text class="hb-sub" x="350" y="152">digs up the facts</text>
-        <rect class="hb-machine lit" x="560" y="36" width="100" height="80"/><rect class="hb-inner" x="570" y="46" width="80" height="60"/><circle class="hb-led" cx="652" cy="44" r="2.5"/>
-        <rect class="hb-glow hb-work2" x="564" y="40" width="92" height="72"/>
-        <text class="hb-label" x="610" y="136">BAY &middot; WRITER</text><text class="hb-sub" x="610" y="152">turns it into the report</text>
-        <rect class="hb-machine lit" x="790" y="36" width="90" height="80"/><rect class="hb-inner" x="800" y="46" width="70" height="60"/><circle class="hb-led" cx="872" cy="44" r="2.5"/>
-        <text class="hb-label" x="835" y="136">OUTBOX</text><text class="hb-sub" x="835" y="152">finished work out</text>
-        <!-- riding crates -->
-        <g class="hb-ride"><rect class="hb-crate" x="100" y="64" width="20" height="20"/><rect class="hb-crate-top" x="100" y="64" width="20" height="5"/></g>
-        <g class="hb-ride d2"><rect class="hb-crate" x="100" y="64" width="20" height="20"/><rect class="hb-crate-top" x="100" y="64" width="20" height="5"/></g>
-      </svg>
-      <div class="flow-cap">// the box you watch ride a belt and the agent that picks it up are the same routing plan &mdash; a factory game where the factory is real</div>
-    </div>
-    <div class="flow-story" data-reveal="stagger">
-      <div class="fs"><span class="fs-n">1</span><p>You hand the station a job: <b>&ldquo;put together a report on my competitors.&rdquo;</b> It shows up as a box on the belt.</p></div>
-      <div class="fs"><span class="fs-n">2</span><p>The box reaches the first desk. <b>The researcher does their part</b> &mdash; a real model run with real tools, timed on screen.</p></div>
-      <div class="fs"><span class="fs-n">3</span><p>What they produced rides on to the next desk. <b>The writer turns it into the report.</b></p></div>
-      <div class="fs"><span class="fs-n">4</span><p><b>The finished report lands in the OUTBOX.</b> Click it to read it, rate it, and the next pass learns from your verdict.</p></div>
-    </div>
-    <div class="flow-cta" data-reveal>
-      <a class="btn" href="docs/guides/conveyors.html">[ HOW CONVEYORS WORK ]</a>
-      <a class="btn" href="docs/guides/first-line.html">[ DROP A READY-MADE LINE ]</a>
-      <span class="fine">Filters sort work by content, splitters fan it across a crew, joiners wait for every branch, loops send drafts round for revision &mdash; all belts and one signpost each.</span>
-    </div>
-  </section>
-
   <!-- ===== features ===== -->
   <section id="difference" class="section">
     <div class="section-head">
-      <span class="section-no">03</span>
+      <span class="section-no">02</span>
       <h2>FEATURES</h2>
     </div>
     <ul class="feat-grid" data-reveal="stagger">
@@ -195,7 +144,7 @@
   <!-- ===== field manual ===== -->
   <section id="manual" class="section">
     <div class="section-head">
-      <span class="section-no">04</span>
+      <span class="section-no">03</span>
       <h2>FIELD MANUAL</h2>
     </div>
     <p class="dl-sub" data-reveal>Short picture guides, five minutes each. Every step read off the shipped code, not off a plan. Start with the first one.</p>
@@ -214,7 +163,7 @@
   <!-- ===== download ===== -->
   <section id="download" class="section">
     <div class="section-head">
-      <span class="section-no">05</span>
+      <span class="section-no">04</span>
       <h2>DOWNLOAD STARNET</h2>
     </div>
     <p class="dl-sub" data-reveal><b>The public release train targets Windows and macOS.</b> Release assets appear on the <a id="rel-page" href="https://github.com/androoAGI/starnet-releases/releases/latest" target="_blank" rel="noopener">releases page</a> after its signing, notarization, and updater-signature gates pass. Current stable version: <span class="ver">v0.10.13</span>. The live preview and docs track current source and may show work landing in the next signed release.</p>
@@ -251,7 +200,7 @@ cd starnet &amp;&amp; npm install &amp;&amp; npm start</code></pre>
   <!-- ===== docs ===== -->
   <section id="docs" class="section">
     <div class="section-head">
-      <span class="section-no">06</span>
+      <span class="section-no">05</span>
       <h2>DOCS &amp; HELP</h2>
     </div>
     <div class="docs-groups" data-reveal="stagger">
@@ -288,7 +237,7 @@ cd starnet &amp;&amp; npm install &amp;&amp; npm start</code></pre>
   <!-- ===== FAQ ===== -->
   <section id="faq" class="section">
     <div class="section-head">
-      <span class="section-no">07</span>
+      <span class="section-no">06</span>
       <h2>FAQ</h2>
     </div>
     <div class="faq" data-reveal="stagger">
