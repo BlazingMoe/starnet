@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "bda445b289bd0fa6dbf9db9d7706e9eee95974b8",
+    "sourceCommit": "1607bd277cbbee6b7512c6f707485105b531b88b",
     "pathSetSha256": "67b8467467a6cb9363b79bed7916d58cdb6a3b24f78df2d25082dd458806bc7f",
     "files": [
       {
@@ -83,8 +83,8 @@
       },
       {
         "path": "frontend/app/autojobstore.js",
-        "bytes": 19163,
-        "sha256": "519d7ef58960a50d81c418a738f12a38a905bac04f5cedc3c6b08d4fcff715d9"
+        "bytes": 19361,
+        "sha256": "34d12d2f18c87f06590fc6a32aaf4c31c87e14e47fd7d04f92a15ff7a88f02a5"
       },
       {
         "path": "frontend/app/autonomy.js",
@@ -253,8 +253,8 @@
       },
       {
         "path": "frontend/app/firstvalue.js",
-        "bytes": 12060,
-        "sha256": "15677ce9f89315d3f1cb7083efa6b82bcdd49a263f8f2a12b7d9c9303c798967"
+        "bytes": 12074,
+        "sha256": "a2132e196e5dec8f4e5cbf34e63f98eaab62a3e99b6e513d2a875079ac40018f"
       },
       {
         "path": "frontend/app/floorstats.js",
@@ -768,8 +768,8 @@
       },
       {
         "path": "frontend/app/studystore.js",
-        "bytes": 18070,
-        "sha256": "6298a8e6c635ff4b141820a906f699e2f5785e3d2bdeccb7352023404ec4f6d8"
+        "bytes": 18153,
+        "sha256": "d4312b97c29b99cac1cc84dcc20e0fd34579254812c04428d582796ac1e60a24"
       },
       {
         "path": "frontend/app/suggeststore.js",
@@ -938,8 +938,8 @@
       },
       {
         "path": "frontend/app/workhub.js",
-        "bytes": 19322,
-        "sha256": "f4f01e825ebfd7646ae13b9058feba8a9716f28f1fb8be4746f0c6a880eefb0e"
+        "bytes": 19535,
+        "sha256": "d1f2802638f42dce55eff653e44108b7ee601c3b1e1368db8106feb6edb443c9"
       },
       {
         "path": "frontend/app/workquests.js",
@@ -973,8 +973,8 @@
       },
       {
         "path": "frontend/app/workview.js",
-        "bytes": 4815,
-        "sha256": "ebf5c193a994e8f3f10946374daa151e5c25f36ddece75a383b0f8c1c6670bd5"
+        "bytes": 4800,
+        "sha256": "c7927c63ef906d37abfc3ab6244cd6daf3c688b9b86084ac24a826b099775404"
       },
       {
         "path": "frontend/app/world.js",
