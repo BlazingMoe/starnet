@@ -5,6 +5,14 @@
 @import url('../docs.css');
 
 .docs-shell{ max-width:1240px; }
+/* Guides are schematic-heavy: the article column needs its width. Below 1400px the on-page TOC
+   rail steps aside (the sidebar still lists every guide); above it, all three columns fit. */
+@media (min-width:1180px) and (max-width:1399px){
+  .docs-shell.has-toc{ grid-template-columns:236px minmax(0,1fr); max-width:1240px; }
+  .docs-shell.has-toc .docs-toc{ display:none; }
+}
+@media (min-width:1400px){ .docs-shell.has-toc{ max-width:1480px; } }
+.buildsteps > li{ grid-template-columns:minmax(0,1fr) minmax(300px,44%); }
 
 /* ================= HERO ================= */
 .fm-hero{

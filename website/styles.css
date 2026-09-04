@@ -539,6 +539,8 @@ a:hover{ color:var(--amber); }
 /* ---------- topbar: sticky + active link underline ---------- */
 .topbar{ position:sticky; top:0; z-index:40; padding-bottom:12px; transition:background .25s, box-shadow .25s, backdrop-filter .25s; }
 .topbar.scrolled{ background:rgba(10,8,6,.86); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); box-shadow:0 1px 0 var(--line), 0 10px 30px rgba(0,0,0,.45); }
+/* on a phone the wrapped nav is three rows tall — pinning it would eat a sixth of the screen */
+@media (max-width:620px){ .topbar{ position:relative; } .topbar.scrolled{ background:transparent; backdrop-filter:none; -webkit-backdrop-filter:none; box-shadow:none; } }
 .topnav a{ position:relative; padding:2px 0; transition:color .15s; }
 .topnav a::after{ content:''; position:absolute; left:0; right:0; bottom:-3px; height:1px; background:var(--amber); transform:scaleX(0); transform-origin:0 50%; transition:transform .22s ease; box-shadow:0 0 8px rgba(255,157,47,.6); }
 .topnav a:hover::after, .topnav a.on::after{ transform:scaleX(1); }

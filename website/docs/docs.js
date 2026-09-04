@@ -17,13 +17,15 @@
   /* ---------- year in footer ---------- */
   var y = d.getElementById('year'); if(y) y.textContent = String(new Date().getFullYear());
 
-  /* ---------- reading progress ---------- */
+  /* ---------- reading progress + sticky topbar state ---------- */
   var bar = d.createElement('div'); bar.className = 'read-progress'; bar.setAttribute('aria-hidden','true');
   d.body.appendChild(bar);
+  var topbar = d.getElementById('topbar') || d.querySelector('.topbar');
   function progress(){
     var h = d.documentElement;
     var max = h.scrollHeight - h.clientHeight;
     bar.style.transform = 'scaleX(' + (max > 0 ? Math.min(1, h.scrollTop / max) : 0) + ')';
+    if(topbar) topbar.classList.toggle('scrolled', h.scrollTop > 24);
   }
   addEventListener('scroll', progress, { passive:true }); progress();
 
@@ -160,6 +162,14 @@
     items.forEach(function(el){ el.classList.add('rv'); io.observe(el); });
     // anything already above the fold on load should not wait for a scroll event
     setTimeout(function(){ items.forEach(function(el){ if(el.getBoundingClientRect().top < innerHeight) el.classList.add('in'); }); }, 60);
+    // safety net: nothing that has scrolled into view may stay hidden, whatever the observer did
+    var sweep = function(){
+      var left = 0;
+      items.forEach(function(el){ if(el.classList.contains('in')) return; if(el.getBoundingClientRect().top < innerHeight) el.classList.add('in'); else left++; });
+      if(!left) clearInterval(sweepTimer);
+    };
+    var sweepTimer = setInterval(sweep, 450);
+    addEventListener('scroll', sweep, { passive:true });
   }
 
   /* ---------- keyboard: [ and ] page through the pager ---------- */

@@ -206,6 +206,15 @@
     document.querySelectorAll('.section-head').forEach(function(el){ io.observe(el); });
     // above-the-fold content must not wait for a scroll event
     setTimeout(function(){ targets.forEach(function(el){ if(el.getBoundingClientRect().top < window.innerHeight) el.classList.add('in'); }); }, 80);
+    // belt-and-braces: a target the observer somehow missed (fast scroll, odd viewport) must never
+    // stay invisible — anything whose top has entered the viewport is revealed on the next scroll.
+    var sweep = function(){
+      var left = 0;
+      targets.forEach(function(el){ if(el.classList.contains('in')) return; if(el.getBoundingClientRect().top < window.innerHeight) el.classList.add('in'); else left++; });
+      if(!left) clearInterval(sweepTimer);
+    };
+    var sweepTimer = setInterval(sweep, 450);
+    window.addEventListener('scroll', sweep, { passive:true });
   }
 
   /* ---------- feature cards: pointer-tracked glow ---------- */
