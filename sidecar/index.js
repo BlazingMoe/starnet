@@ -5751,27 +5751,33 @@ function handleDiscoveryGet(req, res) {
     lastCycleAt: discoveryState.lastCycleAt
   }));
 }
-// POST /api/discovery/decide { id, decision:'accept'|'dismiss' } — the Commander's verdict on a finding.
+// POST /api/discovery/decide { id, decision:'validate'|'accept'|'dismiss' } — freshness check or verdict.
+// validate is read-only: launching work can fail, so only a successful launch should be followed by accept.
 // dismiss denylists the fingerprint forever; accept resolves it (picked up — never re-nag). Unknown id → ok:false.
 async function handleDiscoveryDecide(req, res) {
   let body; try { body = JSON.parse(await readBody(req, 1 << 14)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const id = String(body.id || '');
-  const decision = body.decision === 'accept' ? 'accept' : (body.decision === 'dismiss' ? 'dismiss' : '');
-  if (!decision) return json(400, { ok: false, error: 'decision must be accept|dismiss' });
+  const decision = ['validate', 'accept', 'dismiss'].includes(body.decision) ? body.decision : '';
+  if (!decision) return json(400, { ok: false, error: 'decision must be validate|accept|dismiss' });
   const item = discoveryState.staged.find(f => f.id === id) || null;
   if (!item) return json(200, { ok: false, error: 'unknown id' });
-  if (item.kind === 'client-update' && decision === 'accept') {
+  if (decision === 'validate' && (item.at < Date.now() - Discovery.FINDING_TTL_MS || !personalizationStore.read().enabled)) return json(409, { ok: false, error: 'finding expired or discovery paused; scan again' });
+  if (decision === 'validate' && item.kind !== 'client-update' && !isBlessedRoot(item.root)) return json(409, { ok: false, error: 'project permission revoked; approve and scan again' });
+  if (item.kind === 'client-update' && decision !== 'dismiss') {
     const source = activeDocumentSource();
     const revision = documentSourceRevision;
     if (!source || source.root !== item.root || !personalizationStore.read().enabled) return json(409, { ok: false, error: 'source paused or revoked; scan again after enabling it' });
     const fresh = await documentDiscovery.scan(source, Date.now());
     if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint) || !discoveryState.staged.some(f => f.id === id)) {
-      discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
-      persistDiscovery();
+      if (decision !== 'validate') {
+        discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
+        persistDiscovery();
+      }
       return json(409, { ok: false, error: 'source evidence changed; scan again before starting this work' });
     }
   }
+  if (decision === 'validate') return json(200, { ok: true, validated: true, item });
   discoveryState = decision === 'accept' ? Discovery.accept(discoveryState, id, { now: Date.now() }) : Discovery.dismiss(discoveryState, id, { now: Date.now() });
   await recommendationLedger.verdict('discovery:' + item.fingerprint.slice(0, 100),
     decision === 'accept' ? 'accepted' : 'declined',
