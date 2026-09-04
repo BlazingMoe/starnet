@@ -5292,8 +5292,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
   // CLASS TIER MODELS (Class Loadouts S3) — the three tier->model pins the summon path (app.resolveTierModel)
   // reads. Persisted in localStorage under the SAME key app.js reads (starnet.tierModels.v1) so there's no new
-  // plumbing between the two IIFEs. The selects are filled from the live OpenRouter catalog (same source the
-  // fallback-chain picker uses); an empty value means "(station default)" — the tier inherits the model dock.
+  // plumbing between the two IIFEs. The selects use the active provider's live catalog;
+  // an empty value means "(station default)" — the tier inherits the model dock.
   const TIER_MODELS_KEY = 'starnet.tierModels.v1';
   const TM_TIERS = ['reasoning', 'balanced', 'fast'];
   function readTierModels() {
@@ -5307,29 +5307,35 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const msgEl = body.querySelector('#tm-msg');
     const setMsg = (t, ok) => { if (msgEl) { msgEl.textContent = t || ''; msgEl.className = 'msg' + (ok ? ' ok' : ''); } };
     const map = readTierModels();
+    const provider = Harness.getProv ? Harness.getProv() : 'openrouter';
     const selOf = tier => body.querySelector('#tm-' + tier);
-    // paint the saved pin onto each select (an unknown/stale id is added as an option so it still shows honestly).
-    const paint = () => TM_TIERS.forEach(tier => {
+    // Catalogue membership is unknown until the request completes. Rebuild the options so a
+    // temporary saved row cannot shadow the real row with the same value on every reopen.
+    const paint = (models, confirmed) => TM_TIERS.forEach(tier => {
       const sel = selOf(tier); if (!sel) return;
       const want = String(map[tier] || '');
-      if (want && !Array.prototype.some.call(sel.options, o => o.value === want)) {
-        const o = document.createElement('option'); o.value = want; o.textContent = want + '  ·  (not in catalog)'; sel.appendChild(o);
+      sel.replaceChildren();
+      const inherited = document.createElement('option'); inherited.value = ''; inherited.textContent = '(station default)'; sel.appendChild(inherited);
+      const seen = new Set();
+      (models || []).forEach(m => {
+        if (!m || !m.id || seen.has(m.id)) return;
+        seen.add(m.id);
+        const o = document.createElement('option'); o.value = m.id;
+        o.textContent = (m.name && m.name !== m.id) ? (m.name + '  ·  ' + m.id) : m.id;
+        sel.appendChild(o);
+      });
+      if (want && !seen.has(want)) {
+        const o = document.createElement('option'); o.value = want;
+        o.textContent = want + (confirmed ? '  ·  (not in catalog)' : '  ·  (catalog unverified)'); sel.appendChild(o);
       }
       sel.value = want;
     });
     paint();
-    // fill the model catalog into all three selects (same warmed catalog the fallback picker uses).
-    openRouterCatalog().then(models => {
-      if (!Array.isArray(models)) return;
-      const opts = models.slice().filter(m => m && m.id).sort((a, b) => String(a.id).localeCompare(String(b.id)));
-      TM_TIERS.forEach(tier => {
-        const sel = selOf(tier); if (!sel) return;
-        const frag = document.createDocumentFragment();
-        opts.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = (m.name && m.name !== m.id) ? (m.name + '  ·  ' + m.id) : m.id; frag.appendChild(o); });
-        sel.appendChild(frag);
-      });
-      paint();   // re-apply the saved value now the real options exist
-    }).catch(() => {});
+    const baseUrl = provider === 'custom' && Harness.getBaseUrl ? Harness.getBaseUrl(provider) : '';
+    Harness.api.get('/api/models/' + encodeURIComponent(provider) + (baseUrl ? '?baseUrl=' + encodeURIComponent(baseUrl) : '')).then(j => {
+      if (!j || j.error || !Array.isArray(j.models)) throw new Error('catalog unavailable');
+      paint(j.models.slice().sort((a, b) => String(a.id).localeCompare(String(b.id))), true);
+    }).catch(() => { paint(); setMsg('Model catalog unavailable — saved choices are preserved.'); });
     TM_TIERS.forEach(tier => {
       const sel = selOf(tier); if (!sel) return;
       sel.addEventListener('change', () => {
