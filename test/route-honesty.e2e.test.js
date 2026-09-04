@@ -124,6 +124,105 @@ function exited(child, ms) {
     const code2 = await exited(child, 1500);
     A.eq(code2, null, 'with UNCAUGHT_KEEP_SERVING the process stays alive (exit code still null)');
     A.ok(/kept alive \(UNCAUGHT_KEEP_SERVING is set/.test(b2.output()), 'log names the opt-out');
+    try { child.kill(); } catch (_) {}
+    child = null;
+
+    // ---- 4. CRASH-LOOP BREAKER across three lives of ONE workspace (crash-ledger.js) ----
+    // life 1 + life 2: fault → exit 1 (the ledger remembers). life 3: the 3rd fault inside 10m TRIPS the breaker —
+    // the process stays alive, /api/health answers 503 "degraded: crash-loop: 3 faults in 10m — last: …", read
+    // routes keep serving, diagnostics carries crashLoop. The ledger FILE is the restart-survival proof.
+    const wsLoop = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-route-honesty-loop-'));
+    let port3 = b2.port + 1;
+    const lifeFault = async (life) => {
+      const bl = await boot(port3, wsLoop, 6, { STARNET_UNCAUGHT_EXIT_DELAY_MS: '300' });
+      port3 = bl.port;
+      child = bl.child;
+      const BL = 'http://' + HOST + ':' + bl.port;
+      const tokL = await bootToken(BL, BL);
+      const fl = await fetch(BL + '/api/dev/fault', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': tokL, Origin: BL }, body: '{}' });
+      A.eq(fl.status, 202, 'life ' + life + ': fault accepted');
+      let st = 0, body = '';
+      for (let i = 0; i < 60 && st !== 503; i++) { await sleep(50); try { const r = await fetch(BL + '/api/health'); st = r.status; body = await r.text(); } catch (_) {} }
+      A.eq(st, 503, 'life ' + life + ': /api/health 503');
+      return { bl, BL, tokL, body };
+    };
+    for (let life = 1; life <= 2; life++) {
+      const { bl, body } = await lifeFault(life);
+      A.ok(/^degraded: uncaughtException: synthetic/.test(body), 'life ' + life + ': single-fault health line: ' + body);
+      const c = await exited(child, 8000);
+      A.eq(c, 1, 'life ' + life + ': exits 1 (breaker not yet tripped; got ' + c + ')');
+      A.ok(!/CRASH LOOP/.test(bl.output()), 'life ' + life + ': no crash-loop line yet');
+      child = null;
+      await sleep(150);   // let the port drain before the next life binds it
+    }
+    const ledgerFile = path.join(wsLoop, '.crash-ledger.json');
+    A.ok(fs.existsSync(ledgerFile), 'the crash ledger file survived two process exits');
+    A.eq(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).entries.length, 2, 'ledger holds the two fault exits');
+    {
+      const { bl, BL, tokL, body } = await lifeFault(3);
+      A.ok(/^degraded: crash-loop: 3 faults in 10m — last: synthetic uncaught exception/.test(body), 'life 3: health names the LOOP + last summary: ' + body);
+      const c = await exited(child, 1500);
+      A.eq(c, null, 'life 3: the process is HELD alive (no exit)');
+      A.ok(/\[process-fault\] uncaughtException: CRASH LOOP — 3 fault exit/.test(bl.output()), 'life 3: boot log carries the crash-loop hold line');
+      const rd = await fetch(BL + '/api/skills?placed=cabinet', { headers: { 'X-StarNet-Token': tokL, Origin: BL } });
+      A.eq(rd.status, 200, 'life 3: read routes keep serving while held');
+      const dg3 = await fetch(BL + '/api/diagnostics', { headers: { 'X-StarNet-Token': tokL, Origin: BL } });
+      const d3 = await dg3.json();
+      A.ok(d3.report && d3.report.processFault && d3.report.processFault.exiting === false && d3.report.processFault.loop && d3.report.processFault.loop.count === 3, 'life 3: diagnostics processFault says held + loop count 3');
+      A.ok(d3.report.crashLoop && d3.report.crashLoop.tripped === true && d3.report.crashLoop.count === 3, 'life 3: diagnostics crashLoop tripped');
+      A.ok(/CRASH LOOP — 3 fault exits in 10m/.test(String(d3.text)) && /Crash-loop ledger: 3 fault exit/.test(String(d3.text)), 'life 3: paste-ready text names the loop + ledger');
+      A.eq(JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).entries.length, 3, 'ledger holds all three fault exits');
+      try { child.kill(); } catch (_) {}
+      child = null;
+    }
+
+    // ---- 5. the exit-73 owner-unavailable path: 3rd refusal in 10m holds a DEGRADED listener, never reclaims ----
+    // A LIVE holder (this test process's own PID) owns the workspace, so every acquire is honestly refused. Lives 1+2
+    // exit 73 as before; life 3 stays up on the port answering /api/health 503 "degraded: workspace owner unavailable…"
+    // and 503 JSON elsewhere — with the owner file UNTOUCHED (no auto-reclaim).
+    const wsOwn = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-route-honesty-owner-'));
+    const ownerFile = path.join(wsOwn, '.starnet-workspace-owner.json');
+    const ownerDoc = JSON.stringify({ version: 1, pid: process.pid, nonce: 'test-holder-nonce', startedAt: Date.now(), executable: process.execPath });
+    fs.writeFileSync(ownerFile, ownerDoc);
+    const bootAny = (port) => new Promise((resolve) => {
+      const c = spawn(process.execPath, [INDEX], {
+        env: Object.assign({}, process.env, { STARNET_PORT: String(port), STARNET_WORKSPACES: wsOwn, STARNET_DEV: '1', SKYNET_DEV: '1', SKYNET_CRON_ENABLED: '', STARNET_CRON_ENABLED: '' }),
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      let out = '', done = false;
+      const fin = (v) => { if (!done) { done = true; resolve(Object.assign({ child: c, output: () => out }, v)); } };
+      const onData = d => { out += d.toString(); if (out.indexOf('http://' + HOST + ':' + port) >= 0) fin({ listening: true, code: null }); };
+      c.stdout.on('data', onData); c.stderr.on('data', onData);
+      c.on('exit', code => setTimeout(() => fin({ listening: false, code }), 50));
+      setTimeout(() => { try { c.kill(); } catch (_) {} fin({ listening: false, code: 'timeout' }); }, 30000);
+    });
+    const portO = port3 + 1;
+    for (let life = 1; life <= 2; life++) {
+      const r = await bootAny(portO);
+      A.eq(r.code, 73, 'owner life ' + life + ': refused with exit 73 (got ' + r.code + ')');
+      A.ok(/safety code: WORKSPACE_BUSY/.test(r.output()), 'owner life ' + life + ': safety code printed');
+    }
+    A.eq(fs.readFileSync(ownerFile, 'utf8'), ownerDoc, 'owner file untouched after two refusals');
+    {
+      const r = await bootAny(portO);
+      child = r.child;
+      A.eq(r.listening, true, 'owner life 3: a degraded HOLDING listener came up instead of exit 73');
+      A.eq(r.code, null, 'owner life 3: process alive');
+      const BO = 'http://' + HOST + ':' + portO;
+      const h = await fetch(BO + '/api/health');
+      const htxt = await h.text();
+      A.eq(h.status, 503, 'owner life 3: /api/health 503');
+      A.ok(/^degraded: workspace owner unavailable — another process may own /.test(htxt) && /holder PID \d+/.test(htxt) && /crash-loop: 3 faults in 10m/.test(htxt), 'owner life 3: health carries the owner reason + recovery guidance + loop count: ' + htxt);
+      const sv = await fetch(BO + '/api/save?agent=agent');
+      A.eq(sv.status, 503, 'owner life 3: every other route is 503 (the frontend lands on STATION DATA UNREACHABLE)');
+      const svj = await sv.json();
+      A.eq(svj.code, 'WORKSPACE_BUSY', 'owner life 3: JSON carries the safety code');
+      A.eq(fs.readFileSync(ownerFile, 'utf8'), ownerDoc, 'owner life 3: the owner claim was NOT reclaimed or rewritten');
+      A.ok(!fs.existsSync(path.join(wsOwn, 'runtime.knobs.json')) && !fs.existsSync(path.join(wsOwn, 'ledger.jsonl')), 'owner life 3: no store was opened/written');
+      A.ok(/holding a degraded listener on :/.test(r.output()), 'owner life 3: boot log names the hold');
+      try { child.kill(); } catch (_) {}
+      child = null;
+    }
   } finally {
     if (child) { try { child.kill(); } catch (_) {} }
   }

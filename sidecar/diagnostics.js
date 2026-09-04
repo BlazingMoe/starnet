@@ -143,7 +143,21 @@
           kind: clean(s.processFault.kind, 40) || 'uncaughtException',
           message: redactStr(s.processFault.message) || 'unknown error',
           at: num(s.processFault.at) || null,
-          exiting: bool(s.processFault.exiting)
+          exiting: bool(s.processFault.exiting),
+          // crash-loop breaker HELD this process (crash-ledger.js): count of fault exits inside the window
+          loop: (s.processFault.loop && typeof s.processFault.loop === 'object')
+            ? { count: num(s.processFault.loop.count) || 0, windowMs: num(s.processFault.loop.windowMs) || 0 } : null
+        } : null,
+        /* CRASH-LOOP LEDGER (2026-09-03). Fault exits recorded durably across process lives; `tripped` means this
+           process is being held alive degraded instead of exiting again. Summaries are free text → redacted. */
+        crashLoop: (s.crashLoop && typeof s.crashLoop === 'object') ? {
+          count: num(s.crashLoop.count) || 0,
+          threshold: num(s.crashLoop.threshold) || 0,
+          windowMs: num(s.crashLoop.windowMs) || 0,
+          tripped: bool(s.crashLoop.tripped),
+          disabled: bool(s.crashLoop.disabled),
+          last: (s.crashLoop.last && typeof s.crashLoop.last === 'object')
+            ? { ts: num(s.crashLoop.last.ts) || null, code: num(s.crashLoop.last.code) || 0, summary: redactStr(s.crashLoop.last.summary) || '' } : null
         } : null,
         /* SWALLOWED ERRORS (2026-08-21, reliability item 1). Every fire-and-forget seam in the sidecar goes through
            failopen.swallow(tag): the pass is allowed to fail, but the failure is COUNTED. Those counters used to
@@ -221,7 +235,14 @@
       if (r.processFault) {
         lines.push('Process fault: ' + r.processFault.kind + ' — ' + r.processFault.message
           + (r.processFault.at ? ' @ ' + iso(r.processFault.at) : '')
-          + (r.processFault.exiting ? ' (health DEGRADED; process exiting for the shell watchdog to restart)' : ' (health DEGRADED; kept alive by test opt-out)'));
+          + (r.processFault.exiting ? ' (health DEGRADED; process exiting for the shell watchdog to restart)'
+            : r.processFault.loop ? ' (health DEGRADED; CRASH LOOP — ' + r.processFault.loop.count + ' fault exits in ' + Math.max(1, Math.round((r.processFault.loop.windowMs || 600000) / 60000)) + 'm, held alive instead of restarting again)'
+            : ' (health DEGRADED; kept alive by test opt-out)'));
+      }
+      if (r.crashLoop && !r.crashLoop.disabled && r.crashLoop.count > 0) {
+        lines.push('Crash-loop ledger: ' + r.crashLoop.count + ' fault exit(s) in the last ' + Math.max(1, Math.round((r.crashLoop.windowMs || 600000) / 60000)) + 'm'
+          + ' (breaker trips at ' + r.crashLoop.threshold + (r.crashLoop.tripped ? '; TRIPPED)' : ')')
+          + (r.crashLoop.last ? ' — last: code ' + r.crashLoop.last.code + (r.crashLoop.last.ts ? ' @ ' + iso(r.crashLoop.last.ts) : '') + ' ' + r.crashLoop.last.summary : ''));
       }
       lines.push('Recent errors:');
       if (r.errors.length) {

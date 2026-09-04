@@ -138,6 +138,7 @@ const { reflect, reflectSalient, recordFromProposal, feedbackFor, highStakes } =
 const Failreview = require('./failreview.js');   // failure-review aux pass: PURE lesson producer for FAILED runs (reflect.js mold)
 const { swallow, note: failNote, summary: failopenSummary, setClock: failopenSetClock } = require('./failopen.js');    // tagged fail-open: a swallowed error stays visible (throttled warn + counter + diagnostics summary)
 const { makeProcessFaultHandler } = require('./process-fault.js');   // fail-loud-but-safe uncaughtException policy (degrade health, release locks, exit(1) for the shell watchdog)
+const { makeCrashLedger } = require('./crash-ledger.js');           // crash-loop circuit breaker: durable fault-exit ledger; ≥3 fault exits in 10m ⇒ hold alive DEGRADED instead of exiting again
 failopenSetClock(() => Date.now());   // composition root injects ambient time (lint-determinism keeps failopen.js pure)
 // GROWTH Tier 1 — the pure STUDY ENGINE (the dossier's Phase B). A UMD frontend module that also exports under
 // node, so the sidecar reuses the SAME parse/salience/dedup the browser consent path uses. Fail-open: if it can't
@@ -453,16 +454,58 @@ if (devWorkspaceSafety.protected) {
 // dead (never merely because the claim is old). The desktop shell's uncatchable Windows force-kill leaves
 // this file behind by design; the next legitimate boot performs that proven-dead recovery.
 const workspaceOwner = makeWorkspaceOwner({ fs: fs, path: path, now: () => Date.now(), bootedAt: makeBootedAt(() => Date.now()) });
+/* CRASH-LOOP CIRCUIT BREAKER (crash-ledger.js, 2026-09-03 audit). Every fault exit (uncaught exception → exit 1,
+   owner refusal → exit 73) is appended to <WORKSPACES>/.crash-ledger.json. The THIRD fault exit inside 10 minutes
+   TRIPS the breaker: the process stays alive in DEGRADED mode (health 503 naming the loop) instead of exiting
+   again for the shell watchdog to respawn — the user then sees the reason, not an endlessly "unreachable" port.
+   Test knobs only: STARNET_CRASH_LOOP_WINDOW_MS / STARNET_CRASH_LOOP_THRESHOLD; STARNET_CRASH_LOOP_BREAKER=0 disables. */
+const CRASH_LOOP_BREAKER = !/^(0|false|no|off)$/i.test(String(ENV('CRASH_LOOP_BREAKER') || '').trim());
+const crashLedger = makeCrashLedger({
+  fs, path, dir: WORKSPACES, now: () => Date.now(), writeDurable: writeFileDurableRaw,
+  windowMs: Number(ENV('CRASH_LOOP_WINDOW_MS')) > 0 ? Number(ENV('CRASH_LOOP_WINDOW_MS')) : undefined,
+  threshold: Number(ENV('CRASH_LOOP_THRESHOLD')) >= 1 ? Number(ENV('CRASH_LOOP_THRESHOLD')) : undefined,
+  note: (tag, e) => failNote(tag, e)
+});
 const workspaceOwnerClaim = workspaceOwner.acquire(WORKSPACES);
 if (!workspaceOwnerClaim.ok) {
   const holderPid = workspaceOwnerClaim.holder && workspaceOwnerClaim.holder.valid
     ? workspaceOwnerClaim.holder.pid : 'unverified';
+  const ownerCode = String(workspaceOwnerClaim.code || 'WORKSPACE_OWNER_UNAVAILABLE');
   console.error('✗ StarNet refused to open this workspace because another process may own it.');
   console.error('  workspace: ' + WORKSPACES);
   console.error('  holder PID: ' + holderPid);
-  console.error('  safety code: ' + String(workspaceOwnerClaim.code || 'WORKSPACE_OWNER_UNAVAILABLE'));
+  console.error('  safety code: ' + ownerCode);
   console.error('  Close the other StarNet process and retry. StarNet will not risk concurrent writes.');
-  process.exit(73);
+  // The refusal itself is a fault exit for the breaker. NOTHING here weakens the owner safety: the claim is never
+  // retried or reclaimed, no store is opened, no user file is written. When the breaker trips, the honest state
+  // is "degraded: workspace owner unavailable" served from a HOLDING listener that answers only /api/health
+  // (503 + the recovery guidance) and 503 JSON for everything else — so the desktop window lands on STATION
+  // DATA UNREACHABLE with the real reason instead of polling a dead port forever. If even the port is taken
+  // (a live sidecar is already serving), we exit 73 exactly as before.
+  const verdict = CRASH_LOOP_BREAKER ? crashLedger.record({ code: 73, summary: 'workspace owner unavailable (holder PID ' + holderPid + ', ' + ownerCode + ')' }) : { tripped: false };
+  if (!verdict.tripped) process.exit(73);
+  const holdReason = 'degraded: workspace owner unavailable — another process may own ' + WORKSPACES + ' (holder PID ' + holderPid + '). ' +
+    'Close the other StarNet process and restart. StarNet will not risk concurrent writes (' + ownerCode + '; ' + crashLedger.describe() + ')';
+  console.error('[process-fault] CRASH LOOP — ' + crashLedger.describe() + '; holding a degraded listener on :' + PORT + ' instead of exiting 73 again');
+  const holding = http.createServer((req, res) => {
+    const url = String(req.url || '');
+    if (url === '/api/health' || url.indexOf('/api/health?') === 0) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(holdReason);
+    }
+    res.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ error: holdReason, code: ownerCode, degraded: true, crashLoop: crashLedger.state() }));
+  });
+  holding.on('error', e => {
+    console.error('✗ degraded holding listener could not bind :' + PORT + ' (' + String(e && e.code || e) + ') — exiting 73');
+    process.exit(73);
+  });
+  holding.listen(PORT, '127.0.0.1', () => {
+    console.error('  degraded holding listener on http://127.0.0.1:' + PORT + ' — /api/health answers 503 with the reason; no store is open');
+  });
+  process.on('SIGTERM', () => process.exit(0));
+  process.on('SIGINT', () => process.exit(0));
+  return;   // CommonJS module scope: nothing below (stores, routes, the real server) may run without the owner claim
 }
 // Synchronous and idempotent: covers ordinary returns and every process.exit path. SIGKILL/TerminateProcess
 // cannot run handlers, so their valid PID-stamped claim is recovered by the next boot instead.
@@ -744,6 +787,7 @@ const processFault = makeProcessFaultHandler({
   now: () => Date.now(),
   delayMs: UNCAUGHT_EXIT_DELAY_MS,
   keepAlive: UNCAUGHT_KEEP_SERVING,
+  breaker: CRASH_LOOP_BREAKER ? crashLedger : null,   // crash-loop circuit breaker: the 3rd fault exit in 10m holds the process alive DEGRADED
   log: msg => console.error('[process-fault] ' + msg),
   // best-effort SYNC release of what gracefulShutdown would release — both are hoisted consts defined later in this
   // file and only ever invoked at runtime (after boot), so the typeof guards are belt-and-braces, not dead code.
@@ -8903,8 +8947,9 @@ const ROUTES = [
   // /api/health is the topbar LINK / Diag liveness probe. After an uncaught exception it answers 503 with the fault
   // summary (the process is degraded and exiting for the shell watchdog) — never a plain "ok" over torn state.
   { m: 'GET', exact: '/api/health', h: (req, res) => {
+    // a HELD crash loop (breaker tripped) answers "degraded: crash-loop: N faults in 10m — last: …" (process-fault.healthLine)
     const f = processFault.fault();
-    if (f) { res.writeHead(503, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('degraded: ' + f.kind + ': ' + f.message); }
+    if (f) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); return res.end(processFault.healthLine()); }
     res.writeHead(200); return res.end('ok');
   } },
   { m: 'GET', exact: '/api/execution-profiles', h: (req, res) => {
@@ -17452,7 +17497,10 @@ function collectDiagnosticsInput(opts) {
       errors: DIAG_ERR_RING.slice(),   // already redacted on write; the assembler redacts again as a backstop
       // an uncaught exception this process caught: the health surface is DEGRADED and the process is exiting for
       // the shell watchdog (process-fault.js). null = no fault. Message only (redacted again by the assembler).
-      processFault: (() => { try { const f = processFault.fault(); return f ? { kind: f.kind, message: f.message, at: f.at, exiting: !!f.exiting } : null; } catch (_) { return null; } })(),
+      processFault: (() => { try { const f = processFault.fault(); return f ? { kind: f.kind, message: f.message, at: f.at, exiting: !!f.exiting, loop: f.loop || null } : null; } catch (_) { return null; } })(),
+      // crash-loop breaker memory (crash-ledger.js): fault exits inside the window, from the durable ledger. tripped =
+      // this process is being HELD alive degraded instead of exiting again. Summaries only (redacted by the assembler).
+      crashLoop: (() => { try { return CRASH_LOOP_BREAKER ? crashLedger.state() : { disabled: true }; } catch (_) { return null; } })(),
       proxy: proxySnapshot(),
       // fail-open pressure: per-tag swallowed-error counts since boot (failopen.js). Bounded + secret-free by
       // construction (tags are code literals). A read failure leaves it undefined -> the assembler says "unknown".
