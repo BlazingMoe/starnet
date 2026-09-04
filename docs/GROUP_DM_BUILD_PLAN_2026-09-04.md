@@ -256,8 +256,9 @@ add a participant, interrupt with a changed requirement, restart, resume, and op
 correct final artifact. Capture actual run IDs, observed state transitions, artifact
 versions, accounting, and any limitations. No synthetic chatter or unverifiable success.
 
-## Next implementation action
+## Implementation status
 
-Start Phase 0, then implement one vertical slice: create a durable group, send one
-targeted message, persist its real response, and recover it after restart. Build the
-remaining interaction and collaboration behaviors on that proven path.
+The local group DM build is implemented in `agent/group-dm-plan-0904`.
+See [the verification record](GROUP_DM_VERIFICATION_2026-09-04.md) for the real-provider
+collaboration, exact artifact hashes, tested interactions, regression results, and
+scope of the local preview. The preview runs at http://127.0.0.1:9137.
