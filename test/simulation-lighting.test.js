@@ -61,4 +61,24 @@ for (const [key, value] of Object.entries(lightControls)) {
   A.ok(lock.test(lab), 'the CRT lab reset keeps ' + key + ' at the shipped value');
 }
 
+// Run the renderer's actual visibility traversal against sealed and open seams.
+const boundarySource = world.slice(world.indexOf('  function lightBoundary('), world.indexOf('  function propLightClip('));
+const boundary = new Function(boundarySource + '; return lightBoundary;')();
+const geometry = opening => ({
+  canStep(x, y, nx, ny) {
+    if (nx < 0 || ny < 0 || nx >= 4 || ny >= 4) return false;
+    if ((x < 2) !== (nx < 2)) return opening && y === 1 && ny === 1;
+    return true;
+  }
+});
+const lamp = { x: 18, y: 18, r: 40 };
+const closed = boundary(geometry(false), lamp, 12);
+A.ok(closed.every(([x, y]) => x >= -1e-6 && x <= 24 + 1e-6 && y >= -1e-6 && y <= 48 + 1e-6), 'sealed wall and exterior edges contain the light');
+const opened = boundary(geometry(true), lamp, 12);
+A.ok(opened[0][0] > 24, 'light transmits through an open doorway');
+A.ok(Math.abs(opened[0][0] - 48) < 1e-6, 'transmitted light stops at the far exterior wall');
+A.ok(opened.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)), 'axis-aligned rays stay finite');
+const short = boundary(geometry(true), { ...lamp, r: 3 }, 12);
+A.ok(short.every(([x, y]) => Math.abs(Math.hypot(x - lamp.x, y - lamp.y) - 3) < 1e-6), 'unobstructed light retains its original radius');
+
 A.report('simulation-lighting');
