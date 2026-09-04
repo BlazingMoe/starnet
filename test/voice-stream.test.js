@@ -35,6 +35,13 @@ const hypothesis = (...text) => ({text: text.join(' '), chunks:text.map((t,i)=>(
   }});
   for(let sec=0;sec<20;sec++) {const b=pcm(16000);for(let j=0;j<16000;j++)b.writeFloatLE(sec+j/16000,j*4);long.push(b);await tick();}
   const longDone=await long.finish();assert.ok(largest<=128000);assert.equal(longDone.text,Array.from({length:20},(_,i)=>'word'+i).join(' '),'window rollover preserves every word exactly once');
+  const repeated=createVoiceStream({transcribe:async b=>{
+    const start=b.readFloatLE(0),end=start+b.length/4/16000,chunks=[];
+    for(let word=Math.ceil(start);word+.5<=end;word++)chunks.push({text:' and',timestamp:[word-start,word+.5-start]});
+    return {text:chunks.length?'and':'',chunks};
+  }});
+  for(let sec=0;sec<20;sec++){const b=pcm(16000);for(let j=0;j<16000;j++)b.writeFloatLE(sec+j/16000,j*4);repeated.push(b);await tick();}
+  assert.equal((await repeated.finish()).text,Array(20).fill('and').join(' '),'repeated words outside the timestamp overlap must not be deduplicated');
   let clock=0;
   const manager=makeVoiceStreams({localVoice:{status:()=>({available:true}),transcribe:async()=>hypothesis('hello')},now:()=>clock});
   const ids=Array.from({length:4},()=>manager.open().id);assert.throws(()=>manager.open(),/Too many/);
