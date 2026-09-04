@@ -206,12 +206,23 @@ const Tutorial = (() => {
     if (!hasDialogue()) { finishUp(true); return; }   // no panel → don't trap the Commander in a half-built tour
     Dialogue.open({ name: agentName });
     Dialogue.node({
-      lines: [seg('before you put me to work — want the quick tour? i’ll show you how this place actually runs, starting with why my room being bare matters.', 44, 0)],
+      lines: [seg('let’s take one real burden off your list. give me notes, messages, or an approved folder and i’ll make a useful draft you can review. you can also take the optional station tour.', 44, 0)],
       options: [
-        { label: '▸ SHOW ME AROUND (recommended)', value: 'tour' },
+        ...(typeof FirstValue !== 'undefined' ? [{ label: '▸ MAKE SOMETHING USEFUL (recommended)', value: 'value' }] : []),
+        { label: 'SHOW ME AROUND', value: 'tour' },
         { label: 'I’ll dive in myself', value: 'skip', skip: true }
       ]
-    }).then(res => { if (!active) return; if (res.skip) return finishUp(true); beatShowAround(); });
+    }).then(res => {
+      if (!active) return;
+      if (res.value === 'value') {
+        // A concrete first task owns the handoff: do not overlay the connector pitch or a second coach.
+        finishUp(true, true);
+        if (FirstValue.open() === false && hasChat()) Chat.localLine('open WORK to choose a useful first task. the optional tool tour is still in the field manual.');
+        return;
+      }
+      if (res.skip) return finishUp(true);
+      beatShowAround();
+    });
   }
 
   /* ---- THE ROLEPLAY COLD-OPEN: the agent walks to its own workstation and DISCOVERS it's boxed in ----
@@ -677,7 +688,7 @@ const Tutorial = (() => {
     if (kitReadyTimer) { clearTimeout(kitReadyTimer); kitReadyTimer = null; }
   }
 
-  function finishUp(skipped) {
+  function finishUp(skipped, valueHandoff) {
     if (finished) return; finished = true;        // idempotent: a late START-COMMANDING click after a skip can't re-run this
     active = false; kitMode = false; clearStall(); clearSpot(); clearCoach();
     clearKitTimers();   // drop the kit-out poll + flash + ready timers if they bailed mid-placement
@@ -688,6 +699,7 @@ const Tutorial = (() => {
     state.firstCommandDone = true;
     if (skipped && !replayMode) state.briefDismissed = true;     // replay never rewrites the saved first-steps preference
     save();
+    if (valueHandoff) { replayMode = false; return; }
     if (replayMode) {
       replayMode = false;
       if (hasChat()) Chat.localLine(skipped ? 'quick tour closed — your progress is unchanged.' : 'quick tour complete — your progress is unchanged.');
