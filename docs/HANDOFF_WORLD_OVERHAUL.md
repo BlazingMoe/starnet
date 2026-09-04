@@ -1,0 +1,94 @@
+# HANDOFF — world visual overhaul (`agent/world-overhaul`)
+
+**Date:** 2026-09-04 · **Branch:** `agent/world-overhaul` · **Worktree:** `C:\Users\andro\gen-trees\world-overhaul`
+**HEAD:** `58fc522f3` · **Status:** BUILT, NOT MERGED, Andrew mid-review. Gate/goldens/claims OWED (see §5).
+
+Read `docs/BRAIN.md` + `CLAUDE.md` first; this file is the lane-specific truth.
+
+## 1. What this branch is
+
+Andrew's ask (2026-09-03): *"make StarNet truly look like a $40 pixel-art gorgeous Steam game… without
+using too many resources."* Then, across ~15 review rounds: *keep StarNet as it is, immensely improve
+textures + lighting, Stardew-level; more depth and detail; the exterior must not glow against the void.*
+
+The branch FOLDS IN two older unmerged lanes first, so one verdict covers all three:
+- `agent/world-gorgeous` (09-02 lighting glow-up: physical falloff, cool plate, warm film, reach 1.3)
+- `agent/prop-gorgeous` (v46 props) — **its prop ART was later removed** (§3, Andrew rejected the
+  beige "golden" workstations); only its harness files under `gal/` remain.
+
+## 2. What Andrew has judged (this is the map — do not re-walk rejected ground)
+
+| Verdict | Thing |
+|---|---|
+| ❌ "not even slightly a fan… brown tint, too bright, cheaper" | round 1: bloom 0.45, warm film 0.3, dither 0.45, sepia grade, brown stock deck |
+| ❌ "way too dark, basically pitch black" | hull exposure 0.25 |
+| ❌ "clusterfuck, lower quality… CRT way too strong, curve ridiculous" | the old-TV CRT pass (pitch-2 lines, RGB mask, bleed, roll bar, curve 0.13). **Reverted to previous filter values; the passes still exist at 0 on lab knobs.** |
+| ❌ "not sure how I feel about the golden workstations" | v46 prop rebuild — **removed**, trunk's original prop art restored |
+| ✅ (accepted, silently) | cool steel stock deck (`#3a3b41`), no sepia, cast shadows, prop light sources, hue-shifted shading, per-room fixture colour, pendants, 30px walls, running lights, exterior exposure 0.4 |
+| ✅ "proceed" + reference image | the *Pixel Art Space Station* look: big bolted plates, 2px seams, lit bevels, chunky framed wall panels with braces/pipes, standing tube lamps with fat glows |
+| ❓ not judged yet | four new decks (DIAMOND/CARGO/CERAMIC/RESIN), the SPINE polish, the wall/deck polish pass, the prop polish pass |
+
+Standing laws he restated this lane: **subtle CRT, not strong** · exterior darker than interior but not
+black · no brown tint · "keep the essence" when polishing (SPINE stayed 4×3 panels).
+
+## 3. What changed (by file)
+
+`frontend/app/stationbake.js`
+- `shade()` — hue-shifted shading for every INTERIOR painter (deck, walls, side faces, corner crowns).
+  Hull keeps `U.shade` (hull test pins its ladder).
+- `HULL_EXPOSURE = 0.4` + `hshade()` — every hull palette scaled darker; hull-skin draw-time LIFTS scaled
+  by the same factor so no skin re-brightens itself. `WALL_TONE.cap` 0.30→0.02; `LIGHT.crown` 0.45→0.1.
+- LIGHT now `{ambient .84, pool .85, room .46, corridor .34, door .4, floor .24, crown .1, reach 1.3, cool .9, warm .16}`;
+  DEPTH `dither .12`; WALL `up 30, corUp 16`. Locks moved with the values in `test/simulation-lighting.test.js`.
+- `lampRgbOf()` per room kind (lab cool, bridge cooler, foundry sodium, quarters amber; hab unchanged).
+  Lamps export `{…, rgb, hang}`; `bake()` returns `lamps` (chunk path too).
+- Deck: `lowFreq()` tone drift (±2.5%), `plateGrade()`/`deckBolt()` helpers, SPINE rebuilt (4×3 panels,
+  bevel ladder, paired grain, four-step panel light, real bolts, one character mark per panel), SLAB
+  joints two-step, PLANK crowned boards + knot + screw, hazard chevrons on door sills (`bakeThreshold`).
+  New decks: `deckDiamond/deckResin/deckCeramic/deckCargo` (registered in `worldmodel.js` FLOOR_MATERIALS + MAT_ORDER).
+- Walls: `faceGrade()/hairPair()/rivetAt()` helpers; every recipe uses them; bulkhead gained cable tray,
+  vents, conduit drops; a bevelled two-tile SEGMENT FRAME is painted over every room wall face.
+
+`frontend/app/world.js`
+- `drawPropLights` (additive per-prop light, cached gradients), `drawBloom` (scale-based, half-rate,
+  **default 0**), `drawNavLights` (hull corner running lights), `drawOverhead` (pendant fixtures over
+  `lamps` with `hang`), shadow pass after decals, `CRT` gained `bloom/emit/mask/bleed/roll` (all inert
+  except `emit 0.6`). `drawGlows` uses the lamp's rgb.
+
+`frontend/app/propsprites.js` — trunk's original F.* art + `drawShadow()`, `lightOf()`/`EMIT` (~90 ids),
+hue-shifted `shade()` for all 1112 derived tones, own-hue outline (`inkFor` tally on a type's first
+frame), chunkier `box()`/`frontFace()`.
+
+`frontend/css/style.css` — default grade `saturate(1.06) contrast(1.1) brightness(0.94)` (sepia/hue-rotate gone).
+`frontend/app/crtlab.js` — mirrors + presets `World: pre-09-03`, `CRT: pre-09-03/old TV/heavy TV`.
+`dev/worldshot.mjs` — perf probe (`SKYNET_WS_PERF=1`), real GPU (`SKYNET_WS_GPU=1`), `SKYNET_WS_HOLD=1`.
+`gal/shipped-propsprites.js` — trunk prop art for the `gal/shoot.mjs` A/B.
+
+## 4. Measurements (real frames, furnished lounge crop, zoom 2)
+trunk → current: luma mean 30→~42, sd 20.7→~27, crushed 12%→~4%. **Frame cost on the RTX: +0.3 ms**
+(1.49→1.81 ms; bloom was the only real cost and is off). ⛔ Measure on the real GPU — SwiftShader makes any
+full-frame canvas draw look like 3 ms.
+
+## 5. OWED before merge
+1. `npm run test:fast` — last GREEN at `e5c93efab`; ~15 commits since. Run it (10 min, alone).
+2. Claims re-lock: `node scripts/qa/product-perfect/relock-surface.mjs` (clean tree) → commit → gate again.
+3. Goldens: `npm run golden` then `npm run golden:bless` (expect ingame + the two translucent panels to move).
+4. Andrew's verdict on §2's "not judged" rows, then `starnet-merge-ritual`. Merging this merges the
+   09-02 glow-up too. The prop-gorgeous lane's art is NOT in here any more.
+
+## 6. Recipes
+- Shoot: `SKYNET_WS_GPU=1 SKYNET_SHOT_PORT=8964 SKYNET_CDP_PORT=9364 SKYNET_WS_OUT=<dir> node dev/worldshot.mjs <tag>`
+  → `<tag>-wide/hab/lounge.png`. Crops: `node dev/worldcmp.mjs A.png B.png x y w h out.png <scale>`
+  (lounge `420 180 470 330`, hab `400 100 500 300`). Variants via `SKYNET_WS_VARIANTS` — **cumulative**.
+- Props A/B: `MSYS_NO_PATHCONV=1 node gal/shoot.mjs "ids=desk,console&zoom=5&work=1&crop=1&before=/gal/shipped-propsprites.js" C:/…/out.png 8931`
+  (Windows-style output path; the sheet is 6000px wide — stack it before judging).
+- Live for Andrew: `.claude/launch.json` config `world-overhaul-live` (node sidecar/index.js on :8787 against
+  his REAL workspace). It died twice during the session; restart via preview_start.
+- Patch scripts: write them to the scratchpad and `node` them; bash heredocs mangled twice.
+
+## 7. Proposed next
+Andrew still says the world is "not there". The systematic levers are spent; what remains is hand
+authoring: rebuild the eight most-seen props (desk, console, bay, intake, outbox, core, rack, shelf) to
+the reference language (thick own-hue outline, fat lit bevels, big simple forms, one accent), one family
+per sheet, judged with `gal/shoot.mjs` BEFORE touching the rest. Then wall X-braces and ringed pipes and a
+standing tube-lamp prop from the reference.
