@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/voice-live.js'), 'utf8');
 
 function harness() {
-  const nodes = new Map(), requests = [], sent = [];
+  const nodes = new Map(), requests = [], sent = [], stops = [];
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, { textContent: '', value: '', dataset: {}, hidden: false,
       style: { setProperty() {} }, setAttribute(k, v) { this[k] = v; }, classList: { toggle() {}, add() {}, remove() {} } });
@@ -17,7 +17,7 @@ function harness() {
     window: {}, navigator: {}, localStorage: { getItem: () => null },
     performance: { now: () => now }, setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},
     Voice: { isSpeaking: () => false, stopSpeaking() {} },
-    Chat: { sendOrQueue: text => { sent.push(text); return { state: 'sent' }; } },
+    Chat: { isBusy:()=>true, stopActive:()=>stops.push('cancel'), sendOrQueue: text => { sent.push(text); return { state: 'sent' }; } },
     fetch: (url, opts) => new Promise(resolve => requests.push({ url, opts, resolve: text => resolve({ ok: true, json: async () => ({ text }) }) }))
   };
   const expose = `
@@ -25,13 +25,13 @@ function harness() {
       boot() { active = true; paused = false; sessionSeq++; context = {sampleRate:16000}; calibratedUntil = 0; },
       take(frames) { recording = true; utteranceSeq++; utterance = frames; utteranceSamples = frames.reduce((n,f)=>n+f.length,0); lastVoicedSamples = utteranceSamples; },
       partial() { requestPartial(utterance, utteranceSeq); },
-      endpointSilenceMs, frame: processFrame, transcribe, finishUtterance, togglePause, closeMicrophone,
+      handleTranscript, endpointSilenceMs, frame: processFrame, transcribe, finishUtterance, togglePause, closeMicrophone,
       inspect: () => ({recording, transcriptionPending, queued:queuedAudio.length, paused, samples:utteranceSamples})
     }, `;
   vm.runInNewContext(source.replace('return { init, start, end, isActive:', 'return { ' + expose + 'init, start, end, isActive:') + '\nthis.live = VoiceLive;', sandbox);
   const api = sandbox.live._test;
   api.boot();
-  return { api, requests, sent, node, tick: () => { now += 1000; }, frame: level => {
+  return { api, requests, sent, stops, node, tick: () => { now += 1000; }, frame: level => {
     now += 128; api.frame({inputBuffer:{getChannelData:()=>new Float32Array(2048).fill(level)}});
   } };
 }
@@ -39,6 +39,14 @@ const flush = async () => { for (let i=0;i<12;i++) await Promise.resolve(); };
 const audio = () => Array.from({length:8}, () => new Float32Array(1000).fill(0.1));
 
 (async () => {
+  {
+    const h = harness();
+    h.api.handleTranscript('stop speaking');
+    assert.equal(h.stops.length,0,'stopping speech keeps the task running');
+    assert.equal(h.sent.length,0,'speech control is not sent as a new task');
+    h.api.handleTranscript('cancel the task');
+    assert.equal(h.stops.length,1,'explicit cancellation stops the task');
+  }
   {
     const h = harness();
     assert.equal(h.api.endpointSilenceMs('Please do this.',0),800);

@@ -611,6 +611,13 @@ const VoiceLive = (() => {
       speakLocal(answerStatusQuestion());
       return true;
     }
+    if (/^(?:stop (?:speaking|talking|reading)|quiet|be quiet|mute (?:your )?voice)$/.test(lower)) {
+      if (typeof Voice !== 'undefined' && Voice.stopSpeaking) Voice.stopSpeaking();
+      caption('agent', typeof Chat !== 'undefined' && Chat.isBusy && Chat.isBusy()
+        ? 'Speech stopped. The task is still running.' : 'Speech stopped.');
+      setState('listening');
+      return true;
+    }
     const stopOnly = /^(?:stop|cancel|interrupt|hold on|wait|never ?mind)(?: the task| that)?$/.test(lower);
     const redirect = /^(?:stop|cancel|interrupt|hold on|wait)[,;:\s]+(.{3,})$/i.exec(value);
     if (stopOnly) {
