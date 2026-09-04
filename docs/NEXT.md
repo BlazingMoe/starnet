@@ -1,5 +1,12 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
+
+Own only INBOX routine create/readback and compatible-provider tool-history repair. Existing sample,
+OpenRouter, provider-truth and linked-state branches are already merged; do not merge them again.
+Coordinate trunk serialization with `agent/value-loop-0904`, which merges first. Evidence and residual
+customer/production dependencies: [EMAIL_BUG_FOLLOWUP_2026-09-04.md](EMAIL_BUG_FOLLOWUP_2026-09-04.md).
+
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
 
 The support report's successful Live Doctor inference and failed sample used different configuration
