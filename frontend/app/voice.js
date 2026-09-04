@@ -1040,7 +1040,7 @@ const Voice = (() => {
   const recorderProvider = (() => {
     let stream = null, mr = null, chunks = [], ac = null;
     let pcmProcessor = null, pcmSink = null, pcmFrames = [], pcmSamples = 0, pcmRate = 0, takeSttMode = 'cloud';
-    let continuous = null;
+    let continuous = null, finalRecognizer = null;
     let previewPending = false, previewAbort = null, previewSeq = 0, previewLastAt = 0;
     let cb = null, mime = '';
     let aborted = false, delivered = false, hardCapTimer = null;
@@ -1087,8 +1087,8 @@ const Voice = (() => {
       }
       return output;
     }
-    async function transcribeLocalFrames(frames, signal, mode = 'local') {
-      const pcm = mono16k(frames, pcmRate || 48000);
+    async function transcribeLocalFrames(frames, signal, mode = 'local', rate = pcmRate || 48000) {
+      const pcm = mono16k(frames, rate);
       if (!pcm.length) return { text: '', reason: 'local microphone capture produced no audio', failed: true };
       const r = await fetch(mode === 'native' ? '/api/stt/native' : '/api/local-voice/transcribe', {
         method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: pcm.buffer, signal
@@ -1098,15 +1098,18 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     async function transcribeLocalPcm() {
-      const recognizer = continuous; continuous = null;
-      const frames = pcmFrames.slice();
+      const recognizer = continuous; continuous = null; finalRecognizer = recognizer;
+      const frames = pcmFrames.slice(), rate = pcmRate || 48000, seq = previewSeq;
       pcmFrames = []; pcmSamples = 0;
-      if (recognizer) {
-        try { if (!recognizer.failed) return await recognizer.finish(); }
-        catch (_) { /* The original capture remains available for the recorded fallback. */ }
-        recognizer.cancel();
-      }
-      return transcribeLocalFrames(frames);
+      try {
+        if (recognizer) {
+          try { if (!recognizer.failed) return await recognizer.finish(); }
+          catch (_) { /* Retain the original capture for the recorded fallback. */ }
+          recognizer.cancel();
+        }
+        if (aborted || seq !== previewSeq) return {text:''};
+        return await transcribeLocalFrames(frames, undefined, 'local', rate);
+      } finally { if (finalRecognizer === recognizer) finalRecognizer = null; }
     }
     async function transcribeNativePcm() {
       const pcm = mono16k(pcmFrames.slice(), pcmRate || 48000);
@@ -1184,7 +1187,9 @@ const Voice = (() => {
             ? new Blob([new Uint8Array(1)], { type: 'audio/wav' }) : null);
       chunks = [];
       if (aborted || !blob || !blob.size) { cb && cb.onEnd && cb.onEnd(); return; }
+      const seq = previewSeq;
       transcribe(blob).then(({ text, reason }) => {
+        if (seq !== previewSeq) return;
         if (aborted) { cb && cb.onEnd && cb.onEnd(); return; }
         // setDiagStatus, not setStatus: cb.onEnd() below runs endListening() in this same synchronous block
         // and its restore would otherwise repaint 'online' over this before a single frame is drawn.
@@ -1192,6 +1197,7 @@ const Voice = (() => {
         cb && cb.onFinal && cb.onFinal(String(text || '').trim());
         cb && cb.onEnd && cb.onEnd();
       }).catch(e => {
+        if (seq !== previewSeq || aborted) return;
         console.warn('[voice] STT post failed:', (e && e.message) || e);
         cb && cb.onError && cb.onError('stt-failed');
         cb && cb.onEnd && cb.onEnd();
@@ -1199,6 +1205,7 @@ const Voice = (() => {
     }
     async function start(cbs) {
       if (continuous) continuous.cancel(); continuous = null;
+      if (finalRecognizer) finalRecognizer.cancel(); finalRecognizer = null;
       cb = cbs; chunks = []; pcmFrames = []; pcmSamples = 0; pcmRate = 0; takeSttMode = classicSttMode;
       previewSeq++; previewPending = false; previewAbort = null; previewLastAt = 0;
       aborted = false; delivered = false;
@@ -1272,11 +1279,12 @@ const Voice = (() => {
     }
     function abort() {   // hard stop, discard (teardown / barge-in)
       aborted = true;
+      if (finalRecognizer) finalRecognizer.cancel(); finalRecognizer = null;
       if (continuous) continuous.cancel(); continuous = null;
       if (mr && mr.state !== 'inactive') { try { mr.stop(); } catch (_) {} }
       teardownAudio();
       // deliver an onEnd so endListening() runs its teardown branch; onFinal is suppressed by `aborted`.
-      if (!delivered) { delivered = true; cb && cb.onEnd && cb.onEnd(); }
+      delivered = true; cb && cb.onEnd && cb.onEnd();
     }
     return { name: 'recorder', start, stop, abort };
   })();

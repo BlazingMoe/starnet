@@ -714,5 +714,20 @@ async function opensWithin(t, ms) {
     t.Voice.speakChunk('A late chunk must stay silent.', 'agent', {replyToken:token});
     A.eq(t.Voice.isReplyPending(), false, 'interrupted reply cannot restart from a late model chunk');
   }
+  {
+    const pending=[];let cancelled=0;
+    const t=boot({desktop:true,fetch:url=>Promise.resolve({ok:true,json:async()=>({available:true,preferred:'local',local:true})})});
+    t.sandbox.VoiceStream={open:()=>({failed:false,push(){},cancel(){cancelled++;},finish:()=>new Promise(resolve=>pending.push(resolve))})};
+    await tick();t.Voice.startListening();await until(()=>processorInstances.length>0,1000);
+    processorInstances[processorInstances.length-1].fire(new Float32Array(2048).fill(.2));
+    t.Voice.stopListening();await until(()=>pending.length===1,1000);
+    t.Voice.pauseCoordinator();t.Voice.resumeCoordinator();t.Voice.startListening();
+    await until(()=>t.Voice.isListening(),1000);
+    A.ok(cancelled>0,'pause cancels a stream whose final recognition is still pending');
+    pending[0]({text:'old interrupted take'});await tick();
+    A.eq(t.sandbox.__sent.length,0,'late recorder result cannot submit into a resumed take');
+    A.ok(t.Voice.isListening(),'late recorder result cannot end the resumed listener');
+    t.Voice.stopConvo();
+  }
   A.report('voice.button.test');
 })().catch(e => { console.log('FAIL: harness threw — ' + (e && e.stack || e)); process.exit(1); });
