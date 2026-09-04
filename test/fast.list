@@ -699,6 +699,7 @@ test/frontend-fetch-truth-ratchet.test.js
 test/loop-verdict.test.js
 test/free-path-ollama.test.js
 test/process-fault.test.js
+test/tier-model-catalog.test.js
 test/crash-ledger.test.js
 test/workview.test.js
 test/first-value.test.js

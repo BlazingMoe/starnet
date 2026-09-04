@@ -1,5 +1,27 @@
 # NEXT.md — current priorities & task queue
 
+## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
+
+The support report's successful Live Doctor inference and failed sample used different configuration
+sources. Samples now resolve the selected dock's roster provider/model/credential after routing, and
+resolve each downstream dock independently. Environment defaults remain only for an empty-roster
+headless host. Missing roster configuration refuses without spending another provider's credential.
+
+The tier picker now fetches the active provider's catalogue and rebuilds its options when that response
+arrives. Saved rows no longer shadow real entries with a false “not in catalog” label; unavailable
+catalogues preserve selections and explicitly report unverified membership.
+
+Evidence: live seeded UI changed all three tier selections, closed/reopened Models, and observed exactly
+one correctly labeled selected option per tier, with no browser warnings/errors. The real-sidecar
+regression ran a StarNet entry and custom-provider hop without an environment default or OpenRouter key,
+verified their separate credentials, repeated after restart, and refused a missing roster model with
+zero inference requests. Existing sample coverage passed 99 assertions. Full gates on `431578620`:
+`test:fast` **697/697 GREEN**, `test:http` **89/89 GREEN**. The first HTTP attempt hit a transient
+port conflict in nightshift-focus; that test passed alone and in the full successful retry.
+
+Implementation: `e33914cb2`; mechanical source lock: `431578620`. No integration merge, desktop build,
+or publication has been performed. Customers need a desktop release containing this branch.
+
 ## 2026-09-03 — POST-AUDIT: NEXT CUT MUSTS (owner-directed, audit items 1–5)
 
 The 2026-09-03 whole-repo audit (backend, frontend, release, process, product) found the harness solid

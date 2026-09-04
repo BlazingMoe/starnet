@@ -9577,6 +9577,15 @@ let sampleInFlight = null;   // { streamId, workitemId, startedAt } — ONE samp
    the ONE counter-advancing resolution (one-resolver law) walks only the named line's own doors. */
 let sampleLineScope = null;
 const sampleReplies = [];    // outbound text the line delivered for the CURRENT sample (cleared per dispatch)
+function sampleRunConfigFor(agentId) {
+  // Installed stations own their model/provider on the roster. Environment defaults are only
+  // a compatibility fallback for a headless host that has never received a roster.
+  if (agentRoster.size) {
+    const config = channelRunConfigFor(agentId);
+    return Object.assign({}, config, { configured: config.ok === true });
+  }
+  return devHubSecrets();
+}
 function getSampleHub() {
   if (sampleHub) return sampleHub;
   sampleHub = makeChannelHub({
@@ -9591,7 +9600,9 @@ function getSampleHub() {
        run #2 as on run #1 (and on a station that already carries a stale record from before this fix). */
     bindChats: false,
     send: (chatId, text) => { sampleReplies.push(String(text == null ? '' : text)); if (sampleReplies.length > 20) sampleReplies.shift(); return Promise.resolve({ ok: true }); },
-    secrets: devHubSecrets,   // the ONE headless resolution rule (see handleRuntimeAgent) — a second rule would drift
+    secrets: () => ({}),   // the selected dock owns the configuration, not an ambient provider
+    resolveEntryRunConfig: sampleRunConfigFor,
+    resolveRunConfig: sampleRunConfigFor,
     persona: SAMPLE_PERSONA, classify: Classify.isTaskDirective, redact: redact, emit: chanEmit,
     newId: () => crypto.randomUUID(), now: () => Date.now(),
     // line scope rides the ctx (additive): resolveTarget walks ONLY the named line's doors when set
@@ -9665,7 +9676,7 @@ async function handleRoutingSample(req, res) {
         : { ok: false, error: 'the armed line routes this job to no dock — crew a bay on the line (bind an agent to it) and try again.' });
     }
     const sec = devHubSecrets();
-    if (!sec.model || (!sec.configured && !sec.key)) {
+    if (!agentRoster.size && (!sec.model || (!sec.configured && !sec.key))) {
       return json(409, { ok: false, error: 'no provider/model is configured for headless runs — connect a provider and set a default model first.' });
     }
 
