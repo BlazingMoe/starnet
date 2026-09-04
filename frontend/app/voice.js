@@ -1262,27 +1262,33 @@ const Voice = (() => {
   // OAuth Live fallback for embedded Windows WebView2, which has MediaRecorder but no SpeechRecognition.
   // The local sidecar invokes the OS dictation engine against the default mic; no cloud speech key is used.
   const nativeSpeechProvider = (() => {
-    let ac = null, hooks = null;
+    let take = null;
     async function start(h) {
-      hooks = h; ac = new AbortController();
+      const current = { hooks: h, ac: new AbortController() };
+      take = current;
       try {
-        const r = await fetch('/api/stt/native', { method: 'POST', signal: ac.signal });
+        const r = await fetch('/api/stt/native', { method: 'POST', signal: current.ac.signal });
         const j = await r.json().catch(() => ({}));
+        if (take !== current) return;
+        const hooks = current.hooks;
         if (!r.ok || j.error && !j.text) {
           if (j.error === 'no-speech') hooks && hooks.onError && hooks.onError('no-speech');
           else hooks && hooks.onError && hooks.onError('native-unavailable');
         } else if (j.text) hooks && hooks.onFinal && hooks.onFinal(j.text);
       } catch (e) {
-        if (!(e && e.name === 'AbortError')) hooks && hooks.onError && hooks.onError('native-unavailable');
+        if (take === current && !(e && e.name === 'AbortError')) h && h.onError && h.onError('native-unavailable');
       } finally {
-        const done = hooks; hooks = null; ac = null;
-        if (done && done.onEnd) done.onEnd();
+        if (take === current) {
+          take = null;
+          if (h && h.onEnd) h.onEnd();
+        }
       }
     }
     function stop() {
-      const done = hooks; hooks = null;
-      if (ac) { try { ac.abort(); } catch (_) {} ac = null; }
-      if (done && done.onEnd) done.onEnd();
+      const current = take; take = null;
+      if (!current) return;
+      current.ac.abort();
+      if (current.hooks && current.hooks.onEnd) current.hooks.onEnd();
     }
     function abort() { stop(); }
     return { name: 'native', start, stop, abort };

@@ -283,6 +283,24 @@ async function opensWithin(t, ms) {
   // Browser recognition may end its own instance after a pause even in continuous mode. Standard voice
   // keeps the take open, retains those words, and sends them only when the Commander clicks again.
   {
+    const pending = [], heard = [];
+    const t = boot({ desktop: true, fetch: url => {
+      if (url === '/api/stt/native') return new Promise(resolve => pending.push(text => resolve({ok:true,json:async()=>({ok:true,text})})));
+      return Promise.resolve({ok:true,json:async()=>({available:true,preferred:'native'})});
+    } });
+    await tick();
+    t.Voice.startCoordinator({onTranscript:text=>{heard.push(text);return true;}});
+    await tick();
+    t.Voice.pauseCoordinator(); t.Voice.resumeCoordinator(); await tick();
+    A.eq(pending.length, 2, 'resume starts a new Windows recognition');
+    pending[0]('discarded before pause'); await tick();
+    A.eq(heard.length, 0, 'a late native result cannot submit speech discarded by pause');
+    A.ok(t.Voice.isListening(), 'old native completion cannot clear the resumed listener');
+    pending[1]('fresh after resume'); await tick();
+    A.eq(heard[0], 'fresh after resume', 'the resumed recognition still delivers');
+    t.Voice.stopCoordinator(); await tick();
+  }
+  {
     const t = boot();
     t.nodes['chat-mic'].onclick(); await tick();
     srInstances[srInstances.length - 1].fireFinal('first half');
