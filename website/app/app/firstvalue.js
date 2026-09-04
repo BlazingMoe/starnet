@@ -108,7 +108,7 @@
         }
         if (!alive) return;
         if (!ctx.onLaunch) throw new Error('The work launcher is unavailable. Reopen Work and try again.');
-        const launched = await ctx.onLaunch(built.recipe, built.values);
+        const launched = await ctx.onLaunch(built.recipe, built.values, { source: built.source, root: built.root });
         if (launched !== true) throw new Error('The task did not start. Check the model connection and whether the agent is busy, then retry.');
         status('Request sent. Follow the real run and review its result in Work.');
         if (ctx.onOpenWork) ctx.onOpenWork();
