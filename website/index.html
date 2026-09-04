@@ -19,7 +19,7 @@
 <link rel="canonical" href="https://starnetos.com/">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <link rel="preload" href="app/assets/sprites/blank/rot_south.png" as="image" fetchpriority="high">
-<link rel="stylesheet" href="styles.css?v=20260725">
+<link rel="stylesheet" href="styles.css?v=20260903">
 </head>
 <body>
 
@@ -54,18 +54,19 @@
   <div class="blip" style="top:50%; width:4px; height:4px; animation-duration:15s; animation-delay:-7s;"><span style="width:38px;"></span></div>
 </div>
 
-<header class="topbar">
+<header class="topbar" id="topbar">
   <a class="brand" href="#top">STARNET TERMLINK</a>
-  <nav class="topnav">
+  <nav class="topnav" aria-label="Site">
     <a href="#station">WHAT IT IS</a>
     <a href="#difference">FEATURES</a>
-    <a href="pricing.html" data-pricing-link hidden>PRICING</a>
-    <a href="#download">DOWNLOAD</a>
+    <a href="docs/guides/index.html">FIELD MANUAL</a>
     <a href="docs/index.html">DOCS</a>
+    <a href="pricing.html" data-pricing-link>PRICING</a>
+    <a href="#download">DOWNLOAD</a>
     <a href="https://github.com/androoAGI/starnet" target="_blank" rel="noopener">GITHUB</a>
   </nav>
   <span class="topbar-right">
-    <a href="https://github.com/androoAGI/starnet/issues" target="_blank" rel="noopener">COMMUNITY</a>
+    <a href="docs/help.html">HELP</a>
     <span class="live-dot"><span class="dot"></span>OPEN SOURCE</span>
   </span>
 </header>
@@ -82,22 +83,25 @@
       <p class="subline">A videogame where the work is real. Recruit a crew of AI agents into a living pixel-art station, lay conveyor-belt workflows that actually route the work, and level up a station whose quests come from your real goals &mdash; your models, your keys, your machine.</p>
       <div class="cta-row">
         <a id="cta-download" class="btn btn-primary" href="#download">[ DOWNLOAD ]</a>
+        <a class="btn" href="docs/guides/index.html">[ FIELD MANUAL ]</a>
         <a class="btn" href="https://github.com/androoAGI/starnet" target="_blank" rel="noopener">[ VIEW SOURCE ]</a>
       </div>
-      <div class="hero-meta"><span id="ver-badge">v0.9.0</span> &middot; MIT open source &middot; Windows + macOS installers day one &middot; bring your own keys</div>
+      <div class="hero-meta"><span id="ver-badge">v0.10.13</span> &middot; MIT open source &middot; Windows + macOS installers day one &middot; bring your own keys</div>
     </div>
+    <a class="hero-scroll" href="#station" aria-label="Scroll to what it is">SCROLL<span></span></a>
   </section>
 
   <!-- ===== what it is ===== -->
   <section id="station" class="section">
     <div class="section-head">
       <span class="section-no">01</span>
+      <h2>WHAT IT IS</h2>
     </div>
     <div class="split station">
-      <div class="split-copy">
+      <div class="split-copy" data-reveal>
         <p class="lead">A living simulation on your machine where every sprite is a real agent doing real work. Recruit a crew, connect real tools and real models, and build the station into a workforce shaped around you &mdash; the only limit is what you ask for.</p>
         <ul class="contract">
-          <li><b>Placed gear is real capability.</b> A signal dish grants web, a cabinet grants files, a workbench grants a terminal &mdash; shared by the whole crew.</li>
+          <li><b>Placed gear is real capability.</b> A signal dish grants web, a cabinet grants files, a workbench grants a terminal &mdash; place one and the whole crew draws on it.</li>
           <li><b>Every bay is another agent</b>, running its own work in parallel.</li>
           <li><b>The floor is honest.</b> An agent at a lit desk means a live run &mdash; the timer on screen is the real one.</li>
         </ul>
@@ -112,39 +116,109 @@
     </div>
   </section>
 
-  <!-- ===== distinctions ===== -->
-  <section id="difference" class="section">
+  <!-- ===== how work flows ===== -->
+  <section id="flow" class="section">
     <div class="section-head">
       <span class="section-no">02</span>
+      <h2>HOW WORK FLOWS</h2>
+    </div>
+    <div class="flow-wrap" data-reveal>
+      <svg viewBox="0 0 900 170" role="img" aria-label="A job enters at the INBOX, rides a belt to a researcher's bay, then to a writer's bay, and leaves finished at the OUTBOX" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <clipPath id="hb-c1"><rect x="110" y="62" width="190" height="28"/></clipPath>
+          <clipPath id="hb-c2"><rect x="400" y="62" width="160" height="28"/></clipPath>
+          <clipPath id="hb-c3"><rect x="660" y="62" width="130" height="28"/></clipPath>
+          <g id="hb-chevs"><polyline points="-22,66 -14,76 -22,86"/><polyline points="8,66 16,76 8,86"/><polyline points="38,66 46,76 38,86"/><polyline points="68,66 76,76 68,86"/><polyline points="98,66 106,76 98,86"/><polyline points="128,66 136,76 128,86"/><polyline points="158,66 166,76 158,86"/><polyline points="188,66 196,76 188,86"/></g>
+        </defs>
+        <!-- belts -->
+        <rect class="hb-belt" x="110" y="62" width="190" height="28"/><line class="hb-rail" x1="110" y1="62" x2="300" y2="62"/><line class="hb-rail" x1="110" y1="90" x2="300" y2="90"/>
+        <g clip-path="url(#hb-c1)"><g class="hb-chev hb-march" transform="translate(110 0)"><use href="#hb-chevs"/></g></g>
+        <rect class="hb-belt" x="400" y="62" width="160" height="28"/><line class="hb-rail" x1="400" y1="62" x2="560" y2="62"/><line class="hb-rail" x1="400" y1="90" x2="560" y2="90"/>
+        <g clip-path="url(#hb-c2)"><g class="hb-chev hb-march" transform="translate(400 0)"><use href="#hb-chevs"/></g></g>
+        <rect class="hb-belt" x="660" y="62" width="130" height="28"/><line class="hb-rail" x1="660" y1="62" x2="790" y2="62"/><line class="hb-rail" x1="660" y1="90" x2="790" y2="90"/>
+        <g clip-path="url(#hb-c3)"><g class="hb-chev hb-march" transform="translate(660 0)"><use href="#hb-chevs"/></g></g>
+        <!-- machines -->
+        <rect class="hb-machine lit" x="20" y="36" width="90" height="80"/><rect class="hb-inner" x="30" y="46" width="70" height="60"/><circle class="hb-led" cx="102" cy="44" r="2.5"/>
+        <text class="hb-label" x="65" y="136">INBOX</text><text class="hb-sub" x="65" y="152">the job comes in</text>
+        <rect class="hb-machine lit" x="300" y="36" width="100" height="80"/><rect class="hb-inner" x="310" y="46" width="80" height="60"/><circle class="hb-led" cx="392" cy="44" r="2.5"/>
+        <rect class="hb-glow hb-work" x="304" y="40" width="92" height="72"/>
+        <text class="hb-label" x="350" y="136">BAY &middot; RESEARCHER</text><text class="hb-sub" x="350" y="152">digs up the facts</text>
+        <rect class="hb-machine lit" x="560" y="36" width="100" height="80"/><rect class="hb-inner" x="570" y="46" width="80" height="60"/><circle class="hb-led" cx="652" cy="44" r="2.5"/>
+        <rect class="hb-glow hb-work2" x="564" y="40" width="92" height="72"/>
+        <text class="hb-label" x="610" y="136">BAY &middot; WRITER</text><text class="hb-sub" x="610" y="152">turns it into the report</text>
+        <rect class="hb-machine lit" x="790" y="36" width="90" height="80"/><rect class="hb-inner" x="800" y="46" width="70" height="60"/><circle class="hb-led" cx="872" cy="44" r="2.5"/>
+        <text class="hb-label" x="835" y="136">OUTBOX</text><text class="hb-sub" x="835" y="152">finished work out</text>
+        <!-- riding crates -->
+        <g class="hb-ride"><rect class="hb-crate" x="100" y="64" width="20" height="20"/><rect class="hb-crate-top" x="100" y="64" width="20" height="5"/></g>
+        <g class="hb-ride d2"><rect class="hb-crate" x="100" y="64" width="20" height="20"/><rect class="hb-crate-top" x="100" y="64" width="20" height="5"/></g>
+      </svg>
+      <div class="flow-cap">// the box you watch ride a belt and the agent that picks it up are the same routing plan &mdash; a factory game where the factory is real</div>
+    </div>
+    <div class="flow-story" data-reveal="stagger">
+      <div class="fs"><span class="fs-n">1</span><p>You hand the station a job: <b>&ldquo;put together a report on my competitors.&rdquo;</b> It shows up as a box on the belt.</p></div>
+      <div class="fs"><span class="fs-n">2</span><p>The box reaches the first desk. <b>The researcher does their part</b> &mdash; a real model run with real tools, timed on screen.</p></div>
+      <div class="fs"><span class="fs-n">3</span><p>What they produced rides on to the next desk. <b>The writer turns it into the report.</b></p></div>
+      <div class="fs"><span class="fs-n">4</span><p><b>The finished report lands in the OUTBOX.</b> Click it to read it, rate it, and the next pass learns from your verdict.</p></div>
+    </div>
+    <div class="flow-cta" data-reveal>
+      <a class="btn" href="docs/guides/conveyors.html">[ HOW CONVEYORS WORK ]</a>
+      <a class="btn" href="docs/guides/first-line.html">[ DROP A READY-MADE LINE ]</a>
+      <span class="fine">Filters sort work by content, splitters fan it across a crew, joiners wait for every branch, loops send drafts round for revision &mdash; all belts and one signpost each.</span>
+    </div>
+  </section>
+
+  <!-- ===== features ===== -->
+  <section id="difference" class="section">
+    <div class="section-head">
+      <span class="section-no">03</span>
       <h2>FEATURES</h2>
     </div>
-    <ul class="contract distinctions">
-      <li><b>It finds work before you assign it.</b> Your crew keeps a dossier on its commander &mdash; goals, taste, strengths &mdash; studies what you ship, and comes back with proposals: new specialists, new missions, new beliefs about what you need. Everything is propose-and-confirm; nothing joins the station without your yes.</li>
-      <li><b>Workflows you build with your hands.</b> Lay conveyor belts, junctions, filters, and splitters across the floor and the station compiles them into the routing plan the server actually executes. The box you watch ride a belt to a bay and the agent that picks it up are provably the same plan &mdash; a factory game where the factory is real.</li>
-      <li><b>Level up by shipping your life.</b> Tell the station your real goals and it decomposes them into milestone quests advanced only by real completed work. Approve a delivery and XP mints from your verdict &mdash; agent levels and a station level that record what actually shipped. Meters describe, never gate: full power from minute one.</li>
-      <li><b>A recommender with a spine.</b> One suggestion at a time, and only with evidence &mdash; a recommendation that can't say <i>why</i> is dropped. It ranks ~100 built-in mission recipes and every agent class against your real work history, and authors a bespoke specialist when nothing on the shelf fits.</li>
-      <li><b>Every agent remembers.</b> Each crew member keeps its own long-term notebook across runs &mdash; memories earn trust when they prove useful, decay when they go stale, and anything you strike is never proposed again.</li>
-      <li><b>A crew that's actually yours.</b> 22 curated classes plus a deep specialist archive, custom classes, per-agent personalities, skins &mdash; and a full build mode for the station itself: rooms, floors, walls, and a ~120-prop catalog where placed gear is real capability.</li>
-      <li><b>Work sharpens itself.</b> Rate a delivery and the next pass is built from what you valued. Routines compound instead of decaying.</li>
-      <li><b>Night Shift.</b> The station keeps working while you're away &mdash; inside your leash, sandboxed, honest morning report, and a decision ledger that records every overnight action <i>and the reason it fired</i>.</li>
-      <li><b>It drives a real browser.</b> Agents don't guess from a search snippet &mdash; they navigate, read, click, and type on the live page, and report what the page actually said.</li>
-      <li><b>Reach it from anywhere.</b> Pair Telegram, Discord, Slack, Matrix, or Signal and your station reports in and takes orders while you're out. One E-STOP &mdash; on screen or Alt+H &mdash; halts every live run everywhere.</li>
-      <li><b>Talk to it.</b> Hands-free Live Voice runs on a speech engine built into the app &mdash; no key, no account, and your voice never leaves the machine. Identical on every provider, because it doesn't use one.</li>
-      <li><b>Agents summon agents.</b> Give one agent a big job and it can dispatch subtasks to crew it summons, then fold the results back &mdash; you watch the whole tree run on the floor.</li>
-      <li><b>Nothing fake, ever.</b> The app never shows state the harness can't prove. No fake progress, no invented counters, real costs &mdash; an append-only ledger records every run's true spend.</li>
-      <li><b>Local-first, your keys.</b> Everything stays on your machine. OpenRouter key or OAuth sign-in. Zero telemetry &mdash; <a href="legal/privacy.html">we collect nothing</a>.</li>
-      <li><b>Plays well with other harnesses.</b> An MCP bridge and OpenAI-style endpoint let Claude Code, Hermes, or OpenClaw drive your station. <a href="docs/migrating.html">Coming from one of those?</a></li>
+    <ul class="feat-grid" data-reveal="stagger">
+      <li class="feat"><span class="f-glyph">&#9673;</span><h3>IT FINDS WORK BEFORE YOU ASSIGN IT</h3><p>Your crew keeps a dossier on its commander &mdash; goals, taste, strengths &mdash; studies what you ship, and comes back with proposals: new specialists, new missions, new beliefs about what you need. Everything is propose-and-confirm; nothing joins the station without your yes.</p></li>
+      <li class="feat"><span class="f-glyph">&#9636;</span><h3>WORKFLOWS YOU BUILD WITH YOUR HANDS</h3><p>Lay belts, filters, splitters, joiners, and loops across the floor and the station compiles them into the routing plan the server actually executes. The box on the belt and the agent that picks it up are provably the same plan.</p></li>
+      <li class="feat"><span class="f-glyph">&#9650;</span><h3>LEVEL UP BY SHIPPING YOUR LIFE</h3><p>Tell the station your real goals and it breaks them into milestone quests advanced only by real completed work. Rate a finished run <i>nailed it</i> and XP mints from your verdict &mdash; a station level that records what actually shipped. Meters describe, never gate: full power from minute one.</p></li>
+      <li class="feat"><span class="f-glyph">&#9670;</span><h3>A RECOMMENDER WITH A SPINE</h3><p>One suggestion at a time, and only with evidence &mdash; a recommendation that can't say <i>why</i> is dropped. It ranks 101 built-in mission recipes and every class against your real work history, and drafts a bespoke specialist when nothing on the shelf fits.</p></li>
+      <li class="feat"><span class="f-glyph">&#9672;</span><h3>EVERY AGENT REMEMBERS</h3><p>Each crew member keeps its own long-term notebook across runs. You keep, edit, or discard every memory before it sticks; trust grows when a memory proves useful and halves every 30 days it goes unused.</p></li>
+      <li class="feat"><span class="f-glyph">&#9787;</span><h3>A CREW THAT'S ACTUALLY YOURS</h3><p>35 curated classes plus a 20-deep specialist archive, custom classes, per-agent personalities, 36 skins &mdash; and a full build mode for the station itself: rooms, floors, walls, and a prop catalog where placed gear is real capability.</p></li>
+      <li class="feat"><span class="f-glyph">&#8635;</span><h3>WORK SHARPENS ITSELF</h3><p>Rate a delivery and the next pass is built from what you valued. Routines compound instead of decaying.</p></li>
+      <li class="feat"><span class="f-glyph">&#9790;</span><h3>NIGHT SHIFT</h3><p>The station keeps working while you're away &mdash; inside a leash you set (jobs per day, how far an action may reach), sandboxed by default, with an honest morning report and a decision ledger that records every overnight action <i>and the reason it fired</i>.</p></li>
+      <li class="feat"><span class="f-glyph">&#9635;</span><h3>IT DRIVES A REAL BROWSER</h3><p>Agents don't guess from a search snippet &mdash; they navigate, read, click, and type on the live page, and report what the page actually said.</p></li>
+      <li class="feat"><span class="f-glyph">&#9993;</span><h3>REACH IT FROM ANYWHERE</h3><p>Pair Telegram, Discord, Slack, Matrix, or Signal and your station reports in and takes orders while you're out. One E-STOP &mdash; on screen or <kbd>Alt</kbd>+<kbd>H</kbd> &mdash; halts every live run everywhere, and every waiting chat is told so.</p></li>
+      <li class="feat"><span class="f-glyph">&#9835;</span><h3>TALK TO IT</h3><p>Hands-free Live Voice runs on a speech engine built into the app &mdash; no key, no account, and your voice never leaves the machine. Identical on every provider, because it doesn't use one.</p></li>
+      <li class="feat"><span class="f-glyph">&#10070;</span><h3>AGENTS SUMMON AGENTS</h3><p>Give one agent a big job and it can dispatch subtasks to crew it summons, then fold the results back &mdash; you watch the whole tree run on the floor.</p></li>
+      <li class="feat"><span class="f-glyph">&#9632;</span><h3>NOTHING FAKE, EVER</h3><p>The app never shows state the harness can't prove. No fake progress, no invented counters, real costs &mdash; an append-only ledger records every run's true spend.</p></li>
+      <li class="feat"><span class="f-glyph">&#9919;</span><h3>LOCAL-FIRST, YOUR KEYS</h3><p>Everything stays on your machine. 18 providers, three no-key OAuth sign-ins, a free local option, or StarNet credits. Zero telemetry &mdash; <a href="legal/privacy.html">we collect nothing</a>.</p></li>
+      <li class="feat"><span class="f-glyph">&#8646;</span><h3>PLAYS WELL WITH OTHER HARNESSES</h3><p>An MCP bridge and OpenAI-style endpoint let Claude Code, Hermes, or OpenClaw drive your station. <a href="docs/migrating.html">Coming from one of those?</a></p></li>
     </ul>
+  </section>
+
+  <!-- ===== field manual ===== -->
+  <section id="manual" class="section">
+    <div class="section-head">
+      <span class="section-no">04</span>
+      <h2>FIELD MANUAL</h2>
+    </div>
+    <p class="dl-sub" data-reveal>Short picture guides, five minutes each. Every step read off the shipped code, not off a plan. Start with the first one.</p>
+    <div class="fm-teaser" data-reveal="stagger">
+      <a class="fmq" href="docs/guides/first-line.html"><div class="q-art"><span class="q-glyph">&#9654;</span></div><div class="q-body"><span class="q-title">YOUR FIRST WORKING LINE</span><p class="q-blurb">Don't want to build? Drop a ready-made line in one click and send it a job.</p><span class="q-meta">START &middot; ~4 MIN</span></div></a>
+      <a class="fmq" href="docs/guides/conveyors.html"><div class="q-art"><svg viewBox="0 0 200 60" aria-hidden="true"><rect class="hb-belt" x="10" y="20" width="180" height="20"/><line class="hb-rail" x1="10" y1="20" x2="190" y2="20"/><line class="hb-rail" x1="10" y1="40" x2="190" y2="40"/><g class="hb-chev"><polyline points="30,24 36,30 30,36"/><polyline points="60,24 66,30 60,36"/><polyline points="90,24 96,30 90,36"/><polyline points="120,24 126,30 120,36"/><polyline points="150,24 156,30 150,36"/></g><rect class="hb-crate" x="100" y="21" width="16" height="16"/><rect class="hb-crate-top" x="100" y="21" width="16" height="4"/></svg></div><div class="q-body"><span class="q-title">HOW CONVEYORS WORK</span><p class="q-blurb">What the moving boxes are, how to build a line, and how to read what the floor is telling you.</p><span class="q-meta">START HERE &middot; ~5 MIN</span></div></a>
+      <a class="fmq" href="docs/guides/crew.html"><div class="q-art"><img src="docs/guides/props/comms_dish.png" alt="" width="64" height="64"></div><div class="q-body"><span class="q-title">YOUR CREW &amp; THEIR GEAR</span><p class="q-blurb">Recruit agents, one desk each, and switch on real abilities by placing gear.</p><span class="q-meta">~4 MIN</span></div></a>
+      <a class="fmq" href="docs/guides/channels.html"><div class="q-art"><span class="q-glyph">&#9993;</span></div><div class="q-body"><span class="q-title">RUN IT FROM YOUR PHONE</span><p class="q-blurb">Your agents, in your chat app. Telegram, Discord, Slack, Matrix or Signal.</p><span class="q-meta">~3 MIN</span></div></a>
+    </div>
+    <div class="fm-more" data-reveal>
+      <a class="btn" href="docs/guides/index.html">[ ALL GUIDES ]</a>
+      <span class="fine">Also: sorting work with a filter, parallel crews, goals &amp; XP, Night Shift, skills &amp; routines.</span>
+    </div>
   </section>
 
   <!-- ===== download ===== -->
   <section id="download" class="section">
     <div class="section-head">
-      <span class="section-no">03</span>
+      <span class="section-no">05</span>
       <h2>DOWNLOAD STARNET</h2>
     </div>
-    <p class="dl-sub"><b>The public release train targets Windows and macOS.</b> Release assets appear on the <a id="rel-page" href="https://github.com/androoAGI/starnet-releases/releases/latest" target="_blank" rel="noopener">releases page</a> after its signing, notarization, and updater-signature gates pass. Current stable version: <span class="ver">v0.9.0</span>. The live preview and docs track current source and may show work landing in the next signed release.</p>
-    <div class="dl-grid">
+    <p class="dl-sub" data-reveal><b>The public release train targets Windows and macOS.</b> Release assets appear on the <a id="rel-page" href="https://github.com/androoAGI/starnet-releases/releases/latest" target="_blank" rel="noopener">releases page</a> after its signing, notarization, and updater-signature gates pass. Current stable version: <span class="ver">v0.10.13</span>. The live preview and docs track current source and may show work landing in the next signed release.</p>
+    <div class="dl-grid" data-reveal="stagger">
       <article class="dl-card" data-os="windows">
         <div class="dl-os">WINDOWS</div>
         <div class="dl-req">Windows 10 / 11 &middot; 64-bit</div>
@@ -164,38 +238,60 @@
         <div class="dl-note">Not sure which Mac you have? Apple menu &rarr; About This Mac &mdash; "Intel" means this one. Stop and report any Gatekeeper trust failure.</div>
       </article>
     </div>
-    <div class="source-run">
+    <div class="source-run" data-reveal>
       <div class="source-run-head">// prefer to run from source? node 18+ is all you need</div>
+      <pre><code id="src-cmd">git clone https://github.com/androoAGI/starnet.git
+cd starnet &amp;&amp; npm install &amp;&amp; npm start</code></pre>
+      <button class="btn btn-small" type="button" data-copy="#src-cmd">[ COPY ]</button>
+      <div class="source-run-note">Opens the station at <code>http://localhost:8787</code>. Same app, same sidecar, no installer &mdash; keys stay in a local file instead of the OS keychain.</div>
+    </div>
     <p class="dl-honesty">// honesty note: public-train requirements are not installed proof for a particular asset. The train fails closed unless Windows is Authenticode-signed and timestamped, both Mac builds are Developer-ID-signed and notarized, and updater signatures verify. Manual test builds can be unsigned and are not public releases. Linux is not a supported public target. See the <a href="docs/getting-started.html">getting-started guide</a>, and report any trust failure to <a href="mailto:androo.agi@gmail.com">androo.agi@gmail.com</a>.</p>
   </section>
 
   <!-- ===== docs ===== -->
   <section id="docs" class="section">
     <div class="section-head">
-      <span class="section-no">04</span>
-      <h2>DOCS</h2>
+      <span class="section-no">06</span>
+      <h2>DOCS &amp; HELP</h2>
     </div>
-    <p class="docs-links">
-      <a href="docs/getting-started.html">GETTING STARTED</a>
-      <a href="docs/providers.html">PROVIDERS &amp; KEYS</a>
-      <a href="docs/station.html">THE STATION</a>
-      <a href="docs/agents.html">AGENTS &amp; TEAMS</a>
-      <a href="docs/autonomy.html">NIGHT SHIFT</a>
-      <a href="docs/skills.html">SKILLS &amp; ROUTINES</a>
-      <a href="docs/connect-a-platform.html">CONNECT A PLATFORM</a>
-      <a href="docs/connectors.html">CONNECTORS</a>
-      <a href="docs/migrating.html">FROM OPENCLAW / HERMES</a>
-      <a href="docs/troubleshooting.html">TROUBLESHOOTING</a>
-    </p>
+    <div class="docs-groups" data-reveal="stagger">
+      <div class="dg"><div class="dg-title">START HERE</div>
+        <a href="docs/getting-started.html">GETTING STARTED</a>
+        <a href="docs/guides/first-line.html">YOUR FIRST WORKING LINE</a>
+        <a href="docs/providers.html">PROVIDERS &amp; KEYS</a>
+      </div>
+      <div class="dg"><div class="dg-title">FIELD MANUAL</div>
+        <a href="docs/guides/conveyors.html">HOW CONVEYORS WORK</a>
+        <a href="docs/guides/filter.html">SORTING WITH A FILTER</a>
+        <a href="docs/guides/splitter-joiner.html">SPLITTER &amp; JOINER</a>
+        <a href="docs/guides/goals.html">GOALS, QUESTS &amp; XP</a>
+        <a href="docs/guides/night-shift.html">NIGHT SHIFT</a>
+        <a href="docs/guides/routines.html">SKILLS, RECIPES &amp; ROUTINES</a>
+      </div>
+      <div class="dg"><div class="dg-title">REFERENCE</div>
+        <a href="docs/station.html">THE STATION</a>
+        <a href="docs/agents.html">AGENTS &amp; TEAMS</a>
+        <a href="docs/autonomy.html">AUTONOMY &amp; NIGHT SHIFT</a>
+        <a href="docs/connect-a-platform.html">CONNECT A PLATFORM</a>
+        <a href="docs/connectors.html">CONNECTORS &amp; INTEROP</a>
+        <a href="docs/migrating.html">FROM OPENCLAW / HERMES</a>
+      </div>
+      <div class="dg"><div class="dg-title">HELP</div>
+        <a href="docs/help.html">HELP CENTER</a>
+        <a href="docs/troubleshooting.html">TROUBLESHOOTING</a>
+        <a href="docs/shortcuts.html">KEYBOARD SHORTCUTS</a>
+        <a href="docs/glossary.html">GLOSSARY</a>
+      </div>
+    </div>
   </section>
 
   <!-- ===== FAQ ===== -->
   <section id="faq" class="section">
     <div class="section-head">
-      <span class="section-no">05</span>
+      <span class="section-no">07</span>
       <h2>FAQ</h2>
     </div>
-    <div class="faq">
+    <div class="faq" data-reveal="stagger">
       <details>
         <summary>Is StarNet free?</summary>
         <p>The software is MIT-licensed open source and free to run. Model usage costs whatever your provider charges &mdash; you bring your own API key (or OAuth account), and StarNet shows you real cost per run. No markup, no subscription required to use your own keys.<span data-pricing-link hidden> If you'd rather not manage keys at all, <a href="pricing.html">StarNet Credits</a> are an optional managed plan &mdash; never required.</span></p>
@@ -205,12 +301,20 @@
         <p>Yes &mdash; that's the whole point. Every agent run is a real model call with real tools; files get written, browsers get driven, and the ledger records real cost. The station never renders state the harness can't prove. If it looks like an agent is working, it is.</p>
       </details>
       <details>
+        <summary>Do I have to build conveyor belts to use it?</summary>
+        <p>No. Chatting with an agent from COMMS needs no belts at all. Belts are for real jobs &mdash; work with several parts, or work that should flow through several agents on its own, especially while you're away. The <a href="docs/guides/conveyors.html">conveyor guide</a> shows the whole idea in five minutes, and the <a href="docs/guides/first-line.html">LINES tool</a> drops a finished line in one click.</p>
+      </details>
+      <details>
         <summary>Where does my data live?</summary>
         <p>On your machine. Station state, transcripts, memory, and ledgers live in your local StarNet workspace. Requests go to your model provider only when an agent runs, and to the wider network only when you explicitly grant a network tool or connector.</p>
       </details>
       <details>
         <summary>What do I need to start?</summary>
-        <p>A Windows or macOS machine and one model provider: an OpenRouter API key works everywhere, or use a supported OAuth sign-in. That's it &mdash; full power from minute one, nothing gated behind progression.</p>
+        <p>A Windows or macOS machine and one model provider: an OpenRouter API key works everywhere, a ChatGPT, Grok, or Kimi sign-in needs no key at all, and Ollama runs free and fully local. That's it &mdash; full power from minute one, nothing gated behind progression.</p>
+      </details>
+      <details>
+        <summary>Can it spend money without me noticing?</summary>
+        <p>No. Every conveyor line has a per-job budget ($2.00 unless you raise it, $50 ceiling) and an optional per-day cap; the BUDGET panel adds hard per-run, per-agent, per-day, and global caps the sidecar enforces against the real ledger. Night Shift is limited to a number of unattended jobs per day you choose, and the E-STOP halts everything at once.</p>
       </details>
       <details>
         <summary>Why does my OS warn me during install?</summary>
@@ -221,23 +325,27 @@
 
 </main>
 
+<a class="to-top" href="#top" aria-label="Back to top">&uarr; TOP</a>
+
 <footer class="footer">
   <div class="footer-line">STARNET &middot; a living station of AI agents, doing real work in the dark</div>
   <div class="footer-links">
+    <a href="#top">HOME</a>
     <a href="https://github.com/androoAGI/starnet" target="_blank" rel="noopener">GITHUB</a>
     <a href="https://github.com/androoAGI/starnet-releases/releases/latest" target="_blank" rel="noopener">RELEASES</a>
-    <a href="pricing.html" data-pricing-link hidden>PRICING</a>
+    <a href="pricing.html" data-pricing-link>PRICING</a>
     <a href="docs/index.html">DOCS</a>
-    <a href="docs/getting-started.html">INSTALL GUIDE</a>
-    <a href="https://github.com/androoAGI/starnet/issues" target="_blank" rel="noopener">COMMUNITY / SUPPORT</a>
+    <a href="docs/guides/index.html">FIELD MANUAL</a>
+    <a href="docs/help.html">HELP</a>
+    <a href="https://github.com/androoAGI/starnet/issues" target="_blank" rel="noopener">COMMUNITY</a>
     <a href="legal/privacy.html">PRIVACY</a>
     <a href="legal/terms.html">TERMS</a>
     <a href="mailto:androo.agi@gmail.com">CONTACT</a>
   </div>
-  <div class="footer-fine">MIT license &middot; <span id="ver-foot">v0.9.0</span> &middot; &copy; <span id="year">2026</span> StarNet &middot; no telemetry, no tracking &mdash; <a href="legal/privacy.html">we collect nothing</a></div>
+  <div class="footer-fine">MIT license &middot; <span id="ver-foot">v0.10.13</span> &middot; &copy; <span id="year">2026</span> StarNet &middot; no telemetry, no tracking &mdash; <a href="legal/privacy.html">we collect nothing</a></div>
 </footer>
 
-<script src="site.js?v=20260811-credits-live"></script>
+<script src="site.js?v=20260903"></script>
 <script src="live-preview.js?v=20260809"></script>
 </body>
 </html>

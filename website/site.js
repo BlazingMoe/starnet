@@ -1,20 +1,19 @@
-/* StarNet site — boot sequence, platform detect, live release links */
+/* StarNet site — boot sequence, platform detect, live release links, motion */
 (function(){
   'use strict';
 
   // The network lookup below remains authoritative. This is the last signed public
   // release so an offline/rate-limited page never falls back to an older train.
-  var FALLBACK_VERSION = '0.9.0';
+  var FALLBACK_VERSION = '0.10.13';
 
   // Pricing page is written but deliberately NOT deployed (Andrew, 2026-08-02). Every link to
   // it is marked data-pricing-link and hidden while this is false, so the site never offers a
   // link that silently lands on the homepage. Flip to true in the same commit that ships
   // pricing.html and the links come back everywhere at once — EXCEPT the docs and legal pages,
   // which do not load this script (adding it there would break the privacy page's "the download
-  // page makes ONE api.github.com request" disclosure), so their topnav PRICING entry was
-  // deleted outright and has to be re-added by hand: `<a href="../pricing.html">PRICING</a>`.
-  // legal/terms.html also cites the pricing page in the body of clause 2 as forming part of the
-  // terms; that citation is a legal question, not a link-visibility one, and is left in place.
+  // page makes ONE api.github.com request" disclosure). scripts/website-shell.mjs stamps their
+  // PRICING links as plain anchors; scripts/stage-website-deploy.mjs reads this flag to decide
+  // whether pricing.html publishes at all, so the two stay in step by construction.
   var PRICING_LIVE = true;
   // Mark the whole sentence, not just the <a>, wherever pricing is mentioned mid-paragraph —
   // hiding a bare link would leave the surrounding prose referring to a page nobody can reach.
@@ -47,6 +46,8 @@
     });
   })();
 
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   /* ---------- boot sequence (once per session) ---------- */
   var bootLines = [
     '> STARNET TERMLINK',
@@ -66,9 +67,9 @@
       flash.hidden = false;
       setTimeout(function(){ flash.hidden = true; }, 560);
     }
+    startTagline();
   }
 
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var booted = false;
   try{ booted = sessionStorage.getItem('sn-booted') === '1'; }catch(e){}
 
@@ -77,6 +78,7 @@
     /* nothing to play */
   }else if(booted || reduce){
     boot.classList.add('hidden');
+    startTagline();
   }else{
     var linesEl = document.getElementById('boot-lines');
     var step = 260;
@@ -92,6 +94,24 @@
     window.addEventListener('keydown', function onKey(){ endBoot(false); window.removeEventListener('keydown', onKey); });
   }
 
+  /* ---------- hero tagline types itself once the terminal is up ---------- */
+  var taglineStarted = false;
+  function startTagline(){
+    if(taglineStarted) return; taglineStarted = true;
+    var tl = document.querySelector('.hero .tagline');
+    if(!tl || reduce || booted) return;                  // returning visitors get the final frame
+    var textNode = tl.firstChild;
+    if(!textNode || textNode.nodeType !== 3) return;
+    var full = textNode.nodeValue, i = 0;
+    textNode.nodeValue = '';
+    tl.classList.add('typing');
+    (function tick(){
+      textNode.nodeValue = full.slice(0, ++i);
+      if(i < full.length) setTimeout(tick, full[i-1] === ' ' ? 60 : 34);
+      else tl.classList.remove('typing');
+    })();
+  }
+
   /* ---------- platform detection ---------- */
   function detectOS(){
     var ua = navigator.userAgent || '';
@@ -105,7 +125,6 @@
   }
 
   var os = detectOS();
-  var osLabels = { 'windows':'WINDOWS', 'mac-arm':'MACOS', 'mac-intel':'MACOS' };
   if(os){
     var card = document.querySelector('.dl-card[data-os="' + os + '"]');
     if(card) card.classList.add('detected');
@@ -156,4 +175,47 @@
   /* ---------- year ---------- */
   var y = document.getElementById('year');
   if(y) y.textContent = String(new Date().getFullYear());
+
+  /* ---------- sticky topbar state + scroll-spy on section links ---------- */
+  var topbar = document.getElementById('topbar') || document.querySelector('.topbar');
+  var toTop = document.querySelector('.to-top');
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll('.topnav a[href^="#"]'));
+  var spied = navLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function onScroll(){
+    var sy = window.scrollY || document.documentElement.scrollTop;
+    if(topbar) topbar.classList.toggle('scrolled', sy > 24);
+    if(toTop) toTop.classList.toggle('show', sy > 700);
+    if(spied.length){
+      var cur = -1;
+      for(var i = 0; i < spied.length; i++) if(spied[i] && spied[i].offsetTop - 140 <= sy) cur = i;
+      navLinks.forEach(function(a, i){ a.classList.toggle('on', i === cur); });
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+
+  /* ---------- reveal on scroll (additive; nothing is hidden without JS) ---------- */
+  if(!reduce && 'IntersectionObserver' in window){
+    var targets = Array.prototype.slice.call(document.querySelectorAll('[data-reveal]'));
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){ if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); } });
+    }, { rootMargin:'0px 0px -10% 0px', threshold:0.05 });
+    targets.forEach(function(el){
+      el.classList.add(el.getAttribute('data-reveal') === 'stagger' ? 'rv-stagger' : 'rv');
+      io.observe(el);
+    });
+    document.querySelectorAll('.section-head').forEach(function(el){ io.observe(el); });
+    // above-the-fold content must not wait for a scroll event
+    setTimeout(function(){ targets.forEach(function(el){ if(el.getBoundingClientRect().top < window.innerHeight) el.classList.add('in'); }); }, 80);
+  }
+
+  /* ---------- feature cards: pointer-tracked glow ---------- */
+  if(!reduce && window.matchMedia && window.matchMedia('(hover:hover)').matches){
+    document.querySelectorAll('.feat').forEach(function(card){
+      card.addEventListener('pointermove', function(e){
+        var r = card.getBoundingClientRect();
+        card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
+        card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+      });
+    });
+  }
 })();
