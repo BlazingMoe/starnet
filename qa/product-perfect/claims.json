@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "4e658221da42df4f7c7642399198e8d1dd252480",
+    "sourceCommit": "077cfbceb56f609ee968e26a1b2b05910da68b1c",
     "pathSetSha256": "2b7cbf80ad078c2725bc3712c7f3822f5b3ac61b46d51ae1ff6deabf15892290",
     "files": [
       {
@@ -63,8 +63,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 373040,
-        "sha256": "84251df377122fd9d93303577c4fd7b7fff4e10a7906be3ce5eb2783c4ebc369"
+        "bytes": 373063,
+        "sha256": "2a25c68661b7735aded7f819452e11aaf7798241b012139e9a193eceb4126bd5"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -193,8 +193,8 @@
       },
       {
         "path": "frontend/app/crtlab.js",
-        "bytes": 18590,
-        "sha256": "022c7b3b10ebcbc445f434acaf45eaa9c035c8a6f15b0aae675b43ad1341d9a6"
+        "bytes": 18596,
+        "sha256": "0656e7be42d38154fc7a27a52fe0e9faf19fd1530948072f066bc099d8dd1d37"
       },
       {
         "path": "frontend/app/ctxgauge.js",
@@ -503,8 +503,8 @@
       },
       {
         "path": "frontend/app/propsprites.js",
-        "bytes": 742202,
-        "sha256": "67856a295ec67aab83dadcf5f54688e276bf1f2ab0e04a934f71634ef8777836"
+        "bytes": 742330,
+        "sha256": "5343f0584d16f4d2cb48926fff1c144617586caeec306a07d5b7ce47b02a2b14"
       },
       {
         "path": "frontend/app/prospect.js",
@@ -733,8 +733,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 283322,
-        "sha256": "7e63b4fec16ec4d19b1c0241a94aa52a36c8e026fd826cba384b3177ac0bef1c"
+        "bytes": 283953,
+        "sha256": "e0101153cc5586f761dcbba7461dff6ed298691b9ae631bc9341bd7171692369"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -968,8 +968,8 @@
       },
       {
         "path": "frontend/app/worldmodel.js",
-        "bytes": 155407,
-        "sha256": "d9c1f55bbe54508ad83b40f65e825c5f862b8072f59b6bd92f293ed3adb3b351"
+        "bytes": 156062,
+        "sha256": "dd7d8b8a7f093e3d9ff417430d95807bb3b0cb35d648a832e9756a1c4efbaefc"
       },
       {
         "path": "frontend/app/xp.js",
@@ -1013,8 +1013,8 @@
       },
       {
         "path": "frontend/css/panelchrome.css",
-        "bytes": 10449,
-        "sha256": "c590a359dbf42ee7d9d14761ea7d6989394a8a375c7abc30c79125d14d4b9cae"
+        "bytes": 11545,
+        "sha256": "eaf34a05e7c47a6a9e82beccf771db6f43f69794091e81edf93408c70f6de7ce"
       },
       {
         "path": "frontend/css/refit.css",
