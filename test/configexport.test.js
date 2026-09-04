@@ -33,6 +33,8 @@ const env = C.buildExport({
     id: 'stdio-sec', transport: 'stdio', command: 'node',
     args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok'],
     env: { ACCESS: 'ENV_SECRET_WITH_INNOCENT_NAME' }, agentId: 'lead', cwd: 'C:/work', enabled: false
+  }, {
+    id: 'bad-url', transport: 'http', url: 'https://bad host/mcp?opaque=MALFORMED_URL_SECRET'
   }],
   notifyPrefs: { runComplete: true, sound: false }
 }, { now: 123, app: 'StarNet' });
@@ -74,9 +76,10 @@ ok(stdio.args.some(x => x === '--api-token=<redacted>'), 'inline secret argument
 ok(stdio.args.some(x => x === '<redacted>'), 'value following a secret flag is scrubbed');
 ok(stdio.args.some(x => /access_token=%3Credacted%3E/.test(x)), 'secret URL argument is scrubbed');
 const exportBytes = JSON.stringify(env);
-for (const secret of ['SEKRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME']) {
+for (const secret of ['SEKRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
   ok(exportBytes.indexOf(secret) < 0, 'connector secret excluded: ' + secret);
 }
+eq(env.sections.connectors[2].url, '<redacted>', 'an invalid URL is excluded because its auth material cannot be parsed safely');
 
 // ---- round-trip: parseImport recovers the non-secret config ----
 const p = C.parseImport(env);
@@ -86,7 +89,7 @@ eq(p.sections.budget.perRun, 2, 'budget round-trips');
 eq(p.sections.fallback.models.length, 2, 'fallback round-trips');
 eq(p.sections.roster[0].model, 'x/y', 'roster metadata round-trips');
 eq(p.sections.permissions.allow.length, 2, 'permissions round-trip');
-ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 2, 'both redacted connectors surface re-enter-your-key prompts');
+ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 3, 'all redacted connectors surface re-enter-your-key prompts');
 eq(p.secretsNeeded[0].id, 'gh', 'the secretsNeeded prompt names the connector');
 eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
 eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');

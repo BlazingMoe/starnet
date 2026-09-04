@@ -115,7 +115,11 @@
         if (u.username || u.password || u.searchParams.toString()) urlHadAuth = true;
         u.username = ''; u.password = ''; u.search = '';
         url = u.toString();
-      } catch (_) { /* not a parseable url — leave as-is (best effort) */ }
+      } catch (_) {
+        // An invalid URL cannot be separated safely into public routing data and private auth material.
+        // Fail closed: keep a re-entry marker, never copy the opaque value into a portable backup.
+        url = '<redacted>'; urlHadAuth = true;
+      }
     }
     const redactedFields = hdr.redacted.concat(env.redacted, args.redacted)
       .concat(urlHadAuth ? ['url:auth'] : [])
