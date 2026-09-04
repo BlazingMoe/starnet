@@ -44,7 +44,9 @@ A.ok(warm(glow) > warm(oldGlow), 'animated shimmer shifts warmer rather than mer
    went up a notch. `floor` (the additive warm pool that puts light ON the deck) and `pitch` (the
    fixture grid) deliberately did NOT move — dimming those flattens the model instead of dimming
    the room, which is the failure this file exists to prevent. */
-const lightControls = { ambient: '0.82', pool: '0.85', room: '0.48', corridor: '0.34', door: '0.42', floor: '0.2', crown: '0.45', pitch: '8' };
+// Owner-directed visual hierarchy pass: stronger local pools, quieter broad fill.
+// Source temperature and the darkness floor remain unchanged.
+const lightControls = { ambient: '0.82', pool: '0.92', room: '0.34', corridor: '0.34', door: '0.42', floor: '0.2', crown: '0.45', pitch: '8' };
 for (const [key, value] of Object.entries(lightControls)) {
   const lock = new RegExp('\\b' + key + ': ' + value.replace('.', '\\.') + '(?:[, }])');
   A.ok(lock.test(bake), 'the shipped ' + key + ' lighting control remains ' + value);

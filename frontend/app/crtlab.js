@@ -14,7 +14,7 @@
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
-  const LIGHT_DEFAULTS = { ambient: 0.82, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, crown: 0.45, pitch: 8 };
+  const LIGHT_DEFAULTS = { ambient: 0.82, pool: 0.92, room: 0.34, corridor: 0.34, door: 0.42, floor: 0.2, crown: 0.45, pitch: 8 };
   // MUST MIRROR StationBake.SHAPE — same RESET-writes-these contract as WALL_DEFAULTS below.
   const SHAPE_DEFAULTS = { cornerN: 1 };
   /* MUST MIRROR StationBake.WALL EXACTLY — these are not just the readout's key list, RESET writes
@@ -22,7 +22,7 @@
      RESET restored a state that never shipped and side 12 pushed the wall band past the hull
      silhouette it is pinned to. Add a WALL knob, add it here. */
   const WALL_DEFAULTS = { up: 22, corUp: 12, skirt: 32, side: 7, capH: 4, sideCap: 5 };
-  const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
+  const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 0.72, deckSeam: 0.24, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
   // TUBE APERTURE — the CSS glass vignette over the feed (app.css :root --tube-*). NOT the barrel warp:
   // `curve` bows the picture, these dim its outer band, and they move independently. Seeded from the live
   // custom properties at build time so opening the lab can never itself change the shipped look.
@@ -48,7 +48,7 @@
     'Room: pre-08-08': { wall: { up: 14, corUp: 8, capH: 3 }, light: { pitch: 40 }, shape: { cornerN: 2 } },
     'Corner: chamfer': { shape: { cornerN: 1 } },
     'Corner: fillet':  { shape: { cornerN: 2 } },
-    'Depth+':          { crt: { dust: 0.5, aberr: 0.35, grain: 0.24 }, depth: { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1 } },
+    'Depth+':          { crt: { dust: 0.5, aberr: 0.35, grain: 0.24 }, depth: { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 0.72, deckSeam: 0.24, wallDetail: 1, poolAlbedo: 1 } },
     // A/B the WHOLE aperture — in-canvas vignette + overscan + the CSS glass together. `curve` is 0.09 in
     // every one of them: these change how much of the panel the picture gets, never how hard it bows.
     'Ap: old (tight)': { crt: { vig: 0.55, over: 1 },    tube: { clear: 50, mid: 82, midA: 0.34, edgeA: 0.82, inset: 60 } },

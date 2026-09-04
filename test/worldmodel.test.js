@@ -924,4 +924,17 @@ A.eq(JSON.stringify(WM.deserialize({ rooms: {}, order: [], props: [], edges: [{ 
   A.ok(lb.setPropLimits(ib.id, { maxHops: 'x' }).ok && !lb.propById(ib.id).limits, 'garbage clears rather than stores garbage');
 }
 
+{
+  const starter = WM.create(WM.starterDoc());
+  const desk = starter.ensureWorkstation('agent');
+  A.ok(desk.ok, 'composed starter has an approachable real agent desk');
+  A.ok(starter.canPlaceProp('intake', 4, 4, 2, 2).ok, 'starter leaves the central workflow lane free');
+  const restored = WM.deserialize(JSON.parse(JSON.stringify(starter.serialize())));
+  A.eq(restored.props().length, starter.props().length, 'starter furniture survives a save round-trip without duplicates');
+  A.eq(restored.ensureWorkstation('agent').id, desk.id, 'reload retains the assigned desk');
+  const old = WM.create();
+  const before = JSON.stringify(old.serialize().rooms);
+  A.eq(JSON.stringify(WM.deserialize(old.serialize()).serialize().rooms), before, 'existing station dimensions are never recomposed');
+}
+
 A.report('worldmodel');

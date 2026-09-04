@@ -254,9 +254,11 @@ const PropSprites = (() => {
     }
   };
   const shadow2 = (x, y, w) => {                 // soft 2-step contact shadow ON the floor line y
-    ctx.globalAlpha = 0.13; px(x - 1, y - 1, w + 2, 3, '#000');
-    ctx.globalAlpha = 0.24; px(x + 1, y, w - 2, 2, '#000');
-    ctx.globalAlpha = 1;
+    const alpha = ctx.globalAlpha;
+    ctx.globalAlpha = alpha * 0.09; px(x - 1, y - 1, w + 3, 4, '#000');
+    ctx.globalAlpha = alpha * 0.18; px(x, y, w, 2, '#000');
+    ctx.globalAlpha = alpha * 0.26; px(x + 1, y, Math.max(1, w - 2), 1, '#000');
+    ctx.globalAlpha = alpha;
   };
   const topFace = (x, y, w, d, r) => {           // foreshortened top surface, back edge catches light
     px(x - 1, y - 1, w + 2, d + 1, LINE);

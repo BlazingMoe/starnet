@@ -2372,6 +2372,20 @@ const WorldModel = (() => {
     create: doc => makeStation(doc),
     deserialize: doc => makeStation(clone(doc)),
     defaultDoc: freshDoc,
+    // Product entry composition. Keep the empty construction document available to
+    // importers and layout tools; existing saves never pass through this factory.
+    starterDoc() {
+      const doc = freshDoc();
+      const room = doc.rooms[doc.meta.spawnRoomId];
+      room.rects = [{ x1: 0, y1: 0, x2: 13, y2: 8 }];
+      room.name = 'HAB-01';
+      doc.props = [
+        { id: 'p' + doc._nid++, t: 'crate', x: 1, y: 1, w: 2, h: 1, block: true },
+        { id: 'p' + doc._nid++, t: 'rackV', x: 11, y: 1, w: 1, h: 2, block: true },
+        { id: 'p' + doc._nid++, t: 'plant', x: 11, y: 6, w: 1, h: 1, block: false }
+      ];
+      return doc;
+    },
     // pure helpers reused by the build layer
     normRect, rectW, rectH, rectsHit, inRect,
     // install the prop-type -> {mount, surface} lookup once for every station this module makes

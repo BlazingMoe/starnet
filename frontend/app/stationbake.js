@@ -157,7 +157,7 @@ const StationBake = (() => {
      THE CROWN LAW STILL HOLDS at these values (checked, don't assume): the wall's lit top reads
      59.6 against the hull skirt's 11.1 — the skirt hangs outside the ambient plate so it never
      moved, and a deeper plate is exactly what could have put the crown back UNDER it. */
-  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.48, corridor: 0.34, door: 0.42, floor: 0.2, crown: 0.45, pitch: 8 };   // crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.92, room: 0.34, corridor: 0.34, door: 0.42, floor: 0.2, crown: 0.45, pitch: 8 };   // crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
 
   /* live-tunable DEPTH FX — the CRT LAB writes these and re-bakes (same contract as LIGHT/WALL).
      Pure top-down 2D cosmetics that make the deck read a touch more 3D — never imply agent/run
@@ -187,7 +187,7 @@ const StationBake = (() => {
                     so it gets its own knob rather than being deleted. Scales ONLY the seam/bevel
                     steps — per-plate tone, material dressing and wear are untouched.
                     0 = a genuinely seamless deck · 1 = the old hard v3 grid. */
-  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 1, wallDetail: 1, deckSeam: 0.38, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 = Andrew's dialed value (2026-07-13 crtlab COPY VALUES)
+  const DEPTH = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.15, floorWear: 0.55, floorDetail: 0.72, wallDetail: 1, deckSeam: 0.24, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };   // dither 0.15 = Andrew's dialed value (2026-07-13 crtlab COPY VALUES)
 
   /* ============================ THE EXTERIOR SHELL (HULL SKINS) ============================
      Everything you see of a room from OUTSIDE: the plate surrounding its footprint, the texture
@@ -1207,7 +1207,10 @@ const StationBake = (() => {
       // FLOOR WEAR — a lived-in deck: hash-keyed scuffs, drag marks, worn-pale patches and
       // grime films over the plates above. Same idiom (opaque-ish 1px marks, deterministic on
       // the tile hash); DEPTH.floorWear scales alpha, 0 = the pristine pre-wear floor exactly.
-      const wear = Math.max(0, DEPTH.floorWear);
+      // Wear follows the central circulation lane; storage edges stay quieter.
+      // Geometry-derived dressing, not a claim about recorded foot traffic.
+      const lane = Math.abs(x - (r.x1 + r.x2) / 2) <= 1.5;
+      const wear = Math.max(0, DEPTH.floorWear) * (lane ? 1 : 0.35);
       if (wear > 0.001 && !MAT_NO_WEAR[mat]) {
         const wa = a => (a * wear).toFixed(3);
         if (n % 9 === 1) px(X + (n % 6), Y + 3 + (n % 8), 4 + (n % 3), 1, 'rgba(0,0,0,' + wa(0.18) + ')');          // boot scuff streak
@@ -1681,6 +1684,13 @@ const StationBake = (() => {
     px(X, rail, T, 2, sh(-0.22));
     px(X, rail, T, 1, sh(0.11));
     if (tx === 0) wallPilaster(b, sh, X, topY, footY, 3, false);
+    // Recessed access panels occupy alternate bays, leaving broad calm wall fields.
+    // Static housing only: no decorative status lamps or invented machine state.
+    if (tx === 1 && ((bay % 3) + 3) % 3 === 1 && h >= 14) {
+      px(X + 3, topY + 5, T - 6, Math.min(8, h - 9), sh(-0.17));
+      px(X + 3, topY + 5, T - 6, 1, sh(0.10));
+      px(X + T - 5, topY + 8, 1, 3, sh(0.16));
+    }
   }
 
   /* B · COURSES — riveted hull plating, all horizontal: three stacked courses, each with a lit top
@@ -2947,10 +2957,10 @@ const StationBake = (() => {
     b.restore();
   }
 
-  const lampCols = (r) => Math.max(1, Math.round((r.x2 - r.x1 + 1) / Math.max(2, LIGHT.pitch)));
+  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / Math.max(2, LIGHT.pitch)));
   function lampRows(Y, RH) {
     const y0 = Y + T * 1.6, yLast = Y + RH - T * 1.2;
-    const rows = Math.max(1, 1 + Math.round(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
+    const rows = Math.max(1, 1 + Math.floor(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
     return { rows, y0, step: rows > 1 ? (yLast - y0) / (rows - 1) : 0 };
   }
 
