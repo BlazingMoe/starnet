@@ -5609,6 +5609,7 @@ function isDocumentSourceAuthorized(root) {
   return blessedRoots().some(approved => { const rel = path.relative(approved, root); return !rel || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel)); });
 }
 const documentDiscovery = DiscoveryDocuments.makeDocumentDiscovery({ fsp, path, isBlessed: isDocumentSourceAuthorized,
+  canScan: root => personalizationStore.read().enabled && discoveryState.sources.some(s => s.enabled && s.root === root),
   hash: text => crypto.createHash('sha256').update(text).digest('hex') });
 const DISCOVERY_TICK_MS = Math.max(60 * 1000, Number(process.env.SKYNET_ENV_DISCOVERY_TICK_MS) || 15 * 60 * 1000);
 let discoveryState = (() => { try { const o = loadResilient(DISCOVERY_FILE, 'discovery'); return Discovery.normalize(o && o.state); } catch (_) { return Discovery.normalize(null); } })();
@@ -5765,7 +5766,7 @@ async function handleDiscoveryDecide(req, res) {
     const revision = documentSourceRevision;
     if (!source || source.root !== item.root || !personalizationStore.read().enabled) return json(409, { ok: false, error: 'source paused or revoked; scan again after enabling it' });
     const fresh = await documentDiscovery.scan(source, Date.now());
-    if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint)) {
+    if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint) || !discoveryState.staged.some(f => f.id === id)) {
       discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
       persistDiscovery();
       return json(409, { ok: false, error: 'source evidence changed; scan again before starting this work' });
