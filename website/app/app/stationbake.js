@@ -897,7 +897,7 @@ const StationBake = (() => {
   // FALLBACK ONLY — projected geometry always carries matOf, so this map is not what you see in
   // game. WorldModel.ROOM_KINDS[kind].mat is the authority; keep the two in step.
   const MAT_BY_KIND = { hab: 'spine', corridor: 'spine', bridge: 'panel', lab: 'tile', factory: 'tread', storage: 'tread', quarters: 'soft' };
-  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [2, 2], diamond: [1, 1], resin: [4, 4], ceramic: [3, 3], cargo: [3, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
+  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [4, 3], diamond: [1, 1], resin: [4, 4], ceramic: [3, 3], cargo: [3, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
   const MAT_NO_WEAR = { tile: 1, grate: 1, turf: 1, ceramic: 1, resin: 1 };   // gloss, open mesh, growth, and a poured or glazed floor take no boot scuffs   // gloss, open mesh and growth don't take boot scuffs
   // the room's deck material — the model's per-room choice when it has one, else the kind default
   // (a station built before the material axis existed has none, and bakes exactly as it always did).
@@ -1151,42 +1151,96 @@ const StationBake = (() => {
      read as a rhythm, they read as two black bars ruled across the floor. Do not reintroduce a
      full-height vertical line here without looking at a whole room first — the trench looked
      correct in every close-up and wrong in every wide shot, which is the trap this deck sets. */
+  /* SPINE — the station's DEFAULT deck, polished 2026-09-03 (Andrew: "keep the essence but make it way
+     nicer"). THE ESSENCE, restored: 4x3 BOLTED PANELS, brushed grain running with the panel, a recess
+     just inside each panel's own edge, four corner fixings, and no transverse line anywhere. The 2x2
+     diamond-crosshatch cut that briefly replaced this was a different floor wearing the same name.
+
+     WHAT "NICER" IS HERE, and it is all edge work rather than more marks:
+       · a proper BEVEL LADDER on the joint — dark channel, then a lit lip inside the north/west edges
+         and a shaded lip inside the south/east. Two steps per side instead of one, so a panel reads as
+         a thick plate set into the deck rather than a rectangle with a line round it;
+       · BRUSHED GRAIN with direction and variance — pairs of hairlines (one lighter, one darker, 1px
+         apart) on a 3px pitch, their phase keyed per panel, which is what a rolled steel sheet does
+         under a raking light. The old single-tone comb read as corduroy;
+       · per-panel tone spread widened, plus a slow diagonal LIGHT GRADE across each panel (lit at the
+         north-west corner, falling to the south-east) — the single biggest "this is a surface, not a
+         swatch" cue, and it is free;
+       · BOLTS rebuilt as real hardware: a countersunk well, a domed head lit north-west, a shadow
+         south-east and a 1px pin. They were three flat pixels;
+       · sparse, hash-keyed CHARACTER at panel scale — a weld bead along one joint in nine, a small
+         inspection plate, a scuff worn through to bright metal. Never more than one per panel.
+     Every mark is opaque and stepped (no washes), world-keyed (chunk-parity safe), and scaled by
+     floorDetail; the joint stays on DEPTH.deckSeam so a soft deck stays soft. */
   function deckSpine(b, base, x, y, X, Y, z, n, fd) {
-    /* SPINE, rebuilt to the reference (2026-09-03, Andrew's "Pixel Art Space Station" inspo): BIG BOLTED
-       PLATES. A plate is 2x2 tiles (24px) — large enough to read as a panel at zoom 2 — with a 2px dark seam
-       between plates, a 1px lit bevel inside the seam on the north/west edges and a 1px shaded bevel on the
-       south/east, a bolt in every corner, and a faint diamond cross-hatch across the body so the surface has
-       tooth. Contrast is the point: the old 1px ±0.03 marks vanished under the lightmap; these are authored
-       at the strength the reference uses (seam -0.55, bevel +0.18) and `deckSeam` still scales the joint. */
     const px = (a, c, w, h, col) => { b.fillStyle = col; b.fillRect(a, c, w, h); };
     const sh = d => shade(base, d * fd);
-    const sk = Math.max(0.35, DEPTH.deckSeam);   // a plate deck needs its joint: the knob dials it, it cannot delete it
-    const PW = 2, PH = 2;
-    const pcx = Math.floor(x / PW), pcy = Math.floor(y / PH);
-    const lx = ((x % PW) + PW) % PW, ly = ((y % PH) + PH) % PH;
+    const sk = Math.max(0, DEPTH.deckSeam);
+    const PW = 4, PH = 3;
+    const band = Math.floor(y / PH), off = (band % 2) * 2;            // courses stagger by half a panel
+    const pcx = Math.floor((x - off) / PW), pcy = band;
+    const lx = ((x - off) % PW + PW) % PW, ly = ((y % PH) + PH) % PH;
     const pn = h2(pcx, pcy, ':sp');
-    const body = ((pn % 5) - 2) * 0.03;
+    const body = ((pn % 7) - 3) * 0.022;                              // per-panel tone, wider spread than before
     px(X, Y, T, T, sh(body));
-    // diamond cross-hatch: two diagonal families on an 6px pitch, keyed on bake-pixel coords so it never
-    // breaks at a tile or chunk edge
-    for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
-      const gx = X + i, gy = Y + j;
-      if (((gx + gy) % 6) === 0 || ((gx - gy + 600) % 6) === 0) px(gx, gy, 1, 1, sh(body - 0.045));
-      if (((gx + gy) % 6) === 1 && ((gx - gy + 600) % 6) !== 0) px(gx, gy, 1, 1, sh(body + 0.02));
+
+    /* THE PANEL'S OWN LIGHT — a slow diagonal grade, lit at the panel's north-west corner and falling
+       toward the south-east, quantized to four steps so it stays in the pixel idiom. u runs 0..1 across
+       the whole panel, not the tile, which is why it reads at panel scale instead of tiling. */
+    const uSpan = PW * T + PH * T;
+    for (let j = 0; j < T; j += 2) for (let i = 0; i < T; i += 2) {
+      const u = ((lx * T + i) + (ly * T + j)) / uSpan;                // 0 at the NW corner, 1 at the SE
+      const step = Math.round((0.5 - u) * 3) / 3;                     // -1, -1/3, +1/3, +1 · four hard steps
+      if (step) px(X + i, Y + j, 2, 2, sh(body + step * 0.028));
     }
-    // the seam: 2px dark on the plate's north and west edges (the neighbour's south/east are the same rows)
-    if (lx === 0) { px(X, Y, 2, T, sh(-0.55 * sk)); px(X + 2, Y, 1, T, sh(body + 0.18 * sk)); }
-    if (ly === 0) { px(X, Y, T, 2, sh(-0.55 * sk)); px(X, Y + 2, T, 1, sh(body + 0.18 * sk)); }
-    if (lx === PW - 1) px(X + T - 1, Y, 1, T, sh(body - 0.28 * sk));
-    if (ly === PH - 1) px(X, Y + T - 1, T, 1, sh(body - 0.28 * sk));
-    // bolts at every plate corner: a 3x3 washer, lit north-west, shaded south-east, dark pin
-    const bolt = (bx, by) => { px(bx, by, 3, 3, sh(0.10)); px(bx, by, 2, 1, sh(0.34)); px(bx, by, 1, 2, sh(0.34)); px(bx + 2, by + 1, 1, 2, sh(-0.3)); px(bx + 1, by + 2, 2, 1, sh(-0.3)); px(bx + 1, by + 1, 1, 1, sh(-0.5)); };
-    if (ly === 0 && lx === 0) bolt(X + 4, Y + 4);
-    if (ly === 0 && lx === PW - 1) bolt(X + T - 6, Y + 4);
-    if (ly === PH - 1 && lx === 0) bolt(X + 4, Y + T - 6);
-    if (ly === PH - 1 && lx === PW - 1) bolt(X + T - 6, Y + T - 6);
-    // one plate in ~9 carries a recessed hatch: a deck is not just plates
-    if (pn % 9 === 2 && lx === 0 && ly === 0) { px(X + 8, Y + 8, 8, 8, sh(-0.32)); px(X + 8, Y + 8, 8, 1, sh(-0.5)); px(X + 8, Y + 8, 1, 8, sh(-0.5)); px(X + 15, Y + 9, 1, 7, sh(0.12)); px(X + 9, Y + 15, 7, 1, sh(0.12)); px(X + 11, Y + 11, 2, 2, sh(-0.55)); }
+
+    /* BRUSHED GRAIN — hairline PAIRS with the panel's own phase, so neighbouring panels do not comb in
+       lockstep. Lighter line over darker: that pairing is what reads as a rolled finish. */
+    const ph = pn % 3;
+    for (let i = ph; i < T; i += 3) {
+      px(X, Y + i, T, 1, sh(body - 0.030));
+      if (i + 1 < T) px(X, Y + i + 1, T, 1, sh(body + 0.038));
+    }
+
+    /* THE PANEL RECESS — a shadow line just inside the panel's own outer edges (not the joint), which is
+       what makes a plate look SET IN rather than laid on. */
+    if (lx === 0) px(X + 3, Y, 1, T, sh(body - 0.13));
+    if (lx === PW - 1) px(X + T - 4, Y, 1, T, sh(body - 0.13));
+    if (ly === 0) px(X, Y + 3, T, 1, sh(body - 0.13));
+    if (ly === PH - 1) px(X, Y + T - 4, T, 1, sh(body - 0.13));
+
+    /* THE JOINT — a two-step bevel ladder per side. North/west: dark channel then a LIT lip. South/east:
+       a shaded lip so the neighbouring panel's channel has something to sit against. */
+    if (lx === 0) { px(X, Y, 2, T, sh(-0.50 * sk)); px(X + 2, Y, 1, T, sh(body + 0.20 * sk)); }
+    if (ly === 0) { px(X, Y, T, 2, sh(-0.50 * sk)); px(X, Y + 2, T, 1, sh(body + 0.20 * sk)); }
+    if (lx === PW - 1) px(X + T - 1, Y, 1, T, sh(body - 0.26 * sk));
+    if (ly === PH - 1) px(X, Y + T - 1, T, 1, sh(body - 0.26 * sk));
+
+    /* BOLTS — countersunk well, domed head lit north-west, cast shadow south-east, pin. Four per panel. */
+    const bolt = (bx, by) => {
+      px(bx - 1, by - 1, 5, 5, sh(body - 0.30));                      // the countersunk well
+      px(bx, by, 3, 3, sh(body + 0.12));                              // the head
+      px(bx, by, 2, 1, sh(body + 0.34)); px(bx, by, 1, 2, sh(body + 0.34));   // its lit north-west
+      px(bx + 2, by + 1, 1, 2, sh(body - 0.34)); px(bx + 1, by + 2, 2, 1, sh(body - 0.34));   // shaded south-east
+      px(bx + 1, by + 1, 1, 1, sh(body - 0.16));                      // the pin
+    };
+    if (ly === 0 && lx === 0) bolt(X + 5, Y + 5);
+    if (ly === 0 && lx === PW - 1) bolt(X + T - 7, Y + 5);
+    if (ly === PH - 1 && lx === 0) bolt(X + 5, Y + T - 7);
+    if (ly === PH - 1 && lx === PW - 1) bolt(X + T - 7, Y + T - 7);
+
+    /* CHARACTER — at most one per panel, so the deck has incident without turning to noise. */
+    const k = pn % 9;
+    if (k === 0 && ly === 0) {                                        // weld bead along this panel's north joint
+      for (let i = (pn % 2); i < T; i += 4) { px(X + i, Y + 2, 3, 1, sh(body + 0.16)); px(X + i + 1, Y + 3, 2, 1, sh(body - 0.20)); }
+    } else if (k === 3 && lx === 1 && ly === 1) {                     // inspection plate with two fixings
+      px(X + 1, Y + 1, T - 2, T - 3, sh(body - 0.16));
+      px(X + 1, Y + 1, T - 2, 1, sh(body + 0.18)); px(X + 1, Y + 1, 1, T - 3, sh(body + 0.18));
+      px(X + T - 2, Y + 2, 1, T - 4, sh(body - 0.30)); px(X + 2, Y + T - 3, T - 3, 1, sh(body - 0.30));
+      px(X + 3, Y + 4, 1, 1, sh(body + 0.30)); px(X + T - 5, Y + T - 6, 1, 1, sh(body + 0.30));
+    } else if (k === 6 && lx === 2 && ly === 1) {                     // a scuff worn through to bright metal
+      px(X + 2, Y + 5, 6, 1, sh(body + 0.20)); px(X + 4, Y + 6, 5, 1, sh(body + 0.14)); px(X + 3, Y + 7, 3, 1, sh(body + 0.10));
+    }
   }
 
   /* ---------- THE CORRIDOR DECK CANDIDATES (2026-07-28) ----------
