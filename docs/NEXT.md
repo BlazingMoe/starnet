@@ -1,5 +1,25 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
+
+Implemented in `b4d83cf56` and `ff2946022`; isolated branch, not integrated or packaged.
+Standard recording can preview with installed local/native recognition even when its final transcriber
+uses a cloud credential. Local Live requests previews at a 650ms cadence, keeps words visible, reuses an
+exact completed preview instead of transcribing the same final audio again, extends a pending turn when
+speech resumes, and preserves successive finalized turns in order. Cancelled preview requests now reach
+the backend ASR queue. Pause/resume and Send Now are explicit; diagnostics expand only by deliberate click.
+Late local/native recognition cannot overwrite a newer call or a resumed listener.
+
+Evidence: voice button **100 assertions**, draft protection **21**, five new behavioral scenarios,
+Local Live UI, local voice, and media service **36 assertions** pass. In the running UI with synthetic
+microphone/recognition, HEARING displayed the actual supplied transcript before any task was sent;
+silence and Send Now submitted it; first-click pause/resume and end worked. A separate real bundled
+Whisper run transcribed a generated speech fixture in **3529ms cold / 586ms warm** on this host.
+These are synthetic-input and local-engine checks, not an attended microphone/speaker conversation or
+an installed-desktop proof. Windows hands-free fallback without local models remains utterance-based.
+Full gates are being completed. The first HTTP attempt hit workspace-lease timing assertions (passed
+alone); the first fast attempt required regenerating the website mirror, now included above.
+
 ## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
 
 The support report's successful Live Doctor inference and failed sample used different configuration
