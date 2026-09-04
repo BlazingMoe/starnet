@@ -49,6 +49,8 @@ merging another lane's fixes. Reporter identities and private diagnostics are de
 - Under concurrent full-suite load, the workspace-lease test's 500 ms head start let the intended
   waiter acquire first. Its fixture now waits for the holder's actual write and uses an explicit
   release barrier. All 13 assertions pass, including no write before the lease handoff.
+- Final pre-merge verification: repaired product code passed fast **707/707**; the complete HTTP
+  suite with both test synchronization corrections passed **92/92**, including workshop **65/65**.
 - The live restart proof also passed after incorporating `c0a2ca521`.
 - Before/after local HTTP adapter reproduction: malformed request rejected before; labeled recovery
   accepted afterward, with `Recovered` text and a normal finish.
