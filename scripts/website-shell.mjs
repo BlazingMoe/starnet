@@ -97,7 +97,7 @@ function topbar(page) {
     <a href="${root}#difference">FEATURES</a>
     <a href="${h('docs/guides/index.html')}"${fm}>FIELD MANUAL</a>
     <a href="${h('docs/index.html')}"${dc}>DOCS</a>
-    <a href="${h('pricing.html')}"${pr} data-pricing-link>PRICING</a>
+    <a href="${h('pricing.html')}"${pr} data-pricing-link${LOADS_SITE_JS.includes(page) ? ' hidden' : ''}>PRICING</a>
     <a href="${root}#download">DOWNLOAD</a>
     <a href="${GITHUB}" target="_blank" rel="noopener">GITHUB</a>
   </nav>
@@ -138,7 +138,7 @@ function footer(page) {
     <a href="${home}">HOME</a>
     <a href="${GITHUB}" target="_blank" rel="noopener">GITHUB</a>
     <a href="${RELEASES}" target="_blank" rel="noopener">RELEASES</a>
-    <a href="${here('pricing.html')}" data-pricing-link>PRICING</a>
+    <a href="${here('pricing.html')}" data-pricing-link${LOADS_SITE_JS.includes(page) ? ' hidden' : ''}>PRICING</a>
     <a href="${here('docs/index.html')}">DOCS</a>
     <a href="${here('docs/guides/index.html')}">FIELD MANUAL</a>
     <a href="${here('docs/help.html')}">HELP</a>
