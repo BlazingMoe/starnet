@@ -7456,7 +7456,7 @@ async function mintQuestRecommendations(quests, why) {
 async function completeQuestRecommendationIds(ids) {
   for (const id of (Array.isArray(ids) ? ids : [])) {
     recommendationLedger.verdict('quest:' + id, 'completed', 'completed', Date.now()).catch(swallow('recledger.verdict'));
-    recommendationLedger.outcome('quest:' + id, { adopted: true, quality: 1, completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
+    recommendationLedger.outcome('quest:' + id, { completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
     // The quest store is the completion authority. Only AFTER it says done do we fold the exact persisted record
     // into the journey ledger; duplicate sweeps are idempotent by quest id.
     try { const q = questStore.get(id); if (q && q.status === 'done') await journeyStore.recordQuest(q, commanderGoals.get(), q.completedAt || Date.now()); } catch (e) { console.warn('[journey] quest fold failed:', (e && e.message) || e); }
@@ -10263,26 +10263,20 @@ async function handleSetChannelToken(req, res) {
    station-wide placement source SKILLS uses; we never guess). POST /api/toolsets/:id { enabled } flips the
    persisted kill-switch and applies LIVE (the next resolveTools call reflects it). `compute` is refused. ---- */
 function handleToolsetsList(req, res) {
-  let placedTypes = [];
-  try {
-    const u = new URL(req.url, 'http://127.0.0.1');
-    placedTypes = placedTypesFrom(u.searchParams.get('placed') || '');
-  } catch (_) {}
-  const placedSet = {}; for (const t of placedTypes) placedSet[t] = true;
-  const rows = toolsetRows(CAP_REGISTRY).map(r => ({
-    id: r.id,
-    label: r.label,
-    glyph: r.glyph,
-    desc: r.desc,
-    object: r.object,                         // the objectType that must be placed to grant this family
-    tools: r.tools,
-    toolCount: r.tools.length,
-    enabled: toolsetDisabled[r.id] !== false, // default ON; only false when explicitly persisted OFF
-    placed: !!(r.object && placedSet[r.object]),
-    consentGated: r.consentGated              // does any tool in the family ask first?
-  }));
+  const u = new URL(req.url, 'http://127.0.0.1');
+  const agentId = u.searchParams.get('agent') || '';
+  if (agentId && !agentRoster.has(agentId)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'unknown agent' }));
+  }
+  const view = require('./capability/effective-toolsets.js').effectiveToolsets({
+    registry: CAP_REGISTRY, agentId, agent: agentRoster.get(agentId),
+    placed: placedTypesFrom(u.searchParams.get('placed') || ''), disabled: toolsetDisabled,
+    fullAccess: FULL_ACCESS, masterBypass: masterBypassOn(),
+    backendId: executionEnvironment.backendIdFor(agentId)
+  });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ toolsets: rows }));
+  res.end(JSON.stringify(view));
 }
 async function handleToolsetToggle(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -19604,7 +19598,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
   await notebookStore.update('notebook:' + agentId, (stored) => {
     const list = Array.isArray(stored) ? stored : [];
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
-    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin });
+    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
@@ -19710,7 +19704,7 @@ async function handleMemoryTurnin(req, res) {
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
   const content = (verdict === 'edit' ? String(body.content != null ? body.content : prop.content) : prop.content).trim();
   const w = await writeMemoryRecord(agentId, prop, {
-    content, runId, trustDelta: fb.delta, origin: prop.origin,   // the surface that PROPOSED it, not the one approving it
+    content, runId, trustDelta: fb.delta, origin: prop.origin, userConfirmed: true,   // the surface that PROPOSED it, not the one approving it
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });
