@@ -139,7 +139,7 @@ const SYNC_BASELINE = {
   'channels/store.js': 2,   // AUDITED — 2 left: ensureRoot mkdir, onRecover observer
   'channels/telegram.transport.js': 4,
   'checkpoint-store.js': 12,   // AUDITED — 12 left: realpath/stat/readdir value defaults, .bak staging, gc best-effort, dw loader fallback
-  'configexport.js': 1,
+  'configexport.js': 0,
   'consentwait.js': 1,
   'credits-link.js': 2,
   'credits.js': 3,
