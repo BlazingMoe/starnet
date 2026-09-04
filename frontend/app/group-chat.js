@@ -76,32 +76,52 @@ const GroupChat = (() => {
     const states = h('div', { id: 'gc-states', 'aria-live': 'polite' });
     const activity = h('details'); activity.append(h('summary', {}, 'Activity & usage'), h('div', { id: 'gc-history' }));
     const recipient = h('div', { id: 'gc-recipients' });
-    const input = h('textarea', { id: 'gc-input', rows: '3', maxlength: '100000', placeholder: 'Message the group · @ to address someone', 'aria-label': 'Message the group' });
+    const input = h('textarea', { id: 'gc-input', rows: '1', maxlength: '100000', placeholder: 'Message the group · @ mention', 'aria-label': 'Message the group' });
     input.addEventListener('input', () => { draftKey = null; autocomplete(); });
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(input.value).catch(showError); } if (e.key === 'Escape') { $('gc-mentions').replaceChildren(); } });
     const composer = h('div', { class: 'gc-composer' });
-    const sendOptions = h('div', { class: 'gc-actions' });
+    const sendOptions = h('div', { class: 'gc-compose-row' });
     const independent = h('label'); independent.append(h('input', { id: 'gc-independent', type: 'checkbox' }), document.createTextNode(' Independent answers'));
     const summary = h('label'); summary.append(h('input', { id: 'gc-summary', type: 'checkbox' }), document.createTextNode(' Lead comparison'));
-    sendOptions.append(button('SEND', () => sendText(input.value)));
+    sendOptions.append(h('span', { class: 'gc-prompt', 'aria-hidden': 'true' }, '>'), input, button('SEND', () => sendText(input.value)));
     const advancedSend = h('div', { class: 'gc-actions' });
     advancedSend.append(button('ASK EVERYONE', () => sendText(input.value, { all: true })), button('INTERRUPT & SEND', () => sendText(input.value, { interrupt: true })), independent, summary);
-    composer.append(recipient, h('div', { id: 'gc-mentions', role: 'listbox', 'aria-label': 'Mention participants' }), input, sendOptions);
+    composer.append(recipient, h('div', { id: 'gc-mentions', role: 'listbox', 'aria-label': 'Mention participants' }), sendOptions);
     more.append(tools, advancedSend, pins, activity);
     root.append(header, transcript, files, states, composer, h('div', { id: 'gc-notice', role: 'status' }), more);
     $('chat-log').before(root);
     const css = h('style'); css.textContent = `
-      .gc-launch,.gc-actions{display:flex;flex-wrap:wrap;gap:6px;padding:5px 8px}.gc-launch .bb,.gc-actions .bb{font-size:12px}
-      .gc-launch[hidden]{display:none}.gc-launch,.gc-header{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;border-bottom:1px solid #7774}.gc-count{font-size:12px;opacity:.7}.gc-people{display:flex;flex-wrap:wrap;gap:5px;flex:1}.gc-person{border:1px solid #7775;border-radius:12px;padding:3px 9px;font-size:12px}.gc-header .bb,.gc-launch .bb{text-transform:none;white-space:nowrap}
-      #group-chat{display:flex;flex:1;min-height:0;flex-direction:column;overflow:auto;color:var(--ph);padding:6px 8px;gap:6px}#group-chat[hidden]{display:none}
-      #group-chat textarea{width:100%;box-sizing:border-box;background:transparent;color:inherit;font:inherit;border:1px solid currentColor;padding:7px}
-      #gc-log{flex:1;min-height:150px;overflow:auto;max-height:48vh}.gc-message{margin:9px 0;padding:8px;border-left:3px solid var(--ph);white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(128,128,128,.06)}
-      .gc-message.user{margin-left:22px;border-left:0;border-right:3px solid var(--ph)}.gc-message strong{font-size:12px;letter-spacing:1px}.gc-message p{margin:6px 0}.gc-message button{font-size:11px}
-      #gc-states{font-size:12px;max-height:130px;overflow:auto}.gc-state{padding:5px;border-top:1px solid #7774}.gc-state button{margin-left:6px;font-size:11px}
-      .gc-picker{position:fixed;inset:15% max(16px,calc((100vw - 420px)/2));z-index:50000;overflow:auto;padding:20px;background:var(--bg,#101514);color:var(--ph,#8fc9ac);border:1px solid currentColor;box-shadow:0 12px 80px #000}.gc-picker h3{margin:0 0 14px}.gc-picker input[type=search]{width:100%;box-sizing:border-box;background:transparent;color:inherit;border:1px solid #7777;padding:8px;font:inherit}.gc-picker details{margin-top:16px;font-size:12px}.gc-picker label[hidden]{display:none}.gc-picker .gc-selection{font-size:12px;opacity:.7;margin:10px 0}
-      .gc-picker label{display:block;padding:6px}.gc-picker input[type=text],.gc-picker select{width:100%;background:transparent;color:inherit}.gc-picker select option{background:var(--bg,#101514)}
-      #gc-files a{display:block;padding:4px;color:inherit}#gc-notice{color:var(--gold,#dfbf73);overflow-wrap:anywhere}#gc-mentions{display:flex;flex-wrap:wrap;gap:4px}
-      .gc-pins,.gc-files{font-size:13px}.gc-actions label{font-size:12px}.gc-header{overflow-wrap:anywhere;font-size:13px}
+      #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:var(--panel);padding:0;gap:0}
+      #group-chat[hidden],.gc-launch[hidden]{display:none}
+      .gc-header,.gc-launch{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;flex:0 0 auto;padding:6px 12px;border-bottom:1px solid var(--ph-faint);background:var(--panel2);color:var(--ph)}
+      .gc-count{grid-column:1;grid-row:1;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}
+      .gc-header>.bb,.gc-launch>.bb{grid-column:2;grid-row:1;white-space:nowrap}
+      .gc-people{grid-column:1/-1;grid-row:2;display:flex;gap:14px;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ph-dim) transparent}
+      .gc-person{flex:0 0 auto;font-size:14px;line-height:18px;letter-spacing:1px;color:var(--ph);white-space:nowrap}.gc-person::before{content:'▪';margin-right:6px;color:var(--ph-dim)}
+      #group-chat .bb,.gc-launch .bb,.gc-picker .bb{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise);white-space:normal}
+      #group-chat .bb:hover,.gc-launch .bb:hover,.gc-picker .bb:hover{border-color:var(--ph);background:var(--ph-faint)}
+      #group-chat :focus-visible,.gc-picker :focus-visible{outline:1px solid var(--ph);outline-offset:2px}
+      #gc-log{flex:1 1 0;min-height:0;min-width:0;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:5px;background:var(--panel);user-select:text;scrollbar-color:var(--ph-dim) transparent}
+      #gc-log>.gc-message{flex:0 0 auto;margin:0;background:none;overflow-wrap:anywhere;white-space:normal}#gc-log .body{margin:0}.gc-message .bb{align-self:flex-start;font-size:11px!important;min-height:20px!important;padding:0 5px!important;margin-top:5px!important}
+      .gc-composer{flex:0 0 auto;min-width:0;border-top:2px solid var(--ph-dim);background:var(--panel)}
+      .gc-compose-row{display:flex;align-items:center;gap:6px;padding:6px 8px;min-width:0}.gc-prompt{color:var(--ph);flex:0 0 auto}
+      #gc-input{flex:1;min-width:0;width:0;box-sizing:border-box;height:28px;min-height:28px;max-height:80px;resize:none;border:0;border-radius:0;padding:3px 2px;background:transparent;color:var(--text);font:inherit;line-height:22px;box-shadow:none}
+      #gc-input:focus{outline:none}#gc-input::placeholder{color:var(--ph-dim)}.gc-compose-row>.bb{flex:0 0 auto}
+      #gc-recipients:not(:empty),#gc-mentions:not(:empty){padding:4px 12px;font-size:13px;color:var(--ph-dim)}#gc-mentions{display:flex;gap:4px;flex-wrap:wrap}
+      #gc-options,.gc-files{flex:0 0 auto;min-height:0;border-top:1px solid var(--ph-faint);font-size:13px;background:var(--panel2)}#gc-options[open],.gc-files[open]{max-height:40%;overflow:auto}
+      #group-chat summary,.gc-picker summary{cursor:pointer;list-style:none;color:var(--ph-dim);font-size:12px;line-height:18px;letter-spacing:1px;padding:4px 12px;text-transform:uppercase}#group-chat summary::-webkit-details-marker,.gc-picker summary::-webkit-details-marker{display:none}
+      #group-chat summary::before,.gc-picker summary::before{content:'▸';display:inline-block;width:14px}#group-chat details[open]>summary::before,.gc-picker details[open]>summary::before{content:'▾'}
+      .gc-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 12px}.gc-actions label{font-size:13px}.gc-pins{padding-bottom:6px}#gc-pins{width:calc(100% - 24px);margin:4px 12px;background:var(--panel);color:var(--text);border:1px solid var(--ph-faint);padding:6px;box-sizing:border-box}#gc-allowance{width:50px}
+      #gc-upload{margin:6px 12px;max-width:calc(100% - 24px)}#gc-states{flex:0 1 auto;max-height:25%;overflow:auto;font-size:13px;color:var(--ph-dim)}.gc-state{padding:6px 12px;border-top:1px solid var(--ph-faint)}.gc-state .bb{margin-left:6px!important}
+      #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
+      #gc-files,#gc-preview{padding:0 12px}#gc-files .bb{display:block;margin:5px 0!important;text-align:left;overflow-wrap:anywhere}#gc-preview{white-space:pre-wrap;overflow-wrap:anywhere}#gc-preview a{color:var(--ph)}
+      .gc-picker{position:fixed;inset:0;margin:auto;width:min(420px,calc(100% - 32px));height:fit-content;max-height:calc(100% - 32px);box-sizing:border-box;z-index:50000;overflow:auto;padding:0;background:var(--panel);color:var(--text);border:1px solid var(--ph);border-radius:6px;box-shadow:var(--raise),0 0 0 3px var(--ink),0 0 40px var(--ph-glow2)}
+      .gc-picker h3{margin:0;padding:8px 12px;background:var(--ph);color:var(--ink);font-size:15px;line-height:20px;letter-spacing:2px;text-transform:uppercase}.gc-picker h3::after{display:none}
+      .gc-picker input[type=search]{display:block;width:calc(100% - 24px);margin:12px;box-sizing:border-box;background:var(--panel2);color:var(--text);border:1px solid var(--ph-dim);border-radius:3px;padding:7px 9px;font:inherit}
+      .gc-picker-choices{margin:0 12px;border:1px solid var(--ph-faint);border-radius:3px;max-height:35vh;overflow:auto}.gc-picker-choices label{display:flex;align-items:center;gap:10px;min-height:38px;padding:6px 10px;box-sizing:border-box;border-bottom:1px solid var(--ph-faint);font-size:16px;letter-spacing:1px}.gc-picker-choices label:last-child{border-bottom:0}.gc-picker-choices label:has(:checked){background:var(--ph-faint);color:var(--ph)}.gc-picker-choices label:hover{background:var(--panel2)}.gc-picker label[hidden]{display:none}.gc-picker input[type=checkbox]{flex:0 0 auto;margin:0}
+      .gc-picker .gc-selection{margin:8px 12px 0;color:var(--ph-dim);font-size:12px;letter-spacing:1px;text-transform:uppercase}.gc-picker>p{margin:8px 12px;font-size:14px;line-height:1.35;color:var(--ph-dim)}.gc-picker>[role=alert]:empty{display:none}
+      .gc-picker-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid var(--ph-faint)}.gc-picker-footer>.bb:first-child{background:var(--ph);color:var(--ink);border-color:var(--ph)}
+      .gc-picker details{border-top:1px solid var(--ph-faint);padding:4px 0}.gc-picker details label{display:block;margin:6px 12px;color:var(--ph-dim);font-size:13px}.gc-picker details input,.gc-picker details select{width:calc(100% - 24px);margin:0 12px 8px;box-sizing:border-box;background:var(--panel2);color:var(--text)}.gc-picker select option{background:var(--panel2)}
     `; document.head.append(css);
     discover().catch(showError);
   }
@@ -145,17 +165,17 @@ const GroupChat = (() => {
     const log = $('gc-log'), bottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     log.replaceChildren();
     for (const m of group.messages) {
-      const row = h('article', { class: 'gc-message' + (m.author === 'user' ? ' user' : ''), 'data-message-id': m.id });
-      const body = h('p');
+      const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
+      const body = h('div', { class: 'body' });
       if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, m.content); else body.textContent = m.content;
       const color = typeof App !== 'undefined' && App.agents ? App.agents().find(a => a.id === m.author)?.color : '';
       if (/^#[0-9a-f]{3,8}$/i.test(color || '')) row.style.borderColor = color;
-      row.append(h('strong', {}, name(m.author).toUpperCase()), body);
+      row.append(h('span', { class: 'who' }, name(m.author).toUpperCase()), body);
       if (m.partial) row.append(h('small', {}, 'Partial response · work did not complete'));
       if (group.members.includes(m.author)) row.append(button('REPLY', () => { replyTo = m.id; selected = [m.author]; recipientLabel(); $('gc-input').focus(); }));
       log.append(row);
     }
-    for (const t of group.turns) if (t.draft) { const row = h('article', { class: 'gc-message' }); row.append(h('strong', {}, name(t.agentId).toUpperCase()), h('p', {}, t.draft)); log.append(row); }
+    for (const t of group.turns) if (t.draft) { const row = h('article', { class: 'gc-message cmsg agent' }); row.append(h('span', { class: 'who' }, name(t.agentId).toUpperCase()), h('div', { class: 'body' }, t.draft)); log.append(row); }
     if (bottom) log.scrollTop = log.scrollHeight;
     const states = $('gc-states'); states.replaceChildren();
     const history = $('gc-history'); history.replaceChildren();
@@ -243,7 +263,7 @@ const GroupChat = (() => {
     const search = h('input', { type: 'search', placeholder: 'Find an agent', 'aria-label': 'Find an agent' }); dialog.append(search);
     const title = h('input', { type: 'text', maxlength: '80', 'aria-label': 'Group title', value: existing?.title || origin?.title || 'Group chat' });
     const checks = [];
-    const choices = h('div'); dialog.append(choices);
+    const choices = h('div', { class: 'gc-picker-choices' }); dialog.append(choices);
     for (const a of roster) {
       const box = h('input', { type: 'checkbox', value: a.id }); box.checked = existing ? existing.members.includes(a.id) : a.id === (origin?.agentId || 'agent');
       const display = a.name + (roster.filter(r => r.name === a.name).length > 1 ? ' (' + a.id + ')' : '');
@@ -257,13 +277,15 @@ const GroupChat = (() => {
     const settings = h('details'); settings.append(h('summary', {}, 'Session settings'), h('label', {}, 'Session name'), title, h('label', {}, 'Default responder'), lead);
     dialog.append(h('p', {}, 'Selected agents can see this conversation and its shared files.'));
     const errors = h('p', { role: 'alert' }); dialog.append(errors);
-    dialog.append(button('Done', async () => {
+    const footer = h('div', { class: 'gc-picker-footer' });
+    footer.append(button('Done', async () => {
       try {
         const data = { members: checks.filter(c => c.checked).map(c => c.value), leadId: lead.value, title: title.value };
         const g = await api(existing ? { op: 'configure', id: existing.id, revision: existing.revision, ...data } : { op: 'create', ...(origin ? { id: origin.id, history: origin.history, originalAgentId: origin.agentId } : {}), ...data });
         adopt(g); save(); dialog.remove(); active = null; App.openWorkstream(g.id); if (typeof Chat !== 'undefined') Chat.load(Workstreams.get(g.id));
       } catch (e) { errors.textContent = e.message; }
-    }), button('Cancel', () => dialog.remove()), settings);
+    }), button('Cancel', () => dialog.remove()));
+    dialog.append(footer, settings);
     if (!existing && info.templates.length) {
       const saved = h('details'); saved.append(h('summary', {}, 'Saved groups')); dialog.append(saved);
       for (const t of info.templates) saved.append(button(t.title, async () => { const g = await api({ op: 'create', ...t, id: uid() }); adopt(g); save(); dialog.remove(); App.openWorkstream(g.id); }));
