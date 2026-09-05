@@ -1,12 +1,14 @@
 # NEXT.md — current priorities & task queue
 
-## IN PROGRESS — 2026-09-05 platform connection integration (`agent/platform-handoff-0905`)
+## DONE — 2026-09-05 platform connection integration (`agent/platform-handoff-0905`)
 
-Integrate connector task continuation, saved browser-profile contention, and Google account identity
-with trunk snapshot `ff9e147cf`. Preserve unrelated trunk QA status and Rooms handoff bytes.
-Done means the combined branch passes fast/HTTP gates and seeded live task restart/continuation
-and real-Chrome saved-cookie reuse, followed by a serialized trunk integration and post-merge gates.
-Production Google OAuth provisioning and installed-app release are outside this local merge.
+Connector task continuation, saved browser-profile contention, and Google account identity were
+integrated with current station workflows and the Hermes reliability lane. Joint production trunk
+`c2a62eeb9` passed post-merge fast 716/716 and HTTP 96/96, both exit 0. Seeded live task
+restart/continuation and real-Chrome saved-cookie reuse passed on the identical production source.
+Unrelated QA status and Rooms handoff bytes were preserved; merge receipts belong in `qa/STATUS.md`.
+Production Google OAuth provisioning and installed-app release remain outside this local merge.
+Details and local evidence paths: `docs/PLATFORM_CONNECTION_FOLLOWTHROUGH.md`.
 
 ## DONE — 2026-09-05 repeated-work takeover (`agent/rec-vision-audit-0905`)
 

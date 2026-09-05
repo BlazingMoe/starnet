@@ -1,6 +1,6 @@
 # Platform connection follow-through
 
-Candidate: `agent/platform-handoff-0905`. This document distinguishes implemented local work from external onboarding dependencies; it is not a release-readiness claim.
+Merged lane: `agent/platform-handoff-0905`; joint verified production trunk: `c2a62eeb9`. This document distinguishes implemented local work from external onboarding dependencies; it is not a release-readiness claim.
 
 ## Local behavior
 
@@ -35,4 +35,10 @@ Live local acceptance passed with `node dev/platform-live-proof.mjs`: the real s
 
 `node dev/platform-browser-proof.mjs` passed using real Chrome and a local cookie fixture: two production browser sessions shared one durable profile, the second waited without launching an unsigned browser, reused the cookie after the first browser exited, and released the lease. The original force-kill shutdown failed this check; graceful shutdown fixed it.
 
-Receipts live under `dev/.platform-proof/` in this worktree. Full gates and installed-desktop limitations are recorded in the lane's final report; these fixtures are not third-party consent proof.
+Both live scripts were rerun after incorporating the Hermes reliability changes. The task proof recorded exactly one new run and one MCP call after a double click, with no console warnings or browser exceptions. The cookie proof passed again. The final descendant changed only the Telegram HTTP test's port allocation; production source was unchanged.
+
+Joint post-merge gates on `c2a62eeb9d084d6e582837e1a3c39d73de1300f4`: `npm run test:fast` 716/716 and `npm run test:http` 96/96, both exit 0. Earlier failed gate attempts were rolled back: one encountered a diagnostics fixture token in pre-existing evidence logs (originals archived, only the proven fixture redacted); another encountered transient port reuse in the Telegram restart fixture (test now allocates an available port for each launch). Neither failed attempt is counted as a passing receipt.
+
+Local live receipts: `C:/Users/andro/.codex/visualizations/2026/09/05/01a07058-7655-7630-b938-f6b0651ccafd/platform-joint-proof/receipt.json` and `browser-receipt.json`. Gate logs and exit stamps: `C:/Users/andro/gen-trees/hermes-reliability-evidence-0905/test-fast-postmerge-retry.log` and `test-http-postmerge-retry.log` (matching `.exit` files contain 0). Earlier platform merge snapshots and archived logs are in the sibling `platform-merge-proof/` evidence directory.
+
+The unrelated trunk QA status and Rooms handoff bytes were hash-checked and preserved across integration; merge digests are appended separately. No installed desktop build, real Google consent flow, push, publication, or release was performed. These local fixtures are not third-party consent proof.
