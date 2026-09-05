@@ -55,13 +55,21 @@ Artifact: `src-tauri/target/release/skynet-desktop.exe`, 16,177,664 bytes, unsig
 SHA256: `105fb8f098d501950e2f77cdef3dce206bae7c90e19610cf44430b2bdaa01c1a`.
 Build stamp: `46b0badf8b5cf2342fd79b0f0cb3b03d30de67df`, dirty=0,
 tree `e63eb7b3d44b54f05a91e9dd23797a129a751dbf`, reproducible-source.
-Later changes are documentation and the generated website copy only; this is a compiled
-candidate, **not** a bundled installer, signing, installed launch or customer verification.
+The later fast run caught new silent error handlers. `dd8738648` routes those through the
+existing failure logger (ratchet 156 assertions and link 95 assertions passed; no baseline
+was weakened). The subsequent final-source rebuild exhausted LLVM memory even with one
+compiler job. The above artifact/hash remains unchanged and **does not include that final
+logging-only correction**. At failure, this shared host had ~1.4 GB free physical memory
+and ~3 GB remaining virtual commit. No other agent's process or system memory setting was
+changed. This candidate is **not** a bundled installer, signing, installed launch or
+customer verification.
 The two task-owned dev stations were stopped; their scratch evidence was retained.
 
 `qa:ready` returned **NOT READY**: six open customer P1s plus missing Guardian, journey-corps,
 Beginner and installed-exe smoke stamps in this fresh worktree. No status was promoted.
-Final fast/HTTP and integration outcomes follow after completion.
+Full HTTP: **100/100 GREEN**, exit 0, including all six new paid lifecycle scenarios after
+the logging correction. The 18 fast steps following the error-handler guard also passed
+in a focused tail check. Final full-fast and integration outcomes follow after completion.
 
 ## Outstanding customer evidence
 
