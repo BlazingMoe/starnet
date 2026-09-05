@@ -9,6 +9,9 @@
 const assert = require('assert');
 const fs = require('fs'); const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+const importStart = src.indexOf('async function handleConfigImport');
+const importEnd = src.indexOf('/* POST /api/config/reset', importStart);
+const importBody = importStart >= 0 && importEnd > importStart ? src.slice(importStart, importEnd) : '';
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
@@ -25,9 +28,10 @@ ok(/function collectExportSnapshot\(/.test(src), 'P1-7: a collector gathers the 
 ok(!/collectExportSnapshot[\s\S]{0,900}channelSecrets/.test(src), 'P1-7: the export collector never reads channelSecrets (no bot tokens)');
 ok(!/collectExportSnapshot[\s\S]{0,900}runtimeKeys/.test(src), 'P1-7: the export collector never reads provider keys');
 // import writes through the SAME durable stores (not a bypass)
-ok(/handleConfigImport[\s\S]{0,2600}saveBudgetOverrides\(\)/.test(src), 'P1-7: import persists budget through its durable store');
-ok(/handleConfigImport[\s\S]{0,3200}saveAgentRoster\(\)/.test(src), 'P1-7: import persists roster through its durable store');
-ok(/handleConfigImport[\s\S]{0,4200}saveConnectorConfigs\(\)/.test(src), 'P1-7: import persists connectors through its durable store');
+ok(importBody.length > 0 && importBody.length < src.length, 'P1-7: import source-lock resolves the complete function body');
+ok(/saveBudgetOverrides\(\)/.test(importBody), 'P1-7: import persists budget through its durable store');
+ok(/saveAgentRoster\(\)/.test(importBody), 'P1-7: import persists roster through its durable store');
+ok(/persistConnectorState\(nextState\.configs, nextState\.oauth\)/.test(importBody), 'P1-7: import transactionally persists connector config and OAuth state');
 ok(/handleConfigReset[\s\S]{0,2200}unknown or non-resettable section/.test(src), 'P1-7: reset rejects an unknown section');
 
 // ---- P1-9 advanced runtime knobs: env > saved > default ----

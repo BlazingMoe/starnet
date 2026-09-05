@@ -134,10 +134,16 @@
     }
     function configIssue(c) {
       if (!c || !c.enabled) return '';
+      if (Array.isArray(c.missingFields) && c.missingFields.length) {
+        return 'connector configuration is incomplete; re-enter: ' + c.missingFields.join(', ');
+      }
       try { return String(validateConfig(c) || ''); } catch (_) { return 'connector runtime ownership could not be verified'; }
     }
     function closeResources(client, transport, reason) {
-      if (client) { try { client.close(reason || 'reconfigured'); } catch (_) {} }
+      if (client) { try {
+        if (reason === 'reconnect' && typeof client.drainAndClose === 'function') client.drainAndClose(reason);
+        else client.close(reason || 'reconfigured');
+      } catch (_) {} }
       else if (transport && typeof transport.close === 'function') { try { transport.close(); } catch (_) {} }
     }
     function teardown(c) {
@@ -221,7 +227,7 @@
       // DRAIN, DON'T KILL. A reconnect used to close the old client immediately, which REJECTED every sibling
       // call still in flight on it ("mcp client closed: reconnect") — so when two calls hit an expired session
       // together, the first one's recovery turned the second's honest 404/401 into an unrelated failure. The old
-      // connection is detached now and closed only once this attempt settles; a sibling's reply arrives as what
+      // connection is detached now and drains outstanding requests after this attempt settles; a sibling's reply arrives as what
       // the server actually said, and that sibling joins the shared reconnect on its own.
       const drained = c.client ? { client: c.client, transport: c.transport } : null;
       c.client = null; c.transport = null;
@@ -358,9 +364,14 @@
         timeoutMs: normalizeTimeout(cfg, prev),
         label: String(cfg.label || (prev && prev.label) || id),
         enabled: cfg.enabled !== false,
+        missingFields: Array.isArray(cfg.missingFields)
+          ? Array.from(new Set(cfg.missingFields.filter(x => typeof x === 'string')))
+          : (prev && Array.isArray(prev.missingFields) ? prev.missingFields.slice() : []),
         // oauth connectors pass a tokenProvider() instead of a frozen token (see connect); carried across reconfigure
         // so a benign toggle/re-warm keeps refreshing the bearer.
-        tokenProvider: (typeof cfg.tokenProvider === 'function') ? cfg.tokenProvider : (prev ? prev.tokenProvider : null),
+        tokenProvider: Object.prototype.hasOwnProperty.call(cfg, 'tokenProvider')
+          ? (typeof cfg.tokenProvider === 'function' ? cfg.tokenProvider : null)
+          : (prev ? prev.tokenProvider : null),
         state: 'down', detail: '', tools: [], client: null, transport: null, connecting: null, ts: clock.now(),
         reconnectAttempt: 0, reconnectTimer: null, _epoch: 0,
         cacheFingerprint: transportKind === 'stdio' ? String(fingerprintConfig({
@@ -410,6 +421,7 @@
         label: c.label,
         transport: c.transportKind,
         enabled: c.enabled,
+        missingFields: c.missingFields.slice(),
         state: issue ? 'error' : c.state,
         detail: issue || c.detail,
         hasToken: !!(c.token || c.tokenProvider),

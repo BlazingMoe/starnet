@@ -21,10 +21,11 @@ const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 // mock OpenRouter, three turns keyed on how many tool results are in the transcript:
 //   turn 1 → brief_proceed (the Task Brief gate blocks mutating tools until the brief settles);
 //   turn 2 → fs_write the file named in the directive ("WRITE <relpath> [SLOWFINISH]");
-//   turn 3 → final text, delayed 2500ms when the directive says SLOWFINISH (that delay is what
-//            HOLDS run A's lease — taken by its write — while B collides).
+//   turn 3 → final text, held explicitly when the directive says SLOWFINISH. Test barriers prove
+//            A acquired its lease before B starts, independent of machine load.
 function startMockOpenRouter() {
   const requests = [];   // every completions transcript — the tool-result CONTENT (model-facing) is only visible here
+  const held = new Map();
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
@@ -53,13 +54,15 @@ function startMockOpenRouter() {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }) + '\n\n');
             res.write('data: [DONE]\n\n'); res.end();
           };
-          if (directive.indexOf('SLOWFINISH') >= 0) setTimeout(finish, 2500); else finish();
+          if (directive.indexOf('SLOWFINISH') >= 0 && m) held.set(m[1], finish); else finish();
         });
         return;
       }
       res.writeHead(404); res.end();
     });
-    server.listen(0, HOST, () => resolve({ server, requests, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
+    server.listen(0, HOST, () => resolve({ server, requests, held,
+      release(name) { const finish = held.get(name); held.delete(name); if (finish) finish(); },
+      base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
   });
 }
 
@@ -100,6 +103,14 @@ async function driveRun(B, token, agentId, text, streamId) {
 const endsOf = raw => raw.split('\n').map(l => l.trim()).filter(Boolean).map(l => { try { return JSON.parse(l); } catch (_) { return null; } })
   .filter(e => e && e.name === 'agent.run.end').map(e => e.payload.reason);
 
+async function untilReady(check, label) {
+  const deadline = Date.now() + 15000;
+  while (!check()) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for ' + label);
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
 (async () => {
   const mock = await startMockOpenRouter();
 
@@ -111,9 +122,12 @@ const endsOf = raw => raw.split('\n').map(l => l.trim()).filter(Boolean).map(l =
     const B = 'http://' + HOST + ':' + port;
     try {
       const token = await bootToken(B, B);
-      const pA = driveRun(B, token, 'lease-agent', 'WRITE a.txt SLOWFINISH', 'sess-a');   // write → lease held ~2.5s more
-      await new Promise(r => setTimeout(r, 500));                                          // A's write has landed; A still live
+      const pA = driveRun(B, token, 'lease-agent', 'WRITE a.txt SLOWFINISH', 'sess-a');
+      await untilReady(() => mock.held.has('a.txt') && findFile(ws, 'a.txt').length === 1, 'A holds the lease');
       const pB = driveRun(B, token, 'lease-agent', 'WRITE b.txt', 'sess-b');               // same agent: write must WAIT
+      await untilReady(() => mock.requests.some(msgs => msgs.some(m => m.role === 'user' && m.content === 'WRITE b.txt') && msgs.filter(m => m.role === 'tool').length === 1), 'B requests its write');
+      A.eq(findFile(ws, 'b.txt').length, 0, 'B cannot write while A is held');
+      mock.release('a.txt');
       const [rawA, rawB] = await Promise.all([pA, pB]);
       A.eq(endsOf(rawA)[0], 'done', 'scenario 1: run A (lease holder) completed clean');
       A.eq(endsOf(rawB)[0], 'done', 'scenario 1: run B (waiter) completed clean');
@@ -133,8 +147,9 @@ const endsOf = raw => raw.split('\n').map(l => l.trim()).filter(Boolean).map(l =
     try {
       const token = await bootToken(B, B);
       const pA = driveRun(B, token, 'lease-agent', 'WRITE a2.txt SLOWFINISH', 'sess-a2');
-      await new Promise(r => setTimeout(r, 500));
-      const rawB = await driveRun(B, token, 'lease-agent', 'WRITE b2.txt', 'sess-b2');     // 250ms wait ≪ A's 2.5s hold
+      await untilReady(() => mock.held.has('a2.txt') && findFile(ws, 'a2.txt').length === 1, 'A2 holds the lease');
+      const rawB = await driveRun(B, token, 'lease-agent', 'WRITE b2.txt', 'sess-b2');     // A remains held through the refusal
+      mock.release('a2.txt');
       const rawA = await pA;
       A.eq(endsOf(rawA)[0], 'done', 'scenario 2: the lease holder completed clean');
       A.eq(endsOf(rawB)[0], 'done', 'scenario 2: the refused run still completed clean (tool error, not run error)');

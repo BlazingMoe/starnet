@@ -137,6 +137,27 @@ async function invokeTts(overrides, body) {
   assert.equal(JSON.parse(nativeResponse.body).text, 'two clicks');
   assert.equal(nativeParams.audioWav.toString('ascii', 0, 4), 'RIFF', 'the native recognizer receives the captured take as WAV');
 
+  {
+    let signal, release;
+    const service = await make({
+      readBodyBuffer: async () => capturedPcm,
+      localVoice: { transcribe: async (_pcm, opts) => {
+        signal = opts.signal;
+        return new Promise(resolve => { release = resolve; });
+      } }
+    });
+    const response = new (require('node:events').EventEmitter)();
+    response.destroyed = false; response.writableEnded = false;
+    response.writeHead = () => assert.fail('must not write to a disconnected preview');
+    response.end = () => assert.fail('must not send a stale preview');
+    const pending = service.handleLocalVoiceTranscribe({}, response);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(signal.aborted, false);
+    response.destroyed = true; response.emit('close');
+    assert.equal(signal.aborted, true, 'cancelling a preview reaches the ASR queue');
+    release('stale preview'); await pending;
+  }
+
   // A keyed TTS failure falls through to the free Edge floor instead of committing a hard failure.
   let ttsFetches = 0;
   const edge = await make({
@@ -217,7 +238,7 @@ async function invokeTts(overrides, body) {
     assert.equal(edgeCalls, 1, 'a Kokoro-pinned session never falls through to Edge mid-conversation');
   }
 
-  console.log('media-service: OK (34 assertions)');
+  console.log('media-service: OK (36 assertions)');
 })().finally(async () => {
   for (const root of roots) await fsp.rm(root, { recursive: true, force: true });
 }).catch(error => {

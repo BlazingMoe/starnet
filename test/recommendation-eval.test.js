@@ -18,4 +18,12 @@ A.eq(perfect.precisionAt3, 0.5, 'precision uses proven outcomes in the top-three
 A.ok(perfect.calibrationBrier < 0.02, 'well-calibrated predictions receive low Brier error');
 const one = E.evaluate({ entries: [{ id: 'one', surface: 'quest', title: 'Only sample', state: 'completed' }] });
 A.eq(one.temporal.improvement, null, 'a one-sample history reports insufficient temporal data instead of a fake decline');
+const separation = E.evaluate({ entries: [
+  { id: 'done', title: 'Executed without feedback', state: 'completed' },
+  { id: 'bad', title: 'Executed but unwanted', state: 'completed', outcome: { adopted: false, quality: -1 } },
+  { id: 'liked', title: 'Liked but not adopted', state: 'completed', outcome: { quality: 1 } }
+] });
+A.eq(separation.completionRate, 1, 'all execution completions remain measured');
+A.eq(separation.adoptionRate, 0, 'neither execution nor satisfaction fabricates adoption');
+A.eq(separation.satisfactionRate, 0.3333, 'satisfaction is distinct from adoption');
 A.report('recommendation-eval.test');

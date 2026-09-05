@@ -236,6 +236,8 @@ test/slash.palette.test.js
 test/slash.config.test.js
 test/voice.button.test.js
 test/voice-live-ui.test.js
+test/voice-flow.test.js
+test/voice-stream.test.js
 test/voice.draftguard.test.js
 test/save.test.js
 test/saveversion.test.js
@@ -618,6 +620,8 @@ test/channels.commands.test.js
 test/channels.parity.test.js
 test/channels.buttons.test.js
 test/channels.sse.test.js
+test/channels.replay.test.js
+test/browser-workflow.test.js
 test/mcp.client.test.js
 test/mcp.resources-prompts.test.js
 test/mcp.transport.test.js
@@ -700,4 +704,11 @@ test/frontend-fetch-truth-ratchet.test.js
 test/loop-verdict.test.js
 test/free-path-ollama.test.js
 test/process-fault.test.js
+test/tier-model-catalog.test.js
 test/crash-ledger.test.js
+test/workview.test.js
+test/direct-work-launch.test.js
+test/first-value.test.js
+test/effective-toolsets.test.js
+test/discovery-documents.test.js
+test/value-loop-replay.test.mjs

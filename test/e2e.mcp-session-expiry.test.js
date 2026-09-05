@@ -34,6 +34,7 @@ function readJsonBody(req) {
 function startSessionMcp() {
   const stats = { inits: 0, calls: 0, notFound: 0 };
   let live = null, retired = new Set(), seq = 0;
+  const expiredRace = [];
   return new Promise(resolve => {
     const server = http.createServer(async (req, res) => {
       if (req.url === '/ctl' && req.method === 'POST') {
@@ -61,6 +62,14 @@ function startSessionMcp() {
       if (!sid || sid !== live) {
         // expired / unknown session: the streamable-HTTP contract says 404 -> the client must re-initialize
         stats.notFound++;
+        // Make the recovery race deterministic: both old-session calls leave before either 404,
+        // then the second response arrives after the first caller can finish its new handshake.
+        if (sid === 'sess-1' && msg.method === 'tools/call') {
+          await new Promise(resolve => {
+            expiredRace.push(resolve);
+            if (expiredRace.length === 2) { expiredRace[0](); setTimeout(expiredRace[1], 250); }
+          });
+        }
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'session_not_found' }));
         return;
@@ -203,7 +212,7 @@ function boot(port, env, attemptsLeft) {
     A.eq(ra.calls.length, 1, 'agent A made one connector call');
     A.eq(rb.calls.length, 1, 'agent B made one connector call');
     A.ok(ra.results.some(r => r.ok === true), 'agent A call SUCCEEDS across the expired session: ' + JSON.stringify(ra.results.map(r => ({ ok: r.ok, err: r.error || r.detail || '' }))));
-    A.ok(rb.results.some(r => r.ok === true), 'agent B call SUCCEEDS across the expired session: ' + JSON.stringify(rb.results.map(r => ({ ok: r.ok, err: r.error || r.detail || '' }))));
+    A.ok(rb.results.some(r => r.ok === true), 'agent B call SUCCEEDS across the expired session: ' + JSON.stringify(rb.results));
     A.ok(mcp.stats.notFound - notFoundBefore >= 1, 'the server really answered 404 for the expired session (' + (mcp.stats.notFound - notFoundBefore) + ')');
     A.eq(mcp.stats.inits - initsBefore, 1, 'exactly ONE re-initialize served both concurrent 404s (shared reconnect)');
     let s = await status();

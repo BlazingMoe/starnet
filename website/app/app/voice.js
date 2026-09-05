@@ -531,7 +531,7 @@ const Voice = (() => {
   // browser path. playbackRate gives the per-personality pacing (Gemini TTS takes no speed param).
   // deep=true disables pitch-preservation, so a sub-1 rate lowers PITCH along with pace — the character-
   // voice register (persona ttsDeep). Vendor-prefixed setters for older engines; all guarded.
-  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell) {
+  function playBlob(blob, onEnd, volume, onFail, rate, deep, shell, onStarted) {
     let url = null, a = null, done = false;
     const cleanup = () => {
       if (url) { try { URL.revokeObjectURL(url); } catch (_) {} url = null; }
@@ -566,7 +566,7 @@ const Voice = (() => {
       if (shell && routeThroughShell(a, shell)) outAnalyser = shAnalyser;
       else if (routeThroughFx(a)) outAnalyser = fxAnalyser;
       else outAnalyser = null;              // dry playback: no tap, so the meter reports nothing rather than lying
-      a.onplay = () => onSpeakStart();
+      a.onplay = () => { onSpeakStart(); if (onStarted) onStarted(); };
       a.onended = endOk;
       // a decode/format error on the neural blob is exactly the "try the browser voice" case — route
       // it to onFail (fallback) rather than treating it as a clean finish (which would go SILENT).
@@ -734,7 +734,9 @@ const Voice = (() => {
         const cfg = ttsConfig();
         const rate = cfg.speed * (job.opts.speedMul || 1);
         // a decode/playback failure on the neural blob → advance (skip this chunk silently). No robotic fallback.
-        playBlob(res.blob, advance, job.opts.volume, advance, rate, cfg.deep, cfg.shell);
+        playBlob(res.blob, advance, job.opts.volume, advance, rate, cfg.deep, cfg.shell, () => {
+          if (job.seq === speakSeq && !job.opts.mutter) coordinatorEvent('onTiming', { audioStartMs: Math.max(0, Date.now() - job.queuedAt) });
+        });
       } else { advance(); }   // 'silent' (no neural audio) or 'skip' (aborted) → play nothing, keep the queue moving
     });
   }
@@ -775,6 +777,7 @@ const Voice = (() => {
     if (!speakReplies) return;
     if (voiceId) activeVoiceId = voiceId;
     opts = opts || {};
+    if (opts.replyToken != null && opts.replyToken !== speakSeq) return;
     const clean = speakable(text);
     let body = opts.mutter ? clean.slice(0, 80) : clean;
     if (!body.trim()) return;
@@ -789,7 +792,7 @@ const Voice = (() => {
     } else {
       pieces = splitForTts(body, TTS_CHUNK_MAX);
     }
-    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, seq: speakSeq, result: null, ac: null }); }
+    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, seq: speakSeq, queuedAt: Date.now(), result: null, ac: null }); }
     pumpSynth(); pumpPlay();
   }
   // signal end-of-reply; the heartbeat (default: re-arm the hands-free loop) fires once the LAST chunk ends.
@@ -872,11 +875,11 @@ const Voice = (() => {
   }
   function maybeRearm() {
     if (!convoMode || !canListen() || rearmTimer) return;
-    if (busyNow() || listening || talking()) return;   // not ready — a finishing event re-calls this
+    if ((busyNow() && !coordinator) || coordinatorPaused || listening || talking()) return;
     const delay = REARM_DELAY;   // neural <audio> stops cleanly → a short echo guard is enough
     rearmTimer = setTimeout(() => {
       rearmTimer = null;
-      if (convoMode && !busyNow() && !listening && !talking()) startListening();
+      if (convoMode && (!busyNow() || coordinator) && !coordinatorPaused && !listening && !talking()) startListening();
     }, delay);
   }
 
@@ -922,6 +925,7 @@ const Voice = (() => {
   // a silent listen in voice mode: try again a few times, then go passive so the mic isn't hot forever.
   function handleEmptyListen() {
     emptyStreak++;
+    if (coordinator && !pendingDiag) { maybeRearm(); return; }
     // Hands-free gave up after three "empty" listens without ever naming why. If those listens failed for a
     // REASON (a 403 after a respawn, a provider 500), say that instead of implying nobody spoke.
     if (emptyStreak >= MAX_EMPTY) { emptyStreak = 0; setStatus(takeDiag() || 'voice mode — tap 🎤 when ready'); return; }
@@ -1036,11 +1040,12 @@ const Voice = (() => {
   const recorderProvider = (() => {
     let stream = null, mr = null, chunks = [], ac = null;
     let pcmProcessor = null, pcmSink = null, pcmFrames = [], pcmSamples = 0, pcmRate = 0, takeSttMode = 'cloud';
+    let continuous = null, finalRecognizer = null;
     let previewPending = false, previewAbort = null, previewSeq = 0, previewLastAt = 0;
     let cb = null, mime = '';
     let aborted = false, delivered = false, hardCapTimer = null;
-    const LOCAL_PREVIEW_MIN_MS = 650;
-    const LOCAL_PREVIEW_INTERVAL_MS = 900;
+    const LOCAL_PREVIEW_MIN_MS = 400;
+    const LOCAL_PREVIEW_INTERVAL_MS = 650;
 
     function pickMime() {
       const prefs = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -1082,10 +1087,10 @@ const Voice = (() => {
       }
       return output;
     }
-    async function transcribeLocalFrames(frames, signal) {
-      const pcm = mono16k(frames, pcmRate || 48000);
+    async function transcribeLocalFrames(frames, signal, mode = 'local', rate = pcmRate || 48000) {
+      const pcm = mono16k(frames, rate);
       if (!pcm.length) return { text: '', reason: 'local microphone capture produced no audio', failed: true };
-      const r = await fetch('/api/local-voice/transcribe', {
+      const r = await fetch(mode === 'native' ? '/api/stt/native' : '/api/local-voice/transcribe', {
         method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: pcm.buffer, signal
       });
       const j = await r.json().catch(() => ({}));
@@ -1093,9 +1098,18 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     async function transcribeLocalPcm() {
-      const frames = pcmFrames.slice();
+      const recognizer = continuous; continuous = null; finalRecognizer = recognizer;
+      const frames = pcmFrames.slice(), rate = pcmRate || 48000, seq = previewSeq;
       pcmFrames = []; pcmSamples = 0;
-      return transcribeLocalFrames(frames);
+      try {
+        if (recognizer) {
+          try { if (!recognizer.failed) return await recognizer.finish(); }
+          catch (_) { /* Retain the original capture for the recorded fallback. */ }
+          recognizer.cancel();
+        }
+        if (aborted || seq !== previewSeq) return {text:''};
+        return await transcribeLocalFrames(frames, undefined, 'local', rate);
+      } finally { if (finalRecognizer === recognizer) finalRecognizer = null; }
     }
     async function transcribeNativePcm() {
       const pcm = mono16k(pcmFrames.slice(), pcmRate || 48000);
@@ -1113,7 +1127,9 @@ const Voice = (() => {
       return { text: String((j && j.text) || ''), reason: j && (j.error || j.reason) };
     }
     function requestLocalPreview() {
-      if (takeSttMode !== 'local' || previewPending || delivered || aborted || !cb || !cb.onInterim) return;
+      if (continuous && !continuous.failed) return;
+      const previewMode = takeSttMode === 'local' || takeSttMode === 'native' ? takeSttMode : classicPreviewMode;
+      if (!previewMode || previewPending || delivered || aborted || !cb || !cb.onInterim) return;
       const capturedMs = pcmSamples / Math.max(1, pcmRate || 48000) * 1000;
       const now = Date.now();
       if (capturedMs < LOCAL_PREVIEW_MIN_MS || (previewLastAt && now - previewLastAt < LOCAL_PREVIEW_INTERVAL_MS)) return;
@@ -1122,14 +1138,13 @@ const Voice = (() => {
       const seq = previewSeq;
       const ac = new AbortController();
       previewAbort = ac;
-      transcribeLocalFrames(pcmFrames.slice(), ac.signal).then(({ text }) => {
+      transcribeLocalFrames(pcmFrames.slice(), ac.signal, previewMode).then(({ text }) => {
         if (!text || ac.signal.aborted || seq !== previewSeq || delivered || aborted) return;
         cb && cb.onInterim && cb.onInterim(String(text).trim());
       }).catch(error => {
         if (!error || error.name !== 'AbortError') console.warn('[voice] local preview failed:', (error && error.message) || error);
       }).finally(() => {
-        if (previewAbort === ac) previewAbort = null;
-        previewPending = false;
+        if (previewAbort === ac) { previewAbort = null; previewPending = false; }
       });
     }
     async function transcribe(blob) {
@@ -1137,6 +1152,7 @@ const Voice = (() => {
       // its container bytes guarantees an honest but useless "local engine needs wav" response. Capture PCM
       // from the same stream and use the local endpoint only when the sidecar proved that is the selected leg.
       if (takeSttMode === 'local') return transcribeLocalPcm();
+      if (continuous) { continuous.cancel(); continuous = null; }
       if (takeSttMode === 'native') return transcribeNativePcm();
       const fmt = fmtFromMime(mime || blob.type || '');
       // desktop: apiKey() is '' (key is in the sidecar env) — send it as a header when we DO have one (browser).
@@ -1171,7 +1187,9 @@ const Voice = (() => {
             ? new Blob([new Uint8Array(1)], { type: 'audio/wav' }) : null);
       chunks = [];
       if (aborted || !blob || !blob.size) { cb && cb.onEnd && cb.onEnd(); return; }
+      const seq = previewSeq;
       transcribe(blob).then(({ text, reason }) => {
+        if (seq !== previewSeq) return;
         if (aborted) { cb && cb.onEnd && cb.onEnd(); return; }
         // setDiagStatus, not setStatus: cb.onEnd() below runs endListening() in this same synchronous block
         // and its restore would otherwise repaint 'online' over this before a single frame is drawn.
@@ -1179,15 +1197,19 @@ const Voice = (() => {
         cb && cb.onFinal && cb.onFinal(String(text || '').trim());
         cb && cb.onEnd && cb.onEnd();
       }).catch(e => {
+        if (seq !== previewSeq || aborted) return;
         console.warn('[voice] STT post failed:', (e && e.message) || e);
         cb && cb.onError && cb.onError('stt-failed');
         cb && cb.onEnd && cb.onEnd();
       });
     }
     async function start(cbs) {
+      if (continuous) continuous.cancel(); continuous = null;
+      if (finalRecognizer) finalRecognizer.cancel(); finalRecognizer = null;
       cb = cbs; chunks = []; pcmFrames = []; pcmSamples = 0; pcmRate = 0; takeSttMode = classicSttMode;
       previewSeq++; previewPending = false; previewAbort = null; previewLastAt = 0;
       aborted = false; delivered = false;
+      if (takeSttMode === 'local' || classicPreviewMode === 'local') fetch('/api/local-voice/warm?tts=0', {method:'POST'}).catch(() => {});
       try {
         // DEAD-BUTTON GUARD: getUserMedia can hang forever if the mic-permission prompt is DISMISSED (not
         // answered) — WebView2 and some browsers never settle the promise. Without a ceiling, `listening`
@@ -1230,11 +1252,18 @@ const Voice = (() => {
               if (samples && samples.length) {
                 pcmFrames.push(new Float32Array(samples));
                 pcmSamples += samples.length;
+                if (continuous) continuous.push(pcmFrames[pcmFrames.length - 1]);
                 requestLocalPreview();
               }
             };
             src.connect(pcmProcessor); pcmProcessor.connect(pcmSink); pcmSink.connect(ac.destination);
             pcmRate = ac.sampleRate || 48000;
+            if (typeof VoiceStream !== 'undefined' && (takeSttMode === 'local' || classicPreviewMode === 'local')) {
+              const seq = previewSeq;
+              continuous = VoiceStream.open({rate: pcmRate, onUpdate: update => {
+                if (seq === previewSeq && !delivered && !aborted && update.text) cb && cb.onInterim && cb.onInterim(update.text);
+              }});
+            }
           }
         } catch (_) { ac = null; }
         mr.start();
@@ -1250,10 +1279,12 @@ const Voice = (() => {
     }
     function abort() {   // hard stop, discard (teardown / barge-in)
       aborted = true;
+      if (finalRecognizer) finalRecognizer.cancel(); finalRecognizer = null;
+      if (continuous) continuous.cancel(); continuous = null;
       if (mr && mr.state !== 'inactive') { try { mr.stop(); } catch (_) {} }
       teardownAudio();
       // deliver an onEnd so endListening() runs its teardown branch; onFinal is suppressed by `aborted`.
-      if (!delivered) { delivered = true; cb && cb.onEnd && cb.onEnd(); }
+      delivered = true; cb && cb.onEnd && cb.onEnd();
     }
     return { name: 'recorder', start, stop, abort };
   })();
@@ -1261,27 +1292,33 @@ const Voice = (() => {
   // OAuth Live fallback for embedded Windows WebView2, which has MediaRecorder but no SpeechRecognition.
   // The local sidecar invokes the OS dictation engine against the default mic; no cloud speech key is used.
   const nativeSpeechProvider = (() => {
-    let ac = null, hooks = null;
+    let take = null;
     async function start(h) {
-      hooks = h; ac = new AbortController();
+      const current = { hooks: h, ac: new AbortController() };
+      take = current;
       try {
-        const r = await fetch('/api/stt/native', { method: 'POST', signal: ac.signal });
+        const r = await fetch('/api/stt/native', { method: 'POST', signal: current.ac.signal });
         const j = await r.json().catch(() => ({}));
+        if (take !== current) return;
+        const hooks = current.hooks;
         if (!r.ok || j.error && !j.text) {
           if (j.error === 'no-speech') hooks && hooks.onError && hooks.onError('no-speech');
           else hooks && hooks.onError && hooks.onError('native-unavailable');
         } else if (j.text) hooks && hooks.onFinal && hooks.onFinal(j.text);
       } catch (e) {
-        if (!(e && e.name === 'AbortError')) hooks && hooks.onError && hooks.onError('native-unavailable');
+        if (take === current && !(e && e.name === 'AbortError')) h && h.onError && h.onError('native-unavailable');
       } finally {
-        const done = hooks; hooks = null; ac = null;
-        if (done && done.onEnd) done.onEnd();
+        if (take === current) {
+          take = null;
+          if (h && h.onEnd) h.onEnd();
+        }
       }
     }
     function stop() {
-      const done = hooks; hooks = null;
-      if (ac) { try { ac.abort(); } catch (_) {} ac = null; }
-      if (done && done.onEnd) done.onEnd();
+      const current = take; take = null;
+      if (!current) return;
+      current.ac.abort();
+      if (current.hooks && current.hooks.onEnd) current.hooks.onEnd();
     }
     function abort() { stop(); }
     return { name: 'native', start, stop, abort };
@@ -1296,11 +1333,14 @@ const Voice = (() => {
     (canRecordMic ? recorderProvider : webSpeechProvider);
   let sttProvider = classicSttProvider;
   let classicSttMode = 'cloud';
+  let classicPreviewMode = '';
+  let coordinatorPaused = false;
   let classicProviderReady = !!(forceRecorder || forceWebSpeech);
   let classicProviderProbe = null;
   let startAfterProbe = false;
   function applyClassicSttStatus(status) {
     const preferred = String((status && status.preferred) || '');
+    classicPreviewMode = status && status.local ? 'local' : status && status.native ? 'native' : '';
     if (!forceRecorder && !forceWebSpeech) {
       if (preferred === 'native' && canRecordMic) { classicSttProvider = recorderProvider; classicSttMode = 'native'; }
       else if (preferred === 'native') { classicSttProvider = nativeSpeechProvider; classicSttMode = 'native'; }
@@ -1336,6 +1376,7 @@ const Voice = (() => {
   function busyNow() { return typeof Chat !== 'undefined' && Chat.isBusy && Chat.isBusy(); }
 
   function startListening() {
+    if (coordinatorPaused) return;
     // init probes the sidecar in the background. If the first click wins that race, preserve the click and
     // begin as soon as the truthful provider snapshot arrives instead of guessing from WebView browser APIs.
     if (!coordinator && !classicProviderReady && classicProviderProbe) {
@@ -1404,6 +1445,7 @@ const Voice = (() => {
     // before the failure existed, so it can never carry it.
     if (!busyNow() && !speaking) setStatus(takeDiag() || savedStatus || (convoMode ? 'voice mode on' : 'online'));
     coordinatorEvent('onState', busyNow() ? 'thinking' : 'ready');
+    if (coordinator && convoMode) maybeRearm();
   }
 
   // a final transcript from the mic — sent exactly like a typed message (busy/purpose/task/cost logic
@@ -1466,9 +1508,19 @@ const Voice = (() => {
     return true;
   }
   function stopCoordinator() {
+    coordinatorPaused = false;
     if (convoMode) stopConvo();
     coordinator = null;
     sttProvider = classicSttProvider;
+  }
+  function pauseCoordinator() {
+    coordinatorPaused = true;
+    clearTimeout(rearmTimer); rearmTimer = null;
+    if (listening) { discarding = true; sttProvider.abort(); listening = false; setMicState(false); }
+  }
+  function resumeCoordinator() {
+    coordinatorPaused = false;
+    if (coordinator && convoMode && !listening) startListening();
   }
   // The downloaded local speech surface owns its persistent microphone/VAD loop, but still needs the mature
   // reply-stream hooks (captions, speaking state, barge-in) from this module.
@@ -1613,10 +1665,11 @@ const Voice = (() => {
   function isOn() { return !!(speakReplies && canSpeak()); }
 
   return {
+    replyToken: () => speakSeq, isReplyPending: () => draining,
     init, speak, speakChunk, endReply, mutter, ambientLine, setAgent, isOn, setSpeakReplies,
     startListening, stopListening, toggleListen, stopSpeaking,
     toggleVoiceMode, stopConvo, onTurnEnd,
-    canListen, canSpeak, startCoordinator, stopCoordinator, attachCoordinator, detachCoordinator,
+    canListen, canSpeak, startCoordinator, stopCoordinator, pauseCoordinator, resumeCoordinator, attachCoordinator, detachCoordinator,
     canOAuthLive: () => !!SR || typeof fetch !== 'undefined', personaId: () => activePersonaId,
     setLocalTts,
     /* LIVE VOICE MUST ARRIVE AUDIBLE. Opening a hands-free session with the speaker muted is a room where you

@@ -108,17 +108,17 @@
         protocolVersion = message.params.protocolVersion;   // pin the negotiated version onto later request headers
       }
       let res;
-      try { res = await withTimeout(signal => doFetch(u.href, { method: 'POST', headers: headers(), body: JSON.stringify(message), signal })); }
+      try { res = await withTimeout(signal => doFetch(u.href, { method: 'POST', headers: headers(), body: JSON.stringify(message), signal, redirect: 'manual' })); }
       catch (e) { return failTo(id, 'connector request failed: ' + ((e && e.message) || e)); }
 
-      try { const sid = res.headers && res.headers.get && res.headers.get('mcp-session-id'); if (sid) sessionId = sid; } catch (e) {}
-
       const status = res.status;
+      if (status >= 300 && status < 400) return failTo(id, 'connector HTTP redirect refused — update the configured endpoint directly');
       if (status === 202 || status === 204) return;                         // accepted notification / no body
       if (status < 200 || status >= 300) {
         let detail = ''; try { detail = safeErrorDetail(await res.text()); } catch (e) {}
         return failTo(id, 'connector HTTP ' + status + (detail ? ' — ' + detail : ''));
       }
+      try { const sid = res.headers && res.headers.get && res.headers.get('mcp-session-id'); if (sid) sessionId = sid; } catch (e) {}
       const ct = ((res.headers && res.headers.get && res.headers.get('content-type')) || '').toLowerCase();
       if (/text\/event-stream/.test(ct)) return readSse(res, id);
       let body = ''; try { body = await res.text(); } catch (e) { return failTo(id, 'connector response read failed'); }
@@ -180,7 +180,7 @@
     function close() {
       if (closed) return;
       closed = true;
-      if (sessionId) { try { Promise.resolve(doFetch(u.href, { method: 'DELETE', headers: headers() })).catch(() => {}); } catch (e) {} }   // best-effort MCP session teardown
+      if (sessionId) { try { Promise.resolve(doFetch(u.href, { method: 'DELETE', headers: headers(), redirect: 'manual' })).catch(() => {}); } catch (e) {} }   // best-effort MCP session teardown
     }
 
     return { send, onMessage, close };

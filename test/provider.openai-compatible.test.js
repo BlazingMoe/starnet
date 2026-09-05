@@ -7,6 +7,41 @@ const line = obj => 'data: ' + JSON.stringify(obj);
 async function collect(provider, req) { const out = []; for await (const e of provider.stream(req)) out.push(e); return out; }
 
 module.exports = (async () => {
+  // Managed StarNet uses this adapter too. An interrupted history must get the same repair as
+  // direct OpenRouter, before it reaches a strict Chat Completions upstream.
+  {
+    const input = [
+      { role: 'user', content: 'continue' },
+      { role: 'tool', tool_call_id: '', content: 'orphan evidence' },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'pending', type: 'function', function: { name: 'fs_read', arguments: '{}' } }] },
+      { role: 'user', content: 'resume after interruption' }
+    ];
+    const original = JSON.stringify(input);
+    let wire;
+    const p = makeOpenAICompatibleProvider({ key: 'fixture-only', baseUrl: 'https://managed.example.test/v1', fetch: async (_url, init) => {
+      if (!init || !init.body) return new Response('{"data":[{"id":"m"}]}');
+      wire = JSON.parse(init.body).messages;
+      const pending = new Set();
+      for (const m of wire) {
+        if (m.role === 'tool') {
+          if (!m.tool_call_id || !pending.delete(m.tool_call_id)) return new Response('{"error":{"message":"Tool message must have either name or tool_call_id"}}', { status: 400 });
+        } else {
+          if (pending.size) return new Response('{"error":{"message":"Missing tool results"}}', { status: 400 });
+          for (const call of m.tool_calls || []) pending.add(call.id);
+        }
+      }
+      if (pending.size) return new Response('{"error":{"message":"Missing tool results"}}', { status: 400 });
+      return new Response(line({ choices: [{ delta: { content: 'recovered' }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n');
+    } });
+    const events = await collect(p, { model: 'm', messages: input });
+    A.eq(events.filter(e => e.type === 'text').map(e => e.delta).join(''), 'recovered', 'managed-compatible adapter completes against a strict pair validator');
+    A.ok(wire.some(m => m.role === 'user' && m.content.includes('orphan evidence') && m.content.includes('[recovered tool result')), 'orphan content survives with an honest recovery label');
+    A.ok(wire.some(m => m.role === 'tool' && m.tool_call_id === 'pending' && m.content.includes('[interrupted')), 'interrupted call gets a labeled missing-result record');
+    A.eq(JSON.stringify(input), original, 'wire repair does not mutate the durable caller history');
+    const valid = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: null, tool_calls: [{ id: 'ok', type: 'function', function: { name: 'fs_read', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'ok', content: 'observed result' }];
+    await collect(p, { model: 'm', messages: valid });
+    A.eq(wire, valid, 'valid tool history reaches the compatible endpoint unchanged');
+  }
   // text, usage, finish, and request/header shape
   {
     const calls = [];

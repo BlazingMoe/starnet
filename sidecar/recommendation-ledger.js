@@ -90,17 +90,20 @@ function replay(raw, opts) {
     const age = Math.max(0, now - (e.updatedAt || e.createdAt || now));
     const decay = Math.pow(0.5, age / PREF_HALF_LIFE_MS);
     k.shown += decay;
-    if ((e.state === 'accepted' || e.state === 'started' || e.state === 'completed') && e.reason !== 'already_done') k.positive += decay;
+    // Completion proves execution, not usefulness. Negative feedback overrides earlier interest.
+    if (e.outcome.quality < 0 || e.reason === 'bad_quality') k.negative += decay;
+    else if ((e.outcome.adopted || e.outcome.quality > 0 || e.state === 'accepted' || e.state === 'started') && e.reason !== 'already_done') k.positive += decay;
     else if (e.state === 'declined' && e.reason !== 'wrong_time' && e.reason !== 'already_done') k.negative += decay;
     else if (e.state === 'deferred') k.deferred += decay;
     k.quality += (e.outcome.quality || 0) * decay;
     k.costUsd += (e.outcome.costUsd || 0) * decay;
   }
   for (const e of rows) {
-    if (e.state === 'completed') { counts.completed++; counts.accepted++; counts.started++; }
-    else if (e.state === 'started') { counts.started++; counts.accepted++; }
-    else if (e.state !== 'shown' && counts[e.state] != null) counts[e.state]++;
     const ever = new Set((e.transitions || []).map(t => t.state));
+    if (ever.has('accepted')) counts.accepted++;
+    if (e.state === 'completed') { counts.completed++; counts.started++; }
+    else if (e.state === 'started') counts.started++;
+    else if (e.state !== 'shown' && e.state !== 'accepted' && counts[e.state] != null) counts[e.state]++;
     for (const st of ever) if (transitions[st] != null && st !== 'shown') transitions[st]++;
     if (e.evidence.length) counts.evidenced++;
     if (e.readiness && e.readiness.ready) counts.ready++;

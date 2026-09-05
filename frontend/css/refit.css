@@ -209,6 +209,14 @@
   font-family: 'VT323', monospace;
 }
 .refit-finline .fl-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.fl-overview { color: var(--ph-bright); font-size: 16px; line-height: 1.2; margin: 8px 0; overflow-wrap: anywhere; }
+.refit-workflow { border-block: 1px solid var(--ph-dim); margin: 12px 0; padding: 6px 0; }
+.refit-workflow p { margin: 8px 0; line-height: 1.35; }
+.refit-workflow-step { display: flex; flex-direction: column; width: 100%; text-align: left; gap: 3px; padding: 9px; margin: 6px 0; white-space: normal; overflow-wrap: anywhere; }
+.refit-workflow-step b { color: var(--ph-bright); }
+.refit-workflow-edit, .refit-workflow-note { color: var(--ph-dim); }
+.refit-workflow-advanced { margin: 12px 0; }
+.refit-workflow-advanced summary { cursor: pointer; color: var(--ph); padding: 6px 0; }
 /* STARTER GEAR (was STATION ORDERS) — the stage BEFORE a line exists, in the same card slot. The count is the only
    new part: a real n/4 off the live model, so progress reads at a glance. */
 .refit-finline .fl-count { margin-left: auto; font-size: 13px; letter-spacing: 1px; color: var(--ph-dim); }
@@ -252,4 +260,16 @@
 @media (prefers-reduced-motion: reduce) {
   .refit-guide.refit-swap .refit-guide-card { animation: none; }
   .refit-input, .refit-num { transition: none; }
+}
+
+/* One compact explanation in the existing selected-prop palette. */
+.refit-equipment-info { color:var(--ph); font-size:13px; line-height:1.45; padding:8px; border-top:1px solid var(--ph-dim); max-width:660px; }
+.refit-equipment-info label { display:inline-flex; align-items:center; gap:6px; }
+.refit-equipment-info select { max-width:160px; }
+.refit-equipment-info summary { cursor:pointer; }
+@media (min-width:601px) and (max-width:1000px) {
+  .refit-top { height:auto; min-height:46px; flex-wrap:wrap; gap:6px; padding-block:4px; }
+  .refit-title { white-space:nowrap; }
+  .refit-sub, .refit-spacer { display:none; }
+  .refit-top .bb { padding-inline:7px; }
 }

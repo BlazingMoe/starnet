@@ -37,7 +37,7 @@ assert.match(source, /approvalCommand\(lower\)/, 'run-scoped approvals can be an
 assert.match(source, /agentCommand\(value,\s*lower\)/, 'voice can select the active Starnet agent without provider coupling');
 assert.match(source, /Harness\.getProv/, 'the controller reports the active Starnet provider');
 assert.doesNotMatch(source, /CODEX OAUTH/, 'provider-agnostic voice UI does not claim Codex is required');
-assert.match(source, /attachCoordinator\(\{\s*onState,\s*onAssistant,\s*onOutputLevel\s*\}\)/, 'live controller subscribes to real agent output levels');
+assert.match(source, /attachCoordinator\(\{\s*onState,\s*onAssistant,\s*onOutputLevel,\s*onTiming\s*\}\)/, 'live controller subscribes to real agent output levels');
 assert.match(source, /bar\.dataset\.src\s*=\s*cell\.src/, 'wave history preserves which side of the conversation produced each sample');
 assert.match(source, /setAttribute\('aria-busy'/, 'working voice states are exposed to assistive technology');
 assert.match(source, /Agent speaking — press to interrupt and speak/, 'barge-in control names the active agent-speaking state');

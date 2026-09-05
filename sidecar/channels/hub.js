@@ -325,6 +325,8 @@
     // Target-agent runtime identity for downstream work-line hops. The connection's own secrets belong only
     // to stage one; reusing them would silently run every later dock on the upstream model/provider.
     const resolveRunConfig = typeof o.resolveRunConfig === 'function' ? o.resolveRunConfig : null;
+    // Opt-in for unaddressed sample runs: resolve identity only AFTER the router picks the dock.
+    const resolveEntryRunConfig = typeof o.resolveEntryRunConfig === 'function' ? o.resolveEntryRunConfig : null;
     const onLineOutcome = typeof o.onLineOutcome === 'function' ? o.onLineOutcome : null;
     // SAMPLE/PROOF SEAM (additive, 2026-08-05): an optional streamId (string, or fn(chatId) -> string) stamped
     // onto every runOnce this hub fires (entry dock AND chain hops). With it, the host records the runs +
@@ -1373,9 +1375,6 @@
       let sec;
       try { sec = secrets() || {}; }
       catch (e) { try { console.error('[' + channel + '] secrets() threw in onInbound:', (e && e.message) || e); } catch (_) {} try { await deliver(chatId, '⚠ Could not read the channel configuration right now — try again in a moment.', '', 'error'); } catch (_) {} return; }
-      const provider = String(sec.provider || 'openrouter').trim().toLowerCase() || 'openrouter';
-      const usingCodex = provider === 'codex' || provider === 'openai-codex';
-      const reasoningEffort = sec.reasoningEffort || sec.reasoning_effort || (usingCodex ? 'low' : 'medium');
       // The chat's own persisted binding (set by /talk) — the user's explicit choice of which roster agent this
       // chat talks to. Read it once here so both command handling (below) and run resolution can honor it.
       let boundRec = null;
@@ -1450,6 +1449,16 @@
         ? boundAgentId
         : (sec.agentId && AID_RE.test(String(sec.agentId))) ? String(sec.agentId) : agentIdFor(chatId);
       const canonicalStreamId = resolvedStreamId(chatId);
+
+      if (resolveEntryRunConfig) {
+        try {
+          const config = resolveEntryRunConfig(agentId);
+          sec = config && config.ok !== false ? config : { error: (config && config.error) || 'target agent is not configured' };
+        } catch (_) { sec = { error: 'target agent configuration could not be read' }; }
+      }
+      const provider = String(sec.provider || 'openrouter').trim().toLowerCase() || 'openrouter';
+      const usingCodex = provider === 'codex' || provider === 'openai-codex';
+      const reasoningEffort = sec.reasoningEffort || sec.reasoning_effort || (usingCodex ? 'low' : 'medium');
 
       // B4 — persist the chat→agent binding (+ this hub's channel) so the autonomous notifier can find which chat to
       // ping for a given agent when a cron run produces work. Best-effort: a store hiccup must never block the reply.

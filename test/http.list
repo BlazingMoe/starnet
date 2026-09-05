@@ -3,7 +3,10 @@ test/provider-recovery.e2e.test.js
 test/group-sessions.http.test.js
 test/tool-model-fallback.e2e.test.js
 test/sidecar.http.test.js
+test/channels.replay.e2e.test.js
 test/config-permissions-import.e2e.test.js
+test/connector-security.e2e.test.js
+test/connector-oauth-refresh-race.e2e.test.js
 test/workspace-owner.e2e.test.js
 test/workspace-lineage.http.test.js
 test/lineage-stationless-halt.http.test.js
@@ -88,4 +91,7 @@ test/station-recovery.e2e.test.js
 test/routing.persist.e2e.test.js
 test/run-recovery.api.test.js
 test/routing.sample.e2e.test.js
+test/routing.sample-provider.e2e.test.js
 test/route-honesty.e2e.test.js
+test/effective-toolsets.e2e.test.js
+test/discovery-documents.http.test.js

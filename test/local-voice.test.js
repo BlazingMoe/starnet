@@ -23,6 +23,9 @@ function packageOnDisk(name) {
 }
 
 (async () => {
+  const cancelled = new AbortController(); cancelled.abort();
+  await assert.rejects(localVoice.transcribe(Buffer.alloc(16000), {signal:cancelled.signal}), {name:'AbortError'},
+    'a cancelled preview is rejected before checking or loading speech models');
   const expected = packageOnDisk('@huggingface/transformers') && packageOnDisk('kokoro-js');
   const status = localVoice.status();
 

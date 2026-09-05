@@ -1,5 +1,118 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-05 — HERMES RECONNECT + WEBSITE LOOKUP (`agent/hermes-reconnect-capture-0905`)
+
+Implemented bounded SSE replay (1,024 events / 2 MiB), boot-scoped cursors, duplicate suppression,
+obsolete-connection guards, and authoritative snapshot recovery. `station.command` is never replayed:
+reconnecting cannot retry a renderer mutation that already executed or timed out. Recovery stays
+visibly degraded until a snapshot succeeds. The shipped website renderer mirror stays identical.
+
+`browser.network({deriveReadClient:true})` now derives up to eight runnable GET Fetch/XHR clients
+from successful observed requests. No cookies, headers or bodies are captured; signed/credential
+query parameters are excluded. Generated clients reject redirects, HTTP failures, non-JSON data,
+and oversized responses. The bundled **Learn a Website Lookup** procedure requires comparison
+against the live page before saving a runtime skill and its script through `skill.manage`.
+This first slice covers read-only JSON lookups, not authenticated or mutating workflow replay.
+
+Live proof: seeded station showed DOWN after its sidecar stopped and recovered after restart;
+the new boot's cursor requested snapshot reset. Real Chromium observed a fixture's lookup, the
+production browser tool derived its client, and direct JSON matched the rendered result. Focused
+tests prove disconnected channel replay, restart expiry, no duplicate replay, command exclusion,
+HTTP failure handling, and exact skill script read-back in a fresh process. Integrated by exact
+fast-forward at `9c9f788d0`; both before and after integration, fast **712/712** and HTTP **95/95**
+passed. Evidence: `qa/digests/2026-09-05-hermes-reconnect-capture.md`. No installed-binary or
+station-wide readiness claim.
+
+## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
+
+Initial slices: `b4d83cf56` and `ff2946022`. Final integration and verification are recorded below.
+Standard recording can preview with installed local/native recognition even when its final transcriber
+uses a cloud credential. Local Live requests previews at a 650ms cadence, keeps words visible, reuses an
+exact completed preview instead of transcribing the same final audio again, extends a pending turn when
+speech resumes, and preserves successive finalized turns in order. Cancelled preview requests now reach
+the backend ASR queue. Pause/resume and Send Now are explicit; diagnostics expand only by deliberate click.
+Late local/native recognition cannot overwrite a newer call or a resumed listener.
+
+Evidence: voice button **100 assertions**, draft protection **21**, five new behavioral scenarios,
+Local Live UI, local voice, and media service **36 assertions** pass. In the running UI with synthetic
+microphone/recognition, HEARING displayed the actual supplied transcript before any task was sent;
+silence and Send Now submitted it; first-click pause/resume and end worked. A separate real bundled
+Whisper run transcribed a generated speech fixture in **3529ms cold / 586ms warm** on this host.
+These are synthetic-input and local-engine checks, not an attended microphone/speaker conversation or
+an installed-desktop proof. Windows hands-free fallback without local models remains utterance-based.
+Full gates passed: **test:fast 703/703**, **test:http 90/90**. Source verification was mechanically
+refreshed in `acd6eed27` without changing claim verdicts. The first HTTP attempt hit workspace-lease
+timing assertions (passed alone and in the full retry); earlier fast attempts caught the generated
+website mirror and source record needing refresh. Both were verified at that checkpoint; integration followed in the second round. No desktop build.
+
+Second round (2026-09-04): incremental local PCM sessions in both recording and hands-free modes;
+eight-second ASR windows with retained boundary context; stable/provisional text; adaptive pause option;
+prewarm while the microphone opens; interrupted reply tokens reject late chunks; subsequent speech
+clauses start without waiting for a 200-character sentence. Voice Details measures observed first words,
+last voiced frame to submission, and latest spoken chunk queued to actual playback (unobserved stages remain “—”).
+Fallback retains the original recording when streaming fails. Sessions expire and cap buffered audio.
+
+Live evidence: seeded server port8896, production voice UI and real bundled Whisper, with a generated
+speech PCM fixture injected only at the microphone seam and task submission captured without a provider
+call. Observed live transcript before submission, ordered open/audio/finish requests, the exact final
+“Please show my words while I am speaking. Then send a complete sentence.”, pause/resume, and end.
+Real browser receipt: ordered audio chunks, five recognitions, max window6784ms; first-partial2701ms on this
+heavily loaded shared host. Separate warm engine check first partial583ms. These are different checks,
+not a before/after speed claim. No attended mic/speaker or installed-build proof. Test page removed and
+server stopped. Focused voice button105, media36, draft protection21 assertions, adaptive timing, six flow
+scenarios, transport bounds/recovery, and UI checks pass. The subsequent real 16.66-second speech check crossed two window
+boundaries and retained all three repeated sentences exactly; max decode window8000ms, first partial605ms.
+It exposed timestamp drift that could duplicate an overlap word; the corrected path and its regression
+now preserve both real repetition and overlap deduplication.
+
+Final integration: `1c835fad3` on `feat/harness-backend`. Fast gate **709/709** on
+`0de259466` (`voice-fast-final.log`); HTTP **93/93** on `069fff836` (`voice-http-combined.log`).
+The final change after HTTP was frontend caption continuity only; the sidecar subtree remained exactly
+`4f1a4f6b5897efb975574ef655fc089ea275d52a`. The integration merge tree exactly matched the verified
+voice tree `b9a12d461cd8b2bb4a8ea6f56c57c7fc938b6436`; foreign QA/room handoff files were hash-checked
+and preserved. Final seeded UI + real Whisper proof showed first live words in **546ms**, continuous
+captions across a thinking pause, one complete submitted turn, and working pause/resume/end. Speech was
+a generated PCM fixture, submission was captured without invoking a provider, and output-model warmup
+was disabled for this last recognition-only check. No attended microphone/speaker or installed EXE proof.
+All temporary frontend proof files were removed; the test server was stopped.
+
+Earlier full fast gate caught direct clock reads in the new backend; injected clocks and a timing test
+fixed it. An earlier HTTP run was intentionally stopped to include the concurrent connector-security
+merge. Final gates above passed on the combined support, security, and voice code. Steady-caption UI
+polish triggered the final fast rerun; the backend and HTTP test surface were unchanged.
+
+
+## VERIFIED 2026-09-04 — SUPPORT EMAIL GAPS (`agent/email-gaps-0904`)
+
+Own INBOX routine create/readback, compatible-provider tool-history repair and the MCP session-drain
+race exposed by the post-merge gate. Existing sample,
+OpenRouter, provider-truth and linked-state branches are already merged; do not merge them again.
+Verified on integrated value-loop code: fast 707/707, HTTP 92/92, live creation/readback and restart.
+Three local gaps repaired; exact managed production error and customer spend still need evidence. Details and residual
+customer/production dependencies: [EMAIL_BUG_FOLLOWUP_2026-09-04.md](EMAIL_BUG_FOLLOWUP_2026-09-04.md).
+
+## VERIFIED 2026-09-04 — STARNET SAMPLE RUN + TIER CATALOG (`agent/model-catalogue-report`)
+
+The support report's successful Live Doctor inference and failed sample used different configuration
+sources. Samples now resolve the selected dock's roster provider/model/credential after routing, and
+resolve each downstream dock independently. Environment defaults remain only for an empty-roster
+headless host. Missing roster configuration refuses without spending another provider's credential.
+
+The tier picker now fetches the active provider's catalogue and rebuilds its options when that response
+arrives. Saved rows no longer shadow real entries with a false “not in catalog” label; unavailable
+catalogues preserve selections and explicitly report unverified membership.
+
+Evidence: live seeded UI changed all three tier selections, closed/reopened Models, and observed exactly
+one correctly labeled selected option per tier, with no browser warnings/errors. The real-sidecar
+regression ran a StarNet entry and custom-provider hop without an environment default or OpenRouter key,
+verified their separate credentials, repeated after restart, and refused a missing roster model with
+zero inference requests. Existing sample coverage passed 99 assertions. Full gates on `431578620`:
+`test:fast` **697/697 GREEN**, `test:http` **89/89 GREEN**. The first HTTP attempt hit a transient
+port conflict in nightshift-focus; that test passed alone and in the full successful retry.
+
+Implementation: `e33914cb2`; mechanical source lock: `431578620`. No integration merge, desktop build,
+or publication has been performed. Customers need a desktop release containing this branch.
+
 ## 2026-09-03 — POST-AUDIT: NEXT CUT MUSTS (owner-directed, audit items 1–5)
 
 The 2026-09-03 whole-repo audit (backend, frontend, release, process, product) found the harness solid

@@ -190,6 +190,7 @@ const StudyStore = (() => {
     } catch (_) { ok = false; }
     markResolved(prop);
     ledgerPost({ id: recommendationId(prop, agentId), state: ok ? 'completed' : 'declined', reason: ok ? 'completed' : 'bad_quality' });
+    ledgerPost({ id: recommendationId(prop, agentId), outcome: { adopted: ok } });
     resolveOnServer(prop, agentId, ok ? 'accepted' : 'failed');
     return ok;
   }
