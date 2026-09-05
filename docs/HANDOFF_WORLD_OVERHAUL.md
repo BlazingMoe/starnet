@@ -241,3 +241,17 @@ placement, undo/redo, contextual guidance, and exit. It leaves the user's scratc
 `--gpu` also samples the full 144-item shelf; the local RTX 5060 Ti run measured 59.6 FPS,
 16.8 ms p95 frame intervals, and 8.1 ms mean build-render callback time. This is a local sample,
 not a frame-rate guarantee on other hardware. Evidence lives in `.worldshots/build-kit/`.
+
+## September 5 left-sidebar correction
+
+Andrew rejected the bottom catalog because it took too much away from the station. The build
+console is now anchored on the left, bounded to 340 physical pixels. Search and every category
+stay directly accessible above a two-column prop grid; a compact selected-item preview sits
+below it. ITEM DETAILS replaces the inventory inside that same panel. MINIMIZE folds the
+console to its header, and Fit releases its camera inset while minimized. Short viewports
+scroll the console instead of moving it to the bottom or hiding build tools.
+
+The live probe now checks the left edge and width at six viewport sizes, plus placement,
+undo/redo, enlarged text, item details, and workflow-card separation. Its 25 checks pass;
+current captures and receipts are under `.worldshots/build-kit-left/`. The full-width bottom
+tray and its independent right-hand inspector are superseded by this correction.

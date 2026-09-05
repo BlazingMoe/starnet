@@ -321,7 +321,7 @@ const Build = (() => {
         <button class="bb sm refit-primary" id="refit-done" title="finish + save (Esc)">✓ DONE</button>
       </div>
       <div class="refit-dock" role="region" aria-label="Construction kit">
-        <div class="refit-dock-head"><span class="refit-dock-head-t">CONSTRUCTION KIT</span><span class="refit-dock-caption">SHAPE YOUR STATION</span><button class="bb sm" type="button" id="refit-kit-toggle" aria-expanded="true" aria-controls="refit-option-section">HIDE CATALOG ▾</button></div>
+        <div class="refit-dock-head"><span class="refit-dock-head-t">BUILD KIT</span><span class="refit-dock-caption">SHAPE YOUR STATION</span><button class="bb sm" type="button" id="refit-kit-toggle" aria-expanded="true" aria-controls="refit-option-section">MINIMIZE ▴</button></div>
         <div class="refit-dock-section refit-mode-section">
           <div id="refit-tools"></div>
         </div>
@@ -645,7 +645,7 @@ const Build = (() => {
       const search = propSearchRow();
       const details = document.createElement('button'); details.type = 'button'; details.className = 'bb sm refit-details-toggle'; details.textContent = 'ITEM DETAILS →';
       details.onclick = () => { workspace.classList.add('show-details'); workspace.querySelector('.refit-details-back').focus(); };
-      search.appendChild(details); browser.appendChild(search);
+      browser.appendChild(search);
       const shelves = document.createElement('div'); shelves.className = 'refit-shelves';
       const catRow = document.createElement('nav'); catRow.className = 'refit-propcats';
       catRow.setAttribute('aria-label', 'Prop categories');
@@ -668,7 +668,7 @@ const Build = (() => {
       back.onclick = () => { workspace.classList.remove('show-details'); details.focus(); }; inspector.appendChild(back);
       const preview = document.createElement('section'); preview.id = 'refit-selected-prop';
       preview.className = 'refit-selected-prop'; preview.setAttribute('aria-label', 'Selected prop');
-      inspector.appendChild(preview); workspace.appendChild(inspector); pal.appendChild(workspace);
+      inspector.appendChild(preview); inspector.appendChild(details); workspace.appendChild(inspector); pal.appendChild(workspace);
       renderPropGrid();
     } else if (tool === 'paint') {
       /* SURFACE — TWO AXES, TWO SECTIONS: the MATERIAL (what the surface is made of) and the HUE
@@ -897,10 +897,10 @@ const Build = (() => {
     if (!root || !document.body) return;
     const dock = root.querySelector('.refit-dock');
     if (!dock) return;
-    const r = dock.getBoundingClientRect();
-    const gap = 12;
-    const clearance = Math.ceil(r.height + Math.max(0, window.innerHeight - r.bottom) + gap);
-    document.body.style.setProperty('--refit-dock-clearance', Math.max(58, clearance) + 'px');
+    const top = root.querySelector('.refit-top');
+    if (top) dock.style.top = (top.offsetHeight + 10) + 'px';
+    // This console is always on the left; it does not occupy the bottom action rail.
+    document.body.style.setProperty('--refit-dock-clearance', '58px');
   }
 
   function toggleKit(collapsed) {
@@ -908,7 +908,7 @@ const Build = (() => {
     const hide = collapsed == null ? !dock.classList.contains('is-collapsed') : collapsed;
     dock.classList.toggle('is-collapsed', hide);
     const b = root.querySelector('#refit-kit-toggle');
-    b.textContent = hide ? 'SHOW CATALOG ▴' : 'HIDE CATALOG ▾'; b.setAttribute('aria-expanded', String(!hide));
+    b.textContent = hide ? 'OPEN KIT ▾' : 'MINIMIZE ▴'; b.setAttribute('aria-expanded', String(!hide));
     bumpUi(); updateSafetyClearance();
   }
 
@@ -3411,8 +3411,7 @@ const Build = (() => {
     const dock = root.querySelector('.refit-dock');
     if (dock) {
       const d = dock.getBoundingClientRect();
-      if (d.width < c.width * 0.6) out.l = Math.max(0, d.right - c.left) * sx;  // left sidebar (narrow column)
-      else out.b = Math.max(0, c.bottom - d.top) * sy;                          // bottom sheet (spans the width)
+      if (!dock.classList.contains('is-collapsed')) out.l = Math.max(0, d.right - c.left) * sx;
     }
     return out;
   }

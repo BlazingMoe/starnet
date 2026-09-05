@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {launchChrome,findChrome,connectCDP,evalJS,sleep,capture} from '../scripts/lib/cdp.mjs';
-const out='.worldshots/build-kit';mkdirSync(out,{recursive:true});let proc,cdp;
+const out='.worldshots/build-kit-left';mkdirSync(out,{recursive:true});let proc,cdp;
 const report={checks:[],exceptions:[]};
 async function check(name,src){const result=await evalJS(cdp,src);assert.ok(result,name+': '+JSON.stringify(result));report.checks.push(name);}
 async function shot(name){await evalJS(cdp,`document.activeElement?.blur();if(typeof Hint!=='undefined')Hint.hide()`);await sleep(250);await capture(cdp,out,name);}
@@ -42,11 +42,11 @@ try{
   }
   for(const [width,height]of [[1440,1000],[1049,912],[750,912],[475,850],[390,740],[640,568]]){
     await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await sleep(300);
-    await check('Tools and catalog fit at '+width+'×'+height,`(()=>{const dock=document.querySelector('.refit-dock').getBoundingClientRect(),grid=document.querySelector('#refit-propgrid-host');return dock.left>=0&&dock.right<=innerWidth+1&&dock.bottom<=innerHeight+1&&grid.clientHeight>60&&Array.from(document.querySelectorAll('.refit-tool')).every(b=>{const r=b.getBoundingClientRect();return r.width>20&&r.height>20&&r.left>=0&&r.right<=innerWidth+1})})()`);
+    await check('Tools and catalog fit at '+width+'×'+height,`(()=>{const dock=document.querySelector('.refit-dock').getBoundingClientRect(),grid=document.querySelector('#refit-propgrid-host');return dock.left>=0&&dock.left<30&&dock.width<=342&&dock.right<=innerWidth+1&&dock.bottom<=innerHeight+1&&grid.clientHeight>60&&Array.from(document.querySelectorAll('.refit-tool')).every(b=>{const r=b.getBoundingClientRect();return r.width>20&&r.height>20&&r.left>=0&&r.right<=innerWidth+1})})()`);
     if(width===750||width===390){await shot('responsive-'+width);if(width===390){await evalJS(cdp,`document.querySelector('.refit-details-toggle').click()`);await check('Item details can be reached on '+width+'px',`document.querySelector('.refit-propinspector').getBoundingClientRect().height>40&&document.querySelector('[data-preview-place]').getBoundingClientRect().height>20`);await shot('details-'+width);await evalJS(cdp,`document.querySelector('.refit-details-back').click()`);}}
   }
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await sleep(300);
-  await evalJS(cdp,`document.querySelector('[data-cat="all"]').click();document.querySelector('[data-prop="crate"]').click();window.__propBefore=Build.__test__.station().serialize().props.length;document.querySelector('[data-preview-place]').click();document.querySelector('#refit-fit').click()`);await sleep(300);
+  await evalJS(cdp,`document.querySelector('[data-cat="all"]').click();document.querySelector('[data-prop="crate"]').click();window.__propBefore=Build.__test__.station().serialize().props.length;document.querySelector('.refit-details-toggle').click();document.querySelector('[data-preview-place]').click();document.querySelector('#refit-fit').click()`);await sleep(300);
   await check('Place action clears canvas space without placing anything',`document.querySelector('.refit-dock').classList.contains('is-collapsed')&&Build.__test__.tool()==='prop'&&Build.__test__.station().serialize().props.length===window.__propBefore`);
   const point=await evalJS(cdp,`(()=>{const st=Build.__test__.station(),b=st.bounds(),s=PropSprites.spec('crate');for(let y=b.minTy;y<=b.maxTy;y++)for(let x=b.minTx;x<=b.maxTx;x++){if(!st.canPlaceProp('crate',x,y,s.w,s.h).ok)continue;const e=Build.__test__._tileEvent([x,y]);if(document.elementFromPoint(e.clientX,e.clientY)?.classList.contains('refit-canvas'))return {x:e.clientX,y:e.clientY}}return null})()`);
   assert.ok(point,'A clear deck tile is reachable above the collapsed tray');
@@ -68,7 +68,7 @@ try{
   await evalJS(cdp,`document.body.style.zoom='1.45';document.body.style.setProperty('--sn-unzoom',String(1/1.45))`);await sleep(400);
   await check('Catalog stays inside the screen at 145 percent text zoom',`(()=>{const r=document.querySelector('.refit-dock').getBoundingClientRect();return getComputedStyle(document.body).zoom==='1.45'&&r.left>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&document.querySelector('#refit-propgrid-host').clientHeight>60})()`);await shot('text-zoom');
   await evalJS(cdp,`document.body.style.zoom='';document.body.style.removeProperty('--sn-unzoom');window.dispatchEvent(new Event('resize'));document.querySelector('[data-tool="line"]').click()`);await sleep(350);
-  await check('Workflow guidance stays clear of the construction tray',`(()=>{const f=document.querySelector('.refit-finline');return !f||getComputedStyle(f).display==='none'||f.getBoundingClientRect().bottom<=document.querySelector('.refit-dock').getBoundingClientRect().top})()`);
+  await check('Workflow guidance stays clear of the construction tray',`(()=>{const f=document.querySelector('.refit-finline');return !f||getComputedStyle(f).display==='none'||f.getBoundingClientRect().left>=document.querySelector('.refit-dock').getBoundingClientRect().right})()`);
   await evalJS(cdp,`document.querySelector('#refit-done').click()`);await check('Done exits build mode',`!Build.isOpen()`);
   assert.equal(report.exceptions.length,0,JSON.stringify(report.exceptions));writeFileSync(out+'/report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
 }catch(e){if(cdp)await capture(cdp,out,'failure').catch(()=>{});throw e;}finally{try{cdp?.ws.close()}catch{}try{proc?.kill()}catch{}}
