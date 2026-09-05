@@ -72,3 +72,20 @@ evidence for issue 6 confirms Windows x64 v0.10.13 and managed Sonnet, but the g
 No production deployment, release publication, customer account modification or support
 message was performed. The owner was asked asynchronously for an authenticated environment
 and test Mac while local work continued.
+
+## Remaining closure sequence
+
+1. Obtain the affected installed build/OS and a current copied report. Use an attended,
+   isolated Windows user/VM and physical Apple Silicon Mac, not a developer profile reset.
+2. With an authorized existing paid test account, verify subscription and credit-purchase
+   entry paths: link, interrupted link, reload, explicit unlink, relink, quit and cold restart.
+   Prove persisted account identity and OS credential read-back; do not create new purchases.
+3. Compare the service-observed funded balance against the rendered state before, during and
+   after a managed run. Exercise offline/revoked credentials and ensure neither becomes a
+   fabricated zero or an asserted live link. Keep timestamps/account fingerprint with evidence.
+4. Reproduce managed Sonnet with the exact supported model and trace the local run, relay and
+   upstream IDs in authenticated production logs. Determine and repair the actual 400 cause;
+   a synthetic 400 proving diagnostic transport is not a successful production inference.
+5. Run the fixed paths against the signed/notarized release candidate, then obtain the
+   owner's release/deployment direction and affected-customer confirmation. Only then update
+   each report's installer/recovery evidence independently and consider closing it.
