@@ -221,7 +221,14 @@ function fakeStack(tools) {
   A.ok(/Array\.isArray\(e\.presets\)/.test(webStation) && /PRESETS ·/.test(webStation),
     'web build carries the same preset rendering');
   // truthful telemetry: ADDED state comes from the backend `installed` flag, and live state is re-read after add
-  A.ok(/e\.installed/.test(station) && /✓ ADDED/.test(station), 'an already-installed connector shows ADDED (from backend state, not guessed)');
+  const renderCatalog = require('node:vm').runInNewContext('(' + station.slice(station.indexOf('function ccCard('), station.indexOf('    function ccGroupHTML')) + ')', {
+    CC_CHIP: { none: ['', 'no setup', 'green'] }, esc: x => String(x == null ? '' : x), ccSeal: () => '', location: { port: '8787' }
+  });
+  const savedCard = renderCatalog({ id: 'fixture', name: 'Fixture', installed: true, blurb: 'test' }, 0);
+  A.ok(savedCard.includes('data-cc-act="manage"') && !savedCard.includes('disabled'), 'saved service has an actionable management button');
+  A.ok(savedCard.includes('Setup saved.') && !savedCard.includes('✓ connected'), 'saved configuration does not assert live connectivity');
+  const newCard = renderCatalog({ id: 'fixture', name: 'Fixture', installed: false, blurb: 'test' }, 0);
+  A.ok(newCard.includes('data-cc-act="add"') && !newCard.includes('MANAGE SERVICE'), 'new service still offers its actual setup action');
   A.ok(/state === 'up'/.test(station), 'the connect result badge reflects the real manager state, not an assumption');
   // on-theme styling for the new cards
   A.ok(/\.cc-card/.test(css) && /\.cc-grid/.test(css) && /\.cc-chip/.test(css), 'catalog card styles present');
@@ -264,8 +271,8 @@ function fakeStack(tools) {
     'KEYS labels custom-header credentials truthfully instead of calling every credential a token');
   A.ok(/k\.unattendedSupported !== false/.test(station) && /k\.enabled && unattendedSupported \? '' : ' disabled'/.test(station),
     'KEYS disables the unattended control for watched-only integrations');
-  A.ok(/p\.unattendedSupported === false \? 'oauth' : 'apikey'/.test(station),
-    'watched-only platform rows enter the unified catalog under OAuth rather than API-key automation');
+  A.ok(/p\.unattendedSupported === false \? 'manual' : 'apikey'/.test(station),
+    'watched-only platform rows are explicitly manual setup, not automatic sign-in or API-key automation');
   A.ok(/Harness\.api\.get\('\/api\/servicekeys\/catalog'\)/.test(station) && /platformApi:\s*true/.test(station),
     'CATALOG consumes the keyed-platform directory while keeping those rows explicitly distinct from MCP connectors');
   A.ok(/data-cc-act="platform"/.test(station) && /function ccPrefillPlatform/.test(station),
@@ -274,8 +281,8 @@ function fakeStack(tools) {
     'platform cards are identity-namespaced so GitHub/Notion/Stripe cannot collide with same-id MCP cards');
   A.ok(!/id="ky-catalog"/.test(station) && /CONNECTED API KEYS/.test(station),
     'KEYS shows connected credentials and no longer hides the curated platform catalog inside its add form');
-  A.ok(/to: 'catalog', title: 'Connect a platform API or POD service'/.test(station) && /Choose the platform here, then paste its key/.test(station),
-    'the ABILITIES front door routes POD discovery through CATALOG before the KEYS setup path');
+  A.ok(/to: 'catalog', title: 'Connect a service you use'/.test(station) && /entry\.platformApi \? 'keys' : 'mcp'/.test(station),
+    'one service front door preserves the correct platform-key and connector management paths');
 
   A.report('connectors-ui');
 })().catch(e => { console.log('FAIL: threw ' + (e && e.stack || e)); process.exit(1); });
