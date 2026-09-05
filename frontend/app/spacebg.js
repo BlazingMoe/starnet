@@ -6,7 +6,10 @@
 
    THE LAW OF THIS FILE, in order of importance:
 
-   1. THE VOID IS FROZEN. It is the default and it renders byte-identical to what shipped.
+   1. THE VOID IS THE DEFAULT. It was frozen byte-identical from 2026-07-14 until 2026-09-05, when
+      Andrew asked for it to be improved in place (structured nebulas, stepped twinkle, sparkle).
+      Its CHARACTER is still the law: sparse cold points on real black, faint distant gas, no
+      parallax, the same drift. Never decorate it with bodies.
       On 2026-07-14 a galaxy + ringed planet were added to it and Andrew had them reverted
       (514386de: "keep the sky to starfield + nebulas + band + meteor"). That call stands.
       Richer space lives in THE NURSERY, which is opt-in. Never decorate the default.
@@ -273,26 +276,131 @@ const SpaceBG = (() => {
       const area = w * h;
       const u = px1();                     // star pixel unit — keeps grain consistent across dpr
 
-      /* ---- layer 1: NEBULAS (farthest) ---- */
+      /* ---- layer 1: NEBULAS (farthest) ----
+         UNFROZEN 2026-09-05 at Andrew's request: "improve our original default one. give it more
+         detail, have the stars twinkle, make the nebulas actually look like nebulas instead of them
+         being low detailed fixtures of light." Then, on seeing it: "perfect but make sure it doesnt
+         look like some still image ... expand the color beyond purple, try the aurora vibe."
+
+         So the gas is a per-pixel field — domain-warped noise inside a soft envelope, dark lanes
+         biting in, a hash dither for grain — and it MOVES: three plates of the SAME clouds (same
+         envelope, same hues, same lanes) with the fine structure and the warp shifted, cross-faded
+         one into the next on a slow cycle so the filaments visibly drift and reform, plus a slow
+         vertical sway and the old breathing. Plate 0 is built here; plates 1 and 2 are generators
+         the draw loop advances a few milliseconds at a time, so the extra work never hitches a
+         frame. Colour: violet still leads, with aurora green, teal, pink and blue blended in where
+         the hue field lands. Built at half res (the field is smooth), dithered and coloured at full
+         res (grain must be pixel-sized or it reads as a mesh — THE NURSERY's lesson). Wraps in x by
+         construction; a vertical window keeps gas off the top/bottom edge, because the plate wraps
+         in y but THE VOID never scrolls in y (a cloud on that seam showed twice). */
+      const SW = Math.max(1, Math.ceil(w / 2)), SH = Math.max(1, Math.ceil(h / 2));
+      const d1 = wrapNoise(3, rnd), d2 = wrapNoise(7, rnd), d3 = wrapNoise(15, rnd), d4 = wrapNoise(31, rnd), d5 = wrapNoise(67, rnd);
+      const wx = wrapNoise(4, rnd), wy = wrapNoise(4, rnd);
+      const env = wrapNoise(3, rnd), hueF = wrapNoise(3, rnd);
+      const lane1 = wrapNoise(6, rnd), lane2 = wrapNoise(14, rnd);
+      const nebDith = (x, y) => {
+        let k = Math.imul(x + 0x1F123BB5, 0x27D4EB2D) ^ Math.imul(y + 0x68E31DA4, 0x165667B1);
+        k = Math.imul(k ^ (k >>> 15), 0x2C1B3C6D);
+        return (((k ^ (k >>> 12)) >>> 0) / 4294967296) - 0.5;
+      };
+      const samp = (F, fx, fy) => {
+        const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+        const xa = ((x0 % SW) + SW) % SW, ya = ((y0 % SH) + SH) % SH, xb = (xa + 1) % SW, yb = (ya + 1) % SH;
+        const top = F[ya * SW + xa] + (F[ya * SW + xb] - F[ya * SW + xa]) * tx;
+        const bot = F[yb * SW + xa] + (F[yb * SW + xb] - F[yb * SW + xa]) * tx;
+        return top + (bot - top) * ty;
+      };
+      /* the AURORA palette: violet leads (it appears three times in the sequence), with pink,
+         green, teal and blue as the splash. The hue field blends CONTINUOUSLY along this sequence
+         (a threshold here once drew hard-edged discs). */
+      const FAM = [
+        { lo: [10, 6, 26], mid: [84, 40, 148], hi: [190, 140, 235] },     // violet
+        { lo: [24, 6, 22], mid: [136, 36, 108], hi: [235, 120, 190] },    // pink
+        { lo: [10, 6, 26], mid: [84, 40, 148], hi: [190, 140, 235] },     // violet
+        { lo: [4, 18, 14], mid: [30, 122, 74], hi: [130, 232, 160] },     // aurora green
+        { lo: [6, 18, 26], mid: [28, 110, 130], hi: [120, 225, 228] },    // teal
+        { lo: [10, 6, 26], mid: [84, 40, 148], hi: [190, 140, 235] },     // violet
+        { lo: [6, 10, 30], mid: [44, 74, 176], hi: [136, 176, 244] },     // blue
+      ];
+      const LANE = [2, 2, 6], LV = 12;
+      // shared (per-cloud) fields: envelope, hue, lanes — identical across the plates
+      const fE = new Float32Array(SW * SH), fH = new Float32Array(SW * SH), fL = new Float32Array(SW * SH);
+      for (let y = 0, i = 0; y < SH; y++) {
+        const v0 = y / SH, vwin = Math.min(1, v0 / 0.14, (1 - v0) / 0.14);
+        for (let x = 0; x < SW; x++, i++) {
+          const u0 = x / SW;
+          fE[i] = Math.max(0, Math.min(1, (env(u0, v0) - 0.52) * 3.0)) * vwin;
+          fH[i] = hueF(u0, v0);
+          fL[i] = Math.max(0, Math.min(1, (lane1(u0 * 1.1, v0 * 1.1) * 0.6 + lane2(u0, v0) * 0.4 - 0.53) * 3.6));
+        }
+      }
+      let fT0 = null;                                   // plate 0's density, for the overlay below
+      /* one plate, as a generator: the density field then the colour pass, yielding every few rows
+         so the draw loop can spread plates 1 and 2 across frames. k shifts the warp and the fine
+         octaves — the big shapes (d1, d2), the envelope, hues and lanes stay put. */
+      function* makePlate(k) {
+        const ox = 0.13 * k, oy = 0.09 * k;
+        const fT = new Float32Array(SW * SH);
+        for (let y = 0, i = 0; y < SH; y++) {
+          const v0 = y / SH;
+          for (let x = 0; x < SW; x++, i++) {
+            const e = fE[i]; if (e <= 0.001) continue;
+            const u0 = x / SW;
+            const u = u0 + (wx(u0 + ox, v0 + oy) - 0.5) * 0.22, v = v0 + (wy(u0 + ox, v0 + oy) - 0.5) * 0.22;
+            const dens = d1(u, v) * 0.36 + d2(u, v) * 0.26 + d3(u + ox, v + oy) * 0.18 + d4(u + ox, v - oy) * 0.12 + d5(u - ox, v + oy) * 0.08;
+            fT[i] = Math.max(0, Math.min(1, (dens - 0.42) * 3.8)) * e;
+          }
+          if ((y & 31) === 31) yield null;
+        }
+        if (k === 0) fT0 = fT;
+        const cv = mkCv(w, h), c = cv.getContext('2d');
+        const img = c.createImageData(w, h), D = img.data;
+        for (let y = 0, p = 0; y < h; y++) {
+          const fy = y * 0.5;
+          for (let x = 0; x < w; x++, p += 4) {
+            const fx = x * 0.5;
+            let t = samp(fT, fx, fy);
+            if (t <= 0.03) continue;
+            t = Math.max(0, Math.min(1, Math.round((t + nebDith(x, y) / LV) * LV) / LV));
+            if (t <= 0) continue;
+            const hv = Math.max(0, Math.min(0.999, (samp(fH, fx, fy) - 0.25) * 2)) * (FAM.length - 1), fi = Math.floor(hv), ft = hv - fi;
+            const fa = FAM[fi], fb = FAM[fi + 1];
+            const lo = mix3(fa.lo, fb.lo, ft), mid = mix3(fa.mid, fb.mid, ft), hi = mix3(fa.hi, fb.hi, ft);
+            let col = t < 0.5 ? mix3(lo, mid, t / 0.5) : mix3(mid, hi, (t - 0.5) / 0.5);
+            let alpha = 0.05 + t * 0.85;                  // DISTANT: short of opaque, this is THE VOID
+            const dark = samp(fL, fx, fy);
+            if (dark > 0) { col = mix3(col, LANE, dark); alpha = Math.min(0.8, alpha + dark * 0.35); }
+            D[p] = col[0]; D[p + 1] = col[1]; D[p + 2] = col[2]; D[p + 3] = Math.round(255 * alpha);
+          }
+          if ((y & 63) === 63) yield null;
+        }
+        c.putImageData(img, 0, 0);
+        return cv;
+      }
+      const g0 = makePlate(0);
+      let r0; do { r0 = g0.next(); } while (!r0.done);   // plate 0 now, in full
+      const nebPlates = [r0.value];
+      const nebJobs = [makePlate(1), makePlate(2)];      // the draw loop finishes these
+
+      /* the STATIC overlay: hot knots and star clusters where plate 0's gas is densest, and (below)
+         the galactic band's whisper of glow. Drawn over whichever plates are showing. */
       const nebCv = mkCv(w, h);
       const nc = nebCv.getContext('2d');
-      nc.globalCompositeOperation = 'lighter';         // gas glows additively — overlaps bloom, never mud
-      const blobs = area > 2.2e6 ? 4 : 3;
-      for (let b = 0; b < blobs; b++) {
-        const cx = rnd() * w, cy = h * (0.10 + 0.72 * rnd());
-        const R = (0.20 + 0.24 * rnd()) * Math.min(w, h);
-        const hue = NEB_HUES[Math.floor(rnd() * NEB_HUES.length) % NEB_HUES.length];
-        const acc = NEB_HUES[Math.floor(rnd() * NEB_HUES.length) % NEB_HUES.length];
-        for (let p = 0; p < 7; p++) {                  // 7 jittered puffs per cloud → organic, not a perfect disc
-          const px = cx + (rnd() - 0.5) * R * 1.3, py = cy + (rnd() - 0.5) * R * 0.9;
-          puff(nc, w, px, py, R * (0.35 + 0.45 * rnd()), p < 5 ? hue : acc, 0.06 + 0.05 * rnd());
-        }
-        puff(nc, w, cx, cy, R * 0.30, hue, 0.16);      // the bright heart of the cloud
-        // local star cluster — real nebulas sit in crowded sky
-        for (let s = 0, n = 24 + Math.floor(rnd() * 20); s < n; s++) {
+      nc.globalCompositeOperation = 'lighter';
+      for (let k = 0, n = 4 + Math.floor(rnd() * 4); k < n; k++) {
+        const sx = rnd() * w, sy = rnd() * h;
+        if (samp(fT0, sx * 0.5, sy * 0.5) < 0.45) continue;
+        puff(nc, w, sx, sy, Math.min(w, h) * (0.02 + 0.03 * rnd()), [170, 130, 230], 0.10);
+        nc.fillStyle = 'rgba(230,220,255,0.7)'; nc.fillRect(sx | 0, sy | 0, 1, 1);
+      }
+      for (let b = 0; b < 3; b++) {
+        const cx = rnd() * w, cy = rnd() * h;
+        if (samp(fT0, cx * 0.5, cy * 0.5) < 0.2) continue;
+        const R = Math.min(w, h) * 0.12;
+        for (let s = 0, n = 30 + Math.floor(rnd() * 24); s < n; s++) {
           const ang = rnd() * Math.PI * 2, d = rnd() * R;
           nc.fillStyle = 'rgba(220,225,250,' + (0.10 + 0.25 * rnd()).toFixed(3) + ')';
-          nc.fillRect(((cx + Math.cos(ang) * d) % w + w) % w, cy + Math.sin(ang) * d * 0.8, 1, 1);
+          nc.fillRect(((cx + Math.cos(ang) * d) % w + w) % w, ((cy + Math.sin(ang) * d * 0.8) % h + h) % h, 1, 1);
         }
       }
       /* the galactic band: a sine curve periodic in w (wraps seamlessly) — faint glow + dust bias below */
@@ -302,7 +410,7 @@ const SpaceBG = (() => {
       const bandHue = NEB_HUES[Math.floor(rnd() * NEB_HUES.length) % NEB_HUES.length];
       for (let i = 0; i < 26; i++) {
         const bx = (i / 26) * w + (rnd() - 0.5) * w * 0.03;
-        puff(nc, w, bx, bandAt(bx) + (rnd() - 0.5) * bandHalf * 0.8, bandHalf * (1.1 + 0.7 * rnd()), bandHue, 0.028 + 0.022 * rnd());
+        puff(nc, w, bx, bandAt(bx) + (rnd() - 0.5) * bandHalf * 0.8, bandHalf * (1.1 + 0.7 * rnd()), bandHue, 0.012 + 0.010 * rnd());   // a whisper: the band is its STARS now, not a glow
       }
 
       /* ---- layer 2: DUST (dense static far field) ---- */
@@ -323,32 +431,70 @@ const SpaceBG = (() => {
       const mid = [], near = [];
       const midN = Math.min(340, Math.round(area / 11000)), nearN = Math.min(190, Math.round(area / 24000));
       for (let i = 0; i < midN; i++) mid.push({ x: rnd(), y: rnd(), r: rnd() < 0.85 ? u : u * 2, ph: rnd() * 10, c: pickTint(rnd()) });
-      for (let i = 0; i < nearN; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.6 ? u : u * 2, ph: rnd() * 10, c: pickTint(rnd()), glint: rnd() < 0.08 });
+      for (let i = 0; i < nearN; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.6 ? u : u * 2, ph: rnd() * 10, c: pickTint(rnd()), glint: rnd() < 0.14 });
+      /* SPARKLE (2026-09-05): a live set of dust-level stars that blink on and off in the static
+         far field, so the whole sky twinkles and not only the two near bands. Cheap: ~1 per 6000px. */
+      const spark = [];
+      for (let i = 0, n = Math.min(400, Math.round(area / 6000)); i < n; i++) spark.push({ x: rnd(), y: rnd(), ph: rnd() * 10, rate: 500 + rnd() * 1200, c: pickTint(rnd()) });
 
-      return { nebCv, dustCv, mid, near };
+      return { nebCv, nebPlates, nebJobs, dustCv, mid, near, spark };
     },
 
     draw(ctx, w, h, now, cam, st) {
       const S = VOID_BG.SPD;
       const nx = (now / 1000 * S.neb) % w;             // two-copy wrap scroll, same idiom per layer
       ctx.globalAlpha = 0.9 + 0.1 * Math.sin(now / 7000);   // the gas breathes, slowly
-      ctx.drawImage(st.nebCv, nx - w, 0, w, h); ctx.drawImage(st.nebCv, nx, 0, w, h);
+      /* LIVING GAS (2026-09-05). Finish any pending plate a few ms at a time, then cross-fade: the
+         current plate at full, the next fading in over it on a slow cycle (no dip at the crossover,
+         because the base stays opaque underneath). A slow vertical sway rides on top. Until plates
+         1 and 2 exist, the base is drawn alone — a missing plate falls back to the latest one. */
+      if (st.nebJobs && st.nebJobs.length) {
+        const hasPerf = typeof performance !== 'undefined' && performance.now;
+        const t0 = hasPerf ? performance.now() : 0;
+        do {
+          const r = st.nebJobs[0].next();
+          if (r.done) { st.nebPlates.push(r.value); st.nebJobs.shift(); }
+        } while (st.nebJobs.length && hasPerf && performance.now() - t0 < 4);
+      }
+      const NP = 3, tsec = now / 1000, cyc = tsec / 26;
+      const pi = Math.floor(cyc) % NP, pf = cyc - Math.floor(cyc), sf = pf * pf * (3 - 2 * pf);
+      const plateAt = i => st.nebPlates[Math.min(i, st.nebPlates.length - 1)];
+      const sway = Math.round(5 * Math.sin(tsec / 41 * Math.PI * 2));
+      const breathe = ctx.globalAlpha;
+      const base = plateAt(pi), next = plateAt((pi + 1) % NP);
+      ctx.drawImage(base, nx - w, sway, w, h); ctx.drawImage(base, nx, sway, w, h);
+      if (next !== base) {
+        ctx.globalAlpha = breathe * sf;
+        ctx.drawImage(next, nx - w, sway, w, h); ctx.drawImage(next, nx, sway, w, h);
+        ctx.globalAlpha = breathe;
+      }
+      ctx.drawImage(st.nebCv, nx - w, sway, w, h); ctx.drawImage(st.nebCv, nx, sway, w, h);
       const dx = (now / 1000 * S.dust) % w;
       ctx.globalAlpha = 0.92 + 0.08 * Math.sin(now / 4100);
       ctx.drawImage(st.dustCv, dx - w, 0, w, h); ctx.drawImage(st.dustCv, dx, 0, w, h);
       ctx.globalAlpha = 1;
 
+      /* TWINKLE (2026-09-05, Andrew: "have the stars twinkle"): the old smooth 0.35-1 sine read as
+         steady after the CRT pass. Stars now STEP between three levels and go much darker at the
+         bottom, so each one visibly blinks; the sparkle set does the same in the far field. */
+      const step = ph => ph > 0.45 ? 1 : ph > -0.35 ? 0.55 : 0.15;
+      for (const s of st.spark) {
+        const lv = step(Math.sin(now / s.rate + s.ph));
+        if (lv < 0.2) continue;
+        ctx.fillStyle = s.c + (lv * 0.6).toFixed(3) + ')';
+        ctx.fillRect((s.x * w + now / 1000 * S.dust) % w, s.y * h, 1, 1);
+      }
       for (const s of st.mid) {
-        const tw = (0.35 + 0.65 * Math.abs(Math.sin(now / (900 + s.ph * 300) + s.ph))) * VOID_BG.DIM_MID;
+        const tw = step(Math.sin(now / (900 + s.ph * 300) + s.ph)) * VOID_BG.DIM_MID;
         ctx.fillStyle = s.c + tw.toFixed(3) + ')';
         ctx.fillRect((s.x * w + now / 1000 * S.mid) % w, s.y * h, s.r, s.r);
       }
       for (const s of st.near) {
-        const tw = (0.35 + 0.65 * Math.abs(Math.sin(now / (900 + s.ph * 300) + s.ph))) * VOID_BG.DIM_NEAR;
+        const tw = step(Math.sin(now / (900 + s.ph * 300) + s.ph)) * VOID_BG.DIM_NEAR;
         const x = (s.x * w + now / 1000 * S.near) % w, y = s.y * h;
         ctx.fillStyle = s.c + tw.toFixed(3) + ')';
         ctx.fillRect(x, y, s.r, s.r);
-        if (s.glint && tw > 0.55) {                    // the brightest few flare into a 4-point glint at twinkle peak
+        if (s.glint && tw > 0.9) {                     // the brightest few flare into a 4-point glint at twinkle peak
           ctx.fillStyle = s.c + (tw * 0.30).toFixed(3) + ')';
           ctx.fillRect(x - s.r * 2, y + (s.r >> 1), s.r * 5, 1);
           ctx.fillRect(x + (s.r >> 1), y - s.r * 2, 1, s.r * 5);
@@ -816,7 +962,9 @@ const SpaceBG = (() => {
 
       // the galaxy: pinned to the frame centre, swaying, creeping along DIR at the slowest rate
       const F = st.focus || { r: 0 }, SW = GALAXY_BG.SWAY;
-      const pinX = F.r > 0.08 ? w / 2 - F.x : 0, pinY = F.r > 0.08 ? h / 2 - F.y : 0;
+      // pinned LEFT of centre (Andrew, 2026-09-05: "have the galaxy slightly to the left") so it
+      // shows beside the station rather than hiding behind it
+      const pinX = F.r > 0.08 ? w * 0.36 - F.x : 0, pinY = F.r > 0.08 ? h * 0.46 - F.y : 0;
       tileN(ctx, st.galCv, TW, TH, w, h,
         parX(cam, D.gal) + pinX + SW.x * Math.sin(t / SW.sx * Math.PI * 2) + t * S.gal * dx,
         parY(cam, D.gal) + pinY + SW.y * Math.sin(t / SW.sy * Math.PI * 2) + t * S.gal * dy);
