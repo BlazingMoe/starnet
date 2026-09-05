@@ -324,7 +324,7 @@ function makeGroupSessions(d) {
             const parent = state.turns.find(x => x.id === t.id);
             if (signal.aborted || !parent || parent.state === 'stopping' || !state.members.includes(target)) fail('Turn stopped or participant removed');
             queued = state.turns.find(x => x.origin === t.origin && x.agentId === target && x.request?.trim().toLowerCase() === request.toLowerCase() && (x.parent === t.id || ['queued', 'held'].includes(x.state)));
-            if (queued?.state === 'held' && queued.reason === 'Handoff did not start; lead is checking') { queued.state = 'queued'; queued.parent = t.id; queued.createdAt = d.now(); queued.reason = ''; }
+            if (queued?.state === 'held' && queued.reason === 'Handoff did not start; lead follow-up queued') { queued.state = 'queued'; queued.parent = t.id; queued.createdAt = d.now(); queued.reason = ''; }
             if (!queued) queued = turn(state, t.origin, target, { parent: t.id, request, hop: (t.hop || 0) + 1, allowance: t.allowance || 0 });
           });
           return { queued: true, turnId: queued.id, agentId: target };
@@ -361,7 +361,7 @@ function makeGroupSessions(d) {
       const repeated = t.request && g.turns.filter(x => x.origin === t.origin && x.agentId === t.agentId && x.state === 'completed' &&
         x.request?.trim().toLowerCase() === t.request.trim().toLowerCase() && x.checkpoint === checkpoint).length >= 2;
       if (repeated && !t.allowance) {
-        await update(id, state => { Object.assign(state.turns.find(x => x.id === t.id), { state: 'held', reason: 'Repeated request without a new shared result; review before continuing' }); });
+        await update(id, state => { Object.assign(state.turns.find(x => x.id === t.id), { state: 'held', reason: 'Repeated request; review before continuing' }); });
         continue;
       }
       const count = g.turns.filter(x => x.origin === t.origin && !['queued', 'held', 'stopped'].includes(x.state)).length;
@@ -479,7 +479,7 @@ function makeGroupSessions(d) {
           const current = state.turns.find(x => x.id === t.id);
           if (current.state !== 'queued' || state.paused) return;
           if (t.parent && !state.turns.some(x => x.origin === t.origin && x.recoveryOf)) {
-            current.state = 'held'; current.reason = 'Handoff did not start; lead is checking';
+            current.state = 'held'; current.reason = 'Handoff did not start; lead follow-up queued';
             turn(state, t.origin, state.leadId, { parent: t.parent, recoveryOf: t.id,
               request: 'A queued handoff to ' + t.agentId + ' never started: ' + t.request +
                 '. Check what is still needed; do not claim that work ran. You may explicitly hand off again.' });

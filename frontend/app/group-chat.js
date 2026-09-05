@@ -174,7 +174,7 @@ const GroupChat = (() => {
       if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
       log.append(row);
       for (const next of group.turns.filter(t => m.turnId && t.parent === m.turnId && !t.questionId && t.state !== 'stopped')) {
-        log.append(h('div', { class: 'gc-transfer' }, next.recoveryOf ? name(next.agentId) + ' is checking a handoff that did not start' :
+        log.append(h('div', { class: 'gc-transfer' }, next.recoveryOf ? name(next.agentId) + ' was asked to check a handoff that did not start' :
           name(m.author) + ' asked ' + name(next.agentId) + ' to follow up'));
       }
     }
@@ -200,6 +200,7 @@ const GroupChat = (() => {
     const states = $('gc-states'); states.replaceChildren();
     const VERB = { queued: 'queued', held: 'ready', connecting: 'connecting…', running: 'working', 'waiting for answer': 'waiting for your answer', 'waiting for approval': 'needs approval', stopping: 'stopping', failed: 'failed', interrupted: 'interrupted', stopped: 'stopped' };
     for (const t of group.turns.slice(-15)) {
+      if (t.state === 'waiting for answer' && (group.questions || []).some(q => q.turnId === t.id && q.state === 'pending')) continue;
       const needsAttention = ['queued', 'held', 'queued', 'held', 'connecting', 'running', 'waiting for approval', 'waiting for answer', 'stopping'].includes(t.state) ||
         (t === group.turns.at(-1) && ['failed', 'interrupted'].includes(t.state));
       if (!needsAttention) continue;
