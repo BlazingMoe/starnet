@@ -31,7 +31,9 @@ paused, resumed, and completed from a user report; explicit goal confirmation pr
 points, Commander Lv 2, and evolution stage 1. Restart preserved those values and repeat
 confirmation minted nothing. Browser warning/exception lists and native-control paint count
 were empty. The provider was a local deterministic mock, so real-provider recommendation
-quality and installed-desktop behavior remain unverified. Full fast/http gates pending.
+quality and installed-desktop behavior remain unverified. Pre-merge gates passed: 722/722
+fast and 99/99 HTTP. The combined website-repair candidate also passed 722/722 fast and
+the live restart proof. Integration verification remains pending.
 
 ## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
 
