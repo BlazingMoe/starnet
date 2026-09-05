@@ -160,6 +160,27 @@ with the two-agent roster intact. Browser error/warning log was empty. Focused
 workstream (193), control-floor (101), and mirror (8) assertions passed.
 Full fast suite: 702 steps green (`dev/group-select-fast.log`).
 
+## Normal chat simplification
+
+Removed Chat options, session instructions, turn-limit controls, independent-answer
+switches, and the separate group composer. Group conversations now use the existing
+COMMS input, Send, attachment staging, and Stop controls. The accepted participant
+line and standard CRT terminal picker remain; the picker contains only search,
+selectable agent rows, selection count, ADD, and Cancel. Completed activity rows
+are no longer repeated below the conversation. Every group message retains its
+speaker label, including consecutive replies from different agents.
+
+Live preview on port 9137: sent an @researcher message through the normal composer,
+observed its reply in the group transcript and the cleared input. Started another
+turn after Stop without a Resume setting, then interrupted it with the normal Stop
+button; the durable group record confirmed `stopped`. Verified the direct-chat
+composer still appears after switching sessions. The header, transcript, and
+composer shared the same x-coordinate and width with no horizontal overflow.
+No removed options or second composer remained in the DOM. Opened the simplified
+picker from both group and direct chats and canceled without changing membership.
+Attachment transfer uses the existing staged-file route; native file selection was
+not exercised in this follow-up.
+
 ## Scope of the evidence
 
 This is local feature verification, not an installed-desktop or public-release claim.
