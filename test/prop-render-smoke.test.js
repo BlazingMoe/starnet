@@ -38,7 +38,7 @@ function recorder() {
     strokeRect: noop, clearRect: noop,
     save: noop, restore: noop, beginPath: noop, closePath: noop, moveTo: noop, lineTo: noop,
     arc: noop, ellipse: noop, rect: noop, fill: noop, stroke: noop, clip: noop,
-    translate: noop, scale: noop, rotate: noop, fillText: noop, measureText: () => ({ width: 0 }),
+    translate: noop, scale: noop, rotate: noop, transform: noop, fillText: noop, measureText: () => ({ width: 0 }),
     createLinearGradient: () => ({ addColorStop: noop }),
     drawImage: noop, getImageData: () => ({ data: [] }), putImageData: noop,
   };
@@ -138,7 +138,7 @@ A.ok(checked >= 118, 'walked the whole catalog (' + checked + ' props)');
     PS.drawShadow(f);
     const firstAllocations = allocations;
     PS.drawShadow({ ...f, x: 8, id: 'another-desk' });
-    A.ok(images.length === 4 && images.every(mask => mask === images[0]), 'instances reuse the same silhouette for both shadow layers');
+    A.ok(images.length === 2 && images.every(mask => mask === images[0]), 'instances reuse one raster containing both projected shadow layers');
     A.eq(allocations, firstAllocations, 'cached shadow does not allocate another canvas per frame or instance');
     const count = images.length;
     PS.drawShadow(f, 'surface');
@@ -146,7 +146,7 @@ A.ok(checked >= 118, 'walked the whole catalog (' + checked + ' props)');
     PS.drawShadow({ t: flat.id, x: 0, y: 0, w: flat.w, h: flat.h });
     A.eq(images.length, count, 'mounted items and flat decals do not project deck shadows');
     PS.draw(f, false);
-    A.ok(ctx.rects.length >= MIN_RECTS, 'mask rendering restores the caller context for subsequent sprites');
+    A.ok(ctx.rects.length >= MIN_RECTS || images.length > count, 'mask rendering restores the caller context for subsequent painted or cached sprites');
   } finally { document.createElement = previousCreate; }
 }
 

@@ -3593,6 +3593,36 @@ const PropSprites = (() => {
     }
   };
 
+  // These audited idle sprites have only discrete lamp states. Retain their exact
+  // art instead of submitting hundreds of unchanged paint commands per frame.
+  // Working props and live overlays still paint normally; shadows need raw art.
+  function cacheIdleArt(id, state) {
+    const paint=F[id], frames=new Map();
+    F[id]=(x,y,w,h,f)=>{
+      if ((f && f.work) || buildingShadowSilhouette || !_ink.has(id) || typeof document === 'undefined' ||
+          (document.fonts && document.fonts.status !== 'loaded')) return paint(x,y,w,h,f);
+      const key=JSON.stringify([x,y,w,h,!!MIRROR,CHROMA,state(f||{})]);
+      let image=frames.get(key);
+      if (!image) {
+        image=document.createElement('canvas');image.width=w+24;image.height=h+32;
+        const g=image.getContext('2d');if(!g)return paint(x,y,w,h,f);
+        const previous=ctx;
+        try {ctx=g;g.imageSmoothingEnabled=false;g.translate(12-x,16-y);paint(x,y,w,h,f);}
+        finally {ctx=previous;}
+        if(frames.size>=256)frames.clear();
+        frames.set(key,image);
+        if(image.addEventListener)image.addEventListener('contextlost',()=>frames.delete(key),{once:true});
+      }
+      const smooth=ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled=false;
+      try {ctx.drawImage(image,x-12,y-16);} finally {ctx.imageSmoothingEnabled=smooth;}
+    };
+  }
+  cacheIdleArt('bay',f=>[f.agentId,f.dockName,blink(700),blink(1500)]);
+  cacheIdleArt('desk',f=>blink(1600,f.x||0));
+  cacheIdleArt('desk2',()=>0);
+  cacheIdleArt('plant',()=>0);
+
   F.boxes = (x, y, w, h) => {
     // BOXES (2x1) — the same freight family as CRATE but in FIBREBOARD, not steel: no castings, no ribs,
     // no skids. Taped flap creases, paper labels and the fabric ramp carry the material read, and the
@@ -11065,6 +11095,30 @@ const PropSprites = (() => {
     if(shadowMasks.size>=256)shadowMasks.clear();
     shadowMasks.set(key,cv);return cv;
   }
+  // Project each silhouette once. Repeating skewed translucent canvas blits for
+  // the whole station stalls the GPU; a straight blit of this 4x raster retains
+  // the shaped penumbra and remains sharp through the normal camera zoom range.
+  const projectedShadows = new WeakMap();
+  function projectedShadow(mask, h) {
+    if(projectedShadows.has(mask))return projectedShadows.get(mask);
+    if(typeof document==='undefined')return null;
+    const layers=[{x:-15,y:-50-h,a:0.11},{x:-16,y:-48-h,a:0.26}];
+    const x0=Math.floor(Math.min(...layers.map(l=>l.x-0.52*(l.y+mask.height))))-1;
+    const x1=Math.ceil(Math.max(...layers.map(l=>l.x+mask.width-0.52*l.y)))+1;
+    const y0=Math.floor(Math.min(...layers.map(l=>h-1-0.34*(l.y+mask.height))))-1;
+    const y1=Math.ceil(Math.max(...layers.map(l=>h-1-0.34*l.y)))+1;
+    const cv=document.createElement('canvas'),w=x1-x0,height=y1-y0,res=4;
+    cv.width=w*res;cv.height=height*res;
+    const g=cv.getContext('2d');if(!g||!g.transform)return null;
+    g.imageSmoothingEnabled=false;g.transform(res,0,0,res,-x0*res,-y0*res);
+    g.translate(0,h-1);g.transform(1,0,-0.52,-0.34,0,0);
+    for(const l of layers){g.globalAlpha=l.a;g.drawImage(mask,l.x,l.y);}
+    const projected={cv,x:x0,y:y0,w,h:height};
+    projectedShadows.set(mask,projected);
+    if(cv.addEventListener)cv.addEventListener('contextlost',()=>projectedShadows.delete(mask),{once:true});
+    return projected;
+  }
+
   function drawShadow(f, mounted) {
     if (!ctx) return;
     if ((mounted || f.mount) === 'surface') return;
@@ -11072,6 +11126,13 @@ const PropSprites = (() => {
     const X = f.x * TILE, Y = f.y * TILE, W = (f.w || 1) * TILE, H = (f.h || 1) * TILE;
     const mask=shadowMask(f);
     if(mask&&ctx.transform) {
+      const projected=projectedShadow(mask,H);
+      if(projected&&ctx.globalAlpha===1){
+        const smooth=ctx.imageSmoothingEnabled;ctx.imageSmoothingEnabled=false;
+        try{ctx.drawImage(projected.cv,X+projected.x,Y+projected.y,projected.w,projected.h);}
+        finally{ctx.imageSmoothingEnabled=smooth;}
+        return;
+      }
       const alpha=ctx.globalAlpha;
       ctx.save();
       try {

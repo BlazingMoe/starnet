@@ -4650,11 +4650,69 @@ const StationBake = (() => {
     return { baseCv: blank, lightCv: blank, W: geo.W, H: geo.H, origin: geo.origin, flickers: [], lamps: [] };
   }
 
+  // Build the clip during the bake, so the frame loop never reads surface pixels.
+  function interiorLightPath(cv) {
+    if (typeof Path2D === 'undefined') return null;
+    const pixels=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+    const path=new Path2D();
+    let active=new Map();
+    for(let y=0;y<=cv.height;y++) {
+      const next=new Map();
+      if(y<cv.height)for(let x=0;x<cv.width;) {
+        if(!pixels[(y*cv.width+x)*4+3]){x++;continue;}
+        const start=x;while(x<cv.width&&pixels[(y*cv.width+x)*4+3])x++;
+        const key=start+','+x,prior=active.get(key);
+        next.set(key,prior||{x:start,y,w:x-start});active.delete(key);
+      }
+      for(const r of active.values())path.rect(r.x,r.y,r.w,y-r.y);
+      active=next;
+    }
+    return path;
+  }
+
+  // Navigation fixtures mount on the visible south-facing skirt, not on the
+  // floor-plane corner or the wall crown. Validate their whole housing against
+  // the rendered shell, since adjacent rooms can hide an otherwise valid mount.
+  function hullNavLights(baseCv, interiorCv) {
+    const result = [];
+    if (!baseCv.getContext('2d').getImageData) return result;
+    const base = baseCv.getContext('2d').getImageData(0,0,CW,CH).data;
+    const inside = interiorCv.getContext('2d').getImageData(0,0,CW,CH).data;
+    const reach = (T+pad-3)*Math.pow(0.5,1/cornerExp());
+    const skirt = Math.max(4,Math.round(WALL.skirt));
+    const onShell = (x,y) => {
+      for(let yy=y-2;yy<=y+2;yy++)for(let xx=x-2;xx<=x+2;xx++) {
+        const px=xx-VX, py=yy-VY;
+        if(px<0||py<0||px>=CW||py>=CH)return false;
+        const i=(py*CW+px)*4+3;
+        if(base[i]<250||inside[i]>0)return false;
+        const tx=Math.floor(xx/T),ty=Math.floor(yy/T);
+        if(tx>=0&&ty>=0&&tx<G.COLS&&ty<G.ROWS&&G.zoneGrid[G.idx(tx,ty)]!=null)return false;
+      }
+      return true;
+    };
+    for(const [cx,cy,kind] of G.chamfers) {
+      if(kind!=='bl'&&kind!=='br')continue;
+      const west=kind==='bl';
+      const x=Math.round((cx+(west?1:0))*T+(west?-reach:reach));
+      const y0=Math.round(cy*T+reach+skirt*0.55);
+      // Small vertical adjustments keep the housing fully on visible armour.
+      for(const offset of [0,2,-2,4,-4]) {
+        const y=y0+offset;
+        if(!onShell(x,y)||result.some(l=>Math.hypot(l.x-x,l.y-y)<18))continue;
+        result.push({x,y,red:west,phase:((cx*37+cy*61)%100+100)%100/100});
+        break;
+      }
+    }
+    return result;
+  }
+
   function bakeViewport(geo, viewport) {
     if (!setBakeState(geo, viewport)) return blankBake(geo);
     const baseCv = buildBase();
     const { lightCv, interiorCv, flickers, lamps } = buildLightMap();
-    return { baseCv, lightCv, interiorCv, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
+    const navLights = hullNavLights(baseCv, interiorCv), interiorPath = interiorLightPath(interiorCv);
+    return { baseCv, lightCv, interiorCv, interiorPath, navLights, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
   }
 
   function bake(geo) {

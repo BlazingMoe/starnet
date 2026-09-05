@@ -110,3 +110,23 @@ layered mounting pads/fasteners, recessed ventilation, sparse metal-deck inspect
 and more resolved bulkhead and shell service fittings. It does not change lighting controls,
 chair designs, footprints, capability state, or the custom layout. Reviewed at normal and
 close zoom; 17 focused test steps passed, followed by two floor/chunk checks after hatch placement.
+
+Performance / beacon follow-up: running lights now occupy 26 validated south-facing hull mounts,
+with a recessed 5px housing. All housing pixels are opaque shell, outside the interior receiver
+and floor tiles; the old 52 unvalidated corner offsets are gone. Geometry checks run during bake.
+
+Idle bay/desk/desk2/plant art caches preserve discrete blink/name/mirror/chroma states; working
+props still render live. Prop bodies/shadows outside the viewport are culled with a 64px margin.
+Projected shadows retain the approved shape, cached at 4x; the floor-clipped shadow pass is cached
+at screen resolution and invalidates on camera/layout/bake/resize/context-loss changes. Agent
+shadows and interior exposure are unchanged. Interior clip construction now happens during bake.
+
+Real Chromium probes: 192 prop-art comparisons were pixel-identical; 96 shadow comparisons across
+four zooms averaged 1.66/255 channel difference in shadow-covered pixels. Cached shadow-pass pixels
+matched a fresh render after focus, resize and simulated context loss. Interior/exterior/window
+regression probe passed. GPU benchmark (RTX 5060 Ti, 1440x900, 20s settled sample): full station
+improved from approximately 37 FPS to 56.8 FPS, with p95 frame interval 16.8ms. The close-up held
+60 FPS, with 3.8ms median / 5.5ms p95 frame callback cost. This is a local
+renderer measurement, not an all-device performance guarantee. Reproduce with
+`node dev/world-performance-probe.mjs review --gpu --settled`; add `--close` for the close-up.
+`dev/nav-light-probe.mjs` and `dev/world-cache-probe.mjs` reproduce placement/art/cache checks.

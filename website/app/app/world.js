@@ -15,6 +15,7 @@
 
 const World = (() => {
   let shadowReceiverGeo = null, shadowReceiverPath = null;
+  let propShadowLayer = null;
   let T = 12;
 
   /* ---------- station + bake cache ---------- */
@@ -5658,6 +5659,56 @@ const World = (() => {
 
   let linkStaleDim = false;   // E1: set once per frame — dims the live-telemetry draws when the SSE bridge is down
   let lastTtlSweepAt = 0;     // E2: throttle the paired-state TTL sweep to once per second (never per-frame)
+  // Conservative render-only culling. Keep a generous margin for raised bodies,
+  // labels and projected shadows; state and light-source collection still run.
+  function propOnScreen(p) {
+    const x=p.x*T,y=p.y*T,w=(p.w||1)*T,h=(p.h||1)*T,pad=64;
+    return (x+w+pad)*scale+panX>=0 && (x-pad)*scale+panX<=cv.width &&
+      (y+h+pad)*scale+panY>=0 && (y-pad)*scale+panY<=cv.height;
+  }
+
+  function paintPropShadows(g) {
+    g.save();
+    try {
+      g.setTransform(scale,0,0,scale,panX,panY);g.imageSmoothingEnabled=false;
+      if(typeof Path2D!=='undefined'&&geo&&geo.zoneGrid){
+        if(shadowReceiverGeo!==geo){
+          shadowReceiverGeo=geo;shadowReceiverPath=new Path2D();
+          for(let yy=0;yy<geo.ROWS;yy++)for(let xx=0;xx<geo.COLS;){
+            if(geo.zoneGrid[yy*geo.COLS+xx]==null){xx++;continue;}
+            const start=xx;while(xx<geo.COLS&&geo.zoneGrid[yy*geo.COLS+xx]!=null)xx++;
+            shadowReceiverPath.rect(start*T,yy*T,(xx-start)*T,T);
+          }
+        }
+        g.clip(shadowReceiverPath);
+      }
+      PropSprites.setCtx(g);
+      if(geo&&geo.props)for(const p of geo.props)if(propOnScreen(p))PropSprites.drawShadow(p,station&&station.mountOf?station.mountOf(p):null);
+      if(desk&&!deskPropId)PropSprites.drawShadow({t:'desk',x:desk.tx,y:desk.ty,w:desk.w,h:desk.h},null);
+    } finally {g.restore();PropSprites.setCtx(ctx);}
+  }
+
+  function drawPropShadows() {
+    if(typeof PropSprites==='undefined'||!PropSprites.drawShadow)return;
+    if(!propShadowLayer){
+      const image=document.createElement('canvas'),g=image.getContext('2d');
+      if(!g){paintPropShadows(ctx);return;}
+      propShadowLayer={image,g,stamp:null};
+      image.addEventListener('contextlost',()=>{propShadowLayer=null;},{once:true});
+    }
+    const layer=propShadowLayer;
+    // Screen-resolution cache: no second resampling of the shaped shadows.
+    // Camera movement, edits, rebakes and the synthetic desk invalidate it.
+    const stamp=[scale,panX,panY,cv.width,cv.height,deskPropId,desk&&desk.tx,desk&&desk.ty,desk&&desk.w,desk&&desk.h].join('|');
+    if(layer.stamp!==stamp||layer.geo!==geo||layer.bake!==cache){
+      if(layer.image.width!==cv.width||layer.image.height!==cv.height){layer.image.width=cv.width;layer.image.height=cv.height;}
+      layer.g.clearRect(0,0,cv.width,cv.height);paintPropShadows(layer.g);
+      layer.stamp=stamp;layer.geo=geo;layer.bake=cache;
+    }
+    ctx.save();
+    try{ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(layer.image,0,0);}finally{ctx.restore();}
+  }
+
   function frameBody(now) {
     const dt = Math.min(64, now - last); last = now; fnow = now;
     linkStaleDim = linkDown(now);   // recompute the honest link state before any telemetry is drawn this frame
@@ -5805,7 +5856,7 @@ const World = (() => {
         // OCCUPIED BED: the base pass holds the quilt back so the sleeper can be drawn between the
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
         if (sleeper) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { sleeper: true });
-        items.push({ y: sy, draw: () => PropSprites.draw(dp, work, live) });
+        items.push({ y: sy, draw: () => { if (propOnScreen(dp)) PropSprites.draw(dp, work, live); } });
         if (PropSprites.lightOf) { const lt = PropSprites.lightOf(dp, work, reduceMotion()); if (lt) propLights.push(lt); }   // this prop is a light SOURCE this frame — painted over the lightmap (drawPropLights)
         // SEAT-FRONT SLIVER: a stool/chair's pad front rim redraws just IN FRONT of its (lifted) sitter,
         // so the body's lap tucks INTO the pad — the couch trick, at single-seat scale. Sorted a hair
@@ -5869,32 +5920,12 @@ const World = (() => {
     // lets a body walk across a rug: the rug is already down when the sorted items paint over it.
     if (decals.length && typeof PropSprites !== 'undefined') {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
-      for (const p of decals) PropSprites.draw(p, false);
+      for (const p of decals) if (propOnScreen(p)) PropSprites.draw(p, false);
     }
     /* THE SHADOW PASS — every standing prop's cast shadow, on the deck (over the rugs), before any item
        paints. One pass rather than per-item so a shadow can never land on a neighbour's body: the props
        and bodies are y-sorted and paint OVER this. The synthetic auto-desk casts one too. */
-    if (typeof PropSprites !== 'undefined' && PropSprites.drawShadow) {
-      ctx.save();
-      try {
-        // Floor-only shadow receiver. Row spans retain holes, door gaps and disconnected rooms.
-        // Reuse the path until geometry changes; no per-frame tile scan.
-        if (typeof Path2D !== 'undefined' && geo && geo.zoneGrid) {
-          if (shadowReceiverGeo !== geo) {
-            shadowReceiverGeo=geo;shadowReceiverPath=new Path2D();
-            for(let yy=0;yy<geo.ROWS;yy++)for(let xx=0;xx<geo.COLS;){
-              if(geo.zoneGrid[yy*geo.COLS+xx]==null){xx++;continue;}
-              const start=xx;while(xx<geo.COLS&&geo.zoneGrid[yy*geo.COLS+xx]!=null)xx++;
-              shadowReceiverPath.rect(start*T,yy*T,(xx-start)*T,T);
-            }
-          }
-          ctx.clip(shadowReceiverPath);
-        }
-        PropSprites.setCtx(ctx);
-        if (geo && geo.props) for (const p of geo.props) PropSprites.drawShadow(p, (station && station.mountOf) ? station.mountOf(p) : null);
-        if (desk && !deskPropId) PropSprites.drawShadow({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, null);
-      } finally { ctx.restore(); }
-    }
+    drawPropShadows();
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     if (convey) convey.drawBoxes(ctx, now, T);   // boxes ride on top of the belts
@@ -5911,7 +5942,7 @@ const World = (() => {
       drawGlows(now);
       drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
     } finally { ctx.restore(); }
-    drawNavLights(now);   // the hull's running lights at every rounded corner — the one sign of life on the station's outside
+    drawNavLights(now);   // small running lights on validated exterior armour mounts
     drawDust(now);   // Slice 3: tiny motes drifting through the light pools (world-space, additive, over the glows)
     drawDeskFlashes(now);   // G0.4/G0.8: red distress strobe over a desk whose run just died (additive, with the glows)
     drawAwakenLight(now);   // the soul kindling: ignition spark + a growing halo + motes (world-space additive, awakening only)
@@ -6287,31 +6318,8 @@ const World = (() => {
     ctx.restore();
   }
 
-  let interiorClipCanvas = null, interiorClipPath = null;
   function clipInteriorLight() {
-    const cv = cache && cache.interiorCv;
-    if (!cv || typeof Path2D === 'undefined') return;
-    if (interiorClipCanvas !== cv) {
-      const pixels = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-      const path = new Path2D();
-      // Read once per bake, never per frame. Merge equal spans vertically.
-      let active = new Map();
-      for (let y = 0; y <= cv.height; y++) {
-        const next = new Map();
-        if (y < cv.height) for (let x = 0; x < cv.width;) {
-          if (!pixels[(y*cv.width+x)*4+3]) { x++; continue; }
-          const start = x;
-          while (x < cv.width && pixels[(y*cv.width+x)*4+3]) x++;
-          const key = start+','+x, prior = active.get(key);
-          next.set(key, prior || { x:start, y, w:x-start });
-          active.delete(key);
-        }
-        for (const r of active.values()) path.rect(r.x, r.y, r.w, y-r.y);
-        active = next;
-      }
-      interiorClipCanvas = cv; interiorClipPath = path;
-    }
-    ctx.clip(interiorClipPath);
+    if (cache && cache.interiorPath) ctx.clip(cache.interiorPath);
   }
 
   function drawGlows(now) {
@@ -6382,31 +6390,27 @@ const World = (() => {
     }
   }
 
-  /* ---- HULL RUNNING LIGHTS (world overhaul, 2026-09-03) ----
-     A station's exterior is dark by design (the hull hangs outside the ambient plate), which left the
-     whole outside of the picture DEAD — nothing on it ever changed. Real hulls carry running lights.
-     One at every rounded (void-exposed) corner the geometry already computes, sat just outside the
-     plate ring: a slow red beat on one diagonal, amber on the other, each with a small additive halo so
-     it reads as a lamp and not a pixel. Purely cosmetic (never encodes state), steady under reduced
-     motion, and free — one small fill per corner. */
-  const NAV_PAD = 7;   // StationBake's plate `pad`: the ring reaches this far past the floor edge
+  /* Hull beacons use bake-validated mount points on the exterior skirt.
+     Placement and housing are static; only a small lens changes intensity. */
   function drawNavLights(now) {
-    if (!geo || !geo.chamfers || !geo.chamfers.length) return;
+    if (!cache || !cache.navLights || !cache.navLights.length) return;
     const still = reduceMotion();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const [cx, cy, kind] of geo.chamfers) {
-      const east = kind === 'tr' || kind === 'br', south = kind === 'bl' || kind === 'br';
-      const x = cx * T + (east ? T + NAV_PAD - 3 : -NAV_PAD + 1), y = cy * T + (south ? T + NAV_PAD - 3 : -NAV_PAD + 1);
-      const red = (kind === 'tl' || kind === 'br');
-      const ph = (cx * 0.37 + cy * 0.61) % 1;
-      const t = still ? 0.5 : ((now / (red ? 1400 : 2200) + ph) % 1);
-      // a lamp is never OFF: it idles at a dim ember (0.3) and beats up to full, so a still frame always shows it
-      const on = still ? 0.55 : (t < 0.14 ? 1 : t < 0.34 ? 1 - 0.7 * (t - 0.14) / 0.2 : 0.3);
-      const c = red ? '255,70,60' : '255,190,90';
-      ctx.fillStyle = 'rgba(' + c + ',' + (0.18 * on).toFixed(3) + ')'; ctx.fillRect(x - 3, y - 3, 8, 8);
-      ctx.fillStyle = 'rgba(' + c + ',' + (0.9 * on).toFixed(3) + ')'; ctx.fillRect(x, y, 2, 2);
-    }
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.save();
+    try {
+      for (const l of cache.navLights) {
+        const x=l.x,y=l.y;
+        ctx.globalCompositeOperation='source-over';
+        ctx.fillStyle='#0b1119';ctx.fillRect(x-2,y-2,5,5);
+        ctx.fillStyle='#26333f';ctx.fillRect(x-1,y-2,3,1);
+        ctx.fillStyle='#101924';ctx.fillRect(x-2,y-1,1,3);
+        const t=still?0.5:((now/(l.red?1400:2200)+l.phase)%1);
+        const on=still?0.55:(t<0.14?1:t<0.34?1-0.7*(t-0.14)/0.2:0.3);
+        const c=l.red?'255,70,60':'255,190,90';
+        ctx.globalCompositeOperation='lighter';
+        ctx.fillStyle='rgba('+c+','+(0.10*on).toFixed(3)+')';ctx.fillRect(x-1,y-1,3,3);
+        ctx.fillStyle='rgba('+c+','+(0.9*on).toFixed(3)+')';ctx.fillRect(x,y,2,2);
+      }
+    } finally {ctx.restore();}
   }
 
   /* ---- PHOSPHOR BLOOM (world overhaul, 2026-09-03) ----
