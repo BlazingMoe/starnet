@@ -45,11 +45,14 @@ workspace, isolated `dev/.group-profile`, and configured Haiku provider.
 
 ## Gates
 
-Verification is in progress. Do not read earlier branch gate receipts as integrated
-candidate approval. The final unchanged fast and HTTP manifests are running sequentially
-with a 1200-second outer deadline in `dev/group-final-fast.log` and
-`dev/group-final-http.log`. Earlier attempts were interrupted by integration updates
-and the desktop restart; they are not full-pass receipts.
+Final integrated candidate: **716 fast steps and 97 HTTP steps GREEN**.
+The unchanged manifests ran sequentially with a 1200-second outer deadline via
+`npm run test:fast:raw` and `npm run test:http:raw`; wrapper process exit was zero.
+Logs: `dev/group-final-fast.log` and `dev/group-final-http.log`. No tests were
+excluded. Earlier runs interrupted by integration updates and the desktop restart
+are not counted as pass receipts. Source syntax checks and website synchronization
+passed; the final sync changed zero files. Final HTTP preview check returned 200.
+At verification completion, trunk had zero commits absent from this branch.
 
 ## Remaining boundary
 
