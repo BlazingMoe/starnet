@@ -52,3 +52,16 @@ both processes exit 0. Logs: `dev/context-final-fast.log`, `dev/context-final-ht
 Final source restart recheck also showed one pending card, zero stale retry buttons, and
 first-question delegation completing in 566ms with one question total and context revision 1.
 Browser console check found no TypeError. Source syntax and renderer-mirror checks passed.
+
+## Integration receipt
+
+Merged into `feat/harness-backend` as `b62ccd22a`, from snapshot `f8b31d2d8`.
+The committed tree exactly matched the verified branch. Existing unstaged `qa/STATUS.md`
+and untracked `docs/HANDOFF_ROOMS_2026-09-04.md` passed byte-for-byte preservation checks.
+On uninterrupted merged trunk, standard gates both exited 0:
+
+- `run-fast-tests: OK — 719 step(s) green` (`dev/context-trunk-fast.log`).
+- `run-test-list: OK — 98 step(s) green` (`dev/context-trunk-http.log`).
+
+This completion update changes documentation only. Local proof artifacts remain in the worktree;
+temporary source-app processes and browser tab were closed. No push, installed build or release.
