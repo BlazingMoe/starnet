@@ -688,15 +688,16 @@ const SpaceBG = (() => {
     blurb: 'Hard blue pixels, a spiral in frame, and the field streaming past.',
     base: '#000000',
     PAL: {
-      NAVY: [0, 24, 120], BLUE: [0, 88, 255], CYAN: [56, 200, 255], WHITE: [236, 250, 255],
-      TEAL: [64, 224, 200],                  // the reference's rare green-cyan speck
+      NAVY: [0, 14, 74], BLUE: [0, 58, 184], CYAN: [30, 148, 212], WHITE: [200, 228, 245],
+      TEAL: [48, 180, 160],
+      PALE: [110, 190, 232],               // the galaxy's TOP colour — never white (Andrew: "just dont like the white part")                  // the reference's rare green-cyan speck
     },
     // travel: px/sec per layer along DIR (far → near), and the parallax depth of each
     DIR: [-0.94, 0.34],
     SPD: { far: 5, gal: 0.8, mid: 13, big: 9, near: 28 },
     D: { far: 0.010, gal: 0.020, mid: 0.030, big: 0.035, near: 0.055 },
     SWAY: { x: 30, y: 10, sx: 260, sy: 330 },
-    CELL: 3,                                 // galaxy pixel size in device px — the chunk
+    CELL: 1,                                 // galaxy pixel size in device px (was 3: Andrew, "way too pixelated")
 
     fixedTile: () => {
       const scr = (typeof window !== 'undefined' && window.screen) || {};
@@ -716,10 +717,10 @@ const SpaceBG = (() => {
 
       /* ---- 1. FAR DUST: the reference's ground texture — thousands of single navy/blue pixels ---- */
       const farCv = mkCv(w, h), fc = farCv.getContext('2d');
-      const farN = Math.min(26000, Math.round((w * h) / 110));
+      const farN = Math.min(16000, Math.round((w * h) / 190));
       for (let i = 0; i < farN; i++) {
         const r = rnd();
-        fc.fillStyle = r < 0.62 ? col(P.NAVY, 0.9) : r < 0.93 ? col(P.BLUE, 0.75) : r < 0.985 ? col(P.CYAN, 0.7) : col(P.TEAL, 0.8);
+        fc.fillStyle = r < 0.62 ? col(P.NAVY, 0.6) : r < 0.93 ? col(P.BLUE, 0.45) : r < 0.985 ? col(P.CYAN, 0.45) : col(P.TEAL, 0.5);
         fc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, u, u);
       }
 
@@ -735,7 +736,7 @@ const SpaceBG = (() => {
       const ang = -0.62, ca = Math.cos(ang), sa = Math.sin(ang);
       const A = 0.23 * w, B = 0.085 * w;               // semi-axes (the tile is square) — the reference's galaxy is ~40% of frame
       const cx = w * 0.5, cy = h * 0.5;
-      const rag = wrapNoise(9, rnd), rag2 = wrapNoise(23, rnd), rag3 = wrapNoise(47, rnd);
+      const rag = wrapNoise(9, rnd), rag2 = wrapNoise(23, rnd), rag3 = wrapNoise(47, rnd), rag4 = wrapNoise(101, rnd);
       const mass = { cxs: 0, sxs: 0, cys: 0, sys: 0, m: 0 };
       for (let gy = 0; gy < GH; gy++) {
         for (let gx = 0; gx < GW; gx++) {
@@ -745,18 +746,29 @@ const SpaceBG = (() => {
           const rho = Math.hypot(ex, ey);
           if (rho > 1.9) continue;
           const th = Math.atan2(ey, ex);
-          const arm = 0.5 + 0.5 * Math.cos(2 * th - 4.2 * Math.log(rho + 0.12));
-          const n = rag(gx / GW, gy / GH) * 0.5 + rag2(gx / GW, gy / GH) * 0.3 + rag3(gx / GW, gy / GH) * 0.2;
-          let d = Math.exp(-rho * 1.9) * (0.40 + 0.60 * arm) + Math.exp(-rho * 7.0) * 1.15;
+          /* DETAIL (Andrew: "the galaxy does not have any detail"). Arms are NARROW (a power on the
+             cosine), a dust lane runs just inside each arm, knots of star formation sit on the arm
+             crests, and a fourth, fine noise octave gives the disc grain. */
+          const sp = 2 * th - 4.6 * Math.log(rho + 0.10);
+          const arm = Math.pow(0.5 + 0.5 * Math.cos(sp), 1.9);
+          const lane = Math.pow(0.5 + 0.5 * Math.cos(sp + 1.1), 4) * Math.max(0, Math.min(1, (rho - 0.22) * 4)) * Math.max(0, 1 - rho / 1.5);
+          const n = rag(gx / GW, gy / GH) * 0.4 + rag2(gx / GW, gy / GH) * 0.25 + rag3(gx / GW, gy / GH) * 0.2 + rag4(gx / GW, gy / GH) * 0.15;
+          let d = Math.exp(-rho * 1.9) * (0.28 + 0.72 * arm) + Math.exp(-rho * 8.5) * 0.55;
+          d *= 1 - 0.65 * lane;                          // the dust lanes bite in
           d *= 0.55 + 0.90 * n;                          // ragged and lumpy, not a clean ellipse
           d *= Math.max(0, 1 - Math.pow(rho / 1.9, 3));  // and it does end
-          const dth = (hash(gx, gy) - 0.5) * 0.16;
+          const dth = (hash(gx, gy) - 0.5) * 0.08;
           const v = d + dth;
           let c = null, a = 1;
-          if (v > 0.84) c = P.WHITE;
-          else if (v > 0.46) c = P.CYAN;
-          else if (v > 0.24) c = P.BLUE;
-          else if (v > 0.11) c = P.NAVY;
+          const knot = arm > 0.7 && rho > 0.28 && rho < 1.45 && hash(gx + 331, gy + 977) < 0.05 * (0.3 + d);
+          if (knot) c = hash(gx + 5, gy + 9) < 0.5 ? P.PALE : P.CYAN;
+          else if (v > 0.10) {
+            // a NINE-step ramp navy → blue → cyan → white, still hard-stepped, so the disc has
+            // gradation inside each band instead of four flat pools
+            const q = Math.min(1, Math.round(Math.min(1, (v - 0.10) / 0.86) * 8) / 8);
+            c = q < 0.4 ? mix3(P.NAVY, P.BLUE, q / 0.4) : q < 0.78 ? mix3(P.BLUE, P.CYAN, (q - 0.4) / 0.38) : mix3(P.CYAN, P.PALE, (q - 0.78) / 0.22);
+            c = c.map(Math.round);
+          }
           else if (hash(gx + 7919, gy + 104729) < d * 2.8) { c = hash(gx, gy + 31) < 0.7 ? P.NAVY : P.BLUE; a = 0.9; }
           if (!c) continue;
           gc.fillStyle = col(c, a);
@@ -775,10 +787,10 @@ const SpaceBG = (() => {
 
       /* ---- 3. MID STARS: brighter singles, blue/cyan, with the odd 2px ---- */
       const midCv = mkCv(w, h), mc = midCv.getContext('2d');
-      const midN = Math.min(5000, Math.round((w * h) / 560));
+      const midN = Math.min(3000, Math.round((w * h) / 950));
       for (let i = 0; i < midN; i++) {
         const r = rnd();
-        mc.fillStyle = r < 0.5 ? col(P.BLUE) : r < 0.9 ? col(P.CYAN) : col(P.WHITE, 0.85);
+        mc.fillStyle = r < 0.5 ? col(P.BLUE, 0.7) : r < 0.9 ? col(P.CYAN, 0.65) : col(P.WHITE, 0.7);
         const s = rnd() < 0.85 ? u : 2 * u;
         mc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, s, s);
       }
@@ -833,7 +845,7 @@ const SpaceBG = (() => {
       const nx0 = parX(cam, D.near) + t * S.near * dx, ny0 = parY(cam, D.near) + t * S.near * dy;
       for (const s of st.near) {
         const ph = Math.sin(now / s.rate + s.ph);
-        const lv = ph > 0.45 ? 1 : ph > -0.4 ? 0.62 : 0.3;
+        const lv = ph > 0.45 ? 0.85 : ph > -0.4 ? 0.5 : 0.22;
         ctx.fillStyle = rgba(s.c, lv);
         ctx.fillRect(fl(((s.x * w + nx0) % w + w) % w), fl(((s.y * h + ny0) % h + h) % h), s.r, s.r);
       }
