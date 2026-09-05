@@ -2362,7 +2362,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const chips = EXECUTION_PROFILES.map(x => '<button type="button" class="ov-vchip' + (x.id === current ? ' sel' : '') + '" data-execution-profile="' + x.id + '" data-name="' + esc(x.label) + '" data-reach="' + x.reach + '" title="' + esc(x.plain) + '" aria-pressed="' + (x.id === current ? 'true' : 'false') + '">' + reachMeter(x.reach) + esc(x.label) + '</button>').join('');
     return '<div class="cf-card" id="ag-execution-card">' +
       '<div class="cf-head"><span class="cf-file">▣ execution profile</span></div>' +
-      '<div class="cf-desc">Choose an execution profile. The effective-access summary above includes Full Power overrides; service connections and operating-system limits still apply.</div>' +
+      '<div class="cf-desc">Choose an execution profile. Changing the profile alone never grants real mouse, keyboard, or screen control; that requires Full Power or a live desktop-control grant. The effective-access summary above includes Full Power overrides; service connections and operating-system limits still apply.</div>' +
       '<div class="ov-vchips" id="ag-execution-chips">' + chips + '</div>' +
       '<div class="cf-desc pc-plain" id="ag-execution-plain">' + esc(p.plain) + '</div>' +
       '<div class="mc-hint" id="ag-execution-truth">ROUTES NEXT COMMAND TO <b>' + esc(p.backend.toUpperCase()) + '</b> · FILES: ' + esc(p.files) + ' · TOOLS: ' + esc(p.tools) + ' · DESKTOP: ' + esc(p.desktop) + ' · checking availability…</div>' +
