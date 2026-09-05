@@ -7581,10 +7581,10 @@ function questContextKey() {
     deferred: quests.filter(q => q.disposition).map(q => [q.id, questActionable(q)]) };
   return crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
 }
-function questRefreshOpenCount() { try { return questStore.list().filter(questActionable).length; } catch (_) { return 0; } }
-async function mintQuestRecommendations(quests, why) {
+function questRefreshOpenCount() { try { const goalId = (commanderGoals.get() || {}).id || null; return questStore.list().filter(q => questActionable(q) && (q.goalId || null) === goalId).length; } catch (_) { return 0; } }
+async function mintQuestRecommendations(quests, why, capturedGoal = commanderGoals.get()) {
   const declinedIdx = buildDeclinedIndex(null); let minted = 0;
-  const activeGoal = commanderGoals.get();
+  const activeGoal = capturedGoal;
   /* OUTCOME LEARNING (2026-08-30): the `success` feature was a hardcoded guess (0.8 / 0.55) since the ranker
      shipped. Run/artifact-contract quests are advanced by the station's autonomous lanes, so where the track
      record has real support for those lanes, the measured rate REPLACES the guess; under support the prior is
@@ -7605,6 +7605,10 @@ async function mintQuestRecommendations(quests, why) {
       risk: 0.1, interruption: q.contract && q.contract.type === 'attest' ? 0.35 : 0, duplicate: 0 }
   })), personalizationStore.read().enabled ? recommendationLedger.summary() : null);
   for (const rankedQ of ranked) {
+    if (QuestRefresh.goalBinding(activeGoal) !== QuestRefresh.goalBinding(commanderGoals.get())) {
+      questRefreshNote({ outcome: 'skipped', reason: 'goal or next milestone changed during planning — refresh will use the new direction' });
+      break;
+    }
     const q = rankedQ.candidate;
     if (declinedIdx.has(q.title)) { questRefreshNote({ outcome: 'rejected', reason: 'declined elsewhere', title: q.title }); continue; }
     const r = await questStore.mint({
@@ -7669,6 +7673,8 @@ async function runQuestRefreshCycle(why) {
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, QUESTREFRESH_TIMEOUT_MS);
   let usd = 0, tokens = 0;
   try {
+    const capturedGoal = commanderGoals.get();
+    const capturedGoalBinding = QuestRefresh.goalBinding(capturedGoal);
     const pack = nightshiftContextPack();
     const activityBlock = (pack.activityLines || []).slice(0, 10).map(a => '• ' + a).join('\n');
     // RELEVANCE: the interest histogram (what the Commander keeps asking about) is already distilled by the
@@ -7681,7 +7687,7 @@ async function runQuestRefreshCycle(why) {
     // refresh mints station-wide (agentId null). At that ceiling every proposed mint is foredoomed 'max open
     // generated quests' — so skip the paid model call entirely and record ONE honest outcome, mirroring the
     // cold-save guard below. (Completing or dismissing an open generated quest re-opens the fast path.)
-    const openGenStationWide = rec.quests.filter(q => questActionable(q) && q.kind === 'generated' && q.agentId == null).length;
+    const openGenStationWide = rec.quests.filter(q => questActionable(q) && q.kind === 'generated' && q.agentId == null && (q.goalId || null) === ((capturedGoal || {}).id || null)).length;
     if (QuestRefresh.slateFull(openGenStationWide)) {
       questRefreshNote({ outcome: 'skipped', reason: 'slate full — ' + openGenStationWide + ' open generated quests already await; complete, pause, or dismiss one to earn a fresh cycle' });
       return;
@@ -7739,6 +7745,10 @@ async function runQuestRefreshCycle(why) {
     const c = cost.reconcile(usage, model);
     usd += c.usd || 0; tokens += (c.tokensIn || 0) + (c.tokensOut || 0);
 
+    if (capturedGoalBinding !== QuestRefresh.goalBinding(commanderGoals.get())) {
+      questRefreshNote({ outcome: 'skipped', reason: 'goal or next milestone changed during planning — refresh will use the new direction' });
+      return;
+    }
     const grounding = [goalNote, dossierBlock, activityBlock, interestsBlock, JSON.stringify(evidenceCtx.progress)].filter(Boolean).join('\n');
     const parsed = QuestRefresh.parse(out, {
       openTitles: open.map(q => q.title).concat(completed.map(q => q.title)),   // done work is never re-proposed
@@ -7750,7 +7760,7 @@ async function runQuestRefreshCycle(why) {
     // it's stashed as a PROPOSAL and surfaced for confirm/correct (propose-and-confirm). proposeNorthStar no-ops
     // when the inference matches the adopted star, was declined before, or is already pending — so the Commander
     // is asked once, not every cycle. Persisted so the next cycle re-shows it (revise-on-evidence, not re-derive).
-    const goal = commanderGoals.get();
+    const goal = capturedGoal;
     if (goal && goal.text) questRefreshState = QuestRefresh.setNorthStar(questRefreshState, { text: goal.text, groundedIn: 'the Commander\'s active goal arc', source: 'goal' }, { now: Date.now() });
     else if (parsed.northStar && parsed.northStar.text) {
       questRefreshState = QuestRefresh.proposeNorthStar(questRefreshState, { text: parsed.northStar.text, groundedIn: 'inferred from the dossier + recent activity', source: 'model' }, { now: Date.now() });
@@ -7770,7 +7780,7 @@ async function runQuestRefreshCycle(why) {
       questRefreshNote({ outcome: 'staged', reason: 'quests wait for the Commander to confirm the inferred north star', title: parsed.quests[0].title });
       return;
     }
-    await mintQuestRecommendations(parsed.quests, why);
+    await mintQuestRecommendations(parsed.quests, why, capturedGoal);
   } catch (e) {
     try { questRefreshNote({ outcome: 'error', reason: (e && e.message) || 'quest refresh cycle failed' }); } catch (_) {}
   } finally {

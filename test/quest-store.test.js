@@ -296,5 +296,13 @@ const attestContract = () => ({ type: 'attest', key: '' });
     A.ok(!(await restarted.reportCompletion(mech.id, 'I say this finished successfully', 900)).ok, 'reports cannot bypass mechanical contracts');
     A.ok(!(await restarted.reportCompletion(ids[0], 'Another report of this action', 900)).ok, 'report is not duplicated on a done quest');
   }
+  {
+    const s = freshStore();
+    for (let i = 0; i < 3; i++) A.ok((await s.mint({ title: 'Old focus ' + i, kind: 'generated', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'old focus fills its own generated scope');
+    A.ok(!(await s.mint({ title: 'Old focus fourth', kind: 'generated', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'same goal still caps at three');
+    A.ok((await s.mint({ title: 'New focus first', kind: 'generated', goalId: 'goal:new', contract: attestContract() }, 100)).ok, 'new goal has independent generated capacity');
+    A.ok((await s.mint({ title: 'Legacy unbound', kind: 'generated', contract: attestContract() }, 100)).ok, 'legacy unbound scope remains separate');
+    A.ok((await s.mint({ title: 'Agent-specific old focus', kind: 'generated', agentId: 'hero', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'agent scope remains independent within a goal');
+  }
   A.report('quest-store.test');
 })();

@@ -143,6 +143,11 @@
       || (ctx.progress && ((ctx.progress.metrics || []).length || (ctx.progress.outcomes || []).length)));
   }
 
+  // Bind a paid planning pass to the exact direction and milestone it was shown.
+  function goalBinding(goal) {
+    return JSON.stringify(goal ? [goal.id || null, str(goal.text), goal.milestoneId || null, goal.next || null, goal.done || 0, goal.total || 0] : null);
+  }
+
   // Bounded, provenance-labelled evidence from the durable Journey and quest ledgers.
   function progressContext(journey, quests, goal) {
     const j = journey || {}, goalId = goal && goal.id;
@@ -408,7 +413,7 @@
   }
 
   return {
-    fresh, normalize, decide, progressContext, buildDirective, parse, parseContract, hasEvidence, slateFull,
+    fresh, normalize, decide, progressContext, goalBinding, buildDirective, parse, parseContract, hasEvidence, slateFull,
     note, stampCycle, stampMint, setNorthStar, effectiveNorthStar, proposeNorthStar, confirmNorthStar, declineNorthStar,
     stageQuests, pendingQuests, clearPendingQuests,
     REFRESH_EVERY_MS, CAUGHT_UP_GAP_MS, MATERIAL_CHANGE_GAP_MS, MAX_MINTS_PER_CYCLE, OPEN_GENERATED_CAP, LEDGER_CAP, DECLINED_NS_CAP, CONTRACT_TYPES,
