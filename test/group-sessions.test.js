@@ -140,6 +140,17 @@ async function waitFor(fn) { for (let n = 0; n < 100; n++) { if (await fn()) ret
     execute = async o => finish('Continued: ' + o.t.request);
     await api.answerQuestion(invited.id, { questionId: q.id, text: 'Detailed' }); await api.idle(invited.id);
     assert.match((await api.get(invited.id)).messages.at(-1).content, /Detailed/);
+    // A tool timeout can end the execution while its durable question remains open.
+    execute = async o => {
+      o.askCommander({ question: 'Timed-out question?', options: ['Continue', 'Cancel'] }).catch(() => {});
+      await waitFor(async () => (await api.get(invited.id)).questions.some(q => q.question === 'Timed-out question?'));
+      return finish('Waiting');
+    };
+    await api.send(invited.id, { key: 'timeout-question', text: 'Ask and wait' }); await api.idle(invited.id);
+    q = (await api.get(invited.id)).questions.at(-1);
+    execute = async o => finish('Recovered timeout: ' + o.t.request);
+    await api.answerQuestion(invited.id, { questionId: q.id, text: 'Continue' }); await api.idle(invited.id);
+    assert.match((await api.get(invited.id)).messages.at(-1).content, /Recovered timeout/);
     // Stop cancels the question and queued work atomically; late answers cannot restart it.
     execute = async o => { await o.askCommander({ question: 'Wait?', options: ['Yes', 'No'] }); return finish('stopped'); };
     await api.send(invited.id, { key: 'stop-question', text: 'Ask' });

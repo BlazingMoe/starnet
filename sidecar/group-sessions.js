@@ -441,7 +441,12 @@ function makeGroupSessions(d) {
           if (output) message(state, t.agentId, output, { runId, turnId: t.id, partial: true });
           for (const child of state.turns) if (child.parent === t.id && child.state === 'queued') child.state = 'stopped';
         });
-      } finally { progress.delete(t.id); drafts.delete(t.id); controllers.delete(id); agentLeases.delete(t.agentId); }
+      } finally {
+        // A tool timeout may end execution before its question waiter resolves. Retire that
+        // in-memory waiter so a later answer creates a durable continuation, not a lost reply.
+        for (const q of get(id).questions || []) if (q.turnId === t.id) answers.get(q.id)?.({ answered: false });
+        progress.delete(t.id); drafts.delete(t.id); controllers.delete(id); agentLeases.delete(t.agentId);
+      }
     }
   }
   function kick(id) {
