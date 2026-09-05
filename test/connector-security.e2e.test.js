@@ -2,6 +2,8 @@
 /* Live sidecar regressions for connector credential binding and portable backup safety. All credentials are
    synthetic canaries and all MCP servers are loopback-only. */
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const A = require('./_assert.js');
 const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
 
@@ -30,6 +32,9 @@ async function mockServer(kind, redirectTo) {
   const fixture = SidecarFixture.create({ prefix: 'starnet-connector-security-', timeoutMs: 15000 });
   const bearer = 'AUDIT_FAKE_BEARER', apiKey = 'AUDIT_FAKE_HEADER';
   try {
+    fs.writeFileSync(path.join(fixture.workspace, 'agent.roster.json'), JSON.stringify({ version: 1, agents: [
+      { agentId: 'safe', name: 'Safe', system: '', approvalMode: 'ask', executionProfile: 'safe-cell' }
+    ] }));
     await fixture.start();
     let r = await fixture.json('POST', '/api/connectors', {
       id: 'retarget', transport: 'http', url: original.url, token: bearer, headers: { 'X-Api-Key': apiKey }
@@ -64,7 +69,7 @@ async function mockServer(kind, redirectTo) {
     await fixture.json('POST', '/api/connectors', { id: 'disabled', transport: 'http', url: original.url, enabled: false });
     await fixture.json('POST', '/api/connectors', { id: 'oauth', transport: 'http', url: 'https://example.invalid/mcp', oauth: true, enabled: false });
     await fixture.json('POST', '/api/connectors', {
-      id: 'stdio-secret', transport: 'stdio', command: 'node', agentId: 'ghost', enabled: false,
+      id: 'stdio-secret', transport: 'stdio', command: 'node', agentId: 'safe', enabled: false,
       cwd: 'C:/audit',
       args: ['server.js', '--pwd=PWD_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'],
       env: { ACCESS: 'ENV_SECRET', MODE: 'audit' }
@@ -83,6 +88,25 @@ async function mockServer(kind, redirectTo) {
     let diskStdio = JSON.parse(require('node:fs').readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-secret');
     A.eq(diskStdio.args, ['server.js', '--pwd=PWD_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'], 'same execution identity retains protected local argv');
     A.eq(diskStdio.env, { ACCESS: 'ENV_SECRET', MODE: 'audit' }, 'same execution identity retains protected local environment');
+    await fixture.json('POST', '/api/connectors', { id: 'stdio-edit', transport: 'stdio', command: 'node', agentId: 'safe', enabled: false,
+      args: ['trusted.js'], env: { ACCESS: 'EDIT_ENV_SECRET' } });
+    r = await fixture.json('POST', '/api/connectors', { id: 'stdio-edit', transport: 'stdio', enabled: false, args: ['different.js'] });
+    A.eq(r.status, 200, 'ordinary stdio argv edit saves');
+    const diskEdit = JSON.parse(fs.readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-edit');
+    A.eq(diskEdit.env, {}, 'ordinary argv edit cannot silently inherit the prior program environment');
+
+    // Changing even one visible argv value breaks the retention boundary for the entire stdio execution config.
+    const changedProgram = Object.assign({}, stdioRow, {
+      args: ['-e', 'process.stdout.write(process.env.ACCESS)', 'x', 'y', 'z'],
+      redactedFields: ['env:ACCESS', 'env:MODE'], missingFields: [], enabled: true
+    });
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [changedProgram] } } });
+    A.eq(r.status, 200, 'changed-program import is recorded as incomplete');
+    diskStdio = JSON.parse(fs.readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-secret');
+    A.eq(diskStdio.enabled, false, 'changed argv cannot activate while asking to retain old environment values');
+    A.eq(diskStdio.env, {}, 'changed argv receives none of the protected local environment');
+    A.ok(diskStdio.missingFields.includes('env:ACCESS'), 'changed argv persists the exact unresolved environment requirement');
+
     const portableRow = Object.assign({}, stdioRow, { id: 'stdio-portable', enabled: true });
     r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [portableRow] } } });
     A.eq(r.status, 200, 'portable stdio backup imports as an incomplete row');
@@ -90,7 +114,40 @@ async function mockServer(kind, redirectTo) {
     A.eq(diskStdio.enabled, false, 'portable stdio row stays disabled until opaque values are re-entered');
     A.eq(diskStdio.args, [], 'redaction placeholders are never persisted as executable arguments');
     A.eq(diskStdio.env, {}, 'redacted environment values are never fabricated');
+    A.ok(diskStdio.missingFields.includes('args:0') && diskStdio.missingFields.includes('env:ACCESS'), 'missing requirements are durable connector state');
     A.ok(r.body.secretsNeeded.some(x => x.id === 'stdio-portable' && x.fields.includes('args:0') && x.fields.includes('env:ACCESS')), 'portable import names the exact missing fields');
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [portableRow] } } });
+    A.ok(r.body.secretsNeeded.some(x => x.id === 'stdio-portable' && x.fields.includes('args:0')), 're-import cannot erase an unresolved requirement');
+    r = await fixture.json('POST', '/api/connectors', { id: 'stdio-portable', transport: 'stdio', enabled: true });
+    A.eq(r.status, 200, 'Enable request for an incomplete connector returns saved state');
+    A.eq(r.body.incomplete, true, 'Enable response tells the UI the connector is incomplete');
+    A.eq(r.body.status.enabled, false, 'Enable cannot bypass persisted missing fields');
+
+    const forty = Array.from({ length: 40 }, (_, i) => 'value-' + i);
+    r = await fixture.json('POST', '/api/connectors', { id: 'stdio-forty', transport: 'stdio', command: 'node', agentId: 'safe', enabled: false, args: forty });
+    A.eq(r.status, 200, '40-argument connector saves through the edit route');
+    const fortyBackup = await fixture.json('POST', '/api/config/export', { only: ['connectors'] });
+    const fortyRow = fortyBackup.body.sections.connectors.find(c => c.id === 'stdio-forty');
+    A.eq(fortyRow.args.length, 40, 'export preserves all 40 supported argument positions');
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [fortyRow] } } });
+    A.eq(r.status, 200, '40-argument same-station backup imports');
+    const diskForty = JSON.parse(fs.readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-forty');
+    A.eq(diskForty.args, forty, 'all 40 arguments round-trip without truncation');
+
+    const budgetBefore = (await fixture.json('POST', '/api/config/export', { only: ['budget'] })).body.sections.budget;
+    const oversized = { id: 'oversized', transport: 'stdio', command: 'node', args: Array(129).fill('x') };
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { budget: { perRun: 9876 }, connectors: [oversized] } } });
+    A.eq(r.status, 400, 'oversized import is rejected');
+    A.ok(/128/.test(r.body.error), 'oversized import reports the supported argument limit');
+    const budgetAfter = (await fixture.json('POST', '/api/config/export', { only: ['budget'] })).body.sections.budget;
+    A.eq(budgetAfter, budgetBefore, 'whole-envelope validation occurs before an earlier section can mutate');
+    r = await fixture.json('POST', '/api/connectors', oversized);
+    A.eq(r.status, 400, 'ordinary connector edit rejects oversized argv too');
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: {
+      budget: { perRun: 8765 }, connectors: [{ id: 'unsafe-owner', transport: 'stdio', command: 'node', agentId: 'missing', enabled: true }]
+    } } });
+    A.eq(r.status, 400, 'enabled stdio import applies the same Safe Cell ownership rule as edit');
+    A.eq((await fixture.json('POST', '/api/config/export', { only: ['budget'] })).body.sections.budget, budgetBefore, 'semantic connector validation also precedes all section writes');
     const rows = exported.body.sections.connectors.filter(c => ['disabled', 'oauth'].includes(c.id));
     r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: rows } } });
     A.eq(r.status, 200, 'connector backup reimports');
@@ -111,6 +168,29 @@ async function mockServer(kind, redirectTo) {
     A.eq(disabled.enabled, false, 'disabled state survives restart');
     A.eq(oauth.oauth, false, 'manual authentication mode survives restart after leaving OAuth');
     A.eq(oauth.hasToken, true, 'manual credential remains configured after restart');
+    const portableAfterRestart = list.body.connectors.find(c => c.id === 'stdio-portable');
+    A.eq(portableAfterRestart.enabled, false, 'incomplete connector remains disabled after restart');
+    A.ok(portableAfterRestart.missingFields.includes('args:0'), 'restart keeps the missing-field requirement visible');
+    r = await fixture.json('POST', '/api/connectors', { id: 'stdio-portable', transport: 'stdio', enabled: false,
+      args: ['server.js', '--pwd=NEW', '-H', 'Authorization: Bearer NEW', '{"access":"NEW"}'],
+      env: { ACCESS: 'NEW_ACCESS', MODE: 'audit' } });
+    A.eq(r.status, 200, 'edit accepts explicit replacements for every missing field');
+    A.eq(r.body.incomplete, false, 'complete re-entry clears the incomplete state');
+    A.eq(r.body.missingFields, [], 'complete re-entry clears every durable requirement');
+
+    // A connector-store failure must leave connector truth unchanged and report which earlier section did commit.
+    const beforeFault = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    const preload = path.join(__dirname, 'fixtures', 'connector-state-write-fail-preload.cjs').replace(/\\/g, '/');
+    await fixture.restart({ NODE_OPTIONS: '--require=' + preload, STARNET_TEST_FAIL_CONNECTOR_STATE: '1' });
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: {
+      budget: { perRun: 4321 }, connectors: [{ id: 'write-fail', transport: 'http', url: original.url, enabled: false }]
+    } } });
+    A.eq(r.status, 500, 'connector write failure is returned as a failed import');
+    A.eq(r.body.applied, ['budget'], 'failure response names the section already applied before the failed store');
+    const afterFault = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    A.eq(afterFault, beforeFault, 'failed connector write leaves durable connector state unchanged');
+    list = await fixture.json('GET', '/api/connectors');
+    A.eq(list.body.connectors.some(c => c.id === 'write-fail'), false, 'failed connector write is not adopted into live state');
   } finally {
     await fixture.dispose();
     for (const mock of [original, replacement, redirect]) {

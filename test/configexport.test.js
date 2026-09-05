@@ -96,6 +96,19 @@ eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');
 eq(p.sections.connectors[1].agentId, 'lead', 'Safe Cell owner round-trips');
 eq(p.sections.connectors[1].cwd, 'C:/work', 'working directory round-trips');
 
+const fortyArgs = Array.from({ length: 40 }, (_, i) => 'arg-' + i);
+const fortyExport = C.buildExport({ connectors: [{ id: 'forty', transport: 'stdio', command: 'node', args: fortyArgs }] });
+eq(fortyExport.sections.connectors[0].args.length, 40, 'supported argv is exported without the former 32-entry truncation');
+eq(C.parseImport(fortyExport).sections.connectors[0].args.length, 40, 'supported argv is imported without truncation');
+assert.throws(() => C.buildExport({ connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] }), /128/, 'oversized argv fails export explicitly'); n++;
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] } }).ok, false, 'oversized argv is rejected before import');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-http', transport: 'http', url: 'file:///tmp/x' }] } }).ok, false, 'import applies the edit route HTTP URL rule');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-marker', transport: 'stdio', command: 'node', redactedFields: ['args:999'] }] } }).ok, false, 'out-of-range redaction markers are rejected');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [
+  { id: 'duplicate', transport: 'http', url: 'https://one.example/mcp' },
+  { id: 'duplicate', transport: 'http', url: 'https://two.example/mcp' }
+] } }).ok, false, 'duplicate connector ids are rejected before mutation');
+
 // Old schema-1 exports omitted operational fields. Their absence must survive parsing so the live importer can
 // preserve an existing row or choose a disabled default for a new connector instead of activating it.
 const legacyConnector = C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'old', transport: 'http', url: 'https://old.example/mcp' }] } }).sections.connectors[0];

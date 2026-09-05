@@ -84,6 +84,18 @@ function fakeStack(tools) {
     A.ok(threw, 'array headers are rejected');
   }
 
+  // durable missing-field requirements are a runtime gate even if a caller or hand-edited file sets enabled=true.
+  {
+    const { seen, makeTransport, makeClient } = fakeStack([]);
+    const m = makeConnectorManager({ makeTransport, makeClient, makeToolDef: () => ({}) });
+    const r = await m.configure('incomplete', { transport: 'stdio', command: 'node', enabled: true,
+      missingFields: ['args:0', 'env:ACCESS'] });
+    A.eq(r.ok, false, 'an enabled incomplete connector is refused by the runtime');
+    A.ok(/args:0/.test(r.error) && /env:ACCESS/.test(r.error), 'runtime refusal names the durable missing fields');
+    A.eq(seen.transport, null, 'runtime does not create a transport for incomplete configuration');
+    A.eq(m.status('incomplete').missingFields, ['args:0', 'env:ACCESS'], 'safe status exposes only the missing field names');
+  }
+
   // oauth connectors pass a tokenProvider() (not a frozen token) so EVERY (re)connect/Reload fetches a FRESH bearer
   // — the fix for the token dying ~1h into a session. The resolved token never leaks into the summary.
   {
