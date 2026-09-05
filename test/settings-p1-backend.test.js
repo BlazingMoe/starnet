@@ -8,9 +8,10 @@
      P1-10 the reflect gate reads the live memoryConfig (on/off + cooldown) + the /api/memory/config routes */
 const assert = require('assert');
 const fs = require('fs'); const path = require('path');
-const { fnBody } = require('./_assert.js');
 const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
-const importBody = fnBody(src, 'async function handleConfigImport');
+const importStart = src.indexOf('async function handleConfigImport');
+const importEnd = src.indexOf('/* POST /api/config/reset', importStart);
+const importBody = importStart >= 0 && importEnd > importStart ? src.slice(importStart, importEnd) : '';
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
