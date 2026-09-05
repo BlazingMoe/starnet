@@ -276,3 +276,31 @@ sizes and 145% text zoom. No runtime exceptions were recorded. The 144-item shel
 60 FPS, 16.7 ms p95 frame intervals and 7.1 ms mean build-render callback time on the local
 RTX 5060 Ti. These are local observations, not guarantees for other hardware. Evidence and
 captures are in `.worldshots/build-kit-clarity/`; the user's custom save is untouched.
+
+## September 5 ability-first prop library
+
+The left Props panel now opens on Abilities, with five compact choices derived from the existing
+STARTER set: Files, Web & Browser, Terminal, Memory and Images. Selecting an ability shows its
+suggested prop, purpose, sharing scope and actual per-agent tool access above Place. Other Designs
+shows every prop with the same capability mapping and explains that they provide the same tools.
+The chosen alternate remains selected when returning to the core list. No grants or saves change.
+
+Workstations & Workflows and Decoration are separate purpose sections. Classification checks the
+real capability map before the old catalog tier; decorative-looking functional props cannot be
+misfiled as appearance-only. Functional station controls stay separate from decoration too. All
+search results and selected previews explicitly label their purpose. Connected services remain
+optional, with connection/access guidance rather than a promise that a placed prop is ready.
+
+The core choices display current tool-access states. Outside the core view, the same five states
+remain in a compact overview. The selected agent can be changed and access explicitly refreshed.
+States come from the existing /api/toolsets projection and refresh after station edits and undo/redo;
+equivalent-design selection reuses that response. Failed reads show CHECK ACCESS, not missing gear.
+Profile/Full Access grants and switched-off toolsets retain their real meaning. The tutorial uses
+the new ability choices and preserves its existing requisition-the-rest action.
+
+`node dev/prop-abilities-probe.mjs --gpu` passes 32 live checks against a disposable in-memory copy
+of the custom demo. It covers real endpoint agreement, agent changes, five-choice desktop fit,
+classification, alternatives, pointer placement, undo/redo, a simulated access outage, five viewport
+sizes and enlarged text. No runtime exceptions. The 112-item decoration shelf measured 60 FPS,
+16.8 ms p95 frame intervals and 9.2 ms mean render callback time on the local GPU run. Evidence:
+`.worldshots/prop-abilities/`. These measurements do not guarantee performance on other hardware.

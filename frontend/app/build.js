@@ -122,7 +122,9 @@ const Build = (() => {
   const MINZ = 0.4, MAXZ = 6;
 
   // interaction state
-  let tool = 'select', kind = 'hab', style = 'cobalt', mat = 'plate', hallWidth = 2, propType = 'desk', propCat = 'workstation', propTier = 'functional';
+  let tool = 'select', kind = 'hab', style = 'cobalt', mat = 'plate', hallWidth = 2, propType = 'war_intelcab', propCat = 'all', propTier = 'functional';
+  let propSection = 'abilities', propAbility = '', equipmentAgentId = '';
+  let equipmentAccessKey = '', equipmentAccessView = null, equipmentAccessTicket = 0;
   let hoverThumb = null;
   // SURFACE targets one surface at a time — the deck or the walls — so the palette stays two rows
   // instead of four. 'follow' wall colour = inherit the room's floor hue (the default).
@@ -217,6 +219,8 @@ const Build = (() => {
        shut, and propQuery reopened the palette silently filtered by a search the Commander can't see. */
     for (const k in layerFailed) delete layerFailed[k];
     propCardKey = null; ordersSeenDone = null; propQuery = ''; lastTier = '';
+    propSection = 'abilities'; propAbility = ''; propCat = 'all'; propType = PropSprites.STARTER[0];
+    equipmentAgentId = ''; equipmentAccessKey = ''; equipmentAccessView = null; equipmentAccessTicket++;
     tool = 'select';   // SELECT is the default mode — a fresh REFIT session never opens with a placement tool armed
     ridePending = false; rideAgentId = null; ridePrevReach = null;   // the auto first-ride re-arms (and re-baselines its reach snapshot) from THIS session's compile, never a stale one
     // finish-the-line: fresh session state (the registry itself persists in localStorage) + one seam probe
@@ -245,6 +249,7 @@ const Build = (() => {
       bakeDirtyRects = bakeDirtyRects && rects ? bakeDirtyRects.concat(rects) : (rects || bakeDirtyRects);
       if (bakeDirtyRectsGlobal) bakeDirtyRects = null;
       updateUndoRedo();
+      if (tool === 'prop') renderEquipmentInfo();
     });
     bakeDirty = true; bakeDirtyRects = null; bakeDirtyRectsGlobal = false; planDirty = true;
     frameFailures = 0;
@@ -454,16 +459,35 @@ const Build = (() => {
   // It is on screen, so it has to be typeable — the prop -> capability map lives in the world model.
   const grantLabelOf = c => ((typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp)
     ? (WorldModel.grantLabelForProp(c && c.id) || '') : '');
+  const capOf = c => WorldModel.capForProp(c.id);
+  const sectionOf = c => EquipmentHelp.kind(c, capOf(c));
+  const SECTION_NAMES = { abilities: 'ABILITIES', equipment: 'WORKSTATIONS & WORKFLOWS', decoration: 'DECORATION' };
+  const starterProps = () => PropSprites.STARTER.map(id => PropSprites.spec(id)).filter(Boolean);
+  const abilityName = cap => EquipmentHelp.ABILITY_NAMES[cap] || String(cap || '').toUpperCase();
+  const chooseLibrarySection = section => {
+    propSection = section; propAbility = ''; propCat = 'all'; propQuery = '';
+    const first = section === 'abilities' ? starterProps()[0] : catalog().find(c => sectionOf(c) === section);
+    if (first) propType = first.id;
+    hidePropCard(); renderPalette(); setHint(); sfx('click');
+  };
+  function chooseAbility(cap, designs = false) {
+    const c = starterProps().find(p => capOf(p) === cap) || catalog().find(p => capOf(p) === cap);
+    if (!c) return;
+    propSection = 'abilities'; propAbility = designs ? cap : ''; propCat = 'all'; propQuery = '';
+    // Keep a selected alternate design when opening its family.
+    if (WorldModel.capForProp(propType) !== cap) propType = c.id;
+    hidePropCard(); renderPalette(); setHint(); sfx('click');
+  }
   // one options bundle so the palette and the unit test match on IDENTICAL surfaces
-  const searchOpts = () => ({ catLabel: catLabelOf, tierLabel: tierLabelOf, extra: grantLabelOf });
+  const searchOpts = () => ({ catLabel: catLabelOf, tierLabel: tierLabelOf, extra: c => [grantLabelOf(c), EquipmentHelp.label(c, capOf(c)), EquipmentHelp.PURPOSE[capOf(c)] || ''].join(' ') });
   const isSearching = () => (typeof PropSearch !== 'undefined') && PropSearch.active(propQuery);
 
   // what the gallery is showing right now: matches across the WHOLE catalog, or the chosen tab
   function propsForGrid() {
     if (isSearching()) return PropSearch.matchProps(catalog(), propQuery, searchOpts());
-    if (propCat === 'all') return catalog();
-    const CATS = (typeof PropSprites !== 'undefined') ? PropSprites.CATS : {};
-    return CATS[propCat] || [];
+    if (propSection === 'abilities') return propAbility
+      ? catalog().filter(c => capOf(c) === propAbility) : starterProps();
+    return catalog().filter(c => sectionOf(c) === propSection && (propCat === 'all' || c.cat === propCat));
   }
 
   /* Leave search mode and go back to browsing. This must rebuild the WHOLE palette, not just the
@@ -518,6 +542,13 @@ const Build = (() => {
     const host = root && root.querySelector('#refit-propgrid-host');
     if (!host) return;
     const on = isSearching();
+    const workspace = root.querySelector('.refit-propworkspace');
+    workspace.dataset.section = propSection; workspace.classList.toggle('is-searching', on);
+    workspace.classList.toggle('is-core-view', !on && propSection === 'abilities' && !propAbility);
+    root.querySelectorAll('[data-prop-section]').forEach(b => {
+      const active = !on && b.dataset.propSection === propSection;
+      b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active));
+    });
     root.querySelectorAll('.refit-propcat').forEach(b => {
       const active = !on && b.dataset.cat === propCat;
       b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active));
@@ -526,42 +557,142 @@ const Build = (() => {
     const menu = root.querySelector('.refit-category-menu');
     if (menu) {
       if (on) menu.open = false;
-      menu.querySelector('.refit-category-current').textContent = on ? 'ALL CATEGORIES · SEARCH' : propCat === 'all' ? 'ALL PROPS' : catLabelOf(propCat);
+      menu.hidden = on || propSection === 'abilities';
+      menu.querySelector('.refit-category-current').textContent = propCat === 'all' ? 'ALL ' + SECTION_NAMES[propSection] : catLabelOf(propCat);
     }
     if (clr) clr.style.display = propQuery ? '' : 'none';
 
     propThumbs.length = 0;   // the gallery is the only thumb source; free the outgoing tiles' canvases
     host.innerHTML = '';
     const list = propsForGrid();
+    if (!on && propSection === 'abilities') {
+      const intro = document.createElement('div'); intro.className = 'refit-ability-intro';
+      intro.innerHTML = '<b>' + esc(propAbility ? abilityName(propAbility) + ' · CHOOSE A DESIGN' : 'FIVE CORE ABILITIES') + '</b><span>' +
+        esc(propAbility ? 'Same ability, different appearance. One matching prop is enough in the relevant room.' : 'Real tools. Pick one design per ability you need.') + '</span>';
+      if (propAbility) {
+        const back = document.createElement('button'); back.type = 'button'; back.className = 'bb sm refit-ability-back'; back.textContent = '← ALL ABILITIES';
+        back.onclick = () => { propAbility = ''; renderPropGrid(); }; intro.prepend(back);
+      }
+      host.appendChild(intro);
+    }
     {
       const note = document.createElement('div');
       note.className = 'refit-searchnote' + (list.length ? '' : ' none');
       note.setAttribute('role', 'status');
       note.textContent = list.length
-        ? (on ? 'SEARCH · ALL CATEGORIES' : propCat === 'all' ? 'ALL PROPS' : catLabelOf(propCat)) + ' / ' + list.length + ' ITEMS'
-        : 'No props match “' + propQuery.trim() + '”. Try a name or ability, such as web, files or desk.';
+        ? (on ? 'SEARCH · ALL CATEGORIES' : propSection === 'abilities' ? 'ABILITY EQUIPMENT' : propCat === 'all' ? SECTION_NAMES[propSection] : catLabelOf(propCat)) + ' / ' + list.length + ' ITEMS'
+        : on ? 'No props match “' + propQuery.trim() + '”. Try a name or ability, such as web, files or desk.' : 'No equipment in this category.';
+      if (!on && propSection === 'abilities') note.hidden = true;
       host.appendChild(note);
-      if (!list.length) {
+      if (!list.length && on) {
         const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'bb sm'; reset.textContent = 'CLEAR SEARCH';
         reset.onclick = () => clearSearch(); host.appendChild(reset);
       }
     }
     const grid = document.createElement('div'); grid.className = 'refit-propgrid';
     grid.setAttribute('aria-label', 'Props');
-    list.forEach(c => grid.appendChild(propTile(c)));
+    const coreView = !on && propSection === 'abilities' && !propAbility;
+    if (coreView) grid.classList.add('refit-core-grid');
+    list.forEach(c => grid.appendChild(propTile(c, coreView)));
     host.appendChild(grid);
+    if (coreView) {
+      const coreCaps = new Set(list.map(capOf));
+      const extras = catalog().filter(c => sectionOf(c) === 'abilities' && !coreCaps.has(capOf(c)));
+      if (extras.length) {
+        const label = document.createElement('div'); label.className = 'refit-ability-intro';
+        label.innerHTML = '<b>CONNECTED SERVICES</b><span>Optional equipment for connected accounts and tools.</span>'; host.appendChild(label);
+        const extraGrid = document.createElement('div'); extraGrid.className = 'refit-propgrid';
+        extras.forEach(c => extraGrid.appendChild(propTile(c))); host.appendChild(extraGrid);
+      }
+    }
     renderPropPreview();
     renderEquipmentInfo();
     try { paintThumbs(performance.now(), true); } catch (e) {}   // paint each card once; animate only the selected/hovered item
   }
 
   // The selected prop's existing palette explains purpose, scope and effective access.
+  function libraryAgent() {
+    const agents = (opts && opts.agents && opts.agents()) || [];
+    const h = typeof StationUI !== 'undefined' && StationUI.h;
+    const chosen = h && h.present && h.present[h.sel];
+    if (!agents.some(a => a.id === equipmentAgentId)) equipmentAgentId = (chosen && chosen.id) || (agents[0] && agents[0].id) || 'agent';
+    return { agents, id: equipmentAgentId };
+  }
+  function renderAbilityOverview() {
+    const wrap = document.createElement('section'); wrap.className = 'refit-ability-overview'; wrap.setAttribute('aria-label', 'Core tool access');
+    const { agents, id } = libraryAgent();
+    wrap.innerHTML = '<div class="refit-access-head"><label>TOOL ACCESS FOR <select class="refit-input" aria-label="Inspect equipment for agent">' +
+      agents.map(a => '<option value="' + esc(a.id) + '"' + (a.id === id ? ' selected' : '') + '>' + esc(a.name || a.id) + '</option>').join('') +
+      '</select></label><button class="bb xs" type="button" aria-label="Refresh tool access" data-refresh-access>↻</button></div><div class="refit-core-access"></div>';
+    const chips = wrap.querySelector('.refit-core-access');
+    starterProps().forEach(c => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'bb refit-access-chip'; b.dataset.accessCap = capOf(c);
+      b.innerHTML = '<b>' + esc(grantLabelOf(c)) + '</b><span>CHECKING</span>';
+      b.onclick = () => chooseAbility(capOf(c)); chips.appendChild(b);
+    });
+    wrap.querySelector('select').onchange = ev => { equipmentAgentId = ev.target.value; renderEquipmentInfo(); };
+    wrap.querySelector('[data-refresh-access]').onclick = () => { equipmentAccessKey = ''; renderEquipmentInfo(); };
+    return wrap;
+  }
+  function refreshLibraryAccess(facts, aid) {
+    const key = [aid, geoVer, facts.placed.join(',')].join('|');
+    const paint = (view, pending = false) => {
+      if (!root || !root.querySelector('.refit-ability-overview')) return;
+      root.querySelectorAll('[data-access-cap]').forEach(b => {
+        const a = EquipmentHelp.access(b.dataset.accessCap, view);
+        b.dataset.state = pending ? 'pending' : a.state;
+        b.querySelector('span').textContent = pending ? 'CHECKING' : a.label;
+        b.setAttribute('aria-label', abilityName(b.dataset.accessCap) + ' · ' + (pending ? 'Checking access' : a.label));
+      });
+      root.querySelectorAll('[data-core-ability]').forEach(b => {
+        const a = EquipmentHelp.access(b.dataset.coreAbility, view);
+        b.dataset.state = pending ? 'pending' : a.state;
+        b.querySelector('.refit-core-status').textContent = pending ? 'CHECKING ACCESS' : a.label;
+      });
+      const status = root.querySelector('.refit-propinspector .equipment-status');
+      if (status) status.textContent = pending ? 'Checking current access…' : EquipmentHelp.status(facts, view);
+    };
+    if (key === equipmentAccessKey) { paint(equipmentAccessView, equipmentAccessView === undefined); return; }
+    equipmentAccessKey = key; equipmentAccessView = undefined;
+    const ticket = ++equipmentAccessTicket; paint(null, true);
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(aid) + '&placed=' + encodeURIComponent(facts.placed.join(',')))
+      .catch(() => null).then(view => {
+        if (ticket !== equipmentAccessTicket || !root || !root.isConnected) return;
+        equipmentAccessView = view;
+        // Selection may have changed while this request was in flight; re-read its facts.
+        renderEquipmentInfo();
+      });
+  }
+  function renderLibraryInfo(spec) {
+    const inspector = root.querySelector('.refit-propinspector');
+    if (!inspector) return;
+    let box = inspector.querySelector('.refit-equipment-info');
+    if (!box) {
+      box = document.createElement('div'); box.className = 'refit-equipment-info';
+      const preview = inspector.querySelector('#refit-selected-prop');
+      preview.insertBefore(box, preview.querySelector('.refit-placement-actions'));
+    }
+    const { id } = libraryAgent(), facts = EquipmentHelp.inspect(station, id, spec.id), category = sectionOf(spec);
+    const key = [spec.id, id, geoVer].join('|');
+    if (box.dataset.infoKey !== key) {
+      box.dataset.infoKey = key;
+      const purpose = facts.purpose || PALETTE_PURPOSE[spec.id] || (category === 'decoration' ? 'Changes the look of your station. Adds no agent tools.' : spec.desc || 'Equipment for arranging work in the station.');
+      box.innerHTML = '<p class="refit-purpose">' + esc(purpose) + '</p>' +
+        (facts.cap ? '<div class="equipment-status" role="status">Checking current access…</div><div class="refit-equipment-scope">' +
+        esc('Equipment sharing: ' + facts.scope + '.') + '</div>' :
+        category === 'decoration' ? '' : '<div class="refit-equipment-scope">Organizes the station; does not add an ability.</div>') +
+        '<div class="refit-equipment-detail">' + esc(facts.cap ? facts.duplicates : spec.desc || '') +
+        (facts.cap ? '<p>Without a workflow bay, an agent draws on station equipment. With a bay, it uses equipment in its desk room (or bay room if there is no desk). Each workflow agent needs its own desk.</p><p>Connected accounts and providers are configured in Abilities.</p>' : '') + '</div>';
+    }
+    refreshLibraryAccess(facts, id);
+  }
   function renderEquipmentInfo(selectedType, placedProp) {
     const pal = root && root.querySelector('#refit-palette');
     if (!pal || typeof EquipmentHelp === 'undefined') return;
     const spec = catalog().find(c => c.id === (selectedType || propType));
     if (!spec) return;
     if (typeof Tutorial !== 'undefined' && Tutorial.onEquipmentInspect) Tutorial.onEquipmentInspect();
+    if (tool === 'prop' && pal.querySelector('.refit-ability-overview')) return renderLibraryInfo(spec);
     let box = pal.querySelector('.refit-equipment-info');
     if (!box) { box = document.createElement('div'); box.className = 'refit-equipment-info'; (pal.querySelector('.refit-propinspector') || pal).appendChild(box); }
     const agents = (opts && opts.agents && opts.agents()) || [];
@@ -661,9 +792,14 @@ const Build = (() => {
       const workspace = document.createElement('div'); workspace.className = 'refit-propworkspace';
       const browser = document.createElement('div'); browser.className = 'refit-propbrowser';
       const search = propSearchRow();
+      const sections = document.createElement('nav'); sections.className = 'refit-prop-sections'; sections.setAttribute('aria-label', 'Prop purpose');
+      for (const id of Object.keys(SECTION_NAMES)) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'bb refit-prop-section'; b.dataset.propSection = id;
+        b.textContent = SECTION_NAMES[id]; b.onclick = () => chooseLibrarySection(id); sections.appendChild(b);
+      }
       const details = document.createElement('button'); details.type = 'button'; details.className = 'bb sm refit-details-toggle'; details.textContent = 'ABOUT THIS PROP →';
       details.onclick = () => { workspace.classList.add('show-details'); workspace.querySelector('.refit-details-back').focus(); };
-      browser.appendChild(search);
+      browser.append(sections, renderAbilityOverview(), search);
       const shelves = document.createElement('div'); shelves.className = 'refit-shelves';
       const categoryMenu = document.createElement('details'); categoryMenu.className = 'refit-category-menu';
       const categoryTrigger = document.createElement('summary'); categoryTrigger.id = 'refit-category-trigger';
@@ -671,14 +807,17 @@ const Build = (() => {
       categoryMenu.appendChild(categoryTrigger);
       const catRow = document.createElement('nav'); catRow.className = 'refit-propcats';
       catRow.setAttribute('aria-label', 'Prop categories');
-      ['all', ...TIER_ORDER.flatMap(catsForTier)].forEach(g => {
+      const sectionProps = catalog().filter(c => sectionOf(c) === propSection);
+      ['all', ...new Set(sectionProps.map(c => c.cat))].forEach(g => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'bb sm refit-propcat' + (g === propCat ? ' active' : '');
         b.dataset.cat = g;   // lets the tutorial light the exact category tab a step needs
         b.setAttribute('aria-pressed', g === propCat ? 'true' : 'false');
-        const count = g === 'all' ? catalog().length : (CATS[g] || []).length;
-        b.innerHTML = '<span>' + esc(g === 'all' ? 'ALL PROPS' : catLabelOf(g)) + '</span><small>' + count + '</small>';
+        const count = g === 'all' ? sectionProps.length : sectionProps.filter(c => c.cat === g).length;
+        const name = g === 'all' ? 'ALL ' + SECTION_NAMES[propSection] : catLabelOf(g);
+        b.setAttribute('aria-label', name + ' · ' + count + ' items');
+        b.innerHTML = '<span>' + esc(name) + '</span><small>' + count + '</small>';
         b.onclick = () => { propQuery = ''; propCat = g; hidePropCard(); renderPalette(); setHint(); sfx('click'); };
         catRow.appendChild(b);
       });
@@ -690,7 +829,9 @@ const Build = (() => {
       back.onclick = () => { workspace.classList.remove('show-details'); details.focus(); }; inspector.appendChild(back);
       const preview = document.createElement('section'); preview.id = 'refit-selected-prop';
       preview.className = 'refit-selected-prop'; preview.setAttribute('aria-label', 'Selected prop');
-      inspector.appendChild(preview); inspector.appendChild(details); workspace.appendChild(inspector); pal.appendChild(workspace);
+      inspector.appendChild(preview);
+      const more = document.createElement('div'); more.className = 'refit-prop-more'; more.appendChild(details); inspector.appendChild(more);
+      workspace.appendChild(inspector); pal.appendChild(workspace);
       renderPropGrid();
     } else if (tool === 'paint') {
       /* SURFACE — TWO AXES, TWO SECTIONS: the MATERIAL (what the surface is made of) and the HUE
@@ -949,12 +1090,15 @@ const Build = (() => {
     outbox: 'the exit — every finished result ships here; click it for the logbook'
   };
   const THUMB_PAD = 7;   // native-px halo so art that overflows the footprint (monitors, masts, shadows) isn't clipped
-  function propTile(c) {
+  function propTile(c, core = false) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'refit-proptile' + (c.tier === 'functional' ? ' fn' : '') + (c.id === propType ? ' active' : '');
+    const selected = c.id === propType || (core && capOf(c) === WorldModel.capForProp(propType));
+    b.className = 'refit-proptile' + (sectionOf(c) !== 'decoration' ? ' fn' : '') + (core ? ' refit-core-card' : '') + (selected ? ' active' : '');
     b.dataset.prop = c.id;   // lets the tutorial light a specific gear tile by id
-    b.setAttribute('aria-pressed', c.id === propType ? 'true' : 'false');
+    b.dataset.purpose = sectionOf(c);
+    if (core) b.dataset.coreAbility = capOf(c);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
     const grant = (typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp) ? WorldModel.grantLabelForProp(c.id) : null;
     // The inspector owns item details. Keep the short description accessible without
     // a title/data-tip that would cover the neighboring inventory cards.
@@ -969,11 +1113,11 @@ const Build = (() => {
     // this, clearing dropped you back on WORKSTATIONS with nothing selected while a beanbag was armed.
     b.onclick = () => {
       propType = c.id;
-      if (isSearching()) { propTier = c.tier || 'cosmetic'; propCat = c.cat || propCat; }
+      if (isSearching()) { propTier = c.tier || 'cosmetic'; propCat = 'all'; propSection = sectionOf(c); propAbility = ''; }
       // Keep scroll and keyboard focus in the inventory; choosing an item must not
       // recreate 144 canvases or throw the user back to the top of the shelf.
       root.querySelectorAll('.refit-proptile').forEach(tile => {
-        const active = tile.dataset.prop === propType;
+        const active = tile.dataset.prop === propType || (tile.dataset.coreAbility && tile.dataset.coreAbility === WorldModel.capForProp(propType));
         tile.classList.toggle('active', active); tile.setAttribute('aria-pressed', String(active));
       });
       renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click');
@@ -991,12 +1135,14 @@ const Build = (() => {
     const nativeW = c.w * tile + THUMB_PAD * 2, nativeH = c.h * tile + THUMB_PAD * 2;
     const off = document.createElement('canvas'); off.width = nativeW; off.height = nativeH;
 
-    const lbl = document.createElement('span'); lbl.className = 'refit-proptile-lbl'; lbl.textContent = c.label;
+    const lbl = document.createElement('span'); lbl.className = 'refit-proptile-lbl'; lbl.textContent = core ? 'ABILITY · ' + abilityName(capOf(c)) : c.label;
     b.appendChild(cvEl); b.appendChild(lbl);
-    const size = document.createElement('span'); size.className = 'refit-proptile-size'; size.textContent = c.w + ' × ' + c.h + ' tiles'; b.appendChild(size);
-    if (grant) {   // capability prop — flag the POWER it grants so the gallery shows at a glance which props matter
-      const g = document.createElement('span'); g.className = 'refit-proptile-grant'; g.textContent = grant; b.appendChild(g);
-    }
+    const size = document.createElement('span'); size.className = 'refit-proptile-size'; size.textContent = core ? c.label : c.w + ' × ' + c.h + ' tiles'; b.appendChild(size);
+    const badge = document.createElement('span'); badge.className = 'refit-proptile-grant';
+    const icon = document.createElement('canvas'); icon.width = icon.height = 24; icon.className = 'refit-purpose-icon'; icon.setAttribute('aria-hidden', 'true');
+    badge.appendChild(icon); badge.append(document.createTextNode(core ? 'ABILITY' : EquipmentHelp.label(c, capOf(c)))); b.appendChild(badge);
+    paintIcon(icon, sectionOf(c) === 'abilities' ? 'prop' : sectionOf(c) === 'equipment' ? 'line' : 'paint', iconColour(root.querySelector('[data-tool="prop"]')));
+    if (core) { const status = document.createElement('span'); status.className = 'refit-core-status'; status.textContent = 'CHECKING ACCESS'; b.appendChild(status); }
     // (the old '○' walkable marker is gone — playtesting showed it read as an unexplained mystery badge;
     //  the hover card already states "N×M · walkable", which is where that fact is actually legible)
     propThumbs.push({ id: c.id, w: c.w, h: c.h, off, octx: off.getContext('2d'), dctx: cvEl.getContext('2d'),
@@ -1014,12 +1160,20 @@ const Build = (() => {
     host.innerHTML = '<div class="refit-preview-art"><canvas width="280" height="180" aria-label="' + esc(c.label) + ' preview"></canvas></div>' +
       '<div class="refit-preview-info"><span class="ui-overline">READY TO PLACE</span><b>' + esc(c.label) + '</b>' +
       '<span>' + box.w + ' × ' + box.h + ' tiles · ' + FACE_WORD[r] + (m ? ' · flipped' : '') + '</span>' +
-      '<span class="refit-preview-grant">' + esc(grant ? 'GRANTS ' + grant : (c.seat ? 'AGENT WORKSTATION' : c.tier === 'functional' ? 'WORKFLOW EQUIPMENT' : 'DECOR')) + '</span>' +
+      '<span class="refit-preview-grant">' + esc(EquipmentHelp.label(c, capOf(c))) + '</span>' +
       '<div class="refit-preview-actions">' +
       (canTurn(c.id) ? '<button class="bb xs" type="button" data-preview-turn>↻ TURN · R</button>' : '') +
       (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>' +
       '<div class="refit-placement-actions"><button class="bb refit-primary refit-place-action" type="button" data-preview-place>PLACE PROP →</button><button class="bb" type="button" data-preview-cancel>CANCEL</button></div>' +
       '<span class="refit-placement-note">Click a clear tile to place · Esc cancels</span>';
+    const alternatives = capOf(c) && capOf(c) !== 'computer' ? catalog().filter(p => capOf(p) === capOf(c)) : [];
+    const more = root.querySelector('.refit-prop-more');
+    more?.querySelector('.refit-designs')?.remove();
+    if (alternatives.length > 1) {
+      const designs = document.createElement('button'); designs.className = 'bb xs refit-designs'; designs.type = 'button';
+      designs.textContent = 'OTHER DESIGNS · ' + alternatives.length; designs.setAttribute('aria-label', 'Choose another design for ' + abilityName(capOf(c)));
+      designs.onclick = () => chooseAbility(capOf(c), true); if (more) more.prepend(designs);
+    }
     const nativeW = box.w * 12 + 24, nativeH = box.h * 12 + 24;
     const off = document.createElement('canvas'); off.width = nativeW; off.height = nativeH;
     const o = off.getContext('2d'); o.translate(12, 12); o.imageSmoothingEnabled = false;
@@ -1030,8 +1184,8 @@ const Build = (() => {
     const w = Math.round(nativeW * scale), h = Math.round(nativeH * scale);
     d.drawImage(off, Math.round((cv.width - w) / 2), Math.round((cv.height - h) / 2), w, h);
     const turn = host.querySelector('[data-preview-turn]'), flip = host.querySelector('[data-preview-flip]');
-    if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); setHint(); sfx('click'); };
-    if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); setHint(); sfx('click'); };
+    if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click'); };
+    if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click'); };
     host.querySelector('[data-preview-place]').onclick = () => {
       setHint(); hidePropCard();
       root.querySelector('.refit-propworkspace')?.classList.remove('show-details');
@@ -3689,6 +3843,7 @@ const Build = (() => {
     if (!canTurn(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + ' only faces one way — its turned art is not drawn'); return; }
     propRot = nextFace(propType, propRot, dir) & 3;
     renderPropPreview();
+    renderEquipmentInfo();
     const b = propBox(propType, propRot);
     sfx('click'); flashTip(ev, 'facing ' + FACE_WORD[propRot] + ' · ' + b.w + '×' + b.h, true); setHint();
   }
@@ -3706,6 +3861,7 @@ const Build = (() => {
     if (!canFlip(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + ' cannot be flipped — its light is painted in, not derived'); return; }
     propMir = propMir ? 0 : 1;
     renderPropPreview();
+    renderEquipmentInfo();
     sfx('click'); flashTip(ev, propMir ? 'flipped' : 'unflipped', true); setHint();
   }
   // open the right editor for a logistics prop that carries config (BAY = agent, FILTER/MERGER = routing, AIRLOCK = seal)

@@ -45,5 +45,23 @@ A.ok(Equipment.status(workerFiles,asView(workerFiles)).includes('place one match
 A.ok(Equipment.status(workerFiles,asView(workerFiles,{fullAccess:true})).includes('No extra prop needed'),'Full Access never recommends redundant equipment');
 A.ok(Equipment.status(leadFiles,asView(leadFiles,{disabled:{cabinet:false}})).includes('switched off'),'disabled toolset is not misdiagnosed as missing equipment');
 A.ok(Equipment.status(workerFiles,null).includes('could not be checked'),'unavailable authority is never invented');
+const PS = require('../frontend/app/propsprites.js');
+for (const p of PS.CATALOG) {
+  const cap = WM.capForProp(p.id), kind = Equipment.kind(p, cap);
+  A.ok(['abilities','equipment','decoration'].includes(kind), 'every catalog item has one purpose: ' + p.id);
+  if (cap && cap !== 'computer') A.eq(kind,'abilities','real ability never falls into decoration: ' + p.id);
+  if (kind === 'decoration') A.ok(!cap && p.tier !== 'functional','decor has neither a tool grant nor a functional role: ' + p.id);
+}
+A.eq(Equipment.kind(PS.spec('desk'),'computer'),'equipment','desks are workstations, not one of the five tool families');
+A.eq(Equipment.label({cat:'workflow',tier:'functional'},null),'WORKFLOW EQUIPMENT','routing machinery is not described as decoration');
+A.eq(Equipment.kind({tier:'cosmetic'},'jukebox'),'abilities','actual grant takes priority over a legacy cosmetic category');
+A.eq(Equipment.access('cabinet',asView(workerFiles)).state,'missing','equipment missing in the selected desk room is actionable');
+A.eq(Equipment.access('cabinet',asView(leadFiles,{disabled:{cabinet:false}})).state,'off','placed but disabled is not reported available');
+A.eq(Equipment.access('cabinet',asView(workerFiles,{fullAccess:true})).state,'available','host-granted access needs no extra prop');
+A.eq(Equipment.access('cabinet',asView(workerFiles,{agent:{executionProfile:'trusted-project'}})).state,'available','profile-granted access counts without equipment');
+A.eq(Equipment.access('cabinet',null).state,'unknown','failed read never implies missing equipment');
+A.eq(Equipment.access('connector',asView(leadFiles)).state,'service','connection state is not inferred from generic toolsets');
+const leadWeb = Equipment.inspect(station,'lead','comms_dish');
+A.eq(Equipment.access('dish',asView(leadWeb,{disabled:{comms:false}})).state,'available','optional outbound messaging does not mislabel core browser access');
 A.eq(JSON.stringify(WM.deserialize(station.serialize()).doc()),JSON.stringify(station.doc()),'reading explanations leaves saved station unchanged');
 A.report('effective-toolsets');
