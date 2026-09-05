@@ -38,6 +38,15 @@ Keep open in engineering intake despite upstream issue closure. Related station-
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05, source repair `c364e991d`: live sidecar reproductions proved that delayed
+pairing and keychain-recovery replies both undid an explicit unlink. Both failed before
+the repair and now preserve unlink through restart. `test/paid-link-lifecycle.e2e.test.js`
+also covers an old balance check arriving after a newer funded pairing, and funded link
+diagnostics across restart. `test/credits-link.test.js` covers a consumed confirmation
+retried after disk failure, an interrupted unlink with both files left behind, and a stalled
+whoami response body. These are registered fast/HTTP regressions. They do not establish
+the exact Mac customer's cause; installed Apple Silicon/keychain verification remains open.
+
 ## Sibling coverage
 
 {

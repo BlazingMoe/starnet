@@ -38,6 +38,14 @@ Keep open pending authoritative balance/banner reproduction or customer retest. 
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05, source repair `c364e991d`: a real sidecar request waiting on account history
+returned its old account's zero after unlink (failed before the repair). The status route
+now rejects the stale account snapshot, and retired adapters cannot emit account warnings.
+Local admission holds no longer overwrite the service-observed balance or its observation
+time used by status/diagnostics. Registered coverage: `test/paid-link-lifecycle.e2e.test.js`
+and `test/credits.test.js`. This fixes proven mechanisms, but an affected-account/banner
+receipt is still required to correlate the original customer report.
+
 ## Sibling coverage
 
 {

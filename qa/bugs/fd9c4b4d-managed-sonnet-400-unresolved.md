@@ -39,6 +39,15 @@ Keep open. BYOK admission, model identity and malformed-history fixes are relate
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05, source repair `c364e991d` improves diagnosis without asserting a production
+inference fix. Copied errors preserve local run identity plus relay/upstream request IDs;
+correlation precedes free text so the diagnostic length cap cannot erase it. The receipt
+also includes paid-link state, a hashed account fingerprint and observed balance/time.
+`test/provider.openai-compatible.test.js` verifies long-error truncation and raw-payload
+exclusion. A fresh GitHub API read confirms comment 5548215321 reports Windows x64,
+managed Sonnet on v0.10.13. `flyctl auth whoami` still reports no access token on this host.
+Production trace, exact installed artifact and reporter retest remain outstanding.
+
 2026-09-05 follow-through re-read issue #6: its latest diagnostics still name managed
 `anthropic/claude-sonnet-5`, v0.10.13, with the last failure at `2026-09-05T00:47:28.242Z`.
 The local 26-suite customer campaign passes, but uses simulated upstream services. This host's

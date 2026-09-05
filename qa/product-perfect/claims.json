@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "a7b5e078554e3ddfabf68e9fe35ac4ac5c7381b0",
+    "sourceCommit": "19d5c4e039d58d432f1a67caa030388b4cdb7111",
     "pathSetSha256": "35f806b0a0dbe801e6852fb7d699846911c65713289c283c13b96afb7baf576f",
     "files": [
       {
@@ -228,8 +228,8 @@
       },
       {
         "path": "frontend/app/diagnostics.js",
-        "bytes": 19765,
-        "sha256": "a4738ae9cd8f308977e51260f178e54239ec2587fc5f5b6027765ee15dac710b"
+        "bytes": 20262,
+        "sha256": "880d51eb51d1fb0adf0a7e8b1c794cb36debe04eadd9a065c87d91cad06c101a"
       },
       {
         "path": "frontend/app/dialogue.js",

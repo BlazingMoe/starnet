@@ -1,5 +1,20 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 paid first-run recovery (`agent/paid-first-run`)
+
+Owner requested fresh assessment and execution of the subscription/credit purchaser recovery
+plan. Source repair `c364e991d` fences stale pairing, keychain recovery and account status
+responses; preserves a one-shot link confirmation across a transient disk failure; bounds
+identity recovery through body consumption; separates observed balance from optimistic
+admission holds; and adds sanitized paid-account/run correlation to copied diagnostics.
+
+Done means linking, interruption, explicit unlink, relink and restart retain the chosen
+account in the real app; a current funded balance is never replaced by an old account or
+local reservation; errors carry usable correlation; fast/HTTP gates pass. Full customer
+closure additionally requires the affected installed Windows/Apple Silicon behavior and
+production Sonnet trace. The three original reports remain open pending that evidence.
+Execution receipt: `qa/digests/2026-09-05-paid-first-run.md`.
+
 ## IN PROGRESS — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
 
 Owner request: plan and execute a goal-centered leveling and quest loop.
