@@ -93,3 +93,6 @@ jobs:
 
       - name: Fast test gate
         run: npm run test:fast
+
+      - name: Customer journey regression gate
+        run: npm run qa:customer-journeys
