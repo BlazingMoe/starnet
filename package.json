@@ -118,6 +118,7 @@
     "qa:sweep": "node scripts/qa/evidence-sweep.mjs",
     "qa:sweep:dry": "node scripts/qa/evidence-sweep.mjs --dry-run",
     "qa:journeys": "node scripts/qa/journeys.mjs",
+    "qa:customer-journeys": "node scripts/timeout.mjs --label qa:customer-journeys --timeout=900000 -- node scripts/run-test-list.mjs test/customer-journeys.list",
     "qa:saboteur": "node scripts/qa/saboteur.mjs",
     "qa:session-power-tools": "node scripts/qa/session-power-tools-journey.mjs",
     "qa:work-console": "node scripts/qa/work-console-journey.mjs",

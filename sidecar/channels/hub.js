@@ -1835,7 +1835,7 @@
             } catch (_) { /* enrichment only; the question always renders */ }
             // Register the tappable version FIRST — if the registry refuses (bounded/duplicate token), we simply
             // fall through to the numbered text below, which is a complete answer path on its own.
-            if (buttonsOk) {
+            if (buttonsOk && tq.options.length) {
               choiceEntry = prompts.create({
                 kind: 'choice', chatId: chatId, chatType: msg.chatType,
                 // label = short numbered echo (Telegram truncates long labels on a phone); value/display = the
@@ -1851,7 +1851,7 @@
               + tq.options.map((x, i) => (i + 1) + '. ' + x).join('\n')
               + suggested
               + (choiceEntry ? '\nTap a choice below — or reply in your own words.'
-                             : '\nReply with a choice, or say "use your judgment."');
+                             : tq.mode==='conversation' ? '\nReply in your own words, or say "use your judgment."' : '\nReply with a choice, or say "use your judgment."');
           }
         }
         /* AN AGENT'S TRANSCRIPT RECORDS WHAT THAT AGENT SAID. When a work line ran, `reply` is the LAST

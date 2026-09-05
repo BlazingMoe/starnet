@@ -145,6 +145,7 @@
     const m = TASK_LINE.exec(String(text == null ? '' : text));
     if (!m) return null;
     const question = taskClean(m[1], TASK_Q_CHARS);
+    if(m[2].trim()==='[free text]') return question ? {question,options:[],mode:'conversation'} : null;
     // The marker is the LAST-RESORT path — taken by exactly the models that format badly, and unlike brief_ask
     // it has no retry loop. Returning null here does not mean "fail closed": upstream it means "no question was
     // asked", so the brief completes as done and the raw `TASK_QUESTION: …` line leaks into the transcript and
@@ -166,17 +167,20 @@
       'Proceed immediately when the task is clear. Infer low-impact details with reversible defaults; do not turn a good request into an interview.',
       'Research before asking: inspect the granted project, conversation, task brief, and available sources when they can answer the gap.',
       'Ask only when different plausible answers would materially change the outcome, audience, deliverable, source of truth, safety, or acceptance boundary.',
-      'Each question is concrete, with 2-3 short, genuinely different options. Never ask vague prompts such as "what does good look like?".',
-      'BUNDLE related material questions into ONE brief_ask call (the extra ones in `also`, up to three total, each on a different dimension) — the Commander answers them in one moment instead of being interrupted repeatedly. An exclusive question carries 2-3 options; a multiSelect:true question (options NOT mutually exclusive, e.g. which sources, which constraints) may carry up to 6.',
-      'A task gets at most two brief_ask calls total; a second is allowed only when the first answers exposed another genuinely blocking decision.',
+      'For ambiguous projects or workflows, use brief_ask with mode:conversation. Ask ONE concrete question about their last real example, the step that is frustrating, or an exception. Never ask vague prompts such as "what does good look like?". Options are optional shortcuts, not a required menu.',
+      'Listen before choosing the next question. Read the ENTIRE answer: extract volunteered sources, audience, constraints, steps, exceptions and corrections, even when they answer more than you asked. Call brief_update after each conversational answer. Include a complete revised snapshot with verbatim quotes and sourceIds; separate your interpretations from assumptions and unresolved unknowns. Do not ask for information already supplied.',
+      'Choose the next move by usefulness: proceed immediately when the next useful action is clear; ask a targeted follow-up only when its answer changes that action; or show a small draft/example using sample in brief_ask when reacting is easier than describing. A sample is provisional text, never a claim of an existing file or completed action.',
+      'Conversational discovery normally needs one or two exchanges; six is an emergency ceiling, not a target. Do not fill every field, conduct a generic interview, or keep asking for cosmetic preferences. Use uncertainty about low-impact details as a reason to produce a reversible draft.',
+      'Legacy mode:choice remains available for concrete exclusive decisions: 2-3 options (or multiSelect:true up to 6), at most two asking calls. Independent questions can be bundled in also; never pre-bundle exploratory follow-ups that depend on what the Commander says.',
       'If the Commander said "use your judgment", "just do it", or equivalent, choose the most sensible reversible default and act.',
-      'When brief_ask and brief_proceed are available, use them as the authoritative protocol. Call brief_proceed immediately before the first consequential tool; the host blocks writes/executes until you do.',
+      'When brief_ask, brief_update and brief_proceed are available, use them as the authoritative protocol. through in brief_update is request before any answers, otherwise the latest answered question id. Facts contain dimension, text (your working interpretation), quote (verbatim user words), and sourceId (request or question id). Never invent evidence. Keep this context local to the task, not the global dossier. Call brief_proceed immediately before the first consequential tool; the host blocks writes/executes until you do.',
       'In brief_proceed, every assumption must be a DECISION a reasonable person could have made differently — what you are including, excluding, or treating as the source of truth — and something the Commander could actually overturn.',
       'State a STYLE, TONE, or AESTHETIC assumption ONLY when the task produces an authored artifact whose look or voice you had to choose (a document, deck, page, image, UI, anything another person will read), and then name what you picked AND what you rejected ("gritty and readable, not decorative"). There, guess boldly — a corrected guess teaches more than a hedge. At most ONE such assumption per brief.',
       'NEVER restate your normal defaults as assumptions. "Style: brief and direct", "Tone: friendly", "Aesthetic: plain and readable" are how you always work — they are noise, not decisions, and they bury the one assumption that mattered. A question answered in chat needs no taste assumption at all.',
       'Use brief_ask to pause on a material unknown. It validates the decision dimension, distinct options, recommended default, research status, and whole-task question budget.',
       'To ask, do no consequential mutation first and END your reply with exactly:',
       'TASK_QUESTION: <one concrete question> || <option A> | <option B> | <option C, optional>',
+      'For an open-ended fallback use: TASK_QUESTION: <one concrete question> || [free text]',
       'You may inspect/read before asking. Do not emit TASK_QUESTION when you can responsibly proceed. Never repeat a question already answered in the task brief.'
     ];
     const cx = String(contextBlock || '').trim();

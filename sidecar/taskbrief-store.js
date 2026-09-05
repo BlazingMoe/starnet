@@ -7,6 +7,7 @@
 
 const { makeDurableJsonStore } = require('./durable-store.js');
 const Policy = require('./taskbrief-policy.js');
+const Context = require('./taskbrief-context.js');
 
 const STORE_KEY = 'task-briefs';
 const CAP = 500;
@@ -29,7 +30,8 @@ function normalizeQuestion(q) {
     id: bounded(q.id, 80), text, options, dimension: bounded(q.dimension, 24),
     recommended: bounded(q.recommended, 72), reason: bounded(q.reason, 240), newBlocker: q.newBlocker === true,
     multiSelect,
-    answer: bounded(q.answer, 500), askedAt: Number(q.askedAt) || 0, answeredAt: Number(q.answeredAt) || 0
+    mode:q.mode === 'conversation' ? 'conversation' : 'choice', sample:bounded(q.sample,2400),
+    answer: bounded(q.answer, q.mode === 'conversation' ? 4000 : 500), askedAt: Number(q.askedAt) || 0, answeredAt: Number(q.answeredAt) || 0
   };
 }
 function normalizeBrief(b) {
@@ -39,7 +41,8 @@ function normalizeBrief(b) {
     agentId: bounded(x.agentId || 'agent', 40), source: bounded(x.source || 'interactive', 24),
     originalDirective: bounded(x.originalDirective, 4000), currentInput: bounded(x.currentInput, 4000),
     status: STATES.has(x.status) ? x.status : 'ready',
-    questions: Array.isArray(x.questions) ? x.questions.map(normalizeQuestion).filter(Boolean).slice(-8) : [],
+    questions: Array.isArray(x.questions) ? x.questions.map(normalizeQuestion).filter(Boolean).slice(-16) : [],
+    context: x.context ? Context.normalize(x.context) : null,
     // Ask-call budget (batching, 2026-08-14): pre-batching briefs stored one question per call, so for
     // them the question count IS the call count — the fallback keeps their budget honest after upgrade.
     askCalls: Number(x.askCalls) > 0 ? Number(x.askCalls) : (Array.isArray(x.questions) ? x.questions.filter(q => q && (q.text || q.question)).length : 0),
@@ -98,6 +101,8 @@ function makeTaskBriefStore(deps) {
     return durable.update(STORE_KEY, cur => {
       const rec = normalize(cur); const ts = Number(now) || 0;
       const prior = rec.briefs.filter(b => b.key === key).sort((a, b) => b.updatedAt - a.updatedAt)[0] || null;
+      // A journal continuation contains old user text, not a new answer. Preserve the durable brief.
+      if (input.resumeOnly && prior) { out = prior; return undefined; }
       if (prior && prior.status === 'clarifying') {
         const routed = Policy.routeReply(text, input.taskAction);
         if (routed.action === 'cancel') {
@@ -119,7 +124,7 @@ function makeTaskBriefStore(deps) {
         // walks away mid-batch; the durable fallback re-asks them in order, so the reply belongs to the
         // earliest open one. For legacy single-question briefs the two are the same question.
         const q = prior.questions.find(x => !x.answer);
-        if (q) { q.answer = routed.text; q.answeredAt = ts; }
+        if (q) { q.answer = q.mode === 'conversation' ? text : routed.text; q.answeredAt = ts; }
         prior.currentInput = text; prior.status = 'ready'; prior.updatedAt = ts; out = prior;
       } else {
         out = normalizeBrief({
@@ -147,10 +152,10 @@ function makeTaskBriefStore(deps) {
         // options actually exist. Record exactly that — an empty dimension/recommended/reason is honest;
         // stamping placeholder values would let an unvalidated question masquerade as a host-validated one
         // (and a fabricated recommendation would surface in the UI). The whole-task question budget still holds.
-        const base = normalizeQuestion(question); if (!base || base.options.length < 2) return undefined;
+        const base = normalizeQuestion(question); if (!base || (base.options.length < 2 && base.mode !== 'conversation')) return undefined;
         if (Policy.askCallsOf(b) >= 2) return undefined;
         if (b.questions.some(x => !x.answer)) return undefined;
-        fields = { text: base.text, options: base.options };
+        fields = { text: base.text, options: base.options, mode:base.mode };
       } else {
         const checked = Policy.validateQuestion(question, b); if (!checked.ok) return undefined;
         fields = checked.question;
@@ -209,9 +214,20 @@ function makeTaskBriefStore(deps) {
     return durable.update(STORE_KEY, cur => {
       const rec = normalize(cur); const b = rec.briefs.find(x => x.id === key); if (!b) return undefined;
       const checked = Policy.validateProceed(candidate); if (!checked.ok || b.status === 'clarifying' || b.status === 'done' || b.status === 'cancelled') return undefined;
+      if(b.questions.some(q=>q.mode==='conversation' && q.answer) && !Context.current(b)) return undefined;
       b.settled = checked.brief; b.assumptions = checked.brief.assumptions;
       b.status = 'executing'; b.updatedAt = Number(now) || b.updatedAt; out = b; return rec;
     }).then(() => out);
+  }
+
+  function updateContext(id, candidate, now) {
+    let out=null;
+    return durable.update(STORE_KEY,cur=>{
+      const rec=normalize(cur), b=rec.briefs.find(x=>x.id===String(id));
+      if(!b || ['done','cancelled','clarifying'].includes(b.status)) return undefined;
+      const checked=Context.validate(candidate,b); if(!checked.ok) throw new Error(checked.error);
+      b.context=checked.context; b.updatedAt=Number(now)||b.updatedAt; out=b; return rec;
+    }).then(()=>out);
   }
 
   function complete(id, runId, now, assumptions) {
@@ -343,7 +359,7 @@ function makeTaskBriefStore(deps) {
       .map(t => t.dimension);
   }
 
-  return { read, list, active, prepare, ask, askMany, answerInTurn, proceed, complete, patterns, groundedFor, dimensionDeferrals, deferredDimensions, fingerprintQuestion, _durable: durable };
+  return { read, list, active, prepare, ask, askMany, answerInTurn, updateContext, proceed, complete, patterns, groundedFor, dimensionDeferrals, deferredDimensions, fingerprintQuestion, _durable: durable };
 }
 
 module.exports = { makeTaskBriefStore, normalize, normalizeBrief, normalizeQuestion, fingerprintQuestion };

@@ -270,6 +270,7 @@ test/work-recap.test.js
 test/qa-ledger.test.js
 test/qa-saboteur.test.js
 test/qa-bugs.test.js
+test/qa-bug-lifecycle.test.js
 test/qa-bugs-register.test.js
 test/ledger-reconcile.test.js
 test/qa-guardian.test.js
@@ -717,3 +718,5 @@ test/platform-handoff.test.js
 test/ease-of-use.test.js
 test/workflow-takeover.test.js
 test/workflow-takeover-ui.test.js
+test/task-conversation.test.js
+test/task-conversation-ui.test.js

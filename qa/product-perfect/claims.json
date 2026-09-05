@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "7c77971aff3298b998f8b4683e710d731e9f8530",
-    "pathSetSha256": "7af5d59324276c5758b5936e2cab40b10fe3d0e4024fb607769ab79b66abe1ac",
+    "sourceCommit": "f29d01b0d5facb770ab7cf234c1c83248f40e709",
+    "pathSetSha256": "f30721a61db7f547527ea1c55061ba9f3924560b89c6e19549c3e1598633e818",
     "files": [
       {
         "path": "INSTALL.md",
@@ -68,8 +68,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 376378,
-        "sha256": "c5ddfba4ac75860afb3ec4a2b9dc472d4947d728b2a8e34556d8b33ab1f8c6c3"
+        "bytes": 375690,
+        "sha256": "9ba8f7acb9a39532759e7d295a50e5228e0ab1c00e15459a6fcbca85bd4a9be8"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -148,8 +148,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 634252,
-        "sha256": "c63f149636474c21791523f600bff9f77fab02920735368effd4d0b71a23501f"
+        "bytes": 634112,
+        "sha256": "d3d5956e9ad115b62de8c773f7a79f33bd9e33baf8f8223612cded48682eef3f"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -273,8 +273,8 @@
       },
       {
         "path": "frontend/app/fork.js",
-        "bytes": 15622,
-        "sha256": "2b32c8fe2da8046352981d7856d0d7ef5843bffe889fdabe8b386334ffdbe5a8"
+        "bytes": 17131,
+        "sha256": "91c083b90481d8828f3fda93e8af007abde06cd6601caa25b2bb3443e2860abc"
       },
       {
         "path": "frontend/app/freshstart.js",
@@ -317,14 +317,9 @@
         "sha256": "87d4604d5e48d7a57f8ed68e93fbbd194d74b320fae76b0dbacfd69fcaa8aa9c"
       },
       {
-        "path": "frontend/app/group-chat.js",
-        "bytes": 35574,
-        "sha256": "4888df2652c9509b0c97e4ab3fd248483fac7c5c5b4a021f70020c06be273946"
-      },
-      {
         "path": "frontend/app/harness.js",
-        "bytes": 81765,
-        "sha256": "b5c98e760cda11d5ce4b3969b387f416b4cbabad211cab714afee6b9aae697e8"
+        "bytes": 81909,
+        "sha256": "96582941fea47e1f0dee31bd87f5f11320df926c014b54448f36db5850e21561"
       },
       {
         "path": "frontend/app/hint.js",
@@ -792,6 +787,11 @@
         "sha256": "15b5029c10b999866408229d59f6d03a058af501253313a18eb5924100710ce6"
       },
       {
+        "path": "frontend/app/taskconversation.js",
+        "bytes": 5039,
+        "sha256": "a7868cceb4c4868c04f61b40226d61457367d6e8d39ec006ff171e3da2c62f1b"
+      },
+      {
         "path": "frontend/app/terrain.js",
         "bytes": 115304,
         "sha256": "b041df0ee5cfed5d6e9d39b0cdffb9f2d901f8ce8443d4da436bd5fbe34ebc8e"
@@ -993,8 +993,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 39497,
-        "sha256": "596885a13052e34dbd60c844156a349d87226855fc8ac3c0f7e4991147cf07c4"
+        "bytes": 39347,
+        "sha256": "69e04509886e33e9daf9e3820bb3f081c4c4feead4b80b0370d870575f2eb67a"
       },
       {
         "path": "frontend/app/workview.js",
@@ -1028,8 +1028,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 389269,
-        "sha256": "183dc802952e7a3352adabe12176fe9db78fe0ee6e060a78a3585c4b97ab0f38"
+        "bytes": 391909,
+        "sha256": "37ba011037ed7f068c8413d67b63ff6ef6a2b0ee62e04182361f4762653ed7a4"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1108,8 +1108,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 80803,
-        "sha256": "d31c9da691f22904ff6984786336dcac478546ec91c5f85c90ecccf0725329b6"
+        "bytes": 80809,
+        "sha256": "7956f5c109e5afdfbe6470284b8964ecc85a17c8ac431608b5d4dbf5972b46f7"
       },
       {
         "path": "frontend/js/arcade.js",

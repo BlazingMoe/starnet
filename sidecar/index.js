@@ -14463,6 +14463,8 @@ async function handleRun(req, res) {
         options: (Array.isArray(f.options) ? f.options.slice(0, 6) : []).map(x => clip(x, 120)),
         recommended: clip(f.recommended, 120),
         reason: clip(f.reason, 240),
+        mode:f.mode === 'conversation' ? 'conversation' : 'choice', sample:clip(f.sample,2400),
+        context:f.context || null,
         // batched clarify (2026-08-14): lets the card toggle non-exclusive options and show "1 of 3"
         multiSelect: f.multiSelect === true,
         ordinal: Number(f.ordinal) || 0, total: Number(f.total) || 0,
@@ -14857,6 +14859,7 @@ async function runOnce(o) {
   // work has nobody present to answer and therefore remains byte-for-byte on its existing execution path.
   let taskBrief = null;
   let taskBriefState = null;
+  let taskContextInputs = null;
   let taskContextBlock = '';
   let taskQuestionAsked = false;
   // Everything below is wrapped so the admission slot is ALWAYS released (early-return refusals above run
@@ -14932,7 +14935,7 @@ async function runOnce(o) {
       if (latestUser) taskBrief = await taskBriefStore.prepare({
         id: 'tb_' + runId, key: String(o.taskKey), streamId: streamId || '', agentId, runId,
         source: o.taskSource || (surface === 'interactive' ? 'interactive' : 'channel'), text: latestUser,
-        taskAction: o.taskAction || ''
+        taskAction: o.taskAction || '', resumeOnly: !!o.recovery
       }, Date.now());
     } catch (e) { console.warn('[taskbrief] prepare failed:', (e && e.message) || e); taskBrief = null; }
   }
@@ -14949,9 +14952,8 @@ async function runOnce(o) {
     // recipes.js — the same data the launch chips rendered), so a mid-run question arrives pre-aimed.
     let recipeIntake = [];
     try { const rr = o.recipeId ? Recipes.get(String(o.recipeId)) : null; if (rr && Array.isArray(rr.intake)) recipeIntake = rr.intake; } catch (_) {}
-    taskContextBlock = commanderEvidenceContext(system || '', {
-      brief: taskBrief, goal, patterns, deferredDimensions, recipeIntake
-    });
+    taskContextInputs = {brief:taskBrief, goal, patterns, deferredDimensions, recipeIntake};
+    taskContextBlock = commanderEvidenceContext(system || '', taskContextInputs);
   } else if (isTask) {
     // Channels and integrations may not carry a durable taskKey. They still receive the SAME bounded Commander
     // evidence as an interactive briefed run; only the task-specific brief section is absent.
@@ -15141,6 +15143,7 @@ async function runOnce(o) {
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     taskContext: taskContextBlock,   // workers inherit settled task decisions without re-questioning the Commander
+    getTaskContext: () => taskBriefState ? commanderEvidenceContext(system || '', Object.assign({},taskContextInputs,{brief:taskBriefState.brief})) : taskContextBlock,
     // A worker shares the LEAD's consent broker (see the `consent` note below), so its own roster APPROVAL clause is
     // the wrong one whenever the two postures differ. Hand orchestration the EFFECTIVE posture so the delegated
     // prompt states what will actually happen. A thunk read off the live roster: computed at dispatch time, and
@@ -16751,12 +16754,22 @@ async function runOnce(o) {
       }
       return { checks };
     } : null;
-    result = await runAgentLoop({
+    const recoveryQuestion = o.recovery && taskBrief && taskBrief.status === 'clarifying'
+      && taskBrief.questions.find(q => !q.answer);
+    if (recoveryQuestion) {
+      // Recovery must never answer its own pending question with the original directive.
+      const text = 'TASK_QUESTION: ' + recoveryQuestion.text + ' || '
+        + (recoveryQuestion.options.length ? recoveryQuestion.options.join(' | ') : '[free text]');
+      loopEmit('agent.run.start', {agentId, runId, model, trigger});
+      loopEmit('agent.token', {agentId, runId, delta:text});
+      loopEmit('agent.run.end', {agentId, runId, reason:'done', turns:0, usd:0});
+      result = {reason:'done', turns:0, usd:0, messages:msgs.concat([{role:'assistant', content:text}])};
+    } else result = await runAgentLoop({
       messages: msgs, provider, emit: loopEmit, cost, tools: toolDefs, dispatch, capCtx,
       acceptanceProbe,
       // Granted but unadvertised: held out of the request until tool.search reveals one (see loop.js).
       deferredTools: deferredToolDefs,
-      hiddenTools: ['brief_ask', 'brief_proceed'],
+      hiddenTools: ['brief_ask', 'brief_proceed', 'brief_update'],
       // A turn that asks for four file reads waited four round trips for them; an all-read-only batch now
       // overlaps. The predicate is above — the loop cannot judge tool scope on its own.
       parallelSafe,
@@ -17178,11 +17191,12 @@ async function handleConsent(req, res) {
    non-enum value and fails closed to deny downstream. Stale ids are a harmless no-op, like handleConsent. */
 async function handleConsentAnswer(req, res) {
   let body;
-  try { body = JSON.parse(await readBody(req, 8192)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
-  const text = String(body.answer == null ? '' : body.answer).trim().slice(0, 2000);
+  try { body = JSON.parse(await readBody(req, 32768)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
+  const text = String(body.answer == null ? '' : body.answer).trim().slice(0, 4000);
   const pend = pendingByRun.get(body.runId);
   const finish = pend && pend.get(body.promptId);
   if (finish && text) finish({ __clarify: true, text });
+  if(body.receipt === true) return respondJson(res,200,{ok:!!(finish && text)});
   res.writeHead(200); res.end('ok');
 }
 

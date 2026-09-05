@@ -12,6 +12,15 @@
 
 <!-- Note permission, data, migration, or telemetry implications. Write "none" when not applicable. -->
 
+## User-reported regression coverage
+
+<!-- For a customer/owner bug: link its qa/bugs/<fingerprint>-<slug>.md record. Name the failing
+before-fix scenario and after-fix result. Enumerate sibling adapters, entry points, displays,
+and lifecycle paths in the record's Sibling coverage JSON. A covered row names a registered
+fast/http test and scenario; a blocked/not-applicable row gives its reason. Never call a
+source fix customer-recovered: installer version/hash/behavior evidence and customer outcome
+are tracked separately. See qa/bugs/README.md. Write "not a reported bug" when applicable. -->
+
 ## Understanding the interface
 
 <!-- For user-facing changes: name the user intention and existing category; give the one-sentence
