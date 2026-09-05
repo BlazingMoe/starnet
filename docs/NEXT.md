@@ -1,5 +1,12 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
+
+Owner approved the custom station and all six UI upgrades for immediate integration. Syncing the
+approved branch with trunk `010a6b50f` in its own worktree, then checking the combined tree before
+merging. The live custom demo and six-panel review remain on ports 9177 and 9178. Preserve the
+integration tree's unrelated, uncommitted QA status and Rooms handoff files.
+
 ## 2026-09-03 — POST-AUDIT: NEXT CUT MUSTS (owner-directed, audit items 1–5)
 
 The 2026-09-03 whole-repo audit (backend, frontend, release, process, product) found the harness solid
