@@ -16,23 +16,35 @@
 'use strict';
 const Topbar = (() => {
   let wired = false;
+  let lastCommanderLevel = null;
 
   const $ = sel => document.querySelector(sel);
 
   // ---- STATION XP sliver: read-only compute over the live station rollup ----
   function paintXp() {
     try {
-      if (typeof Xp === 'undefined' || typeof XpStore === 'undefined' || !XpStore.stationStats) return;
-      const stats = XpStore.stationStats();
-      if (!stats) return;
-      const g = Xp.compute(stats);
+      const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+      const g = j && j.progression;
+      const label = document.getElementById('gt-station');
+      if (!g || !Number.isFinite(g.level)) {
+        if (label) label.textContent = '—'; lastCommanderLevel = null;
+        const emptyFill = $('#tb-station .tb-xp-fill'); if (emptyFill) emptyFill.style.width = '0%';
+        return;
+      }
+      const stale = JourneyStore.state && JourneyStore.state().stale;
+      if (label) label.textContent = 'Lv ' + g.level + (stale ? ' · saved' : '');
+      if (lastCommanderLevel != null && g.level > lastCommanderLevel) {
+        const chip = document.getElementById('tb-station');
+        if (chip) { chip.classList.remove('lvup'); void chip.offsetWidth; chip.classList.add('lvup'); }
+        if (typeof SFX !== 'undefined' && SFX.level) SFX.level();
+      }
+      lastCommanderLevel = g.level;
       const fill = $('#tb-station .tb-xp-fill');
-      if (fill && g && isFinite(g.frac)) {
-        const pct = Math.max(0, Math.min(100, Math.round(g.frac * 100)));
+      if (fill && g.nextLevelAt > g.levelStartsAt) {
+        const pct = Math.max(0, Math.min(100, Math.round(100 * (g.points - g.levelStartsAt) / (g.nextLevelAt - g.levelStartsAt))));
         fill.style.width = pct + '%';
         const xp = $('#tb-station .tb-xp');
-        if (xp) xp.title = 'STATION Lv ' + g.level + ' — ' + pct + '% to Lv ' + (g.level + 1)
-          + (isFinite(g.toNext) ? ' (' + g.toNext + ' XP to go)' : '');
+        if (xp) xp.title = 'COMMANDER Lv ' + g.level + ' — ' + g.points + ' achievement points; ' + g.pointsToNextLevel + ' to the next level';
       }
     } catch (_) { /* honest no-op: leave the sliver where it is */ }
   }

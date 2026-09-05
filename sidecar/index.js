@@ -13823,7 +13823,9 @@ async function handleJourney(req, res) {
     if ((op === 'journey.reset' && requestedEpoch < currentEpoch) || (op !== 'journey.reset' && requestedEpoch !== currentEpoch)) {
       return json(409, { ok: false, error: 'station generation changed; reload before updating journey' });
     }
-    if (op === 'metric.create') result = await journeyStore.createMetric(body, Date.now());
+    if (op === 'goal.register') result = await journeyStore.registerGoal(body, Date.now());
+    else if (op === 'goal.confirm') result = await journeyStore.confirmGoal(body, Date.now());
+    else if (op === 'metric.create') result = await journeyStore.createMetric(body, Date.now());
     else if (op === 'metric.update') result = await journeyStore.updateMetric(body, Date.now());
     else if (op === 'metric.retire') result = await journeyStore.retireMetric(body.id, Date.now());
     else if (op === 'milestone.complete') result = await journeyStore.recordMilestone(body, Date.now());

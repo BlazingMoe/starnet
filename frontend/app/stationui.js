@@ -8423,6 +8423,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '<div class="sub dim q-journey-law">Evolution changes the station\'s expression, never your tools, permissions, or capabilities.</div></div>';
   }
 
+  function lifeGoalsHtml() {
+    const goals = typeof GoalStore !== 'undefined' && GoalStore.listGoals ? GoalStore.listGoals().filter(g => g.status === 'active') : [];
+    const active = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    return '<details class="q-life-goal q-life-manage"><summary>' + (goals.length ? 'YOUR GOALS · CHOOSE A FOCUS / ADD A GOAL' : 'ADD YOUR LIFE GOAL') + '</summary>'
+      + goals.map(g => '<div class="q-hd"><span class="nm">' + esc(g.text) + '</span>' + (active && active.id === g.id ? '<span class="gx-tag">FOCUS</span>' : '<button class="consent-btn q-goal-focus" data-gid="' + esc(g.id) + '">FOCUS</button>') + '</div>').join('')
+      + '<label>Goal<input class="q-new-goal" maxlength="280" placeholder="Learn to play a song, change careers, build a business…"></label>'
+      + '<label>Success means<textarea class="q-new-success" maxlength="500" placeholder="The observable result you want to reach"></textarea></label>'
+      + '<label>First steps (one per line, up to five)<textarea class="q-new-steps" placeholder="Start with one concrete action. You can extend the plan later."></textarea></label>'
+      + '<button class="consent-btn q-goal-create">SAVE GOAL AND FOCUS</button></details>';
+  }
+
   function buildQuests(body) {
     const QSS = (typeof QuestStateStore !== 'undefined') ? QuestStateStore : null;
     const SQS = (typeof StationQuestStore !== 'undefined') ? StationQuestStore : null;
@@ -8579,6 +8590,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        separate console. */
     body.innerHTML = '<div class="gx gx-quests">'
       + questTrackHtml(arcs)
+      + lifeGoalsHtml()
       + questRefreshHtml()
       + proposalsHtml
       + '<div class="gx-sec"><span class="gx-title">OPEN</span> <span class="gx-tag">' + open.length + '</span></div>'
@@ -8594,6 +8606,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // COMMANDER JOURNEY writes are explicit. Empty/invalid numeric fields are rejected in the panel before the
     // request, and every successful response re-renders from the backend's returned proof snapshot.
     const journeyFail = r => notify((r && r.error) || 'journey update was not recorded', 'bad');
+    body.querySelectorAll('.q-goal-focus').forEach(b => b.addEventListener('click', () => { if (GoalStore.focusGoal(b.dataset.gid)) rerender('quests'); }));
+    body.querySelectorAll('.q-goal-create').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-manage'); b.disabled = true;
+      const r = await GoalStore.createGoal(row.querySelector('.q-new-goal').value, row.querySelector('.q-new-success').value,
+        row.querySelector('.q-new-steps').value.split('\n').map(s => s.trim()).filter(Boolean));
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
     body.querySelectorAll('.q-quest-disposition').forEach(b => b.addEventListener('click', async () => {
       const row = b.closest('.q-life-quest'); b.disabled = true;
       const r = await QLS.disposition(row.dataset.qid, b.dataset.action, (row.querySelector('.q-disposition-reason') || {}).value || '');

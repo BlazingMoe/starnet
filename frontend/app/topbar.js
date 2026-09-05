@@ -26,8 +26,13 @@ const Topbar = (() => {
       const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
       const g = j && j.progression;
       const label = document.getElementById('gt-station');
-      if (!g || !Number.isFinite(g.level)) { if (label) label.textContent = '—'; lastCommanderLevel = null; return; }
-      if (label) label.textContent = 'Lv ' + g.level;
+      if (!g || !Number.isFinite(g.level)) {
+        if (label) label.textContent = '—'; lastCommanderLevel = null;
+        const emptyFill = $('#tb-station .tb-xp-fill'); if (emptyFill) emptyFill.style.width = '0%';
+        return;
+      }
+      const stale = JourneyStore.state && JourneyStore.state().stale;
+      if (label) label.textContent = 'Lv ' + g.level + (stale ? ' · saved' : '');
       if (lastCommanderLevel != null && g.level > lastCommanderLevel) {
         const chip = document.getElementById('tb-station');
         if (chip) { chip.classList.remove('lvup'); void chip.offsetWidth; chip.classList.add('lvup'); }

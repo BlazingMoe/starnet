@@ -136,11 +136,11 @@
      binds it to the dossier belief; now = injected clock. Returns the goal node (or null on a too-short path — the
      3-milestone floor is enforced here too, so a hand-edited list can't create a degenerate one-step goal). Ids are
      deterministic: goal id from the injected clock, milestone ids goalId + ':m' + index. */
-  function makeGoal(goalText, texts, sourceBeliefId, now) {
+  function makeGoal(goalText, texts, sourceBeliefId, now, opts) {
     // scrub every milestone text (an edited path from the confirm panel bypasses parseDecomposition, so redact here
     // too) — the always-on secret floor, then cap + value-floor. Redaction can never be skipped on a stored step.
     const clean = (Array.isArray(texts) ? texts : []).map(t => clip(scrubSecrets(t), TEXT_CHARS)).filter(t => t && !lowValue(t)).slice(0, MAX_MILESTONES);
-    if (clean.length < MIN_MILESTONES) return null;
+    if (clean.length < (opts && opts.userAuthored ? 1 : MIN_MILESTONES)) return null;
     const id = 'goal_' + now;
     const milestones = clean.map((t, i) => ({ id: id + ':m' + (i + 1), text: t, status: 'open', questRef: null, evidence: '', doneAt: null, journeySyncedAt: null }));
     return { id, text: clip(goalText, 280), sourceBeliefId: sourceBeliefId == null ? null : String(sourceBeliefId), status: 'active', milestones, createdAt: now, updatedAt: now };
@@ -254,7 +254,7 @@
     let best = null;
     for (const g of (Array.isArray(goals) ? goals : [])) {
       if (!g || g.status !== 'active') continue;
-      if (!best || (g.createdAt || 0) >= (best.createdAt || 0)) best = g;
+      if (!best || (g.focusedAt || g.createdAt || 0) >= (best.focusedAt || best.createdAt || 0)) best = g;
     }
     return best;
   }

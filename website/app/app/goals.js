@@ -136,11 +136,11 @@
      binds it to the dossier belief; now = injected clock. Returns the goal node (or null on a too-short path — the
      3-milestone floor is enforced here too, so a hand-edited list can't create a degenerate one-step goal). Ids are
      deterministic: goal id from the injected clock, milestone ids goalId + ':m' + index. */
-  function makeGoal(goalText, texts, sourceBeliefId, now) {
+  function makeGoal(goalText, texts, sourceBeliefId, now, opts) {
     // scrub every milestone text (an edited path from the confirm panel bypasses parseDecomposition, so redact here
     // too) — the always-on secret floor, then cap + value-floor. Redaction can never be skipped on a stored step.
     const clean = (Array.isArray(texts) ? texts : []).map(t => clip(scrubSecrets(t), TEXT_CHARS)).filter(t => t && !lowValue(t)).slice(0, MAX_MILESTONES);
-    if (clean.length < MIN_MILESTONES) return null;
+    if (clean.length < (opts && opts.userAuthored ? 1 : MIN_MILESTONES)) return null;
     const id = 'goal_' + now;
     const milestones = clean.map((t, i) => ({ id: id + ':m' + (i + 1), text: t, status: 'open', questRef: null, evidence: '', doneAt: null, journeySyncedAt: null }));
     return { id, text: clip(goalText, 280), sourceBeliefId: sourceBeliefId == null ? null : String(sourceBeliefId), status: 'active', milestones, createdAt: now, updatedAt: now };
@@ -197,7 +197,9 @@
     m.evidence = clip(evidence, EVIDENCE_CHARS);
     goal.updatedAt = now;
     res.changed = true;
-    if (allDone(goal)) { goal.status = 'done'; res.goalDone = true; }
+    // A completed plan is evidence of actions, not proof that the life outcome happened.
+    // The goal remains active until the Commander reports its stored success condition met.
+    res.planDone = allDone(goal);
     return res;
   }
 
@@ -252,7 +254,7 @@
     let best = null;
     for (const g of (Array.isArray(goals) ? goals : [])) {
       if (!g || g.status !== 'active') continue;
-      if (!best || (g.createdAt || 0) >= (best.createdAt || 0)) best = g;
+      if (!best || (g.focusedAt || g.createdAt || 0) >= (best.focusedAt || best.createdAt || 0)) best = g;
     }
     return best;
   }
@@ -278,7 +280,7 @@
     // group its steps under it. reward names the real outcome (the goal itself).
     out.push({
       id: 'arc:goal:' + goal.id, kind: 'arc-goal', title: '◇ ' + clip(goal.text, 120),
-      desc: pr.total ? (pr.done + ' of ' + pr.total + ' milestones · ' + pr.pct + '%') : 'no milestones',
+      desc: pr.total ? (pr.done + ' of ' + pr.total + ' planned steps completed') : 'no planned steps',
       reward: 'the goal, reached', status: 'open', arcGoalId: goal.id, pct: pr.pct, done: pr.done, total: pr.total
     });
     const next = nextMilestone(goal);
@@ -296,7 +298,7 @@
         id: 'arc:step:' + m.id, kind: 'arc-step', title: (isDone ? 'done — ' : (isNext ? '▸ ' : '· ')) + clip(m.text, 120),
         desc: isDone ? ('done.' + (m.evidence ? ' ' + m.evidence : ''))
           : inFlight ? 'in progress — the build is running; finishing it completes this step.'
-          : (isNext ? 'the next step — accept it to make it a real build.' : 'coming up after the step above.'),
+          : (isNext ? 'the next step — do it yourself or ask StarNet for help.' : 'coming up after the step above.'),
         reward: 'progress on “' + clip(goal.text, 60) + '”', status,
         arcGoalId: goal.id, milestoneId: m.id, isNext: !!isNext, inFlight: inFlight
       });

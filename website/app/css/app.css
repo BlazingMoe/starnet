@@ -5724,3 +5724,14 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .ag-effective { margin: 8px 0; }
 .ag-effective .perk-desc { white-space: normal; }
 .cf-group-summary { overflow-wrap: anywhere; }
+
+/* Life-goal controls use station paint and remain usable in narrow quest windows. */
+.gx-quests .q-life-goal, .gx-quests .q-life-quest { margin-top: 12px; min-width: 0; }
+.gx-quests .q-life-goal details, .gx-quests .q-life-quest details, .gx-quests .q-life-report { margin: 8px 0; border-top: 1px solid var(--ph-faint); padding-top: 8px; }
+.gx-quests .q-life-goal label, .gx-quests .q-life-quest label, .gx-quests .q-life-report label { display: block; margin: 8px 0; color: var(--ph-dim); }
+.gx-quests .q-life-goal textarea, .gx-quests .q-life-goal input, .gx-quests .q-life-quest textarea, .gx-quests .q-life-quest input, .gx-quests .q-life-report textarea { display: block; box-sizing: border-box; width: 100%; margin: 6px 0; padding: 8px; }
+.gx-quests .q-life-goal textarea, .gx-quests .q-life-report textarea, .gx-quests .q-life-quest textarea { min-height: 68px; resize: vertical; }
+.gx-quests .q-commander-growth { padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--ph-faint); }
+.gx-quests .q-achievement, .gx-quests .q-plan-complete { padding: 6px 0; }
+.gx-quests .q-deferred { margin: 12px 0; }
+.gx-quests .q-life-quest .consent-btns { flex-wrap: wrap; }

@@ -50,6 +50,7 @@ const JourneyStore = (() => {
   function observe(snap) {
     const envelope = snap && snap.hasData && snap.data;
     if (envelope && envelope.ok && envelope.journey) apply(envelope.journey);
+    try { if (typeof Topbar !== 'undefined' && Topbar._paintXp) Topbar._paintXp(); } catch (_) {}
   }
   function publish(journey) {
     const q = spine();

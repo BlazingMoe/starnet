@@ -79,6 +79,7 @@ const GoalStore = (() => {
             id: String(g.id), text: String(g.text || '').slice(0, 280),
             successCondition: String(g.successCondition || '').slice(0, 500),
             outcomeEvidence: String(g.outcomeEvidence || '').slice(0, 1000),
+            focusedAt: Number(g.focusedAt) || 0,
             sourceBeliefId: g.sourceBeliefId == null ? null : String(g.sourceBeliefId),
             status, milestones: ms, createdAt: created,
             updatedAt: Number.isFinite(Number(g.updatedAt)) ? Number(g.updatedAt) : created
@@ -338,6 +339,26 @@ const GoalStore = (() => {
     return r;
   }
 
+  async function createGoal(text, successCondition, steps) {
+    if (!ready() || typeof JourneyStore === 'undefined' || !JourneyStore.registerGoal) return { ok: false, error: 'journey service unavailable' };
+    const title = Goals.scrubSecrets(String(text || '').trim());
+    const condition = Goals.scrubSecrets(String(successCondition || '').trim());
+    if (title.length < 4 || condition.length < 4) return { ok: false, error: 'enter your goal and an observable success condition' };
+    if (state.goals.filter(g => g.status === 'active').length >= GOAL_CAP) return { ok: false, error: 'finish or retire an existing goal before adding another' };
+    const stamp = Math.max(now(), ...state.goals.map(g => (g.createdAt || 0) + 1));
+    const g = Goals.makeGoal(title, steps, null, stamp, { userAuthored: true });
+    if (!g) return { ok: false, error: 'enter at least one concrete first step' };
+    const r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition });
+    if (r && r.ok) { g.successCondition = condition.slice(0, 500); state.goals.push(g); save(); pushToSidecar(); poke(); }
+    return r;
+  }
+  function focusGoal(id) {
+    const g = ready() && state.goals.find(g => g.id === id && g.status === 'active');
+    if (!g) return false;
+    g.focusedAt = Math.max(now(), ...state.goals.map(g => (g.focusedAt || g.createdAt || 0) + 1));
+    save(); pushToSidecar(); poke(); return true;
+  }
+
   async function confirmOutcome(goalId, evidence) {
     const g = ready() && state.goals.find(g => g.id === goalId && g.status === 'active');
     if (!g || typeof JourneyStore === 'undefined' || !JourneyStore.confirmGoal) return { ok: false, error: 'active goal unavailable' };
@@ -510,7 +531,7 @@ const GoalStore = (() => {
   return {
     init, reset, sync, quests, activeGoal, unplannedGoal, pushToSidecar,
     willOfferDecomposition, pendingDecomposition, proposeDecomposition, confirm, declineDecomposition, markOffered,
-    acceptMilestone, reportMilestone, setSuccessCondition, confirmOutcome, addStep, reconcile, syncDrift, setFiring, isFiring, beliefFingerprint, questLive,
+    acceptMilestone, createGoal, focusGoal, listGoals: () => ready() ? state.goals.slice() : [], reportMilestone, setSuccessCondition, confirmOutcome, addStep, reconcile, syncDrift, setFiring, isFiring, beliefFingerprint, questLive,
     _state: () => state, _onRunEnd: onRunEnd, _syncJourneyMilestones: syncJourneyMilestones
   };
 })();

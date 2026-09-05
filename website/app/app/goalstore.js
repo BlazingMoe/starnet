@@ -69,6 +69,7 @@ const GoalStore = (() => {
             status: (m && m.status === 'done') ? 'done' : 'open',
             questRef: (m && m.questRef != null) ? String(m.questRef) : null,
             evidence: String((m && m.evidence) || '').slice(0, 160),
+            source: m && m.source === 'commander' ? 'commander' : 'harness',
             doneAt: (m && Number.isFinite(Number(m.doneAt))) ? Number(m.doneAt) : null,
             journeySyncedAt: (m && m.journeySyncedAt != null && Number.isFinite(Number(m.journeySyncedAt))) ? Number(m.journeySyncedAt) : null
           })).filter(m => m.id) : [];
@@ -76,6 +77,9 @@ const GoalStore = (() => {
           const status = (g.status === 'done' || g.status === 'retired') ? g.status : 'active';
           s.goals.push({
             id: String(g.id), text: String(g.text || '').slice(0, 280),
+            successCondition: String(g.successCondition || '').slice(0, 500),
+            outcomeEvidence: String(g.outcomeEvidence || '').slice(0, 1000),
+            focusedAt: Number(g.focusedAt) || 0,
             sourceBeliefId: g.sourceBeliefId == null ? null : String(g.sourceBeliefId),
             status, milestones: ms, createdAt: created,
             updatedAt: Number.isFinite(Number(g.updatedAt)) ? Number(g.updatedAt) : created
@@ -312,8 +316,9 @@ const GoalStore = (() => {
         try {
           const r = await JourneyStore.noteMilestone({
             goalId: g.id, goalText: g.text, milestoneId: m.id, milestoneText: m.text,
-            evidence: m.evidence || ('completed: ' + String(m.text || '')).slice(0, 160), agentId: 'agent',
-            goalDone: g.status === 'done' && i === g.milestones.length - 1
+            evidence: m.evidence || ('completed: ' + String(m.text || '')).slice(0, 160),
+            source: m.source || 'harness', agentId: m.source === 'commander' ? null : 'agent',
+            goalDone: false
           });
           if (r && r.ok) { m.journeySyncedAt = now(); acknowledged++; save(); }
         } catch (_) { /* stays pending */ }
@@ -323,6 +328,73 @@ const GoalStore = (() => {
     return { acknowledged, pending };
   }
   function queueJourneySync() { syncJourneyMilestones().catch(() => {}); }
+
+  async function setSuccessCondition(goalId, successCondition) {
+    const g = ready() && state.goals.find(g => g.id === goalId && g.status === 'active');
+    const condition = String(successCondition || '').trim();
+    if (!g || condition.length < 4) return { ok: false, error: 'describe the observable result that means this goal is achieved' };
+    if (typeof JourneyStore === 'undefined' || !JourneyStore.registerGoal) return { ok: false, error: 'journey service unavailable' };
+    const r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition });
+    if (r && r.ok) { g.successCondition = condition.slice(0, 500); save(); pushToSidecar(); poke(); }
+    return r;
+  }
+
+  async function createGoal(text, successCondition, steps) {
+    if (!ready() || typeof JourneyStore === 'undefined' || !JourneyStore.registerGoal) return { ok: false, error: 'journey service unavailable' };
+    const title = Goals.scrubSecrets(String(text || '').trim());
+    const condition = Goals.scrubSecrets(String(successCondition || '').trim());
+    if (title.length < 4 || condition.length < 4) return { ok: false, error: 'enter your goal and an observable success condition' };
+    if (state.goals.filter(g => g.status === 'active').length >= GOAL_CAP) return { ok: false, error: 'finish or retire an existing goal before adding another' };
+    const stamp = Math.max(now(), ...state.goals.map(g => (g.createdAt || 0) + 1));
+    const g = Goals.makeGoal(title, steps, null, stamp, { userAuthored: true });
+    if (!g) return { ok: false, error: 'enter at least one concrete first step' };
+    const r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition });
+    if (r && r.ok) { g.successCondition = condition.slice(0, 500); state.goals.push(g); save(); pushToSidecar(); poke(); }
+    return r;
+  }
+  function focusGoal(id) {
+    const g = ready() && state.goals.find(g => g.id === id && g.status === 'active');
+    if (!g) return false;
+    g.focusedAt = Math.max(now(), ...state.goals.map(g => (g.focusedAt || g.createdAt || 0) + 1));
+    save(); pushToSidecar(); poke(); return true;
+  }
+
+  async function confirmOutcome(goalId, evidence) {
+    const g = ready() && state.goals.find(g => g.id === goalId && g.status === 'active');
+    if (!g || typeof JourneyStore === 'undefined' || !JourneyStore.confirmGoal) return { ok: false, error: 'active goal unavailable' };
+    const r = await JourneyStore.confirmGoal({ id: g.id, evidence: String(evidence || '').trim() });
+    if (r && r.ok) {
+      g.status = 'done'; g.outcomeEvidence = String(evidence || '').trim().slice(0, 1000); g.updatedAt = now();
+      save(); pushToSidecar(); poke(); celebrateGoalDone();
+    }
+    return r;
+  }
+
+  async function reportMilestone(goalId, milestoneId, evidence) {
+    const g = ready() && state.goals.find(g => g.id === goalId && g.status === 'active');
+    const m = g && g.milestones.find(m => m.id === milestoneId && m.status === 'open');
+    const note = String(evidence || '').trim();
+    if (!m || note.length < 10) return { ok: false, error: 'describe what you did (at least 10 characters)' };
+    if (questLive(m.questRef)) return { ok: false, error: 'this step has work in progress; wait for it to finish' };
+    if (typeof JourneyStore === 'undefined' || !JourneyStore.noteMilestone) return { ok: false, error: 'journey service unavailable' };
+    const r = await JourneyStore.noteMilestone({ goalId: g.id, goalText: g.text, milestoneId: m.id,
+      milestoneText: m.text, evidence: note, source: 'commander', agentId: null, goalDone: false });
+    if (r && r.ok) {
+      Goals.foldMilestoneDone(g, m.id, note, now()); m.source = 'commander'; m.journeySyncedAt = now();
+      save(); pushToSidecar(); poke();
+    }
+    return r;
+  }
+
+  function addStep(goalId, text) {
+    const g = ready() && state.goals.find(g => g.id === goalId && g.status === 'active');
+    const clean = typeof Goals !== 'undefined' ? Goals.scrubSecrets(String(text || '').trim()).slice(0, 140) : '';
+    if (!g || Goals.lowValue(clean) || g.milestones.length >= 100) return false;
+    if (g.milestones.some(m => m.text.toLowerCase() === clean.toLowerCase() && m.status === 'open')) return false;
+    g.milestones.push({ id: g.id + ':m' + (g.milestones.length + 1), text: clean, status: 'open', questRef: null,
+      evidence: '', doneAt: null, journeySyncedAt: null });
+    g.updatedAt = now(); save(); pushToSidecar(); poke(); return true;
+  }
 
   // after a clean run, re-read WorkQuestStore's projection: any bound milestone whose work quest went DONE folds
   // the milestone done, writes the run-summary evidence, advances the bar, and — on the last one — completes the
@@ -360,7 +432,7 @@ const GoalStore = (() => {
   // step edges already celebrate via QuestState; this is the capstone for the goal itself.
   function celebrateGoalDone() {
     try { if (typeof SFX === 'object' && SFX.quest) SFX.quest(); } catch (_) {}
-    try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('◆ goal reached — every milestone shipped.', 'gold'); } catch (_) {}
+    try { if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('◆ goal achieved — your outcome has been recorded.', 'gold'); } catch (_) {}
     noteGoalDone();
   }
   // the evidence line folded onto a completed milestone: prefer a real run summary, else name the milestone.
@@ -431,7 +503,20 @@ const GoalStore = (() => {
 
   // re-read on the quest-log heartbeat: retire drift + reconcile completed work before the fold (like the sibling
   // sync()s buildQuests calls). Cheap + idempotent.
-  function sync() { if (!ready()) return; syncDrift(); reconcile(''); queueJourneySync(); }
+  function sync() {
+    if (!ready()) return;
+    // Recover a successful outcome whose HTTP response or final local save was lost.
+    const journey = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+    let changed = false;
+    for (const known of (journey && journey.goals || [])) {
+      const g = state.goals.find(g => g.id === known.id);
+      if (!g || g.status !== 'active') continue;
+      if (known.successCondition && g.successCondition !== known.successCondition) { g.successCondition = known.successCondition; changed = true; }
+      if (known.status === 'achieved') { g.status = 'done'; g.outcomeEvidence = known.evidence; changed = true; }
+    }
+    if (changed) { save(); pushToSidecar(); }
+    syncDrift(); reconcile(''); queueJourneySync();
+  }
 
   /* ---------- the projection consumed by QuestStore.view ---------- */
   // questLive rides in so an in-flight bound milestone renders IN PROGRESS (no Accept) while a stalled/dismissed/
@@ -446,7 +531,7 @@ const GoalStore = (() => {
   return {
     init, reset, sync, quests, activeGoal, unplannedGoal, pushToSidecar,
     willOfferDecomposition, pendingDecomposition, proposeDecomposition, confirm, declineDecomposition, markOffered,
-    acceptMilestone, reconcile, syncDrift, setFiring, isFiring, beliefFingerprint, questLive,
+    acceptMilestone, createGoal, focusGoal, listGoals: () => ready() ? state.goals.slice() : [], reportMilestone, setSuccessCondition, confirmOutcome, addStep, reconcile, syncDrift, setFiring, isFiring, beliefFingerprint, questLive,
     _state: () => state, _onRunEnd: onRunEnd, _syncJourneyMilestones: syncJourneyMilestones
   };
 })();
