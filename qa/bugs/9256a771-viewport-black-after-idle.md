@@ -38,6 +38,12 @@ Keep open pending exact reproduction/retest. Matching v0.10.13 rendering repairs
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05 local recheck on source `94bff3a5f`: seeded Chromium recovered from three simulated
+cached-canvas losses and one dead stage context. Recovery counters advanced and visible pixels
+returned without reloading, with zero uncaught browser exceptions. See
+`qa/digests/2026-09-05-release-blockers.md`. This is not the affected customer's installer,
+GPU/display configuration, or a reproduction of its 10–20-minute failure; status stays open.
+
 ## Sibling coverage
 
 {
