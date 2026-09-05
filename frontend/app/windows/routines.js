@@ -77,16 +77,9 @@
       // re-slots it under its row after each refresh.
       '<div id="rt-out" class="msg rt-out" hidden></div>';
     const secCreate =
-      '<div class="brief-block"><div class="brief-k">HOW IT WORKS</div>' +
-        '<div class="brief-v">A routine wakes on a schedule and runs your agent <b>unattended</b>, using your connected key + model. ' +
-        'With no one watching, ungranted file writes are denied silently unless you have pre-approved them. ' +
-        // TERMINAL HONESTY (2026-07-25, from a user report): web/files/memory/images/browser all work unattended,
-        // but shell.exec + verify.run need the explicit per-routine grant below (the #rt-term checkbox) — the
-        // authority gate strips them on every non-interactive surface otherwise, and placing a WORKBENCH on the
-        // floor does NOT grant them here. Users were writing "run my tests nightly" routines, getting nothing,
-        // and placing a workbench to fix it. Say both halves where the routine is actually written.
-        'Web, files, memory, images and the browser all work. The <b>terminal</b> and your <b>connected tools</b> are ' +
-        'off unless you grant them below — placing a WORKBENCH on the floor does not grant them to a routine.</div></div>' +
+      '<div class="brief-block"><div class="brief-k">RUN THIS TASK ON A SCHEDULE</div>' +
+        '<div class="brief-v">Choose the task, agent and time. Results appear in Active Routines. It uses the selected agent’s model and access; any extra approvals for unattended work are below.</div></div>' +
+      '<div id="rt-create-state" class="set-about" role="status">Checking whether scheduling is enabled…</div>' +
       '<div class="mc-form">' +
         '<input id="rt-name" class="key-input" placeholder="name — e.g. Morning AI brief" maxlength="80" autocomplete="off">' +
         '<textarea id="rt-prompt" class="key-input" rows="2" placeholder="what should it do each run? e.g. search for new AI-policy news and summarize the top 3" style="resize:vertical"></textarea>' +
@@ -313,6 +306,8 @@
         // the live cronArmed — feeds the create-confirm's honest arm-state line. A HALTED scheduler is not armed no
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.
         schedulerArmed = !!(j && j.enabled && !j.halted);
+        const createState = body.querySelector('#rt-create-state');
+        if (createState) createState.textContent = schedulerArmed ? 'Scheduling is enabled. Saving adds this task to the schedule shown below.' : 'Scheduling is off. You can save a routine, but it will not run automatically until you enable scheduling in Active Routines.';
         maxConsecutive = (j && Number(j.maxConsecutiveFailures)) || 0;
         // DEGRADED STORE (routine hardening, 2026-08-21): GET /api/cron carries `degraded` when cron.jobs.json AND
         // its .bak were both unreadable at boot. The sidecar quarantined the file, froze the scheduler, and refuses
@@ -394,7 +389,12 @@
           });
         }
         positionOut();   // re-slot a live RUN NOW result under its row after the list re-renders (P0 #11)
-      } catch (_) { listEl.innerHTML = '<div class="mc-detail">sidecar offline — start it to manage routines.</div>'; }
+      } catch (_) {
+        schedulerArmed = false;
+        const createState = body.querySelector('#rt-create-state');
+        if (createState) createState.textContent = 'Scheduling status could not be checked. Reconnect to the station before relying on an automatic run.';
+        listEl.innerHTML = '<div class="mc-detail">sidecar offline — start it to manage routines.</div>';
+      }
     }
 
     // SELF-INITIATION: the agent reasons out a few standing-job proposals from the dossier, the Commander approves

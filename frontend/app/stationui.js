@@ -1321,12 +1321,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           // index the platforms. Locked by test/connectors-ui.test.js.
           const rows = pane.querySelectorAll('.con-sec-body .set-row, .con-sec-body label.set-row, .con-sec-body .prov-card, .con-sec-body .key-row, .con-sec-body .set-about, .con-sec-body .ms-h, .con-sec-body .perk, .con-sec-body .sk-card, .con-sec-body .mc-hint, .con-sec-body .mc-row, .con-sec-body .ts-row, .con-sec-body .cc-card');
           let hits = 0;
+          const headingMatch = sec.label.toLowerCase().includes(q);
           rows.forEach(r => {
             // `data-search` carries ALIASES that are deliberately not on screen (a Google Workspace card says
             // "Gmail, Calendar, Drive…" in its blurb but never "gdrive"/"g suite"). Searching a name the user
             // actually types must not depend on that name happening to appear in marketing copy.
             const hay = ((r.textContent || '') + ' ' + (r.dataset ? (r.dataset.search || '') : '')).toLowerCase();
-            const hit = hay.indexOf(q) >= 0;
+            const hit = headingMatch || hay.indexOf(q) >= 0;
             r.classList.toggle('con-hit', hit);
             r.classList.toggle('con-miss', !hit);
             if (hit) hits++;
@@ -3586,7 +3587,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'ACTIVE'], ['shipped', 'SHIPPED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -3620,7 +3621,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const w = WS(); if (!w) return;
     if (!w.setLane(id, 'shipped')) return;
     const s = w.get(id); persistWS(); sync();
-    notify('shipped ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
+    notify('marked complete: ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
   }
   function reopenTask(id) { const w = WS(); if (!w) return; w.setLane(id, 'active'); persistWS(); sync(); }
   function archiveCard(id) { const w = WS(); if (!w) return; w.archive(id, true); persistWS(); sync(); }
@@ -3695,8 +3696,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="es-glyph">▶</span><b>NOTHING IN FLIGHT</b>' +
       '<span>Assign a TO DO task and it moves here while the agent works.</span></div></div>';
     return '<div class="kb-empty-col"><div class="empty-state">' +
-      '<span class="es-glyph">✓</span><b>NOTHING SHIPPED YET</b>' +
-      '<span>Tasks you mark shipped land here as proof of work.</span></div></div>';
+      '<span class="es-glyph">✓</span><b>NO COMPLETED TASKS YET</b>' +
+      '<span>Tasks you review and mark complete appear here.</span></div></div>';
   }
   // TRUTHFUL RUN-STATE: the chip maps to a PROVABLE backend state — RUNNING when a run is actually in flight
   // on this stream (Channels.isBusy), else DONE — REVIEW & SHIP once at least one run has landed (the human's
@@ -3718,7 +3719,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">DONE — REVIEW &amp; SHIP</div>';
+      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
     }
     return '';
   }
@@ -3757,8 +3758,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const acts = s.lane === 'todo'
       ? '<button class="assign" data-act="assign">▶ ASSIGN</button><button data-act="open">↗ OPEN</button>' + tail
       : s.lane === 'active'
-        ? '<button data-act="ship">✓ SHIP</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
-        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button>' + tail;
+        ? '<button data-act="ship" title="Mark this task complete; this does not publish or send anything">✓ MARK COMPLETE</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
+        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button><button data-act="repeat" title="Review a schedule for this task; nothing runs until you save and enable it">◷ REPEAT…</button>' + tail;
     return '<div class="kb-card' + (s.pinned ? ' pinned' : '') + '" draggable="true" data-id="' + s.id + '" role="button" tabindex="0" aria-label="' + esc(s.title || 'untitled') + ' — open conversation" style="--ci:' + (i || 0) + '">' +
       '<div class="kb-title">' + esc(s.title || 'untitled') + '</div>' +
       '<div class="kb-meta">' + agentChip(s) + '<span class="kb-time" data-t="' + (s.lastActiveAt || s.createdAt) + '">' + clock(s.lastActiveAt || s.createdAt) + '</span>' +
@@ -3857,6 +3858,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         else if (act === 'pin') togglePin(id);
         else if (act === 'rename') beginCardRename(c, id);
         else if (act === 'arch') archiveCard(id);
+        else if (act === 'repeat') {
+          const stream = boardStreams().find(s => s.id === id);
+          const message = stream && Workstreams.visibleMessages(stream).find(m => m.role === 'user');
+          if (message && typeof AutomationWindow !== 'undefined') AutomationWindow.openDraft({name:stream.title,prompt:message.content,agentId:stream.agentId,workdir:stream.projectRoot});
+          else notify('Open the task and give it instructions before scheduling it.', 'warn');
+        }
       }));
       c.addEventListener('click', () => openStream(id));   // clicking the card body opens its conversation
       // keyboard parity for the role=button card: Enter/Space opens it — but only when the CARD itself is focused,
@@ -3886,7 +3893,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const w = WS(); const s = w && wid ? w.get(wid) : null;
         if (!s || s.lane === lane || !w.setLane(wid, lane)) return;
         sfx('click');
-        if (lane === 'shipped') { notify('shipped ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
+        if (lane === 'shipped') { notify('marked complete: ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
         persistWS(); sync();
       });
     });
@@ -7687,11 +7694,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cd-fam"><span class="cd-fk"><span class="cd-ff" style="width:' + pct + '%;"></span></span>' +
       '<span class="cd-fpct">' + (sum.known.length ? pct + '%' : 'calibrating') + '</span></span></div></div>' +
       '<div class="cd-sub">' + sum.known.length + ' of ' + dims.length + ' dimensions known &middot; ' + obsLine + '</div>' +
-      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>local-first</b> — it never leaves this machine. Add, edit, pin, or forget anything below; you own it.</div>');
+      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>stored locally</b>. The briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions. Add, edit, pin, or forget anything below; you own it.</div>');
     body.appendChild(head);
 
     // AGENT BRIEFING — the practical payoff surface: the VERBATIM Commander block every agent receives.
-    body.appendChild(cdBriefing(ds));
+    const briefingDetails = mkEl('details', 'cd-brief-details');
+    briefingDetails.appendChild(mkEl('summary', '', 'Inspect the exact briefing your agents receive'));
+    briefingDetails.appendChild(cdBriefing(ds));
+    body.appendChild(briefingDetails);
 
     // the active "get to know you" trigger — runs the intake interview in COMMS, folding answers into the
     // dossier through the same upsert path the cards use. Gated on a free agent + not-already-running.
@@ -7747,6 +7757,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // because it IS the colony's whole-lifetime track record. Absent store → silently omit (nothing to show).
     const rec = cdStationRecord();
     if (rec) body.appendChild(rec);
+    if (typeof WorkHub !== 'undefined') WorkHub.mountSources(body);
   }
 
   // AGENT BRIEFING — the panel's practical payoff: renders the VERBATIM Commander block that
@@ -8763,6 +8774,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     rewind:   { term: 'agents',     section: 'record', map: { restore: 'record' } }
   };
   function openTerm(key, section) {
+    if (key === 'work') key = 'tasks'; // compatibility for old saved links; the station remains home
     const al = TERM_ALIAS[key];
     if (al) { section = (section && al.map[section]) || al.section; key = al.term; }
     const def = BUILDERS[key]; if (!def) return;

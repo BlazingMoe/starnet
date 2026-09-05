@@ -1,6 +1,9 @@
 .work-hub-win .term-body{height:min(72vh,780px);overflow:auto}
 .wh{padding:16px;color:var(--ph)}
 .wh [hidden]{display:none!important}
+.fv-form [hidden]{display:none!important}
+.fv-sources{border:1px solid var(--ph-dim);padding:10px}
+.mkt-firstvalue .mkt-lanes,.mkt-firstvalue .mkt-lanes-lbl,.mkt-firstvalue .mkt-import,.mkt-firstvalue #mkt-q{display:none}
 .wh-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}
 .wh-header h2{margin:5px 0;font-size:24px}
 .wh-eyebrow{font-size:12px;letter-spacing:2px;color:var(--gold)}

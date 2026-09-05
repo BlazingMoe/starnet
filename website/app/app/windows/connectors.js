@@ -501,7 +501,7 @@
     const tsListEl = body.querySelector('#ts-list');
     // station-wide placed object types (the same source SKILLS uses) so a row can say "no prop on station" honestly.
     let placedTypes = [];
-    try { placedTypes = (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps().map(c => c.objectType) : []; } catch (_) {}
+    try { placedTypes = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(tsAgentEl.value).map(c => c.objectType) : []; } catch (_) {}
     // How many tool chips a row shows before folding the rest behind a count. WEB & BROWSER grants 36:
     // unfolded they ran seven lines deep and pushed every other toolset below the fold, so the pane's
     // first screen was a wall of `browser.*` instead of the seven families it exists to present. The
@@ -515,7 +515,7 @@
       // off to the same REFIT deep-link the SKILLS library's PLACE uses (arms the palette on the prop),
       // which is the honest path: the prop still lands where the Commander puts it.
       const hint = inert
-        ? '<span class="ts-inert">no ' + esc(t.object || 'prop') + ' on station — place one to grant these tools' +
+        ? '<span class="ts-inert">no ' + esc(t.object || 'prop') + ' in this agent’s workspace — choose one matching prop for this ability' +
             (t.object ? '<button class="bb xs ts-place" type="button" data-ts-place="' + esc(t.object) + '">⚒ PLACE ONE</button>' : '') +
           '</span>'
         : '';
@@ -524,10 +524,10 @@
       const all = (t.tools && t.tools.length) ? t.tools : [];
       const rest = all.length - TS_TOOLS_SHOWN;
       const tools = all.length
-        ? '<div class="ts-tools">' + all.map((n, i) =>
+        ? '<details><summary>Inspect tools</summary><div class="ts-tools">' + all.map((n, i) =>
             '<code' + (i >= TS_TOOLS_SHOWN ? ' class="ts-tool-more" hidden' : '') + '>' + esc(n) + '</code>').join('') +
             (rest > 0 ? '<button class="ts-more" type="button" data-ts-more="' + esc(t.id) + '">+' + rest + ' more</button>' : '') +
-          '</div>'
+          '</div></details>'
         : '';
       return '<div class="set-row ts-row' + (off ? ' ts-off' : '') + (inert ? ' ts-inert-row' : '') + '" data-id="' + esc(t.id) + '" style="--ci:' + (ri || 0) + '">' +
           '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '"' + (t.switchEffective ? '' : ' disabled data-tip="Full Access overrides this saved switch. Change authority first."') + '>' +
@@ -1010,7 +1010,7 @@
           ' style="--ci:' + (ci || 0) + '">' +
           '<div class="cc-head">' + ccSeal(e) + '<b>' + esc(e.name) + '</b> ' + origin +
             '<span class="cc-chip" style="color:' + chip[2] + '" title="' + esc(chip[1]) + '">' + (chip[0] ? chip[0] + ' ' : '') + esc(chip[1]) + '</span></div>' +
-          '<div class="cc-blurb dim">' + esc(e.blurb) + '</div>' + presets + platformMeta + keyField + clientField +
+          '<div class="cc-blurb dim">' + esc(e.blurb) + '</div>' + presets + (platformMeta ? '<details><summary>Setup details</summary>' + platformMeta + '</details>' : '') + keyField + clientField +
           (e.installed ? '<div class="mc-hint">Setup saved. Open Manage Service to check access or reconnect.</div>' : '') +
           '<div class="cc-acts">' + action + home + '</div>' +
         '</div>';
@@ -1050,6 +1050,8 @@
         ccCache = groups.flatMap(g => g.connectors);
         ccListEl.innerHTML = groups.map(ccGroupHTML).join('') || '<div class="mc-detail">catalog is empty.</div>';
         ccApplyFilter();   // a refresh re-renders every card, so re-assert the active tier filter
+        const search = body.querySelector('.con-search-in');
+        if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true }));
         if (ccJumpPending) {
           const jid = ccJumpPending; ccJumpPending = null;
           const card = ccListEl.querySelector('.cc-card[data-id="' + (window.CSS && CSS.escape ? CSS.escape(jid) : jid) + '"]');
