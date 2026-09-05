@@ -36,9 +36,10 @@ A.ok(/function\s+runDidWork\s*\(/.test(chatSrc), 'chat.js defines runDidWork (re
 A.ok(/return\s*\{[^}]*\brunDidWork\b[^}]*\}/.test(chatSrc), 'runDidWork is exported on the Chat public API');
 
 /* ---------- app.js: the launch marker + the dep contract + the editor route ---------- */
-// launchRecipe marks its send as recipe-launched.
-A.ok(/Chat\.send\(text,\s*\{\s*fromRecipe:\s*true\b[^}]*\}\)/.test(appSrc),
-  'launchRecipe marks its run fromRecipe:true (so it is never offered for bottling)');
+// Template launches remain recipe-marked; direct user tasks may earn a reusable recipe.
+// direct-work-launch.test.js exercises both branches and the busy no-op behavior.
+A.ok(/Chat\.send\(text,\s*\{\s*fromRecipe:\s*!\(source\s*&&\s*source\.direct\)/.test(appSrc),
+  'launchRecipe distinguishes direct user requests from recipe launches');
 // BottleStore is initialized with BOTH deps: openEditor (opens the R2 editor) + runInfo (the honest facts).
 A.ok(/BottleStore\.init\(\{\s*openEditor:\s*openBottleEditor,\s*runInfo:\s*runBottleInfo\s*\}\)/.test(appSrc),
   'app.js inits BottleStore with openEditor + runInfo deps');
