@@ -41,10 +41,12 @@ installer and customer outcomes in the existing durable register.
   readback and duplicate creation passed. Ambiguous saves retained the draft and did not
   assert success or loss. After a sidecar restart, exactly one ONCE routine with the expected
   id remained visible in Active Routines. The browser recorded no uncaught exceptions.
-- On source 215706749, synchronized with trunk 76b7c042e, standard `npm run test:fast`
+- On merged trunk source f9fa70cea, standard `npm run test:fast`
   passed **717/717 suites** and standard `npm run test:http` passed **97/97 suites**.
   Both completed uninterrupted with exit 0 and unchanged command deadlines. Logs:
-  `.tmp/reliability-fast-final.log` and `.tmp/reliability-http-final-combined.log`.
+  `.tmp/reliability-fast-postmerge.log` and `.tmp/reliability-http-postmerge.log`.
+  The combined pre-merge source 0136a8ae0 also passed 717/717 fast and 97/97 HTTP;
+  `.tmp/reliability-fast-hermes.log` and `.tmp/reliability-http-hermes.log` preserve those runs.
 - Before that synchronization, clean full HTTP runs passed 96/96 and 97/97 respectively;
   the former integration blocker is resolved. Earlier startup, loop and shell timing
   failures remain historical failed attempts, not silently relabeled passes. One further
@@ -53,7 +55,8 @@ installer and customer outcomes in the existing durable register.
 - Live UI proof was repeated after the platform/UI integrations. The compact starter
   station requires the proof to fall back from the 17-tile research line to the smaller
   complete front-desk line. All save/readback/duplicate/restart assertions remain intact.
-  `.tmp/reliability-live-combined.log` records all five scenarios and the matching ONCE id
+  `.tmp/reliability-live-hermes.log` records the final combined-source repetition of all
+  five scenarios and the matching ONCE id `63632b79-40f4-47b0-832b-1f7bef173046`
   after restart. The LSP repair separately passed 31 real-stdio assertions, preserving
   idle cleanup and proving no replacement client/process or file mutation on cancellation.
 
@@ -79,8 +82,13 @@ Dependencies were installed with `npm ci`. Assertions were not weakened.
 
 ## Integration disposition
 
-Implementation commits are on `agent/bug-pattern-audit-0905`, synchronized with integration
-commit 76b7c042e. The full gates and live proof have passed. The branch is awaiting release
-of the Hermes/platform integration serialization window, then synchronization and required
-combined verification before its own merge. Nothing from this lane has been pushed or
-released. Installer and reporter retests remain separate follow-ups in the 15 customer records.
+Merged `agent/bug-pattern-audit-0905` into `feat/harness-backend` as f9fa70cea after
+synchronizing the Hermes/platform source and its documentation-only completion receipt.
+Both standard full gates passed before and after the merge. The final live save/restart
+proof passed against the same production source. The merge preserved the existing
+unstaged `qa/STATUS.md` work and untracked Rooms handoff byte for byte. This completion
+receipt changes documentation only; no further production changes followed the gates.
+
+The three audit follow-ups are implemented, verified and integrated. No installer was
+published and nothing from this lane was pushed. Installer and reporter retests remain
+separate follow-ups in the 15 customer records; six customer investigations remain open.
