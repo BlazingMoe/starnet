@@ -166,9 +166,13 @@ const GroupChat = (() => {
       return who;
     };
     for (const m of group.messages) {
+      // brief.ask's fallback marker belongs to the durable question card, not a chat bubble.
+      const content = (group.questions || []).some(q => q.turnId === m.turnId)
+        ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
+      if (!content) continue;
       const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
       const body = h('div', { class: 'body' });
-      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, m.content); else body.textContent = m.content;
+      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
       const color = colorOf(m.author); if (color) row.style.setProperty('--gc-c', color);
       row.append(group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase()), body);
       if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
