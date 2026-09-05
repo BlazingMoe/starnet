@@ -1205,15 +1205,18 @@ const Chat = (() => {
 
   // swap the rendered conversation to a workstream (its history). Used on enter/resume and when the
   // Commander clicks another stream in the rail — re-renders without re-wiring the input row.
+  function loadGroupConversation(ws) {
+    GroupChat.bind(ws);
+    clearNudge(); clearChoices();
+    if (typeof Channels !== 'undefined') Channels.setComposeTarget(ws.id);
+    updateControls(); autoGrowInput();
+  }
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
     activeWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
     if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
-      GroupChat.bind(activeWs);
-      clearNudge(); clearChoices();
-      if (typeof Channels !== 'undefined') Channels.setComposeTarget(activeWs.id);
-      updateControls(); autoGrowInput();
+      loadGroupConversation(activeWs);
       return; // Group history/recovery is backend-owned; never auto-resume it through the direct-run path.
     }
     // SPEAKER IDENTITY: re-resolve `name` (the reply-chip + agent-beat speaker, else stuck at init's hero) from the
