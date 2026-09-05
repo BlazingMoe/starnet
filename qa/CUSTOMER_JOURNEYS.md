@@ -43,6 +43,9 @@ production relay deployment, OAuth login through a real account, OS keychain per
 sleep/wake, or renderer behavior on an installed Mac/Windows build. The full five-provider
 cross-product on delegation and Telegram is also still a coverage gap; existing tests exercise
 representative paths. These limits remain explicit in the bug records.
+Native Anthropic has real tool/failover/compaction coverage in `provider-recovery.e2e`, but
+its full three-entry/two-boot matrix, and other compatible provider identities, still need
+the same expansion. They are named coverage gaps rather than inferred from the five paths.
 
 For each affected release candidate, the release lane must use the exact installer, record its
 version and SHA-256, reproduce the same operation through the visible UI, inject the relevant

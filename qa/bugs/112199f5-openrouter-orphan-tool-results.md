@@ -49,7 +49,8 @@ Before 14f34372a malformed replay history was sent unchanged and rejected. The r
     {"target":"codex","state":"covered","test":"test/customer-journey.e2e.test.js","scenario":"Saved codex configuration, successful tool and second inference; direct, routine and sample; two boots","gate":"http"},
     {"target":"OpenRouter replay","state":"covered","test":"test/provider.openrouter.test.js","scenario":"Orphan/missing/duplicate results repaired without mutating valid history","gate":"fast"},
     {"target":"managed-compatible replay","state":"covered","test":"test/provider.openai-compatible.test.js","scenario":"Equivalent malformed tool pairs repaired","gate":"fast"},
-    {"target":"Codex replay","state":"covered","test":"test/provider.codex.pairing.test.js","scenario":"Responses call/result pairing","gate":"fast"}
+    {"target":"Codex replay","state":"covered","test":"test/provider.codex.pairing.test.js","scenario":"Responses call/result pairing","gate":"fast"},
+    {"target":"native Anthropic","state":"covered","test":"test/provider-recovery.e2e.test.js","scenario":"Real native tool round-trip and compaction after credential failover","gate":"http"}
   ],
   "entrypoints": [
     {"target":"direct/routine/sample","state":"covered","test":"test/customer-journey.e2e.test.js","scenario":"Thirty complete local sidecar journeys","gate":"http"},
@@ -63,6 +64,7 @@ Before 14f34372a malformed replay history was sent unchanged and rejected. The r
   ],
   "lifecycle": [
     {"target":"restart","state":"covered","test":"test/customer-journey.e2e.test.js","scenario":"Saved roster and routines reused after sidecar restart; desktop key push repeated; OAuth store retained","gate":"http"},
-    {"target":"sleep, network change and physical keychain","state":"blocked","reason":"A process restart with fixture credentials does not exercise OS suspend or an installed keychain."}
+    {"target":"sleep, network change and physical keychain","state":"blocked","reason":"A process restart with fixture credentials does not exercise OS suspend or an installed keychain."},
+    {"target":"native Anthropic and other provider identities across every entry","state":"blocked","reason":"The complete three-entry/two-boot matrix covers the five named paths. Native Anthropic has failover/compaction coverage; other compatible provider identities and native Anthropic still need that full matrix."}
   ]
 }
