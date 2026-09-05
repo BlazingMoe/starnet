@@ -20,6 +20,10 @@ A.ok(fs.existsSync(path.join(staged, 'app', 'index.html')), 'staged artifact ret
 const stagedApp = fs.readFileSync(path.join(staged, 'app', 'index.html'));
 const stagedEmbed = fs.readFileSync(path.join(staged, 'app', 'embed.htm'));
 A.ok(stagedEmbed.equals(stagedApp), 'staged artifact carries a unique dashboard-upload-safe embed entry');
+const stagedSpecialties = path.join(staged, 'shared', 'specialties.js');
+A.ok(fs.existsSync(stagedSpecialties), 'staged artifact carries the shared specialty catalog required by the embedded station');
+A.ok(fs.readFileSync(stagedSpecialties).equals(fs.readFileSync(path.join(root, 'shared', 'specialties.js'))),
+  'the staged shared specialty catalog is byte-identical to backend/frontend authority');
 
 // 2026-09-03: the GitHub Pages workflow was removed — Pages was never enabled and it failed on
 // every trunk push since 2026-08-11. The real deploy is 'wrangler pages deploy website-deploy' by

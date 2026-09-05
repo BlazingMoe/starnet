@@ -122,8 +122,25 @@ A.ok(!/bootguard\.js"[^>]*\bdefer\b/.test(INDEX), 'bootguard is NOT deferred —
   A.ok(b && textOf(b).includes('script did not load — app/recipes.js'), 'banner names the script that failed to load (path only)');
   A.ok(t.guard.summaryLine().includes('1 script load failure(s): app/recipes.js'), 'summaryLine carries the script failure');
 }
+{
+  const t = boot(allGlobals());
+  t.fire('error', { target: Object.assign(fakeEl('script'), { src: 'http://127.0.0.1:8787/shared/specialties.js' }) });
+  t.ready();
+  A.ok(t.banner(), 'a failed shared station dependency is still fatal');
+  A.ok(textOf(t.banner()).includes('script did not load — shared/specialties.js'), 'the shared dependency is named');
+}
 
-/* ---- 5. runtime errors are tallied with file:line, bounded, secret-free (counts + message tail only) ---- */
+/* ---- 5. hosting-injected scripts are not station modules and cannot take the app down ---- */
+{
+  const t = boot(allGlobals());
+  t.fire('error', { target: Object.assign(fakeEl('script'), { src: 'http://127.0.0.1:9220/beacon.min.js/v31ed6d6f95cf4e85b04c19e7a9bdbcba1788362987495' }) });
+  t.ready();
+  A.eq(t.banner(), null, 'a blocked hosting analytics beacon does not render the fatal banner');
+  A.eq(t.guard.state().scriptFailures, 0, 'the hosting beacon is not counted as a station script failure');
+  A.eq(t.guard.summaryLine(), 'none recorded since page load', 'the ignored hosting script does not poison diagnostics');
+}
+
+/* ---- 6. runtime errors are tallied with file:line, bounded, secret-free (counts + message tail only) ---- */
 {
   const t = boot(allGlobals());
   for (let i = 0; i < 40; i++) t.fire('error', { message: 'boom ' + i, filename: 'http://127.0.0.1:8787/app/chat.js', lineno: 10 + i });
@@ -135,7 +152,7 @@ A.ok(!/bootguard\.js"[^>]*\bdefer\b/.test(INDEX), 'bootguard is NOT deferred —
   A.eq(t.guard._internals.reasonText('plain'), 'plain', 'reasonText passes strings through');
 }
 
-/* ---- 6. COPY DIAGNOSTICS rides Diag when present (page report + sidecar report), falls back to the clipboard ---- */
+/* ---- 7. COPY DIAGNOSTICS rides Diag when present (page report + sidecar report), falls back to the clipboard ---- */
 (async () => {
   {
     let copied = '';
@@ -162,7 +179,7 @@ A.ok(!/bootguard\.js"[^>]*\bdefer\b/.test(INDEX), 'bootguard is NOT deferred —
     A.ok(copied.includes('missing:        Chat (app/chat.js)'), 'without Diag the page report still reaches the clipboard');
   }
 
-  /* ---- 7. diagnostics.js appends the page-error line to every copied report ---- */
+  /* ---- 8. diagnostics.js appends the page-error line to every copied report ---- */
   {
     const Diag = require('../frontend/app/diagnostics.js');
     A.eq(Diag.withPageErrors('REPORT', { summaryLine: () => '2 uncaught error(s)' }), 'REPORT\npage errors:   2 uncaught error(s)', 'withPageErrors appends the guard tally');
@@ -172,7 +189,7 @@ A.ok(!/bootguard\.js"[^>]*\bdefer\b/.test(INDEX), 'bootguard is NOT deferred —
     A.ok(/\.then\(text => text \? withPageErrors\(text\) : text\)/.test(src), 'Diag.copy() routes the report through withPageErrors');
   }
 
-  /* ---- 8. the probe set is the critical set app.js already guards ---- */
+  /* ---- 9. the probe set is the critical set app.js already guards ---- */
   {
     const t = boot(allGlobals());
     A.eq(t.guard.PROBES.map(p => p.name), CRITICAL, 'the critical probe list is exactly the documented set');
