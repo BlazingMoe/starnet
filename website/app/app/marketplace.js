@@ -19,6 +19,7 @@
 const Marketplace = (() => {
   let root = null, ctx = null, view = 'grid';   // 'grid' | 'save' | 'recipesave' | 'launch'
   let opener = null;
+  let firstValueForm = null;
   let editingId = null, editingRecipeId = null, launchId = null;
   // context-derived launch values from the READY shelf, keyed by recipe id (see readyShelfHTML/launchFormHTML)
   let readySeeds = {};
@@ -38,7 +39,7 @@ const Marketplace = (() => {
   // R3 launch/routine state: the live cron jobs (fetched once when the recipes dossier renders) so a recipe can
   // show a "● live — every morning" indicator, and whether the launch pane is in RUN-NOW or MAKE-ROUTINE mode.
   let cronJobs = null, cronArmed = false, launchMode = 'run', launchCadence = null;
-  let launchPreviewOpen = true;                  // "WHAT GETS SENT" — open by default: seeing the real directive before you commit IS the point
+  let launchPreviewOpen = false;                  // "WHAT GETS SENT" — open by default: seeing the real directive before you commit IS the point
   let tab = 'agents';                            // 'agents' | 'recipes'
   let glassOpen = false;
   let scoutLogOpen = false;                       // the collapsible SCOUT LOG (attempt ledger) — collapsed by default
@@ -221,7 +222,7 @@ const Marketplace = (() => {
     close();
     opener = trigger;
     ctx = context || {};
-    view = 'grid'; editingId = null; editingRecipeId = null; launchId = null; pendingMintKey = null; pendingMintTemplate = null; pendingScoutRecipeId = null; scoutSeedDraft = null;
+    view = ctx.firstValue ? 'firstvalue' : 'grid'; editingId = null; editingRecipeId = null; launchId = null; pendingMintKey = null; pendingMintTemplate = null; pendingScoutRecipeId = null; scoutSeedDraft = null;
     editForkedFrom = null; editSourceRunId = null;
     importStep = 'detect'; importFound = null; importDetecting = false; importScanning = false;
     importScan = null; importOrigin = null; importName = ''; importErr = '';
@@ -341,6 +342,7 @@ const Marketplace = (() => {
     renderBar(); renderStage();
   }
   function close() {
+    if (firstValueForm) { firstValueForm.destroy(); firstValueForm = null; }
     if (!root) return;
     document.removeEventListener('keydown', onKey, true);
     root.remove(); root = null; ctx = null; view = 'grid';
@@ -415,7 +417,7 @@ const Marketplace = (() => {
       : 'choose a specialist to wake your agent as';
     const who = (ctx && ctx.agentName) || 'your agent';
     return tab === 'recipes'
-      ? 'launch a ready-made recipe — ' + who + ' picks it up in a fresh workstream'
+      ? 'launch a ready-made recipe — ' + who + ' picks it up in a new task conversation'
       : 'deploy a specialty onto ' + who + ' — or save this one as a template';
   }
 
@@ -446,6 +448,7 @@ const Marketplace = (() => {
       railBuckets().forEach(b => { if (counts[b] > 0 || b === 'general') rail += cat(b, CAT_LABEL[b] || b); });
       rail += cat('mine', 'MINE');
       html += '<span class="mkt-lanes-lbl">BROWSE</span><div class="mkt-lanes">' + rail + '</div>' +
+        '<button class="mkt-from-notes bb sm" title="turn notes or a sample into a useful draft">DRAFT FROM YOUR NOTES</button>' +
         '<button class="mkt-import bb sm" title="import a recipe from a JSON file">⇪ IMPORT</button>' +
         '<input type="file" id="mkt-import-file" accept="application/json,.json" hidden>';
     } else {
@@ -492,6 +495,8 @@ const Marketplace = (() => {
     }));
     const impAgent = bar.querySelector('.mkt-import-agent');
     if (impAgent) impAgent.addEventListener('click', () => { sfx('click'); enterHarnessImport(); });
+    const fromNotes = bar.querySelector('.mkt-from-notes');
+    if (fromNotes) fromNotes.addEventListener('click', () => { if (view === 'firstvalue') view = 'grid'; else { ctx.firstValue = {}; view = 'firstvalue'; } renderStage(); });
     wireImport(bar);
   }
   // the nameplate + the close button's aria-label follow the tab, exactly like syncSub does for the subtitle.
@@ -512,6 +517,34 @@ const Marketplace = (() => {
   /* ---------- stage: two-pane (roster + dossier) OR a full-width form ---------- */
   function renderStage() {
     const stage = root && root.querySelector('#mkt-stage'); if (!stage) return;
+    root.classList.toggle('mkt-firstvalue', view === 'firstvalue');
+    const draftButton = root.querySelector('.mkt-from-notes');
+    if (draftButton) draftButton.textContent = view === 'firstvalue' ? '← ALL RECIPES' : 'DRAFT FROM YOUR NOTES';
+    if (firstValueForm) { firstValueForm.destroy(); firstValueForm = null; }
+    if (view === 'firstvalue') {
+      stage.className = 'mkt-stage form';
+      const options = ctx.firstValue || {};
+      firstValueForm = FirstValue.mount(stage, Object.assign({}, options, {
+        onLaunch: async (recipe, values, source) => {
+          if (options.findingId) {
+            const r = await Harness.api.post('/api/discovery/decide', {id:options.findingId,decision:'validate'});
+            if (!r.ok || r.j?.ok === false) throw Error(r.j?.error || 'This suggestion is no longer available. Review your source.');
+          }
+          const launched = App.launchRecipe(recipe, values, source);
+          if (launched && options.findingId) {
+            Harness.api.post('/api/discovery/decide', {id:options.findingId,decision:'accept'}).then(r => {
+              if (!r.ok || r.j?.ok === false) throw Error('Suggestion history was not updated.');
+            }).catch(() => { if (typeof StationUI !== 'undefined') StationUI.notify('Task launched. Suggestion history could not be updated.', 'warn'); });
+          }
+          return launched;
+        },
+        onClear: () => { delete options.findingId; },
+        onProjects: () => { close(); document.getElementById('ws-tab-projects')?.click(); },
+        onModelSetup: () => { close(); StationUI.openTerm('settings','providers'); },
+        onOpenWork: () => close()
+      }));
+      return;
+    }
     if (view === 'save' || view === 'recipesave' || view === 'launch' || view === 'build' || view === 'harnessImport') {
       stage.className = 'mkt-stage form';
       stage.innerHTML = view === 'save' ? saveFormHTML() : view === 'recipesave' ? recipeSaveFormHTML()
@@ -715,7 +748,7 @@ const Marketplace = (() => {
     const consentFirst = !acked();
     const suggestedHasCards = !filtering && (suggestedMissions().length > 0 || scoutRecipeDrafts().length > 0);
     let html = '<div class="mkt-toolbar"><button class="bb sm mkt-recipe-saveas">＋ SAVE A RECIPE</button>' +
-      '<span class="mkt-hint">pick a recipe, fill in the blanks, and ' + esc((ctx && ctx.agentName) || 'your agent') + ' runs it in a fresh workstream</span></div>';
+      '<span class="mkt-hint">pick a recipe, fill in the blanks, and ' + esc((ctx && ctx.agentName) || 'your agent') + ' runs it in a new task conversation</span></div>';
     if (!filtering && consentFirst) html += consentStripHTML();
     if (suggestedHasCards) html += suggestedShelfHTML();
     // READY ON THIS STATION sits ABOVE the generic row on purpose: a card bound to a real project root the
@@ -1145,8 +1178,8 @@ const Marketplace = (() => {
         '<span class="mkt-kit-obj">' + esc(kitPropLabel(t)) + '</span>' +
         '<span class="mkt-kit-grant">' + esc(capGrant(t)) + '</span></div>';
     }).join('');
-    return '<div class="mkt-block"><div class="bh">DRAWS ON GEAR</div><div class="mkt-kit">' + rows + '</div>' +
-      '<div class="mkt-kit-note">advisory — this use case leans on the above; it still launches without it.</div></div>';
+    return '<div class="mkt-block"><div class="bh">ABILITIES THIS TASK MAY USE</div><div class="mkt-kit">' + rows + '</div>' +
+      '<div class="mkt-kit-note">Needed only when the task uses these abilities. Your current access may already provide them; matching props are alternatives.</div></div>';
   }
   // SKILLS PAIRING (R6) — the bundled-skill references this use case pairs with, as chips. Renders slug-only
   // immediately (works offline), then hydrateSkillRows fills real names once the /api/skills catalog resolves.
@@ -2870,7 +2903,7 @@ const Marketplace = (() => {
           '<button class="bb sm mkt-do-makeroutine" title="puts this recipe on a schedule — it becomes a ROUTINE you can manage in ⏱ ROUTINES">◷ MAKE ROUTINE</button></div>';
     const modeNote = (launchMode === 'routine')
       ? '◷ fills the blanks ONCE, then runs the same directive on your chosen cadence as <b>' + esc(who) + '</b> — it becomes a ROUTINE (manage or stop it any time in ⏱ ROUTINES).'
-      : '▸ opens a fresh workstream and sets <b>' + esc(who) + '</b> to work on it — or put it on a schedule.';
+      : '▸ opens a new task conversation and sets <b>' + esc(who) + '</b> to work on it — or put it on a schedule.';
     /* WHAT GETS SENT — the filled directive, live. The dossier shows the raw template with its {tokens}; the last
        thing the Commander saw before committing used to be a form full of blanks, so the actual instruction the
        agent receives was never visible anywhere. This renders the REAL output of Recipes.fillTask against the

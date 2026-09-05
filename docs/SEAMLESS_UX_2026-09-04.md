@@ -42,3 +42,6 @@ Unsent drafts intentionally stay only in page memory and are cleared by app relo
 ## Completion criteria for the next product milestone
 
 A user can bring a real problem, connect the required source, inspect a proposed approach, obtain a useful result, make it recur, and confidently change or stop it. Every handoff preserves context. Station activity maps to actual work. Progress celebrates accepted outcomes without locking tools or fabricating benefit.
+
+## Historical integration receipt
+2026-09-04 merge digest: agent/seamless-0904 -> trunk 4194a0b54 (exact fast-forward). Whole-product friction audit plus general task entry, intent-based control directory, visible result/recovery actions, in-memory draft continuity, actionable service setup/recovery, and compiled conveyor overview. Candidate and exact postmerge test:fast 710/710 GREEN. Live seeded UI verified task lifecycle, control search/routing, draft setup return/clear, saved connector management, and conveyor assignment/instructions/reload; synthetic/local replay, no production OAuth or installed desktop certification. No backend/route changes; HTTP gate not required for this frontend-only delta. Audit: docs/SEAMLESS_UX_2026-09-04.md. Digest remains isolated because trunk QA file has foreign uncommitted content.

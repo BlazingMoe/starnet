@@ -261,3 +261,15 @@
   .refit-guide.refit-swap .refit-guide-card { animation: none; }
   .refit-input, .refit-num { transition: none; }
 }
+
+/* One compact explanation in the existing selected-prop palette. */
+.refit-equipment-info { color:var(--ph); font-size:13px; line-height:1.45; padding:8px; border-top:1px solid var(--ph-dim); max-width:660px; }
+.refit-equipment-info label { display:inline-flex; align-items:center; gap:6px; }
+.refit-equipment-info select { max-width:160px; }
+.refit-equipment-info summary { cursor:pointer; }
+@media (min-width:601px) and (max-width:1000px) {
+  .refit-top { height:auto; min-height:46px; flex-wrap:wrap; gap:6px; padding-block:4px; }
+  .refit-title { white-space:nowrap; }
+  .refit-sub, .refit-spacer { display:none; }
+  .refit-top .bb { padding-inline:7px; }
+}

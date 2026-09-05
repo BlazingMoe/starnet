@@ -82,7 +82,7 @@
       '<label class="fv-field fv-sample-field">Notes, messages, or a previous report<textarea class="key-input fv-sample" rows="7" maxlength="16000" placeholder="Paste the real material to work from. Nothing is sent until you click Create draft."></textarea></label>' +
       '<div class="fv-folder-field" hidden><label class="fv-field">Approved source folder<select class="key-input fv-root" aria-label="Approved source folder"><option value="">Choose a folder…</option></select></label><div class="fv-actions"><button type="button" class="bb fv-projects">Manage approved folders</button><button type="button" class="bb fv-refresh">Refresh folders</button></div><p>Selecting a folder here does not grant access. Manage approved folders to add or revoke access.</p></div>' +
       '<p class="fv-preview">The agent will use the selected source, create a draft, and identify missing facts. You review the result before deciding what happens next.</p>' +
-      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button><button type="button" class="bb fv-clear">Clear draft</button></div><p class="muted">Your draft stays here while you visit setup. Reopen Start something useful, then Draft from notes or files to return. Reloading the app clears unsent drafts.</p></form>';
+      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button><button type="button" class="bb fv-clear">Clear draft</button></div><p class="muted">Your draft stays here while you visit setup. Return through Recipes → Draft from your notes. Reloading the app clears unsent drafts.</p></form>';
     const q = s => el.querySelector(s), status = message => { if (alive) q('.fv-status').textContent = message; };
     q('.fv-request').value = ctx.request || (intent === 'custom' ? proposed.pain : '');
     q('.fv-sample').value = ctx.sample || '';
@@ -150,11 +150,11 @@
           if (!liveRoots.some(p => p.root === built.root)) throw new Error('That folder is no longer approved. Choose another source.');
         }
         if (!alive) return;
-        if (!ctx.onLaunch) throw new Error('The work launcher is unavailable. Reopen Work and try again.');
+        if (!ctx.onLaunch) throw new Error('The work launcher is unavailable. Reopen Recipes and try again.');
         const launched = await ctx.onLaunch(built.recipe, built.values, { source: built.source, root: built.root });
         if (launched !== true) throw new Error('The task did not start. Check the model connection and whether the agent is busy, then retry.');
         retain = false; clearDraft();
-        status('Request sent. Follow the real run and review its result in Work.');
+        status('Request sent. Follow the run and review its result in COMMS.');
         if (ctx.onOpenWork) ctx.onOpenWork();
       } catch (e) { status(e.message || 'The task did not start. Your input is still here.'); }
       finally { loading = false; if (alive) q('.fv-run').disabled = false; }

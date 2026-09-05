@@ -15,6 +15,7 @@
   // parks here until ccRefresh has rendered the cards (the window builds async).
   let ccJumpPending = null;
   function ccFlash(target) {
+    for (let p = target.parentElement; p; p = p.parentElement) { if (p.tagName === 'DETAILS') p.open = true; }
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.classList.remove('cc-jump'); void target.offsetWidth;
     target.classList.add('cc-jump');
@@ -187,8 +188,8 @@
         // TRUTHFUL TELEMETRY: the key alone is not enough. The shell it is handed to only exists when a WORKBENCH
         // prop is placed (capability/office.js grants it nowhere by default), and workspace-process tools are not
         // projected onto unattended surfaces at all (inputpolicy.js), so a saved key is inert until both hold.
-        '<div class="mc-hint">To actually use it, the agent needs a <b>workbench</b> placed in its bay — that is what gives it a terminal. ' +
-          'Keys are usable in watched sessions; scheduled and messaged runs cannot run shell commands.</div>' +
+        '<div class="mc-hint">These API keys are used through the terminal. Check the selected agent in TOOLSETS: access may come from a workbench, an execution profile or Full Access. ' +
+          'Scheduled work also follows its saved unattended access settings. Saving a key does not verify that the service accepts it.</div>' +
         '<div class="mc-acts"><button class="bb sm" id="ky-add">+ SAVE KEY</button></div>' +
       '</div>' +
       '<div id="ky-msg" class="msg" role="status" aria-live="polite"></div>';
@@ -258,7 +259,7 @@
       { glyph: '⧉', to: 'mcp', title: 'Advanced: add a custom connection',
         blurb: 'You already have an MCP endpoint and want to point the station at it.' },
       { glyph: '▤', to: 'toolsets', title: 'Switch a built-in on or off',
-        blurb: 'Web, files, terminal, memory — the powers that come from props on your station.' },
+        blurb: 'Web, files, terminal, memory — inspect the selected agent’s tools and where its access comes from.' },
       // cross-window, and deliberately so: naming the wrong window is worse than naming none.
       { glyph: '✉', term: 'messaging', title: 'Message your agent from Telegram or Slack',
         blurb: 'Connect a chat account so you can give your agent work from there. Opens CHANNELS.' },
@@ -501,7 +502,7 @@
     const tsListEl = body.querySelector('#ts-list');
     // station-wide placed object types (the same source SKILLS uses) so a row can say "no prop on station" honestly.
     let placedTypes = [];
-    try { placedTypes = (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps().map(c => c.objectType) : []; } catch (_) {}
+    try { placedTypes = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(tsAgentEl.value).map(c => c.objectType) : []; } catch (_) {}
     // How many tool chips a row shows before folding the rest behind a count. WEB & BROWSER grants 36:
     // unfolded they ran seven lines deep and pushed every other toolset below the fold, so the pane's
     // first screen was a wall of `browser.*` instead of the seven families it exists to present. The
@@ -515,7 +516,7 @@
       // off to the same REFIT deep-link the SKILLS library's PLACE uses (arms the palette on the prop),
       // which is the honest path: the prop still lands where the Commander puts it.
       const hint = inert
-        ? '<span class="ts-inert">no ' + esc(t.object || 'prop') + ' on station — place one to grant these tools' +
+        ? '<span class="ts-inert">no ' + esc(t.object || 'prop') + ' in this agent’s workspace — choose one matching prop for this ability' +
             (t.object ? '<button class="bb xs ts-place" type="button" data-ts-place="' + esc(t.object) + '">⚒ PLACE ONE</button>' : '') +
           '</span>'
         : '';
@@ -524,10 +525,10 @@
       const all = (t.tools && t.tools.length) ? t.tools : [];
       const rest = all.length - TS_TOOLS_SHOWN;
       const tools = all.length
-        ? '<div class="ts-tools">' + all.map((n, i) =>
+        ? '<details><summary>Inspect tools</summary><div class="ts-tools">' + all.map((n, i) =>
             '<code' + (i >= TS_TOOLS_SHOWN ? ' class="ts-tool-more" hidden' : '') + '>' + esc(n) + '</code>').join('') +
             (rest > 0 ? '<button class="ts-more" type="button" data-ts-more="' + esc(t.id) + '">+' + rest + ' more</button>' : '') +
-          '</div>'
+          '</div></details>'
         : '';
       return '<div class="set-row ts-row' + (off ? ' ts-off' : '') + (inert ? ' ts-inert-row' : '') + '" data-id="' + esc(t.id) + '" style="--ci:' + (ri || 0) + '">' +
           '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '"' + (t.switchEffective ? '' : ' disabled data-tip="Full Access overrides this saved switch. Change authority first."') + '>' +
@@ -911,6 +912,7 @@
     const ccListEl = body.querySelector('#cc-list');
     const ccMsgEl = body.querySelector('#cc-msg');
     let ccCache = [];   // flat catalog entries, so a click reads the authoritative id/url/name (never re-typed)
+    let ccAlternatives = new Map();
     const ccEntry = id => ccCache.find(x => (x.catalogId || x.id) === id);
     const ccPending = new Set();   // connector ids with an in-flight OAuth sign-in (guards duplicate popups/pollers)
     const ccTimers = new Map();    // id -> live poll interval, so a CANCEL / panel-close can clear it (EL-11 #13)
@@ -1010,7 +1012,7 @@
           ' style="--ci:' + (ci || 0) + '">' +
           '<div class="cc-head">' + ccSeal(e) + '<b>' + esc(e.name) + '</b> ' + origin +
             '<span class="cc-chip" style="color:' + chip[2] + '" title="' + esc(chip[1]) + '">' + (chip[0] ? chip[0] + ' ' : '') + esc(chip[1]) + '</span></div>' +
-          '<div class="cc-blurb dim">' + esc(e.blurb) + '</div>' + presets + platformMeta + keyField + clientField +
+          '<div class="cc-blurb dim">' + esc(e.blurb) + '</div>' + presets + (platformMeta ? '<details><summary>Setup details</summary>' + platformMeta + '</details>' : '') + keyField + clientField +
           (e.installed ? '<div class="mc-hint">Setup saved. Open Manage Service to check access or reconnect.</div>' : '') +
           '<div class="cc-acts">' + action + home + '</div>' +
         '</div>';
@@ -1019,7 +1021,10 @@
       if (!g.connectors || !g.connectors.length) return '';
       return '<div class="cc-group"><div class="sec"><span class="sec-l">' + esc(g.category) + '</span>' +
           '<span class="sec-tag">' + g.connectors.length + '</span><span class="sec-r"></span><span class="sec-nd"></span></div>' +
-        '<div class="cc-grid">' + g.connectors.map((e, i) => ccCard(e, i)).join('') + '</div></div>';
+        '<div class="cc-grid">' + g.connectors.map((e, i) => {
+          const alternate = ccAlternatives.get(e.catalogId || e.id);
+          return alternate ? '<div class="cc-service">' + ccCard(e, i) + '<details class="cc-alternatives"><summary>Advanced: ' + esc(e.name) + ' API connection</summary>' + ccCard(alternate, i) + '</details></div>' : ccCard(e, i);
+        }).join('') + '</div></div>';
     }
     async function ccRefresh() {
       try {
@@ -1042,14 +1047,27 @@
         // Platform categories lead: a Commander asking for Printify should not have to scroll past the entire
         // MCP directory. Exact-name categories merge so Developer Tools does not render twice.
         const groups = [];
+        ccAlternatives = new Map();
+        const connections = ((j && j.groups) || []).flatMap(g => g.connectors || []);
+        const serviceName = value => String(value || '').trim().toLowerCase();
+        for (const group of platformGroups) {
+          group.connectors = group.connectors.filter(platform => {
+            const primary = connections.find(c => serviceName(c.name) === serviceName(platform.name));
+            if (!primary) return true;
+            ccAlternatives.set(primary.catalogId || primary.id, platform);
+            return false;
+          });
+        }
         for (const g of platformGroups.concat((j && j.groups) || [])) {
           let out = groups.find(x => x.category === g.category);
           if (!out) { out = { category: g.category, connectors: [] }; groups.push(out); }
           out.connectors.push.apply(out.connectors, g.connectors || []);
         }
-        ccCache = groups.flatMap(g => g.connectors);
+        ccCache = groups.flatMap(g => g.connectors).concat([...ccAlternatives.values()]);
         ccListEl.innerHTML = groups.map(ccGroupHTML).join('') || '<div class="mc-detail">catalog is empty.</div>';
         ccApplyFilter();   // a refresh re-renders every card, so re-assert the active tier filter
+        const search = body.querySelector('.con-search-in');
+        if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles: true }));
         if (ccJumpPending) {
           const jid = ccJumpPending; ccJumpPending = null;
           const card = ccListEl.querySelector('.cc-card[data-id="' + (window.CSS && CSS.escape ? CSS.escape(jid) : jid) + '"]');
@@ -1074,8 +1092,11 @@
             : ccFilter === 'installed' ? c.dataset.installed === '1'
             : c.dataset.auth === ccFilter;
           c.hidden = !hit;
-          if (hit) vis++;
         });
+        // Count services, including one whose saved setup uses the alternate API path.
+        for (const service of g.querySelector('.cc-grid').children) {
+          if (service.matches('.cc-card') ? !service.hidden : service.querySelector('.cc-card:not([hidden])')) vis++;
+        }
         g.hidden = vis === 0;
         const tag = g.querySelector('.sec-tag');
         if (tag) tag.textContent = String(vis);

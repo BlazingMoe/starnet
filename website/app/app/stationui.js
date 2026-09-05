@@ -1246,6 +1246,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
     function selectSection(id, viaClick) {
       if (!panes[id]) return;
+      // A deliberate tab/setup jump leaves search results; otherwise the destination form stays filtered out.
+      if (viaClick && searchInput && searchInput.value) {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+      }
       reveal(id);
       consoleSection[key] = id;
       if (viaClick) saveWindowState();   // remember the section the Commander navigated to, across reloads
@@ -1321,12 +1326,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           // index the platforms. Locked by test/connectors-ui.test.js.
           const rows = pane.querySelectorAll('.con-sec-body .set-row, .con-sec-body label.set-row, .con-sec-body .prov-card, .con-sec-body .key-row, .con-sec-body .set-about, .con-sec-body .ms-h, .con-sec-body .perk, .con-sec-body .sk-card, .con-sec-body .mc-hint, .con-sec-body .mc-row, .con-sec-body .ts-row, .con-sec-body .cc-card');
           let hits = 0;
+          const headingMatch = sec.label.toLowerCase().includes(q);
           rows.forEach(r => {
             // `data-search` carries ALIASES that are deliberately not on screen (a Google Workspace card says
             // "Gmail, Calendar, Drive…" in its blurb but never "gdrive"/"g suite"). Searching a name the user
             // actually types must not depend on that name happening to appear in marketing copy.
             const hay = ((r.textContent || '') + ' ' + (r.dataset ? (r.dataset.search || '') : '')).toLowerCase();
-            const hit = hay.indexOf(q) >= 0;
+            const hit = headingMatch || hay.indexOf(q) >= 0;
             r.classList.toggle('con-hit', hit);
             r.classList.toggle('con-miss', !hit);
             if (hit) hits++;
@@ -3074,9 +3080,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Pre-installed <b>procedures</b> your agents follow when a task matches ' +
-      '(not the same as ❒ RECIPES — those are launchable jobs; these are how-to guides). Each one ' +
-      'rides on the agent’s capabilities (the TOOLSETS section here; per-agent, the dossier’s SKILLS tab) — it stays <b>locked</b> until ' + esc((a && a.name) || 'the agent') + ' has the ' +
-      'objects it needs. Enabling is station-wide; what actually runs is still gated by the floor.</p>' +
+      '(❒ RECIPES starts jobs; skills describe how to do them). Enabling is station-wide. Required abilities can come from equipment or access settings. Instructions being available does not connect an outside service or authorize every action.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
       '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
@@ -3123,12 +3127,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const host = $('#sk-lib'); if (!host) return;
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
-    fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')))
-      .then(r => r.ok ? r.json() : { skills: [] })
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
+      .then(view => {
+        if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access could not be checked');
+        // Match runOnce's skill context: room objects plus profile/Full Access projection and shared station gear.
+        // This only explains instruction availability; it does not grant any tools or change skill preferences.
+        const shared = typeof World !== 'undefined' && World.stationCaps ? World.stationCaps().map(c => c.objectType) : [];
+        placed = [...new Set(placed.concat(shared, view.toolsets.filter(r => r.object && (r.placed || r.profileGranted || view.authority.unrestricted)).map(r => r.object)))];
+        return fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')));
+      })
+      .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h === host) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
+          const search = h.closest('.term-body')?.querySelector('.con-search-in');
+          if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
       })
@@ -3586,7 +3600,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'ACTIVE'], ['shipped', 'SHIPPED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -3620,7 +3634,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const w = WS(); if (!w) return;
     if (!w.setLane(id, 'shipped')) return;
     const s = w.get(id); persistWS(); sync();
-    notify('shipped ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
+    notify('marked complete: ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
   }
   function reopenTask(id) { const w = WS(); if (!w) return; w.setLane(id, 'active'); persistWS(); sync(); }
   function archiveCard(id) { const w = WS(); if (!w) return; w.archive(id, true); persistWS(); sync(); }
@@ -3695,8 +3709,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="es-glyph">▶</span><b>NOTHING IN FLIGHT</b>' +
       '<span>Assign a TO DO task and it moves here while the agent works.</span></div></div>';
     return '<div class="kb-empty-col"><div class="empty-state">' +
-      '<span class="es-glyph">✓</span><b>NOTHING SHIPPED YET</b>' +
-      '<span>Tasks you mark shipped land here as proof of work.</span></div></div>';
+      '<span class="es-glyph">✓</span><b>NO COMPLETED TASKS YET</b>' +
+      '<span>Tasks you review and mark complete appear here.</span></div></div>';
   }
   // TRUTHFUL RUN-STATE: the chip maps to a PROVABLE backend state — RUNNING when a run is actually in flight
   // on this stream (Channels.isBusy), else DONE — REVIEW & SHIP once at least one run has landed (the human's
@@ -3718,7 +3732,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">DONE — REVIEW &amp; SHIP</div>';
+      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
     }
     return '';
   }
@@ -3757,8 +3771,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const acts = s.lane === 'todo'
       ? '<button class="assign" data-act="assign">▶ ASSIGN</button><button data-act="open">↗ OPEN</button>' + tail
       : s.lane === 'active'
-        ? '<button data-act="ship">✓ SHIP</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
-        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button>' + tail;
+        ? '<button data-act="ship" title="Mark this task complete; this does not publish or send anything">✓ MARK COMPLETE</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
+        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button><button data-act="repeat" title="Review a schedule for this task; nothing runs until you save and enable it">◷ REPEAT…</button>' + tail;
     return '<div class="kb-card' + (s.pinned ? ' pinned' : '') + '" draggable="true" data-id="' + s.id + '" role="button" tabindex="0" aria-label="' + esc(s.title || 'untitled') + ' — open conversation" style="--ci:' + (i || 0) + '">' +
       '<div class="kb-title">' + esc(s.title || 'untitled') + '</div>' +
       '<div class="kb-meta">' + agentChip(s) + '<span class="kb-time" data-t="' + (s.lastActiveAt || s.createdAt) + '">' + clock(s.lastActiveAt || s.createdAt) + '</span>' +
@@ -3857,6 +3871,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         else if (act === 'pin') togglePin(id);
         else if (act === 'rename') beginCardRename(c, id);
         else if (act === 'arch') archiveCard(id);
+        else if (act === 'repeat') {
+          const stream = boardStreams().find(s => s.id === id);
+          const message = stream && Workstreams.visibleMessages(stream).find(m => m.role === 'user');
+          if (message && typeof AutomationWindow !== 'undefined') AutomationWindow.openDraft({name:stream.title,prompt:message.content,agentId:stream.agentId,workdir:stream.projectRoot});
+          else notify('Open the task and give it instructions before scheduling it.', 'warn');
+        }
       }));
       c.addEventListener('click', () => openStream(id));   // clicking the card body opens its conversation
       // keyboard parity for the role=button card: Enter/Space opens it — but only when the CARD itself is focused,
@@ -3886,7 +3906,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const w = WS(); const s = w && wid ? w.get(wid) : null;
         if (!s || s.lane === lane || !w.setLane(wid, lane)) return;
         sfx('click');
-        if (lane === 'shipped') { notify('shipped ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
+        if (lane === 'shipped') { notify('marked complete: ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
         persistWS(); sync();
       });
     });
@@ -7687,11 +7707,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cd-fam"><span class="cd-fk"><span class="cd-ff" style="width:' + pct + '%;"></span></span>' +
       '<span class="cd-fpct">' + (sum.known.length ? pct + '%' : 'calibrating') + '</span></span></div></div>' +
       '<div class="cd-sub">' + sum.known.length + ' of ' + dims.length + ' dimensions known &middot; ' + obsLine + '</div>' +
-      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>local-first</b> — it never leaves this machine. Add, edit, pin, or forget anything below; you own it.</div>');
+      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>stored locally</b>. The briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions. Add, edit, pin, or forget anything below; you own it.</div>');
     body.appendChild(head);
 
     // AGENT BRIEFING — the practical payoff surface: the VERBATIM Commander block every agent receives.
-    body.appendChild(cdBriefing(ds));
+    const briefingDetails = mkEl('details', 'cd-brief-details');
+    briefingDetails.appendChild(mkEl('summary', '', 'Inspect the exact briefing your agents receive'));
+    briefingDetails.appendChild(cdBriefing(ds));
+    body.appendChild(briefingDetails);
 
     // the active "get to know you" trigger — runs the intake interview in COMMS, folding answers into the
     // dossier through the same upsert path the cards use. Gated on a free agent + not-already-running.
@@ -7747,6 +7770,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // because it IS the colony's whole-lifetime track record. Absent store → silently omit (nothing to show).
     const rec = cdStationRecord();
     if (rec) body.appendChild(rec);
+    if (typeof WorkHub !== 'undefined') WorkHub.mountSources(body);
   }
 
   // AGENT BRIEFING — the panel's practical payoff: renders the VERBATIM Commander block that
@@ -8763,6 +8787,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     rewind:   { term: 'agents',     section: 'record', map: { restore: 'record' } }
   };
   function openTerm(key, section) {
+    if (key === 'work') key = 'tasks'; // compatibility for old saved links; the station remains home
     const al = TERM_ALIAS[key];
     if (al) { section = (section && al.map[section]) || al.section; key = al.term; }
     const def = BUILDERS[key]; if (!def) return;

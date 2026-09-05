@@ -56,9 +56,8 @@ for (const p of kitProps) {
    dismiss key) live in refit-card-stack.test.js next to the rest of the card-slot laws. */
 const build = fs.readFileSync(path.join(__dirname, '../frontend/app/build.js'), 'utf8');
 A.ok(/PropSprites\.STARTER/.test(build), 'build.js reads PropSprites.STARTER (no second list)');
-A.ok(/▸ STARTER GEAR/.test(build), 'the card slot carries the STARTER GEAR title');
-A.ok(/everything else is optional/.test(build),
-  'the card grants permission to ignore the rest of the catalog (Andrew’s closing line)');
+A.ok(/▸ EQUIPMENT BY PURPOSE/.test(build), 'the existing card explains abilities without implying a mandatory kit');
+A.ok(/Choose what your task needs/.test(build), 'equipment follows the task rather than a completion checklist');
 A.ok(!/refit-startergrid/.test(build), 'the retired palette shelf is not still half-rendered');
 
 A.report('prop-starter-shelf');
