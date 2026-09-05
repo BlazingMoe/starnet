@@ -406,6 +406,12 @@ const Chat = (() => {
   async function recoverSafeRun(ws, announce) {
     if (!ws || !ws.id || Channels.isBusy(ws.id) || typeof Harness === 'undefined'
       || !Harness.runRecoveries || !Harness.prepareAutomaticRecovery) return 'deferred';
+    try {
+      const r = await fetch('/api/task-briefs?key=' + encodeURIComponent('stream:' + ws.id) + '&limit=1', {cache:'no-store'});
+      if (!r.ok) return 'unavailable';
+      const j = await r.json(), brief = j && j.briefs && j.briefs[0];
+      if (brief && brief.status === 'clarifying' && brief.questions.some(q => !q.answer)) return 'deferred';
+    } catch (_) { return 'unavailable'; }
     let rows;
     try { rows = await Harness.runRecoveries(); } catch (_) { return 'unavailable'; }
     const owned = rows.filter(r => r && r.streamId === ws.id && r.agentId === (ws.agentId || 'agent'))
@@ -1256,7 +1262,7 @@ const Chat = (() => {
       if (!activeWs || activeWs.id !== id || isBusy()) return;
       const b = j && Array.isArray(j.briefs) && j.briefs[0];
       const q = b && Array.isArray(b.questions) && b.questions[b.questions.length - 1];
-      if (q && !q.answer && Array.isArray(q.options) && q.options.length >= 2) offerTaskQuestion({ question: q.text, options: q.options, recommended: q.recommended || '', reason: q.reason || '', grounded: (j && j.grounded) || null });
+      if (q && !q.answer && Array.isArray(q.options) && (q.options.length >= 2 || q.mode==='conversation')) offerTaskQuestion({ question: q.text, options: q.options, mode:q.mode, sample:q.sample, context:b.context, recommended: q.recommended || '', reason: q.reason || '', grounded: (j && j.grounded) || null });
     } catch (_) { /* a missing/offline sidecar leaves history readable; the next load retries */ }
   }
 
@@ -2478,6 +2484,17 @@ const Chat = (() => {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
+    if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
+      const rid=ws && Channels.runIdOf(ws.id);
+      TaskConversation.mount(r.body,q,async text=>{
+        const result=await Harness.consentAnswer(rid,p.promptId,text,true);
+        if(!result || !result.ok)return false;
+        if(ws)Channels.clearPending(ws.id,Date.now());
+        if(isActiveWs(ws)){renderPresence();syncStatus();}
+        return true;
+      });
+      status('awaiting your context…');autoscroll();return;
+    }
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
     // three unannounced sequential cards would read as an interrogation with no visible bottom.
     const seq = (Number(q.total) > 1 && Number(q.ordinal) > 0) ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
@@ -3981,6 +3998,16 @@ const Chat = (() => {
     clearNudge();   // the question CLAIMS the moment: a live gentle nudge leaves whole (prompt + chips) — its chip
                     // row would be wiped by choices() below anyway, and a stuck activeNudge would mute beats forever
     pendingTaskQuestion = Object.assign({}, tq, { streamId: activeWs && activeWs.id });
+    if(tq.mode==='conversation' && typeof TaskConversation!=='undefined') {
+      clearChoices(); // Retire a stale retry action: the next user input answers this saved question.
+      const ws=activeWs, r=row('agent');r.d.classList.add('nudge');
+      TaskConversation.mount(r.body,tq,async text=>{
+        if(!isActiveWs(ws) || isBusy())return false;
+        // send() routes this whole answer back into the same durable brief.
+        send(text);vanish(r.d);return true;
+      });
+      autoscroll();return;
+    }
     // TWO KINDS of suggestion, and they must never be confused. GROUNDED comes from the Commander's own
     // answered history (taskBriefStore.groundedFor: same question, same option, >=2 times, no tie) — provable,
     // so it outranks the model's assertion and states its count. The model's brief_ask recommendation is a
@@ -4194,7 +4221,7 @@ const Chat = (() => {
   // chips — though a marker question may still carry a grounded suggestion, which comes from the Commander's
   // own answered history rather than from the unvalidated question.
   async function presentTaskQuestion(ws, tq) {
-    let recommended = '', reason = '', grounded = null, multiSelect = false, options = null;
+    let recommended = '', reason = '', grounded = null, multiSelect = false, options = null, conversation = {};
     try {
       const r = await fetch('/api/task-briefs?key=' + encodeURIComponent('stream:' + ws.id) + '&status=clarifying&limit=1', { cache: 'no-store' });
       if (r.ok) {
@@ -4206,6 +4233,7 @@ const Chat = (() => {
         const q = qs.find(x => x && !x.answer) || qs[qs.length - 1];
         if (q && !q.answer && q.text === tq.question) {
           recommended = q.recommended || ''; reason = q.reason || '';
+          conversation={mode:q.mode,sample:q.sample,context:b.context};
           multiSelect = q.multiSelect === true;
           grounded = j.grounded || null;   // this response always carried it; the client used to drop it
           // The MARKER line is capped at 3 options (it is the unvalidated last-resort format), so a
@@ -4215,7 +4243,7 @@ const Chat = (() => {
       }
     } catch (_) { /* enrichment only — the question itself never depends on this fetch */ }
     if (!isActiveWs(ws)) return;   // the Commander switched away mid-fetch; restoreTaskQuestion re-presents on return
-    offerTaskQuestion(Object.assign({}, tq, { recommended, reason, grounded, multiSelect }, options ? { options } : {}));
+    offerTaskQuestion(Object.assign({}, tq, { recommended, reason, grounded, multiSelect }, options ? { options } : {},conversation));
   }
 
   // R4 PAYOFF RECEIPT: one provable line at the exact moment an answer/observation lands in the dossier, so

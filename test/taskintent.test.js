@@ -36,8 +36,8 @@ A.eq(TaskIntent.answerMessage('who is this for?', 'operators'), 'operators', 'ch
 const doctrine = TaskIntent.directive('KNOWN: existing React admin shell');
 A.ok(/Research before asking/.test(doctrine) && /what does good look like/.test(doctrine), 'doctrine says discover first and bans vague questions');
 A.ok(/use your judgment/i.test(doctrine) && /Proceed immediately/.test(doctrine), 'doctrine preserves autonomy for clear/defaultable tasks');
-A.ok(/at most two brief_ask calls total/.test(doctrine) && /second is allowed only/.test(doctrine), 'doctrine caps the whole task in ASK CALLS and permits a second only when blocking');
-A.ok(/BUNDLE related material questions into ONE brief_ask call/.test(doctrine) && /multiSelect:true/.test(doctrine), 'doctrine tells the model to batch related questions and mark non-exclusive options');
+A.ok(/six is an emergency ceiling, not a target/.test(doctrine) && /at most two asking calls/.test(doctrine), 'conversation has a bounded ceiling while legacy choices retain their shorter budget');
+A.ok(/Listen before choosing the next question/.test(doctrine) && /multiSelect:true/.test(doctrine), 'discovery adapts after each answer while concrete multi-select choices remain supported');
 A.ok(/brief_proceed/.test(doctrine) && /brief_ask/.test(doctrine), 'doctrine names the structured host controls');
 
 const replyCases = [

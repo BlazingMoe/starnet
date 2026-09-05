@@ -1059,6 +1059,14 @@ const leadCtx = () => ({ agentId: 'agent', emit: () => {} });
   } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
 }
 
+{
+  let understanding = 'Initial context';
+  const ro = fakeRunOnce();
+  const { dispatchTool } = makeOrchestrationTools({runOnce:ro, roster:()=>new Map([['researcher',{system:'R-SYS'}]]), key:'k', model:'m', newId:counter(), getTaskContext:()=>understanding});
+  understanding = 'Latest answer: draft only; user must review before sending.';
+  await dispatchTool.run({workers:[{agentId:'researcher',prompt:'Prepare the draft'}]}, {agentId:'lead',emit:()=>{},consent:{}});
+  A.ok(ro.calls[0].system.includes(understanding),'worker receives the latest in-turn understanding at dispatch');
+}
 A.report('orchestration.test');
 
 })();

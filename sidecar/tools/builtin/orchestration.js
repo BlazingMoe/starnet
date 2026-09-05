@@ -190,8 +190,9 @@
     }
     function workerSystem(base) {
       const identity = String(base || '') + postureNote();
-      if (!taskContext) return identity;
-      return identity + '\n\n' + taskContext
+      const liveContext = typeof deps.getTaskContext==='function' ? String(deps.getTaskContext() || '') : taskContext;
+      if (!liveContext) return identity;
+      return identity + '\n\n' + liveContext
         + '\n\n[DELEGATED EXECUTION] Treat the task context above as settled input from the Commander. Do not ask the Commander another discovery question. If a truly blocking gap remains, report that gap to the lead agent.';
     }
     /* LEAD CONTEXT HANDOFF (G6 closure). A worker's opening message was ONLY the prompt string: whatever the
