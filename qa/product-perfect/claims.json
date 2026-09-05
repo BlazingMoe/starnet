@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "bc38cb502b9cfb01532be7807f909e6d25e06508",
+    "sourceCommit": "cb47469ca79baa37d299230f2ee4ef47ee3ac3b5",
     "pathSetSha256": "f670690271bad6d68fa734081c06e830f377d2795d28db80715066d61b293bed",
     "files": [
       {
@@ -303,8 +303,8 @@
       },
       {
         "path": "frontend/app/group-chat.js",
-        "bytes": 35036,
-        "sha256": "d2e7d824b42f3a11b3508023f7d76c483e7f30df31b4487023fa1e2c11905a0b"
+        "bytes": 35330,
+        "sha256": "0a0537c51b36a66d122d048d198ad3943e6d74f29cba60979ab896a964d17ed5"
       },
       {
         "path": "frontend/app/harness.js",
