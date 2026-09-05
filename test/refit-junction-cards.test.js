@@ -29,6 +29,20 @@ const bi = build.indexOf(BEGIN), ei = build.indexOf(END);
 A.ok(bi > 0 && ei > bi, 'the pure block is marked in build.js');
 const block = build.slice(build.indexOf('*/', bi) + 2, build.lastIndexOf('/*', ei));
 const pure = new Function(block + '\nreturn { loopExitLabels, loopBackTxt, sampleResultView };')();
+const wbi = build.indexOf('REFIT-WORKFLOW-PURE-BEGIN'), wei = build.indexOf('REFIT-WORKFLOW-PURE-END');
+const workflow = new Function(build.slice(build.indexOf('*/', wbi) + 2, build.lastIndexOf('/*', wei)) + '\nreturn workflowReadout;')();
+{
+  const comp = { intakes: ['in'], bays: [{ propId: 'a', agentId: 'writer' }, { propId: 'b', agentId: 'reviewer' }, { propId: 'c', role: 'Publish' }] };
+  const plan = { reach: { writer: true }, chains: { writer: { next: ['reviewer', 'writer'] }, reviewer: { next: [], outbox: true } } };
+  const read = workflow(comp, plan, a => a.toUpperCase());
+  A.eq(read.steps[0].sends, 'REVIEWER / WRITER', 'branch and loop destinations retain real graph edges, not invented stage order');
+  A.eq(read.steps[2].agent, 'Choose an agent', 'unassigned step has an actionable label');
+  A.eq(read.steps[2].sends, 'No confirmed onward route', 'unbound steps do not claim routing');
+  A.eq(read.result, 'Connected to a results outbox', 'output connection comes from compiled chain');
+  A.eq(workflow(comp, null, a => a).result, 'No confirmed route to an outbox', 'missing plan never claims successful result');
+  plan.chains.reviewer = { next: [], deadEnd: true };
+  A.ok(/Disconnected end/.test(workflow(comp, plan, a => a).steps[1].sends), 'disconnected output names the recovery action');
+}
 
 // a real floor: INBOX → WRITER → LOOP gate; gate E → REVIEWER → OUTBOX, gate S → belt back to WRITER
 {
@@ -55,6 +69,9 @@ const pure = new Function(block + '\nreturn { loopExitLabels, loopBackTxt, sampl
   A.ok(plan.junctions[tile.x + ',' + tile.y] && plan.junctions[tile.x + ',' + tile.y].kind === 'loop', 'the compiler sees the gate');
 
   const names = { writer: 'Writer', reviewer: 'Reviewer' };
+  const overview = workflow(P.lineComponents(geo).find(c => c.bays.some(b => b.agentId === 'writer')), plan, a => names[a] || a);
+  A.ok(overview.steps.some(s => s.label === 'Writer'), 'real compiled floor names its bound step');
+  A.ok(overview.steps.some(s => s.sends.includes('Reviewer')), 'real compiled floor exposes onward destination');
   const exits = pure.loopExitLabels(plan, tile, a => names[a] || a);
   const byDir = {}; for (const x of exits) byDir[x.dir] = x;
   A.eq(exits.length, 2, 'the gate has exactly two exits (E onward, S back)');

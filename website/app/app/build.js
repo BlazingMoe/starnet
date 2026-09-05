@@ -1608,6 +1608,42 @@ const Build = (() => {
     for (const iid of c.intakes) { const ip = station.propById(iid); if (ip && ip.label) return ip.label; }
     return null;
   }
+  /* REFIT-WORKFLOW-PURE-BEGIN */
+  // A graph readout, not a guessed linear sequence: branching and loops retain their real edges.
+  function workflowReadout(comp, plan, nameOf) {
+    const bays = (comp && comp.bays) || [];
+    const chains = (plan && plan.chains) || {};
+    const names = id => String(nameOf(id) || id);
+    const steps = bays.map(b => {
+      const ch = b.agentId && chains[b.agentId];
+      const destinations = ch ? (ch.next || []).map(names) : [];
+      if (ch && ch.outbox) destinations.push('Results outbox');
+      if (ch && ch.deadEnd) destinations.push('Disconnected end — connect a destination');
+      return { propId: b.propId, label: b.role || (b.agentId ? names(b.agentId) : 'Unassigned step'),
+        agent: b.agentId ? names(b.agentId) : 'Choose an agent',
+        receives: b.agentId && plan && plan.reach && plan.reach[b.agentId] ? 'Receives incoming work' : '',
+        sends: destinations.length ? destinations.join(' / ') : 'No confirmed onward route' };
+    });
+    const exits = bays.filter(b => b.agentId && chains[b.agentId] && chains[b.agentId].outbox).length;
+    return { steps,
+      start: comp && comp.intakes.length ? 'Inbox — configure what starts this workflow below' : 'No inbox on this line',
+      result: exits ? 'Connected to a results outbox' : 'No confirmed route to an outbox',
+      compact: (comp && comp.intakes.length ? 'Inbox' : 'No inbox') + ' → ' + bays.length + ' step' + (bays.length === 1 ? '' : 's') + ' → ' + (exits ? 'Outbox' : 'Check output route') };
+  }
+  /* REFIT-WORKFLOW-PURE-END */
+  function workflowHTML(comp) {
+    if (!comp) return '<div class="refit-note">Connect this inbox to a step to see its workflow.</div>';
+    const view = workflowReadout(comp, valPlan, agentLabelFor);
+    return '<section class="refit-workflow" aria-label="Workflow overview"><div class="refit-sec">HOW THIS WORKFLOW FLOWS</div>'
+      + '<p><b>START</b> ' + esc(view.start) + '</p>'
+      + view.steps.map(s => {
+        const prop = station.propById(s.propId), brief = prop && prop.brief;
+        return '<button type="button" class="bb refit-workflow-step" data-workflow-step="' + esc(s.propId) + '"><b>' + esc(s.label) + '</b><span>' + esc(s.agent) + (s.receives ? ' · ' + esc(s.receives) : '') + '</span>'
+          + '<span>' + (brief ? esc(String(brief).slice(0, 180)) + (String(brief).length > 180 ? '…' : '') : 'Add instructions for this step') + '</span>'
+          + '<span>Next → ' + esc(s.sends) + '</span><span class="refit-workflow-edit">Edit agent & instructions</span></button>';
+      }).join('')
+      + '<p><b>RESULT</b> ' + esc(view.result) + '</p><p class="refit-workflow-note">This is the current route, not a completed run. Click a step to customize it; configure the start below.</p></section>';
+  }
   /* which position does this dock's agent hold on the COMPILED line? (inbox-trigger, 2026-08-05)
      'entry' = fed straight by an intake source (plan.reach — the BFS from every source), 'chain' = fed by an
      upstream dock's chain edge (plan.chains[..].next), null = unknowable (unbound dock / no compiled plan /
@@ -2002,7 +2038,7 @@ const Build = (() => {
     const hot = p.t === 'intake' ? 'intake' : p.t === 'outbox' ? 'outbox' : (p.t === 'filter' || p.t === 'splitter' || p.t === 'merger' || p.t === 'joiner' || p.t === 'loop') ? 'junction' : 'bay';
     const TITLE = { intake: 'INBOX — WORK IN', outbox: 'OUTBOX — RESULTS OUT', merger: 'MERGER — LANES JOIN', splitter: 'SPLITTER — LANES BALANCE', joiner: 'JOINER — BRANCHES WAIT', loop: 'LOOP — GO ROUND AGAIN' };
     const LINE = {
-      intake: 'This is where OUTSIDE work — a channel DM, a scheduled routine — physically arrives on the floor. Its TRIGGERS below decide why this line runs; wire one right here.',
+      intake: 'Work starts here. Choose what starts the workflow, give each step its instructions, then try a sample from the line checklist.',
       outbox: 'Every job the crew actually FINISHES ships a green crate here; the pallet is today’s output. Click it (when quiet) for the LOGBOOK.',
       // honest by construction: the harness runs each work-item on its own, so the floor must show each
       // one arriving. A merger tidies several lanes into one — it never combines the JOBS riding them.
@@ -2173,15 +2209,17 @@ const Build = (() => {
     // the INTAKE card is the only flow card carrying a form (the trigger zone) — it gets a little more glass
     g.className = 'refit-guide refit-flow-card' + (isIntake ? ' refit-flow-intake' : '');
     g.innerHTML = '<div class="refit-guide-card"><h3>▮ ' + (TITLE[p.t] || TITLE.outbox) + '</h3>'
-      + flowStripHTML(hot)
+      + (isIntake ? '' : flowStripHTML(hot))
       + '<ul><li>' + line + '</li></ul>'
       + nameHtml
-      + budgetHtml
+      + (isIntake ? workflowHTML(comp) : '')
+      + (budgetHtml ? '<details class="refit-workflow-advanced"><summary>Limits & advanced settings</summary>' + budgetHtml + '</details>' : '')
       + joinerHtml
       + loopHtml
       + trgHtml
       + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="flow-ok">✓ GOT IT</button></div></div>';
     root.appendChild(g);
+    g.querySelectorAll('[data-workflow-step]').forEach(b => { b.onclick = () => openStepCard(b.dataset.workflowStep); });
     requestAnimationFrame(() => g.classList.add('refit-swap'));
     let savedLabel = p.label || '';
     const nameIn = g.querySelector('#line-name');
@@ -2927,7 +2965,8 @@ const Build = (() => {
     // the card is titled with the LINE'S NAME (the intake's saved label — line naming); unnamed lines
     // keep the generic header. In the sig so a rename repaints without a topology edit.
     const lname = lineNameOf(c);
-    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, finSample, lname || '', finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
+    const overview = workflowReadout(c, valPlan, agentLabelFor);
+    const sig = [c.key, st.crewLeft, st.hasIntake, st.feed.known, st.feed.fed, finSample, lname || '', overview.compact, finSampleRes ? finSampleRes.key + ':' + finSampleRes.stamp : ''].join('|');
     if (!finCardEl) {
       finCardEl = document.createElement('div');
       root.appendChild(finCardEl);
@@ -2949,11 +2988,14 @@ const Build = (() => {
     const sampleTxt = (sr && sr.pending) ? (sr.phase === 'post' ? '③ POSTING LINE…' : '③ RUNNING — SAMPLE RIDING THE LINE…') : (sr && sr.view && sr.view.ok) ? '✓ SAMPLE DELIVERED — RUN ANOTHER' : '③ RUN A SAMPLE JOB';
     finCardEl.innerHTML = `
       <div class="fl-head"><span class="fl-title">▸ ${lname ? 'FINISH ' + esc(lname.toUpperCase()) : 'FINISH THE LINE'}</span><button type="button" class="bb sm fl-x" title="dismiss for this line">✕</button></div>
+      <div class="fl-overview">${esc(overview.compact)}</div>
+      <button type="button" class="bb fl-step" data-act="overview">UNDERSTAND & EDIT THIS WORKFLOW</button>
       <button type="button" class="bb fl-step${crewDone ? ' done' : ''}" data-act="crew"${crewDone ? ' disabled' : ''}>${esc(crewTxt)}</button>
       <button type="button" class="bb fl-step${st.feedDone ? ' done' : ''}" data-act="feed"${st.feedDone ? ' disabled' : ''}>${esc(feedTxt)}</button>
       <button type="button" class="bb fl-step${sampleOn ? '' : ' off'}${sr && sr.view && sr.view.ok ? ' done' : ''}" data-act="sample" title="${esc(sampleTip)}">${esc(sampleTxt)}</button>
       ${sr && sr.view ? finSampleHTML(sr.view) : ''}`;
     finCardEl.querySelector('.fl-x').onclick = () => { finMark(station, c.key, 'dis'); sfx('click'); renderFinCard(); };
+    finCardEl.querySelector('[data-act="overview"]').onclick = () => { if (c.intakes.length) openFlowCard(c.intakes[0]); else if (c.bays.length) openStepCard(c.bays[0].propId); };
     const bCrew = finCardEl.querySelector('[data-act="crew"]');
     if (bCrew && !crewDone) bCrew.onclick = () => finFocusCrew(c);
     const bFeed = finCardEl.querySelector('[data-act="feed"]');
