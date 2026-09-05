@@ -15,7 +15,7 @@ closure additionally requires the affected installed Windows/Apple Silicon behav
 production Sonnet trace. The three original reports remain open pending that evidence.
 Execution receipt: `qa/digests/2026-09-05-paid-first-run.md`.
 
-## IN PROGRESS — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
+## DONE — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
 
 Owner request: plan and execute a goal-centered leveling and quest loop.
 
@@ -48,7 +48,9 @@ confirmation minted nothing. Browser warning/exception lists and native-control 
 were empty. The provider was a local deterministic mock, so real-provider recommendation
 quality and installed-desktop behavior remain unverified. Pre-merge gates passed: 722/722
 fast and 99/99 HTTP. The combined website-repair candidate also passed 722/722 fast and
-the live restart proof. Integration verification remains pending.
+the live restart proof. Merged as `46b944c11`; post-merge gates passed 722/722 fast and
+99/99 HTTP, exit 0. Unrelated QA notes and the Rooms handoff were preserved.
+See `docs/LIFE_GOAL_PROGRESSION_2026-09-05.md`. No installed-app or release claim.
 
 ## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
 
