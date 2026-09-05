@@ -187,51 +187,46 @@ const SPRITES = (() => {
     return tinted[ck];
   }
 
-  /* ---------- the contact shadow ----------
-     A body used to stand on a 2px black bar: a sticker, not a shadow. It read as a little line
-     under the feet and gave the crew no weight on the deck. This paints a real pooled shadow.
-
-       shape   a foreshortened ellipse at the station's floor ratio (ry ~ 0.42*rx) — the SAME
-               ratio world.js already uses for its ground cues (wake ripple, listening pulse,
-               work ring), so every circle that claims to lie on the deck agrees.
-       falloff nested ellipses penumbra->umbra instead of one flat blob. The alphas compound
-               (1 - PI(1-a)) to ~0.43 at the contact core and 0.09 at the rim — a soft edge for
-               no per-frame gradient object, which matters at ~10 bodies x 60fps. The core sits
-               deliberately ABOVE propsprites' shadow2 (~0.34): that is a prop's edge contact,
-               while this is a whole body standing on the deck, and the deck it has to read
-               against is DARK — measured at 26/255 luma under the hero. At 0.34 the pool took
-               6 luma off it (23%); a body needs to look planted, not stickered. Do not tune
-               these by eye — `node dev/shadowprobe.mjs` measures the pool on the real deck.
-       bias    nudged SOUTH-EAST. The station's key light is high and north-west; that is the
-               light every prop already assumes (west-biased sheen, north-lit top faces).
-       life    `lift` is how far the idle/talk bob has raised the body off the deck. The pool
-               shrinks and fades with it, so a breathing body's shadow breathes too and a body
-               that rises never drags a full-weight pool up with it.
-       seated  a seated body's feet are on a cushion, not the deck — callers hand it a tighter,
-               fainter pool rather than claim a full contact it doesn't have.
-
-     Alpha is applied RELATIVE to the incoming ctx.globalAlpha and restored afterwards, so the
-     hero's color-into-being fade-up (drawAgent's bornA) survives the shadow pass — the old code
-     slammed globalAlpha back to 1 here and silently cancelled that fade for the sprite too. */
-  const SHADOW_RINGS = [[1, 0.09], [0.80, 0.12], [0.58, 0.14], [0.34, 0.17]];
-  const SHADOW_SQUASH = 0.42;        // floor foreshortening; matches world.js's ground ellipses
+  /* ---------- deck contact and directional body shadow ----------
+     A broad, faint penumbra reaches south-east under the north-west key. Its
+     centre converges on the feet as it darkens, rather than drawing concentric
+     bullseye bands. A separate compact contact core gives the body weight.
+     Fixed rings avoid gradients/canvases allocated for every walking frame.
+     Lift fades the contact faster than the cast shadow; seated bodies use the
+     same path with their existing reduced opacity and footprint. Coloured
+     activity spill remains diffuse and never acquires a dark contact core. */
+  const SHADOW_RINGS = Array.from({ length: 12 }, (_, i) => {
+    const t = i / 11;
+    return [1 - t * 0.82, 0.016 + t * 0.043];
+  });
+  const SHADOW_SQUASH = 0.38;
   function groundShadow(ctx, cx, cy, rx, opts) {
     const o = opts || {};
-    const lift = Math.max(0, o.lift || 0);              // px the body has risen off the deck
-    const k = 1 - Math.min(0.5, lift * 0.14);           // lifted => smaller AND fainter
+    const lift = Math.max(0, o.lift || 0);
+    const k = 1 - Math.min(0.5, lift * 0.14);
     const spread = rx * k * (o.spread || 1);
     if (!(spread > 0.5)) return;
-    const a0 = ctx.globalAlpha;
+    const a0 = ctx.globalAlpha, ink = ctx.fillStyle;
     const fade = k * (o.alpha != null ? o.alpha : 1);
-    const dx = spread * 0.10, dy = spread * 0.04;       // south-east, under the high north-west key
-    ctx.fillStyle = o.color || '#000';
-    for (const r of SHADOW_RINGS) {
-      ctx.globalAlpha = a0 * r[1] * fade;
-      ctx.beginPath();
-      ctx.ellipse(cx + dx, cy + dy, spread * r[0], spread * r[0] * SHADOW_SQUASH, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.globalAlpha = a0;
+    ctx.fillStyle = o.color || '#080d19';
+    try {
+      for (const [radius, alpha] of SHADOW_RINGS) {
+        const reach = o.color ? 0.08 : 0.48 * radius * radius;
+        ctx.globalAlpha = a0 * alpha * fade * (o.color ? 1.2 : 1);
+        ctx.beginPath();
+        ctx.ellipse(cx + spread * reach, cy + spread * reach * 0.62,
+          spread * radius * (o.color ? 1 : 1.14), spread * radius * SHADOW_SQUASH,
+          o.color ? 0 : 0.18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (!o.color) {
+        // Tight occlusion under the boots, anchored to the deck through idle bob.
+        ctx.globalAlpha = a0 * 0.20 * fade * k;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, spread * 0.42, spread * 0.115, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } finally { ctx.globalAlpha = a0; ctx.fillStyle = ink; }
   }
 
   /* pick best available animation key for a body state */

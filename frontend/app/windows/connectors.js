@@ -255,7 +255,7 @@
        Nothing here gates anything: every tab remains one click away in the rail. */
     const ROUTES = [
       { glyph: '⊞', to: 'catalog', title: 'Connect a service you use',
-        blurb: 'Search for your platform, see what it can do, and follow its setup steps. <b>Start here.</b>' },
+        blurb: 'Find services and platform APIs, including print-on-demand. See what they can do and follow their setup steps. <b>Start here.</b>' },
       { glyph: '⧉', to: 'mcp', title: 'Advanced: add a custom connection',
         blurb: 'You already have an MCP endpoint and want to point the station at it.' },
       { glyph: '▤', to: 'toolsets', title: 'Switch a built-in on or off',
@@ -267,8 +267,8 @@
         blurb: 'Anthropic, OpenAI, OpenRouter keys and sign-ins live in SETTINGS › PROVIDERS.' }
     ];
     const secRouter =
-      '<div class="ab-router" id="ab-router">' +
-        '<div class="ab-router-q">What are you trying to connect?</div>' +
+      '<details class="ab-router" id="ab-router">' +
+        '<summary class="ab-router-q"><span>＋ ADD AN ABILITY</span><small>Choose a service, server, channel or model provider</small></summary>' +
         '<div class="ab-router-grid">' +
           ROUTES.map((r, i) =>
             '<button type="button" class="ab-route" style="--ci:' + i + '"' +
@@ -281,19 +281,25 @@
               '<span class="ab-route-go" aria-hidden="true">' + (r.term ? '↗' : '›') + '</span>' +
             '</button>').join('') +
         '</div>' +
-      '</div>';
+      '</details>';
 
     const host = mountConsole(body, 'connectors', [
-      { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
+      { id: 'toolsets', label: 'BUILT-IN ABILITIES', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
       { id: 'catalog', label: 'CATALOG', glyph: '⊞', desc: 'Find a service by name or what you want to do. Choose it to see the setup required; YOUR SERVICES shows saved setups, not a live connection guarantee.', build: frag(secCatalog) },
-      { id: 'keys', label: 'KEYS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
-      { id: 'mcp', label: 'MCP CONNECTORS', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
+      { id: 'keys', label: 'SAVED API CONNECTIONS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
+      { id: 'mcp', label: 'CONNECTED SERVICES', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
+      { id: 'custom', label: 'CREATE / ADVANCED', glyph: '＋', desc: 'Configure a custom server, API, skill package, hook or plugin.', build: frag('<div class="ab-router-grid"><button class="ab-route" data-ab-to="mcp">Add a custom MCP server</button><button class="ab-route" data-ab-to="keys">Add a custom API key</button><button class="ab-route" data-ab-to="exchange">Import a skill package</button><button class="ab-route" data-ab-to="extensions">Create hooks and plugins</button></div>') },
       // shortened: the pane's own opening paragraph is the RICHER copy here (concrete moments, the
       // hook-vs-plugin distinction, the sandbox reason) — unusually, this is the one pane where the
       // lead earns its place and the `desc` was the redundant half. So the desc yields instead.
       { id: 'extensions', label: 'EXTENSIONS', glyph: '⌥', desc: 'Your own hooks and plugins — the code you write, run by the station.', build: frag(secExt) }
     ].concat(lanes.reduce((acc, l) => acc.concat(l.sections), [])), {
       search: true,
+      groups: [
+        { id: 'installed', label: 'INSTALLED', sections: ['toolsets', 'mcp', 'keys', 'agent'] },
+        { id: 'discover', label: 'DISCOVER', sections: ['catalog', 'library'] },
+        { id: 'advanced', label: 'CREATE / ADVANCED', sections: ['custom', 'extensions', 'exchange'] }
+      ],
       searchLabel: 'Search abilities',
       searchPlaceholder: 'search a platform, tool or skill — try “notion”…',
       searchEmptyText: 'No abilities match that search. Try another platform, tool, or skill.'
@@ -319,7 +325,7 @@
       const to = btn.dataset.abTo;
       if (to) {
         const tab = body.querySelector('#con-tab-connectors-' + to);
-        if (tab) { tab.click(); host.scrollTop = 0; }
+        if (tab) { tab.click(); routerNode.open = false; host.scrollTop = 0; }
         return;
       }
       // cross-window jump: openTerm is idempotent (restores a minimized window rather than duplicating).
@@ -500,17 +506,23 @@
 
     // ===== TOOLSETS: render pill-switch rows from GET /api/toolsets, honestly reflecting placement + consent =====
     const tsListEl = body.querySelector('#ts-list');
-    // station-wide placed object types (the same source SKILLS uses) so a row can say "no prop on station" honestly.
+    // Refresh the selected agent's workspace projection alongside its host authority.
     let placedTypes = [];
-    try { placedTypes = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(tsAgentEl.value).map(c => c.objectType) : []; } catch (_) {}
     // How many tool chips a row shows before folding the rest behind a count. WEB & BROWSER grants 36:
     // unfolded they ran seven lines deep and pushed every other toolset below the fold, so the pane's
     // first screen was a wall of `browser.*` instead of the seven families it exists to present. The
     // full list is still one click away — this hides nothing, it just stops one row eating the pane.
     const TS_TOOLS_SHOWN = 8;
+    function tsAvailability(t) {
+      if (t.available) return 'AVAILABLE';
+      if (t.switchEffective && !t.enabled) return 'DISABLED';
+      if (t.switchEffective && !t.placed && !t.profileGranted) return 'NEEDS PROP';
+      return 'UNAVAILABLE';
+    }
     function tsRowHTML(t, ri) {
       const off = !t.available;
-      const inert = !t.placed && !t.profileGranted && t.switchEffective;
+      const availability = tsAvailability(t);
+      const inert = availability === 'NEEDS PROP';
       // A DIAGNOSIS WITHOUT A CURE. This span named the exact missing prop and offered nothing to click,
       // so the one row that knows what is wrong was the one row you could not act on. The button hands
       // off to the same REFIT deep-link the SKILLS library's PLACE uses (arms the palette on the prop),
@@ -521,6 +533,7 @@
           '</span>'
         : '';
       const consent = '<span class="ts-tag">' + (t.available ? esc(t.grantSource || 'granted') : 'not granted') + '</span>' + (t.consentGated ? '<span class="ts-tag">risky actions may ask</span>' : '');
+      const status = '<span class="ts-availability' + (t.available ? ' available' : '') + '">' + availability + '</span>';
       const isJuke = t.id === 'jukebox';
       const all = (t.tools && t.tools.length) ? t.tools : [];
       const rest = all.length - TS_TOOLS_SHOWN;
@@ -534,7 +547,7 @@
           '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '"' + (t.switchEffective ? '' : ' disabled data-tip="Full Access overrides this saved switch. Change authority first."') + '>' +
           '<span class="ts-glyph" aria-hidden="true">' + esc(t.glyph || '▪') + '</span>' +
           '<span class="ts-main">' +
-            '<span class="ts-name">' + esc(t.label) + ' ' + consent +
+            '<span class="ts-name">' + esc(t.label) + ' ' + status + consent +
               '<span class="ts-count dim">' + t.toolCount + ' tool' + (t.toolCount === 1 ? '' : 's') + '</span></span>' +
             '<span class="ts-desc dim">' + esc(t.desc) + '</span>' + hint + tools +
             (isJuke ? spotifyInline : '') +
@@ -552,14 +565,19 @@
     async function tsRefresh() {
       const request = ++tsRequest;
       try {
-        try { placedTypes = (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps().map(c => c.objectType) : []; } catch (_) {}
+        placedTypes = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(tsAgentEl.value).map(c => c.objectType) : [];
         const j = await Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(tsAgentEl.value) + '&placed=' + encodeURIComponent(placedTypes.join(',')));
         if (request !== tsRequest || !body.isConnected) return;
         if (!j || j.error || !j.authority) throw new Error((j && j.error) || 'authority unavailable');
         const a = j.authority;
         tsAuthorityEl.textContent = a.name + ' · ' + a.approvalLabel + ' · ' + a.filesystemLabel + '. ' + a.revoke + ' Capability grants shown here; the current task, service connection and operating system can still limit execution.';
         const list = (j && j.toolsets) || [];
-        tsListEl.innerHTML = list.map(tsRowHTML).join('');
+        tsListEl.innerHTML = '<div class="ability-readout" aria-label="Selected agent toolset availability">' +
+          '<div><b>' + list.filter(t => t.available).length + '</b><span>AVAILABLE</span></div>' +
+          '<div><b>' + list.filter(t => tsAvailability(t) === 'NEEDS PROP').length + '</b><span>NEED A PROP</span></div>' +
+          '<div><b>' + list.filter(t => !t.available && tsAvailability(t) !== 'NEEDS PROP').length + '</b><span>UNAVAILABLE</span></div></div>' +
+          '<p class="ability-legend">AVAILABLE means this agent has the capability through equipment or access settings. Service connections and task permissions still apply.</p>' +
+          list.map(tsRowHTML).join('');
         if (body.querySelector('#sp-connect')) setupSpotify(body);   // wire Spotify now the sp-* markup is in the JUKEBOX row
       } catch (_) { if (request !== tsRequest) return; tsAuthorityEl.textContent = 'Effective authority unavailable.'; tsListEl.innerHTML = '<div class="mc-detail">Cannot read current capabilities. Reopen ABILITIES after reconnecting.</div>'; }
     }

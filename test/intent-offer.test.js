@@ -220,12 +220,12 @@ A.ok(/const staged = meta && meta\.intentOfferText; if \(meta\) meta\.intentOffe
 // it must sit INSIDE the post-run gentle-nudge chain, above the work-earned floor (the Commander's own words
 // earned it, not accumulated session work) but below the isTask salience gate.
 const iTaskGate = chat.indexOf('if (!meta || meta.isTask) {');
-const iFloor = chat.indexOf('CuriosityStore.earned && !CuriosityStore.earned()');
+const iFloor = chat.indexOf('if (earned && !takeover)');
 const iRecruitBeat = chat.indexOf('const rc = recruitCandidate()');
 A.ok(iTaskGate > 0 && fireIdx > iTaskGate, 'the offer fires only after the isTask salience gate (never on chatter)');
 A.ok(iFloor > 0 && fireIdx < iFloor, 'the offer sits ABOVE the work-earned floor (a fresh Commander still discovers the catalog)');
 A.ok(iRecruitBeat > 0 && fireIdx < iRecruitBeat, 'the offer is checked before adaptive recruitment (it is the more specific, message-derived ask)');
-A.ok(/if \(staged && maybeIntentOffer\(staged\)\) return;/.test(chat), 'a fired offer takes the slot and returns, so nothing stacks on that run');
+A.ok(/if \(!takeover && staged && maybeIntentOffer\(staged\)\) return;/.test(chat), 'takeover has precedence; a fired catalog offer takes the slot and returns');
 A.ok(!/try \{ maybeIntentOffer\(text\); \}/.test(chat), 'send() never renders the offer before the run can replace its choice row');
 
 A.report('intent-offer');
