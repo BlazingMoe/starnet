@@ -60,3 +60,14 @@ certification. Watchdog long thresholds use deterministic fault injection. Provi
 outputs remain variable: tests prove routing, state and isolation, not universal model
 compliance. No merge to trunk or release performed. Preview remains on port 9137 with
 isolated existing scratch state; latest launcher PID 10140 (rediscover child if stopping).
+
+Post-fix live question proof: RESEARCHER answered that no question was pending and
+explicitly identified Tea/Coffee as canceled; no question card remained. Browser
+warning/error log was empty. Uploaded oversized file was removed through its normal
+attachment control; only the 51-byte shared proof file exists in the group's artifacts.
+
+Full gate attempt 1 found a stale source-window assertion in agent-model-select.test.js:
+load() still refreshed the header, but the test only searched its first 3600 characters.
+Replaced the arbitrary window with a function-boundary match; 65 assertions passed.
+Final rerun logs are `dev/group-deep-fast-final.log` and
+`dev/group-deep-http-final.log`; source bytes remain unchanged from the live proof.
