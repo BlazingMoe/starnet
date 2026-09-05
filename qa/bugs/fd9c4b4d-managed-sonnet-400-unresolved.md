@@ -39,6 +39,12 @@ Keep open. BYOK admission, model identity and malformed-history fixes are relate
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05 follow-through re-read issue #6: its latest diagnostics still name managed
+`anthropic/claude-sonnet-5`, v0.10.13, with the last failure at `2026-09-05T00:47:28.242Z`.
+The local 26-suite customer campaign passes, but uses simulated upstream services. This host's
+`flyctl auth whoami` reports no access token, so no deployed-route correlation was obtained.
+See `qa/digests/2026-09-05-release-blockers.md`; production cause/recovery remain unverified.
+
 ## Sibling coverage
 
 {

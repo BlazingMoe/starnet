@@ -41,10 +41,16 @@ export const openSel = (sel, label) => `(() => {
 
 // The notifications panel is intentionally user-owned state, so its rows carry
 // wall-clock timestamps and whatever the capture run happened to emit. Normalize
-// only the rendered rows for this screenshot frame; the app store is untouched.
+// only the rendered rows for this screenshot frame. Seed one notification through the real
+// API first: the empty-state renderer has no .nf-list, so relying on incidental boot events
+// made identical builds alternate between the empty and populated layouts. This runs only
+// in the screenshotter's disposable browser profile.
 export const openStableNotifs = `(() => {
+  if (typeof StationUI === 'undefined' || typeof StationUI.notify !== 'function') return 'DRIVE_ERR:notification-api-missing';
+  StationUI.notify('Screenshot fixture notification', 'good');
   ${openSel('[data-term="notifs"]', 'NOTIFS')};
   const list = document.querySelector('.nf-list');
+  if (!list) return 'DRIVE_ERR:notification-list-missing';
   if (list) {
     const rows = [
       ['07:00', 'Station layout saved', 'good'],

@@ -154,4 +154,35 @@ const sig = (v) => Array.from({ length: SIG_LEN }, () => v);
     'sys-settings settles a deterministic screenshot-only provider probe before capture');
 }
 
+// An empty notification store renders no list. The capture driver must create its fixture
+// before opening the panel, and a missing list must fail rather than bless an empty frame.
+{
+  const vm = require('node:vm');
+  const { openStableNotifs } = require('../scripts/lib/states.mjs');
+  function captureNotifs(initial, broken = false) {
+    let count = initial, list = null;
+    const context = {
+      StationUI: { notify() { count++; } },
+      KeyboardEvent: function () {},
+      document: {
+        body: { classList: { remove() {} } },
+        getElementById() { return null; }, querySelectorAll() { return []; }, dispatchEvent() {},
+        querySelector(sel) {
+          if (sel === '[data-term="notifs"]') return { click() { if (count && !broken) list = { innerHTML: '' }; } };
+          if (sel === '.nf-list') return list;
+          return null;
+        }
+      }
+    };
+    return { result: vm.runInNewContext(openStableNotifs, context), list };
+  }
+  const empty = captureNotifs(0), populated = captureNotifs(5);
+  A.eq(empty.result, 'opened:NOTIFS', 'fresh empty notification store reaches the fixture list');
+  A.eq(empty.list && empty.list.innerHTML, populated.list && populated.list.innerHTML,
+    'empty and populated notification stores capture identical fixture rows');
+  A.ok(!!empty.list && /Station layout saved/.test(empty.list.innerHTML), 'notification fixture is actually rendered');
+  A.eq(captureNotifs(0, true).result, 'DRIVE_ERR:notification-list-missing',
+    'broken notification renderer fails capture instead of producing a false green');
+}
+
 A.report('golden.test');
