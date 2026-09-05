@@ -916,11 +916,11 @@ const Build = (() => {
     b.dataset.prop = c.id;   // lets the tutorial light a specific gear tile by id
     b.setAttribute('aria-pressed', c.id === propType ? 'true' : 'false');
     const grant = (typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp) ? WorldModel.grantLabelForProp(c.id) : null;
-    /* the station tooltip (tooltip.js adopts this title) is the FIRST thing a hover says, and "JOINER · 1×1"
-       told a Commander nothing a MERGER did not — so every WORKFLOW machine carries a one-line purpose here
-       (PALETTE_PURPOSE), distinguishable before it is placed. The rich card below stays the long form. */
+    // The catalog owns the rich hover card below. Keep the short description accessible without
+    // a title/data-tip that would also summon the shared station tooltip over that card.
     const purpose = PALETTE_PURPOSE[c.id] || '';
-    b.title = c.label + ' · ' + c.w + '×' + c.h + (grant ? ' · grants ' + grant : '') + (purpose ? ' — ' + purpose : '');
+    b.setAttribute('data-no-tip', '');
+    b.setAttribute('aria-description', c.label + ' · ' + c.w + '×' + c.h + (grant ? ' · grants ' + grant : '') + (purpose ? ' — ' + purpose : ''));
     // Grid-only re-render: a full renderPalette() here would rebuild the search field and steal focus
     // out of it mid-search. But a pick out of a SEARCH result does change tab state — the prop almost
     // always lives under a different tier/category than the one still selected behind the results. Move
