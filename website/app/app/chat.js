@@ -3999,6 +3999,7 @@ const Chat = (() => {
                     // row would be wiped by choices() below anyway, and a stuck activeNudge would mute beats forever
     pendingTaskQuestion = Object.assign({}, tq, { streamId: activeWs && activeWs.id });
     if(tq.mode==='conversation' && typeof TaskConversation!=='undefined') {
+      clearChoices(); // Retire a stale retry action: the next user input answers this saved question.
       const ws=activeWs, r=row('agent');r.d.classList.add('nudge');
       TaskConversation.mount(r.body,tq,async text=>{
         if(!isActiveWs(ws) || isBusy())return false;
