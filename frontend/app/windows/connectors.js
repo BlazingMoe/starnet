@@ -144,11 +144,12 @@
         '<button type="button" class="cc-filter active" data-cc-filter="all" aria-pressed="true">ALL</button>' +
         '<button type="button" class="cc-filter cc-lg-none" data-cc-filter="none" aria-pressed="false">▸ no setup</button>' +
         '<button type="button" class="cc-filter cc-lg-key" data-cc-filter="apikey" aria-pressed="false">API key</button>' +
-        '<button type="button" class="cc-filter cc-lg-oauth" data-cc-filter="oauth" aria-pressed="false">OAUTH</button>' +
-        '<button type="button" class="cc-filter cc-f-on" data-cc-filter="installed" aria-pressed="false">✓ connected</button>' +
+        '<button type="button" class="cc-filter cc-lg-oauth" data-cc-filter="oauth" aria-pressed="false">SIGN IN</button>' +
+        '<button type="button" class="cc-filter" data-cc-filter="manual" aria-pressed="false">MANUAL SETUP</button>' +
+        '<button type="button" class="cc-filter cc-f-on" data-cc-filter="installed" aria-pressed="false">YOUR SERVICES</button>' +
       '</div>' +
-      '<p class="set-about"><span class="cc-legend"><b class="cc-lg-none">▸ no setup</b> connects instantly · ' +
-        '<b class="cc-lg-key">API key</b> you paste a key · <b class="cc-lg-oauth">OAUTH</b> a secure browser sign-in.</span></p>' +
+      '<p class="set-about"><span class="cc-legend"><b class="cc-lg-none">▸ no setup</b> no credentials needed · ' +
+        '<b class="cc-lg-key">API key</b> you paste a key · <b class="cc-lg-oauth">SIGN IN</b> connect through your browser. Some services require one-time app setup first.</span></p>' +
       '<div id="cc-list" class="cc-list"><span class="loading pulse">loading catalog…</span></div>' +
       '<div id="cc-msg" class="msg" role="status" aria-live="polite"></div>' +
       '<p class="set-about dim">Need something not listed? Add any remote MCP server by URL in <b>MCP CONNECTORS</b>, or paste a custom platform key in <b>KEYS</b>.</p>';
@@ -252,17 +253,15 @@
        I connect Telegram" is a different window, and silence there is exactly what sends people hunting.
        Nothing here gates anything: every tab remains one click away in the rail. */
     const ROUTES = [
-      { glyph: '⊞', to: 'catalog', title: 'Pick a ready-made service',
-        blurb: 'Notion, GitHub, Linear, Stripe… Vetted servers that connect in one click or one sign-in. <b>Start here.</b>' },
-      { glyph: '⊞', to: 'catalog', title: 'Connect a platform API or POD service',
-        blurb: 'Printify, Printful, Gelato, Prodigi, Shopify… Choose the platform here, then paste its key.' },
-      { glyph: '⧉', to: 'mcp', title: 'Add a server by URL',
+      { glyph: '⊞', to: 'catalog', title: 'Connect a service you use',
+        blurb: 'Search for your platform, see what it can do, and follow its setup steps. <b>Start here.</b>' },
+      { glyph: '⧉', to: 'mcp', title: 'Advanced: add a custom connection',
         blurb: 'You already have an MCP endpoint and want to point the station at it.' },
       { glyph: '▤', to: 'toolsets', title: 'Switch a built-in on or off',
         blurb: 'Web, files, terminal, memory — the powers that come from props on your station.' },
       // cross-window, and deliberately so: naming the wrong window is worse than naming none.
       { glyph: '✉', term: 'messaging', title: 'Message your agent from Telegram or Slack',
-        blurb: 'That is a <b>channel</b>, not a connector — it opens the CHANNELS window.' },
+        blurb: 'Connect a chat account so you can give your agent work from there. Opens CHANNELS.' },
       { glyph: '◈', term: 'settings', section: 'providers', title: 'Add an AI model provider',
         blurb: 'Anthropic, OpenAI, OpenRouter keys and sign-ins live in SETTINGS › PROVIDERS.' }
     ];
@@ -285,9 +284,9 @@
 
     const host = mountConsole(body, 'connectors', [
       { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
-      { id: 'catalog', label: 'CATALOG', glyph: '⊞', desc: 'Browse vetted connectors and platform APIs — including POD services — then plug them into your agents.', build: frag(secCatalog) },
+      { id: 'catalog', label: 'CATALOG', glyph: '⊞', desc: 'Find a service by name or what you want to do. Choose it to see the setup required; YOUR SERVICES shows saved setups, not a live connection guarantee.', build: frag(secCatalog) },
       { id: 'keys', label: 'KEYS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
-      { id: 'mcp', label: 'MCP CONNECTORS', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Their tools run through the same approval gate as the built-ins.', build: frag(secMcp) },
+      { id: 'mcp', label: 'MCP CONNECTORS', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
       // shortened: the pane's own opening paragraph is the RICHER copy here (concrete moments, the
       // hook-vs-plugin distinction, the sandbox reason) — unusually, this is the one pane where the
       // lead earns its place and the `desc` was the redundant half. So the desc yields instead.
@@ -706,6 +705,10 @@
       const b = badge(c.state);
       const tools = (c.tools && c.tools.length) ? '<div class="mc-tools">' + c.tools.map(t => '<code>' + esc(t) + '</code>').join('') + '</div>' : '';
       const detail = (c.state === 'error' && c.detail) ? '<div class="mc-detail">' + esc(c.detail) + '</div>' : '';
+      const next = !c.enabled ? 'Turn on the switch above to let agents use this service.'
+        : c.oauth && (c.authRequired || !c.oauthAuthorized) ? 'Sign in below to restore access to this account.'
+        : c.state === 'error' ? 'Check the error below, then reload to retry. Use Edit if the connection details changed.'
+        : c.state === 'up' ? 'Connected. Tell your agent what you want to do with this service.' : '';
       const where = c.transport === 'stdio'
         ? ('<span class="mc-tag">stdio</span> <code>' + esc([c.command].concat(c.args || []).join(' ')) + '</code>' + (c.hasEnv ? ' · env set' : '') +
            '<div class="mc-hint">isolated owner: ' + esc(c.agentId || 'unbound') + ' · persistent Safe Cell</div>')
@@ -720,7 +723,7 @@
           '<span class="set-row mc-enable"><input type="checkbox" data-act="toggle"' + (c.enabled ? ' checked' : '') + ' aria-label="Enable connector ' + esc(c.id) + '"></span>' +
           '<b>' + esc(c.label || c.id) + '</b> <span class="dim">' + esc(c.id) + '</span>' +
           '<span class="mc-state" style="color:' + b[0] + '">' + b[1] + (c.toolCount ? ' · ' + c.toolCount + ' tool' + (c.toolCount === 1 ? '' : 's') : '') + '</span></div>' +
-        '<div class="mc-url dim">' + where + timeout + '</div>' + detail + tools +
+        '<div class="mc-url dim">' + where + timeout + '</div>' + (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
         '<div class="mc-acts">' +
           // an OAuth connector's stored grant can die provider-side (token revoked, DCR client deleted) — a state
           // RELOAD can't cure (it reconnects with the same dead grant) and EDIT can't reach (its form is the
@@ -928,7 +931,7 @@
     // CRT glyphs, not emoji (⚡🔑🔒 punched holes in the phosphor look). ▸ = no setup; API key + OAUTH ride as plain
     // colour-coded text chips (gold / dim) — VT323 has no key/lock glyph that renders (⚿ came out as tofu), and the
     // task says plain text chips are fine. The render below omits the leading glyph when it's empty.
-    const CC_CHIP = { none: ['▸', 'no setup', 'var(--ok)'], apikey: ['', 'API key', 'var(--gold)'], oauth: ['', 'OAUTH', 'var(--ph-dim)'] };
+    const CC_CHIP = { none: ['▸', 'no setup', 'var(--ok)'], apikey: ['', 'API key', 'var(--gold)'], oauth: ['', 'sign in', 'var(--ph-dim)'] };
     /* The catalog seal (2026-08-14). ClassIcons.platformIcon resolves an entry's BESPOKE mark, else the
        seal for its CATEGORY, else null — and null renders NOTHING rather than a placeholder, so a catalog
        entry added tomorrow in a group with no art degrades to today's text-only card instead of wearing a
@@ -941,13 +944,15 @@
     }
     function ccCard(e, ci) {
       const cardId = e.catalogId || e.id;
-      const chip = CC_CHIP[e.authType] || CC_CHIP.none;
+      const chip = e.platformApi && e.unattendedSupported === false
+        ? ['', 'manual setup', 'var(--gold)']
+        : (e.needsClient ? ['', 'app setup, then sign in', 'var(--gold)'] : (CC_CHIP[e.authType] || CC_CHIP.none));
       const origin = e.platformApi
         ? '<span class="cc-badge cc-official" title="first-party REST API documented by the vendor">✓ official API</span>'
         : (e.official ? '<span class="cc-badge cc-official" title="first-party server, run by the vendor">✓ official</span>'
                       : '<span class="cc-badge cc-community" title="community-run server">community</span>');
       let action;
-      if (e.installed) action = '<button class="bb xs" data-cc-act="added" disabled>✓ ADDED</button>';
+      if (e.installed) action = '<button class="bb xs" data-cc-act="manage" data-id="' + esc(cardId) + '">MANAGE SERVICE</button>';
       else if (e.platformApi) action = '<button class="bb xs" data-cc-act="platform" data-id="' + esc(cardId) + '">+ ADD KEY</button>';
       // staticOauth entry still missing its pre-registered app client (Google): a SET UP reveal, never a
       // SIGN IN that can only 428. Once the client is saved, needsClient flips and the card renders SIGN IN.
@@ -1006,6 +1011,7 @@
           '<div class="cc-head">' + ccSeal(e) + '<b>' + esc(e.name) + '</b> ' + origin +
             '<span class="cc-chip" style="color:' + chip[2] + '" title="' + esc(chip[1]) + '">' + (chip[0] ? chip[0] + ' ' : '') + esc(chip[1]) + '</span></div>' +
           '<div class="cc-blurb dim">' + esc(e.blurb) + '</div>' + presets + platformMeta + keyField + clientField +
+          (e.installed ? '<div class="mc-hint">Setup saved. Open Manage Service to check access or reconnect.</div>' : '') +
           '<div class="cc-acts">' + action + home + '</div>' +
         '</div>';
     }
@@ -1027,7 +1033,7 @@
         const platformGroups = ((keyed && keyed.groups) || []).map(g => ({
           category: g.category,
           connectors: (g.platforms || []).map(p => Object.assign({}, p, {
-            authType: p.unattendedSupported === false ? 'oauth' : 'apikey',
+            authType: p.unattendedSupported === false ? 'manual' : 'apikey',
             official: true,
             platformApi: true,
             catalogId: 'platform:' + p.id
@@ -1085,7 +1091,7 @@
         }
         none.hidden = false;
         none.textContent = ccFilter === 'installed'
-          ? 'Nothing connected from the catalog yet — pick ALL and add one.'
+          ? 'No saved services from the catalog yet — pick ALL to connect one.'
           : 'No catalog entry uses that setup type.';
       } else if (none) none.hidden = true;
     }
@@ -1211,7 +1217,20 @@
       }
       const btn = ev.target.closest('button[data-cc-act]'); if (!btn) return;
       const act = btn.dataset.ccAct, id = btn.dataset.id;
-      if (act === 'add') { btn.disabled = true; await ccInstall(id); }
+      if (act === 'manage') {
+        const entry = ccEntry(id);
+        if (!entry) return;
+        const tab = body.querySelector('#con-tab-connectors-' + (entry.platformApi ? 'keys' : 'mcp'));
+        if (tab) tab.click();
+        if (entry.platformApi) { await kyRefresh(); await kyPlatformsRefresh(); }
+        else {
+          await refresh();
+          const target = Array.from(listEl.querySelectorAll('.mc-row')).find(r => r.dataset.id === entry.id);
+          if (target) ccFlash(target);
+          else { msgEl.classList.remove('ok'); msgEl.textContent = 'This saved connection is no longer listed. Return to CATALOG and refresh to check its setup.'; }
+        }
+      }
+      else if (act === 'add') { btn.disabled = true; await ccInstall(id); }
       else if (act === 'platform') {
         const entry = ccEntry(id);
         if (entry) ccPrefillPlatform(entry);
