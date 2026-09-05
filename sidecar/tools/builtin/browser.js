@@ -19,6 +19,7 @@
   const FS = require('node:fs');
   const CP = require('node:child_process');
   const NET = require('node:net');
+  const { swallow } = require('../../failopen.js');
   const Challenge = require('./browserchallenge.js');
   const { deriveReadClient } = require('./browser-workflow.js');
   // UNTRUSTED-CONTENT FENCE (2026-07-25): page text, snapshots, console rows and dialog messages are all
@@ -1971,7 +1972,7 @@
       if (owned && cdp && deps.profileIsPersistent) {
         let timer;
         try {
-          await Promise.race([cdp.send('Browser.close').catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
+          await Promise.race([cdp.send('Browser.close').catch(swallow('browser.profile.close')), new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
         } finally { clearTimeout(timer); }
         exited = await exitedWithin(2000);
       }
