@@ -92,14 +92,18 @@ A.eq(G.milestoneForQuest([goal], 'wq:7'), null, 'a done milestone is no longer m
 // completing the LAST milestone completes the whole GOAL
 G.foldMilestoneDone(goal, 'goal_1000:m2', 'shipped the bus', 4000);
 const last = G.foldMilestoneDone(goal, 'goal_1000:m3', 'shipped the shell', 5000);
-A.eq(last.goalDone, true, 'the last milestone completes the whole goal');
-A.eq(goal.status, 'done', 'the goal is now done');
+A.eq(last.goalDone, false, 'the last planned step cannot prove a life outcome');
+A.eq(last.planDone, true, 'all planned actions are complete');
+A.eq(goal.status, 'active', 'the goal awaits explicit outcome confirmation');
 A.eq(G.progress(goal), { done: 3, total: 3, pct: 100 }, 'a done goal reads 3/3/100%');
 A.eq(G.nextMilestone(goal), null, 'a done goal surfaces no next milestone');
 // a done goal never moves again (a fold on it is inert)
 A.eq(G.foldMilestoneDone(goal, 'goal_1000:m3', 'x', 6000).changed, false, 'a done goal is immutable to further folds');
 
 /* ============================ 4. DRIFT / RETIRE PROPAGATION ============================ */
+
+// The outcome confirmation path owns this transition; ordinary milestone folds cannot do it.
+goal.status = 'done';
 
 const active = G.makeGoal('a live goal', ['aa now', 'bb here', 'cc too'], 'cd_9', 100);
 A.eq(G.retireBySource(active, 'cd_9', 200), true, 'retireBySource retires the goal whose source belief was forgotten');

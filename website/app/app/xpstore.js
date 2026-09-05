@@ -49,9 +49,8 @@ const XpStore = (() => {
 
   // the always-on STATION level chip in the top bar — the colony's headline number.
   function pushTopbar() {
-    if (typeof Xp === 'undefined' || !station) return;
-    const el = document.getElementById('gt-station');
-    if (el) el.textContent = 'Lv ' + Xp.compute(station).level;
+    // Agent feedback remains crew XP. Only the Journey read-model writes Commander level.
+    try { if (typeof Topbar !== 'undefined' && Topbar._paintXp) Topbar._paintXp(); } catch (_) {}
   }
 
   // The canvas HUD and top-bar chip have direct setters, but the left crew manifest renders its "Lv N" text
@@ -80,8 +79,7 @@ const XpStore = (() => {
   }
   function celebrateStation(level) {
     pushTopbar();
-    const chip = document.getElementById('tb-station');   // gold pulse on the top-bar STATION chip
-    if (chip) { chip.classList.remove('lvup'); void chip.offsetWidth; chip.classList.add('lvup'); }
+    // The Commander chip must not celebrate an agent-feedback level.
     // NO StationUI.notify (notification diet): the gold chip pulse + the new level number ARE the announcement.
   }
   // a milestone's short trophy title for the broadcast. Read from
