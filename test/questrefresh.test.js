@@ -201,4 +201,15 @@ A.eq(R.normalize({ northStar: { text: '' }, ledger: 'junk', lastCycleAt: 'x' }).
 const roundTrip = R.normalize(JSON.parse(JSON.stringify(st)));
 A.eq(roundTrip.northStar.text, 'The Commander goal', 'state survives a JSON round-trip');
 
+const changedBase = R.stampCycle(R.fresh(), { now: T0, contextKey: 'before' });
+A.ok(!R.decide(changedBase, { now: T0 + R.MATERIAL_CHANGE_GAP_MS - 1, openCount: 2, contextKey: 'after' }).fire, 'progress changes coalesce under a cost debounce');
+A.eq(R.decide(changedBase, { now: T0 + R.MATERIAL_CHANGE_GAP_MS, openCount: 2, contextKey: 'after' }).why, 'progress-changed', 'material change earns reactive planning');
+A.ok(!R.decide(changedBase, { now: T0 + R.MATERIAL_CHANGE_GAP_MS, openCount: 2, contextKey: 'before' }).fire, 'unchanged progress does not call model');
+A.eq(R.normalize(JSON.parse(JSON.stringify(changedBase))).contextKey, 'before', 'cost debounce fingerprint survives restart');
+const pc = R.progressContext({ goals: [{ id: 'g', text: 'Find a job', successCondition: 'An accepted offer', status: 'active' }], metrics: [{ goalId: 'g', status: 'active', label: 'Interviews', current: 0, history: [{ value: 0, note: 'No replies', source: 'commander' }] }, { goalId: 'other', status: 'active', label: 'Unrelated' }], outcomes: [{ goalId: 'g', title: 'Sent applications', verifiedBy: 'commander-confirmed', evidence: 'Sent five' }] }, [{ title: 'Send more', disposition: { type: 'too_big', reason: 'Only 10 minutes available' } }], { id: 'g' });
+A.eq(pc.goal.successCondition, 'An accepted offer', 'planner sees the registered success condition');
+A.eq(pc.metrics.length, 1, 'planner metrics scoped to the active goal');
+const pd = R.buildDirective({ goalNote: 'Find a job', progress: pc });
+A.ok(pd.includes('No replies') && pd.includes('commander-confirmed') && pd.includes('Only 10 minutes available'), 'planner sees metric history, provenance and user constraints');
+A.ok(pd.includes('Completed work does not prove the life goal happened'), 'planner separates activity from goal attainment');
 A.report();

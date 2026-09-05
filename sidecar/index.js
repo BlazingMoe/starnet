@@ -7572,7 +7572,16 @@ const QUESTREFRESH_PROP_KEYS = SCOUT_CAP_KEYS.concat(['computer', 'compute']);
 let questRefreshState = (() => { try { const o = loadResilient(QUESTREFRESH_FILE, 'questrefresh'); return QuestRefresh.normalize(o && o.state); } catch (_) { return QuestRefresh.fresh(); } })();
 function persistQuestRefresh() { try { saveResilient(QUESTREFRESH_FILE, { v: 1, state: questRefreshState }); } catch (e) { console.warn('[questrefresh] persist failed:', (e && e.message) || e); } }
 function questRefreshNote(entry) { questRefreshState = QuestRefresh.note(questRefreshState, entry, { now: Date.now() }); persistQuestRefresh(); }
-function questRefreshOpenCount() { try { return questStore.list().filter(q => q.status === 'open').length; } catch (_) { return 0; } }
+function questActionable(q) { return q.status === 'open' && (!q.disposition || (q.disposition.type === 'later' && q.disposition.snoozeUntil != null && q.disposition.snoozeUntil <= Date.now())); }
+function questProgressContext() { return QuestRefresh.progressContext(journeyStore.read(), questStore.list(), commanderGoals.get()); }
+function questContextKey() {
+  const quests = questStore.list();
+  const context = { goal: commanderGoals.get(), progress: questProgressContext(),
+    resolved: quests.filter(q => q.status !== 'open').map(q => [q.id, q.status]),
+    deferred: quests.filter(q => q.disposition).map(q => [q.id, questActionable(q)]) };
+  return crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function questRefreshOpenCount() { try { return questStore.list().filter(questActionable).length; } catch (_) { return 0; } }
 async function mintQuestRecommendations(quests, why) {
   const declinedIdx = buildDeclinedIndex(null); let minted = 0;
   const activeGoal = commanderGoals.get();
@@ -7601,7 +7610,7 @@ async function mintQuestRecommendations(quests, why) {
     const r = await questStore.mint({
       title: q.title, desc: q.desc, reward: q.reward, kind: 'generated', createdBy: 'system:quest-refresh',
       agentId: null, domain: q.domain, goalId: activeGoal && activeGoal.id, milestoneId: activeGoal && activeGoal.milestoneId,
-      contract: q.contract, steps: q.steps, groundedIn: q.groundedIn
+      contract: q.contract, steps: q.steps, groundedIn: q.groundedIn, executionMode: q.executionMode, whyNow: q.whyNow
     }, Date.now());
     if (r && r.ok) {
       minted++;
@@ -7672,9 +7681,9 @@ async function runQuestRefreshCycle(why) {
     // refresh mints station-wide (agentId null). At that ceiling every proposed mint is foredoomed 'max open
     // generated quests' — so skip the paid model call entirely and record ONE honest outcome, mirroring the
     // cold-save guard below. (Completing or dismissing an open generated quest re-opens the fast path.)
-    const openGenStationWide = rec.quests.filter(q => q.status === 'open' && q.kind === 'generated' && q.agentId == null).length;
+    const openGenStationWide = rec.quests.filter(q => questActionable(q) && q.kind === 'generated' && q.agentId == null).length;
     if (QuestRefresh.slateFull(openGenStationWide)) {
-      questRefreshNote({ outcome: 'skipped', reason: 'slate full — ' + openGenStationWide + ' open generated quests already await; complete or dismiss one to earn a fresh cycle' });
+      questRefreshNote({ outcome: 'skipped', reason: 'slate full — ' + openGenStationWide + ' open generated quests already await; complete, pause, or dismiss one to earn a fresh cycle' });
       return;
     }
     // PROGRESSION: the most recently completed quests feed the directive so each refresh proposes the NEXT
@@ -7692,6 +7701,7 @@ async function runQuestRefreshCycle(why) {
     const dossierBlock = dossierNotReady ? '' : commanderDossier.get();
     const evidenceCtx = {
       goalNote: goalNote,
+      progress: questProgressContext(),
       // ground on the EFFECTIVE star: a pending (unconfirmed) inference still steers the directive so the cycle
       // isn't rudderless while awaiting the Commander's verdict — the UI is what labels it unconfirmed, not here.
       northStar: QuestRefresh.normalize(questRefreshState).northStar,
@@ -7729,7 +7739,7 @@ async function runQuestRefreshCycle(why) {
     const c = cost.reconcile(usage, model);
     usd += c.usd || 0; tokens += (c.tokensIn || 0) + (c.tokensOut || 0);
 
-    const grounding = [goalNote, dossierBlock, activityBlock, interestsBlock].filter(Boolean).join('\n');
+    const grounding = [goalNote, dossierBlock, activityBlock, interestsBlock, JSON.stringify(evidenceCtx.progress)].filter(Boolean).join('\n');
     const parsed = QuestRefresh.parse(out, {
       openTitles: open.map(q => q.title).concat(completed.map(q => q.title)),   // done work is never re-proposed
       deniedTitles: rec.deniedTitles, propKeys: QUESTREFRESH_PROP_KEYS, grounding: grounding
@@ -7782,9 +7792,9 @@ function questRefreshTick() {
   // V3 §6 note: the readiness gate is applied INSIDE the cycle as dossier ADMISSIBILITY (a synced not-ready
   // verdict blanks the dossier out of the evidence, so a blitzed onboarding can't mint quests) — never here
   // at the tick, so the cadence still spends and the honest 'skipped' ledger semantics survive.
-  const d = QuestRefresh.decide(questRefreshState, { now: Date.now(), openCount: questRefreshOpenCount() });
+  const d = QuestRefresh.decide(questRefreshState, { now: Date.now(), openCount: questRefreshOpenCount(), contextKey: questContextKey() });
   if (!d.fire) return;
-  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now() });
+  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now(), contextKey: questContextKey() });
   persistQuestRefresh();
   questRefreshingNow = true;
   runQuestRefreshCycle(d.why).catch(swallow('aux.questrefresh.envelope')).finally(() => { questRefreshingNow = false; });
@@ -9188,6 +9198,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/quests/update', h: handleQuestsUpdate },
   { m: 'POST', exact: '/api/quests/confirm', h: handleQuestsConfirm },
   { m: 'POST', exact: '/api/quests/dismiss', h: handleQuestsDismiss },
+  { m: 'POST', exact: '/api/quests/disposition', h: handleQuestsDisposition },
+  { m: 'POST', exact: '/api/quests/report', h: handleQuestsReport },
   { m: 'GET', qsplit: '/api/quests/refresh', h: handleQuestsRefreshStatus },   // QUEST V3: north star + refresh ledger + due state
   { m: 'POST', exact: '/api/quests/refresh/run', h: handleQuestsRefreshRun },               // QUEST V3: force a refresh cycle NOW (manual override)
   { m: 'POST', exact: '/api/quests/refresh/northstar', h: handleQuestsRefreshNorthStar },  // QUEST V3: confirm/decline a proposed (inferred) north star
@@ -12576,6 +12588,26 @@ async function handleQuestsDismiss(req, res) {
   json(200, { ok: !!did });
 }
 
+// Owner routes share the API origin/launch-token boundary; no agent tool exposes direct completion.
+async function handleQuestsDisposition(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  try {
+    const result = await questStore.setDisposition(body.id, body, Date.now());
+    if (result.ok) questRefreshTick();
+    return json(result.ok ? 200 : 400, result);
+  } catch (_) { return json(500, { ok: false, error: 'could not save quest feedback' }); }
+}
+async function handleQuestsReport(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  try {
+    const result = await questStore.reportCompletion(body.id, body.evidence, Date.now());
+    if (result.ok) { await completeQuestRecommendationIds([String(body.id)]); questRefreshTick(); }
+    return json(result.ok ? 200 : 400, result);
+  } catch (_) { return json(500, { ok: false, error: 'could not save your completion report' }); }
+}
+
 // POST /api/quests/refresh/run — force a refresh cycle NOW (the manual override for a "refresh quests"
 // button / dev proof). Bypasses the due gates on purpose — a Commander asking IS the trigger — but still
 // respects the in-flight guard, the opt-out, and stamps the cadence like any other attempt. Honest reply:
@@ -12585,7 +12617,7 @@ async function handleQuestsRefreshRun(req, res) {
   try { await readBody(req, 4096); } catch (_) {}
   if (process.env.SKYNET_QUEST_REFRESH === '0') return json(200, { ok: false, started: false, error: 'quest refresh is disabled (SKYNET_QUEST_REFRESH=0)' });
   if (questRefreshingNow) return json(200, { ok: false, started: false, error: 'a refresh cycle is already running' });
-  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now() });
+  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now(), contextKey: questContextKey() });
   persistQuestRefresh();
   questRefreshingNow = true;
   runQuestRefreshCycle('manual').catch(swallow('aux.questrefresh.envelope')).finally(() => { questRefreshingNow = false; });
@@ -12597,7 +12629,7 @@ async function handleQuestsRefreshRun(req, res) {
 // Everything here is real engine state — nothing synthesized (truthful-telemetry law applies to JSON too).
 function handleQuestsRefreshStatus(req, res) {
   const s = QuestRefresh.normalize(questRefreshState);
-  const d = QuestRefresh.decide(s, { now: Date.now(), openCount: questRefreshOpenCount() });
+  const d = QuestRefresh.decide(s, { now: Date.now(), openCount: questRefreshOpenCount(), contextKey: questContextKey() });
   // the EFFECTIVE star the panel shows: a pending inference (status 'proposed') takes precedence over the last
   // adopted one so the UI can label it "unconfirmed" and offer confirm/correct — never asserting silent adoption.
   const eff = QuestRefresh.effectiveNorthStar(s);
@@ -15550,7 +15582,7 @@ async function runOnce(o) {
   // placement signal (the world/build lives in the browser), and a run carrying the grant IS the proof.
   // Fire-and-forget + fail-open: a quest-store hiccup never touches run admission.
   try {
-    for (const _pk of QuestSweeps.livePropKeys(questStore.openForAgent(agentId), agentId, station, resolved)) {
+    for (const _pk of QuestSweeps.livePropKeys(questStore.openForAgent(agentId, Date.now()), agentId, station, resolved)) {
       questStore.completeByContract('prop', _pk, Date.now()).then(completeQuestRecommendationIds).catch(swallow('quest.complete'));
     }
   } catch (_) {}
@@ -16519,7 +16551,7 @@ async function runOnce(o) {
   // change — would otherwise ship a prompt demanding a tool the model can't see (the exact break a real-provider run
   // caught). isTask is kept because a non-task run has no tools at all. Fail-open: ANY error yields no block.
   let questsBlock = '';
-  try { if (isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.indexOf('quest.update') >= 0) questsBlock = questBlock(questStore.openForAgent(agentId)); } catch (_) { questsBlock = ''; }
+  try { if (isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.indexOf('quest.update') >= 0) questsBlock = questBlock(questStore.openForAgent(agentId, Date.now())); } catch (_) { questsBlock = ''; }
   // RUN quests bind only through quest.update op:"start" (or a successful named progress tick). Admission cannot
   // infer which of several open objectives this arbitrary task is doing, so it deliberately binds nothing here.
   let taskIntentNote = '';
@@ -16978,7 +17010,7 @@ async function runOnce(o) {
     // the file existing is the truth, not the run outcome — and workshop/night-shift builds ride this same
     // runOnce host, so a validated manifest's files land under this sweep too. Fire-and-forget + fail-open.
     (async () => {
-      for (const _aq of QuestSweeps.artifactQuestKeys(questStore.openForAgent(agentId), agentId)) {
+      for (const _aq of QuestSweeps.artifactQuestKeys(questStore.openForAgent(agentId, Date.now()), agentId)) {
         try {
           const { abs: _aAbs } = await fsJail.resolveInside(agentId, _aq.key);
           if (fs.existsSync(_aAbs)) await completeQuestRecommendationIds(await questStore.completeByContract('artifact', _aq.key, Date.now()));
@@ -20070,7 +20102,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
   // server-side dossier-write seam — /api/study/resolve carries no accepted dimension), so dossier-dim keys stay
   // open until a committed memory covers them. Fire-and-forget + fail-open: never fails the memory write.
   try {
-    for (const _fk of QuestSweeps.learnedFactKeys(questStore.openForAgent(agentId), agentId, { id: writtenId, content: content })) {
+    for (const _fk of QuestSweeps.learnedFactKeys(questStore.openForAgent(agentId, Date.now()), agentId, { id: writtenId, content: content })) {
       questStore.completeByContract('fact', _fk, Date.now()).then(completeQuestRecommendationIds).catch(swallow('quest.complete'));
     }
   } catch (_) {}

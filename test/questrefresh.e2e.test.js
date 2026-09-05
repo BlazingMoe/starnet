@@ -172,6 +172,44 @@ const CRED = { SKYNET_OPENROUTER_KEY: 'sk-or-v1-questrefresh-fake', SKYNET_DEFAU
     }
   }
 
+  // Direct Commander life-action reporting, durable pauses, and restart reconciliation through real routes.
+  {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-life-quest-'));
+    seedEvidence(ws); seedAutonomy(ws, 'wait');
+    let child = null;
+    try {
+      let up = await boot(9125 + (process.pid % 10), Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20);
+      child = up.child;
+      let base = 'http://' + HOST + ':' + up.port, token = await bootToken(base, base);
+      const post = async (route, body) => (await fetch(base + route, { method: 'POST', headers: { Origin: base, 'X-StarNet-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      const minted = await post('/api/quests/mint', { title: 'Attend a practice class', contract: { type: 'attest', key: '' }, domain: 'growth', executionMode: 'commander' });
+      A.ok(minted.ok, 'real route creates a Commander action');
+      const unauthorized = await fetch(base + '/api/quests/report', { method: 'POST', headers: { Origin: 'https://hostile.invalid', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: minted.id, evidence: 'Unauthorized completion claim' }) });
+      A.eq(unauthorized.status, 403, 'completion route rejects an untrusted origin');
+      const paused = await post('/api/quests/disposition', { id: minted.id, disposition: 'too_big', reason: 'Need a beginner class first' });
+      A.ok(paused.ok && paused.quest.disposition.type === 'too_big', 'real route retains a too-big reason');
+      child.kill(); await new Promise(resolve => child.once('exit', resolve)); child = null;
+      up = await boot(up.port, Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20); child = up.child;
+      base = 'http://' + HOST + ':' + up.port; token = await bootToken(base, base);
+      const persisted = await (await fetch(base + '/api/quests', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      A.eq(persisted.quests.find(q => q.id === minted.id).disposition.reason, 'Need a beginner class first', 'pause survives sidecar restart');
+      A.ok((await post('/api/quests/disposition', { id: minted.id, disposition: 'resume' })).ok, 'real route resumes the action');
+      const report = await post('/api/quests/report', { id: minted.id, evidence: 'I attended the beginner class this morning' });
+      A.ok(report.ok && report.quest.status === 'done' && report.quest.attest.source === 'commander', 'only Commander report completes real-world action with source');
+      const journey = await (await fetch(base + '/api/journey', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      A.ok(journey.journey.outcomes.some(o => o.questId === minted.id && o.verifiedBy === 'commander-confirmed'), 'life action folds into Journey with Commander-confirmed provenance');
+      child.kill(); await new Promise(resolve => child.once('exit', resolve)); child = null;
+      up = await boot(up.port, Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20); child = up.child;
+      base = 'http://' + HOST + ':' + up.port; token = await bootToken(base, base);
+      const final = await (await fetch(base + '/api/quests', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      const done = final.quests.find(q => q.id === minted.id);
+      A.ok(done.status === 'done' && done.attest.confirmed && done.attest.evidence.includes('beginner class'), 'completion evidence survives second sidecar restart');
+    } finally {
+      if (child) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  }
+
   /* ================= BOOT 1 — the happy chain ================= */
   {
     const mock = await startMock([

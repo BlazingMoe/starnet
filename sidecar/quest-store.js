@@ -39,6 +39,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const DENIED_CAP = 500;   // FIFO cap on the permanent dismissed-title denylist (anti-nag: dismiss = forever)
 const QUEST_CAP = 300;    // FIFO cap on total quests — drop the OLDEST terminal (done/dismissed), never an open one
 const OPEN_GENERATED_CAP = 3;   // ≤3 open kind:'generated' quests per agent (generative-minting guardrail, plan §E)
+const DISPOSITIONS = ['later', 'blocked', 'too_big'];
 const MIN_EVIDENCE = 10;  // an attest_complete needs real evidence (chars after trim), never an empty claim
 
 const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
@@ -77,6 +78,16 @@ function validSteps(arr) {
     .filter(s => s.key);
 }
 
+function actionable(q, now) {
+  return q.status === 'open' && (!q.disposition || (q.disposition.type === 'later' && q.disposition.snoozeUntil != null && q.disposition.snoozeUntil <= now));
+}
+function dispositionOrNull(d) {
+  return d && DISPOSITIONS.includes(d.type) ? { type: d.type, reason: clip(d.reason, 500), at: numOr(d.at, 0), snoozeUntil: num(d.snoozeUntil) } : null;
+}
+function executionMode(d, contract) {
+  return ['commander', 'agent', 'together'].includes(d) ? d : (contract.type === 'attest' ? 'commander' : 'agent');
+}
+
 // rebuild ONE quest defensively from a persisted/legacy/junk entry. A quest with no id or no valid contract is
 // dropped (the contract rule holds even on hydration — a contractless record could never have been minted).
 function normQuest(r) {
@@ -95,6 +106,7 @@ function normQuest(r) {
       }).filter(st => st && st.key)
     : [];
   const attest = (r.attest && typeof r.attest === 'object') ? {
+    source: r.attest.source === 'commander' ? 'commander' : 'agent',
     agentId: agentIdOrNull(r.attest.agentId),
     runId: r.attest.runId == null ? null : clip(r.attest.runId, 80),
     evidence: clip(r.attest.evidence, 2000),
@@ -115,6 +127,10 @@ function normQuest(r) {
     contract: contract,
     steps: steps,
     status: status,
+    executionMode: executionMode(r.executionMode, contract),
+    whyNow: clip(r.whyNow, 300),
+    disposition: dispositionOrNull(r.disposition),
+    dispositionHistory: (Array.isArray(r.dispositionHistory) ? r.dispositionHistory : []).map(dispositionOrNull).filter(Boolean).slice(-20),
     attest: attest,
     declineNote: declineNote,
     groundedIn: r.groundedIn == null ? null : clip(r.groundedIn, 200),
@@ -177,9 +193,9 @@ function makeQuestStore(deps) {
   function list() { return read().quests; }
   function get(id) { return read().quests.find(q => q.id === String(id)) || null; }
   // open quests an agent should see in its prompt: its OWN quests + station-wide (agentId null) ones.
-  function openForAgent(agentId) {
+  function openForAgent(agentId, now) {
     const aid = agentIdOrNull(agentId);
-    return read().quests.filter(q => q.status === 'open' && (q.agentId == null || q.agentId === aid));
+    return read().quests.filter(q => actionable(q, numOr(now, 0)) && (q.agentId == null || q.agentId === aid));
   }
 
   // ---- MINT (contract-enforced, title-deduped, per-agent capped) ----
@@ -208,7 +224,7 @@ function makeQuestStore(deps) {
       }
       // generative-minting guardrail: ≤3 OPEN generated quests per agent scope.
       if (kind === 'generated') {
-        const openGen = rec.quests.filter(q => q.status === 'open' && q.kind === 'generated' && q.agentId === agentId).length;
+        const openGen = rec.quests.filter(q => actionable(q, numOr(now, 0)) && q.kind === 'generated' && q.agentId === agentId).length;
         if (openGen >= OPEN_GENERATED_CAP) { out = { ok: false, error: 'this agent already has the max open generated quests' }; return undefined; }
       }
       const id = 'q:' + (++rec.seq);
@@ -223,6 +239,9 @@ function makeQuestStore(deps) {
         contract: contract,
         steps: validSteps(d.steps),
         status: 'open',
+        executionMode: executionMode(d.executionMode, contract),
+        whyNow: clip(d.whyNow, 300),
+        disposition: null, dispositionHistory: [],
         attest: null,
         declineNote: null,
         groundedIn: d.groundedIn == null ? null : clip(d.groundedIn, 200),
@@ -379,6 +398,43 @@ function makeQuestStore(deps) {
     }).then(() => out);
   }
 
+  // Commander feedback is durable; paused quests stay in the ledger and title dedup set.
+  function setDisposition(id, d, now) {
+    d = d || {};
+    const type = String(d.disposition || '');
+    if (!DISPOSITIONS.includes(type) && type !== 'resume') return Promise.resolve({ ok: false, error: 'unknown disposition' });
+    const at = numOr(now, 0);
+    if (type === 'later' && d.snoozeUntil != null && (num(d.snoozeUntil) == null || num(d.snoozeUntil) <= at)) return Promise.resolve({ ok: false, error: 'snoozeUntil must be a future timestamp' });
+    let out = { ok: false, error: 'no such open quest' };
+    return durable.update(STORE_KEY, cur => {
+      const rec = normalize(cur), q = rec.quests.find(x => x.id === String(id));
+      if (!q || q.status !== 'open') return undefined;
+      if (type === 'resume') q.disposition = null;
+      else {
+        q.disposition = { type, reason: clip(d.reason, 500), at, snoozeUntil: type === 'later' ? (num(d.snoozeUntil) || at + 86400000) : null };
+        q.dispositionHistory = q.dispositionHistory.concat([q.disposition]).slice(-20);
+      }
+      out = { ok: true, quest: q };
+      return rec;
+    }).then(() => out);
+  }
+
+  // Owner HTTP surface only. Agent tools still require attest -> Commander confirm.
+  function reportCompletion(id, evidence, now) {
+    const text = String(evidence || '').trim();
+    if (text.length < MIN_EVIDENCE) return Promise.resolve({ ok: false, error: 'describe what you did (at least 10 characters)' });
+    let out = { ok: false, error: 'no such open quest' };
+    return durable.update(STORE_KEY, cur => {
+      const rec = normalize(cur), q = rec.quests.find(x => x.id === String(id));
+      if (!q || q.status !== 'open') return undefined;
+      if (q.contract.type !== 'attest') { out = { ok: false, error: 'this quest requires its harness completion contract' }; return undefined; }
+      q.attest = { source: 'commander', agentId: null, runId: null, evidence: clip(text, 2000), at: numOr(now, 0), confirmed: true };
+      q.status = 'done'; q.completedAt = numOr(now, 0); q.completedBy = null; q.disposition = null;
+      out = { ok: true, quest: q };
+      return rec;
+    }).then(() => out);
+  }
+
   // DISMISS forever (anti-nag): status → dismissed AND the normalized title is denylisted permanently, so the
   // same quest can never be re-minted. Returns true only when it actually took (a known, not-already-dismissed).
   function dismiss(id, now) {
@@ -401,9 +457,9 @@ function makeQuestStore(deps) {
 
   return {
     read, list, get, openForAgent,
-    mint, tickStep, bindRun, completeByContract, stallRun, attest, confirmAttest, dismiss,
+    mint, setDisposition, reportCompletion, tickStep, bindRun, completeByContract, stallRun, attest, confirmAttest, dismiss,
     _durable: durable
   };
 }
 
-module.exports = { makeQuestStore, normalize, DOMAINS, _internals: { validContract, normTitle, validSteps, normQuest, domainOrNull } };
+module.exports = { makeQuestStore, normalize, DOMAINS, actionable, _internals: { validContract, normTitle, validSteps, normQuest, domainOrNull } };
