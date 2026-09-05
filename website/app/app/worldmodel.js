@@ -193,6 +193,7 @@ const WorldModel = (() => {
   const FLOOR_MATERIALS = {
     // the hab default since 2026-07-25 — see the note above deckSpine in stationbake.js
     spine: { label: 'SPINE',  pitch: [4, 3], suggest: null },
+    alloy: { label: 'ALLOY', pitch: [4, 3], suggest: 'hull' },
     plate: { label: 'PLATE',  pitch: [2, 2], suggest: null },
     panel: { label: 'PANEL',  pitch: [4, 1], suggest: null },
     tile:  { label: 'TILE',   pitch: [2, 2], suggest: null },
@@ -214,7 +215,7 @@ const WorldModel = (() => {
     treadway: { label: 'TREADWAY', pitch: [3, 2], suggest: null },
     meshway:  { label: 'MESHWAY',  pitch: [3, 3], suggest: null },
   };
-  const MAT_ORDER = ['spine', 'runner', 'treadway', 'meshway', 'plate', 'diamond', 'cargo', 'panel', 'tile', 'ceramic', 'resin', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf'];
+  const MAT_ORDER = ['spine', 'alloy', 'runner', 'treadway', 'meshway', 'plate', 'diamond', 'cargo', 'panel', 'tile', 'ceramic', 'resin', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf'];
 
   /* the WALL material catalog — the deck's opposite number. Walls carry the same two axes as the
      floor (hue × recipe) and read from the same FLOOR_STYLES hue catalog, because a room should be
@@ -262,6 +263,7 @@ const WorldModel = (() => {
      in the REFIT SURFACE palette's HULL target automatically. */
   const HULL_MATERIALS = {
     station:   { label: 'STATION',   suggest: null,     blurb: 'riveted hull plate — the shell you launched with' },
+    monocoque: { label: 'MONOCOQUE', suggest: 'bone', blurb: 'large inset alloy panels with recessed joints and protected edge rails' },
     timber:    { label: 'TIMBER',    suggest: 'walnut', blurb: 'stacked log courses — the cabin' },
     clapboard: { label: 'CLAPBOARD', suggest: 'ash',    blurb: 'lapped siding boards — the farmhouse' },
     shingle:   { label: 'SHINGLE',   suggest: 'oak',    blurb: 'overlapping shingles — a pitched roof from above' },
@@ -271,7 +273,7 @@ const WorldModel = (() => {
     curtain:   { label: 'CURTAIN',   suggest: 'indigo', blurb: 'glass curtain wall + mullions — the tower' },
     hedge:     { label: 'HEDGE',     suggest: 'fern',   blurb: 'clipped hedge — the garden wall' },
   };
-  const HULL_ORDER = ['station', 'timber', 'clapboard', 'shingle', 'brick', 'stone', 'stucco', 'curtain', 'hedge'];
+  const HULL_ORDER = ['station', 'monocoque', 'timber', 'clapboard', 'shingle', 'brick', 'stone', 'stucco', 'curtain', 'hedge'];
 
   /* room categories — a capability-zone label + a default floor (hue + material). kind drives
      nothing behavioural yet (capability mapping is a later pass); it tags the zone + seeds the

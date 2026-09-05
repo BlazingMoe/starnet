@@ -180,3 +180,25 @@ calls. Its 21 live checks cover portrait bounds and live skin refresh without tr
 config expansion/editing, preserved drafts and return navigation, selected prop orientation, and
 composer fit at 1049/700/475px. Screenshots and results are in `.worldshots/interface/`.
 Station art, lighting, chair shape, movement and doorway depth were not modified by this UI pass.
+
+## September 5 command-room material study
+
+Andrew approved a one-room pilot to address the world/UI quality gap. Added opt-in ALLOY deck and
+MONOCOQUE hull materials through the existing catalogs; defaults and other rooms are unchanged.
+ALLOY uses quiet 4x3 plates, restrained captive fasteners, and recessed edges at darker floor-paint
+insets. MONOCOQUE uses broad structural panels with protected rails, six existing silhouette stamps,
+and sparse maintenance latches. Both are baked; no new per-frame loop or texture upload.
+
+The custom demo's r1 keeps its viewport wall, dimensions, original chairs, shadow geometry and all
+equipment/assignments. Its command desk gets a 6x6 cobalt inset; the two monitor stands move north
+one tile, and the workbench/camera rig move away from the central silhouette. Four positions change;
+no equipment is added or removed. Interior lighting settings and masks remain byte-identical.
+
+`dev/command-room-probe.mjs` creates fixed-camera before/after views and proves the changes stay
+within the room/shell, equipment identity/assignment preservation, and unchanged lighting/glass.
+Real Chromium chunk comparison permits only the exact existing signed 1/255 alpha-rounding error
+at two unchanged coordinates; no new error is introduced. Headless material tests cover locality,
+distinctness and chunk parity. Evidence and the comparison viewer: `.worldshots/command-room/`.
+`dev/apply-command-room-demo.mjs` applies only the reviewed fields to the owned scratch save,
+refusing if those fields moved since the comparison. Original room data remains in the review
+artifact for reversal. This is a command-room pilot, not a station-wide rollout or installed build.
