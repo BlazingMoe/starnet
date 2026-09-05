@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "84231b6b4c221d08b12c5ba0f0fd581e6bd1230f",
+    "sourceCommit": "b2c2bb986985a1d53716a9832dd6a3bdfc4a4496",
     "pathSetSha256": "8da0e090e9a9dc29720c32047efb667cd53f48b6fd1c844ad89ff31bc05fef0d",
     "files": [
       {
@@ -148,8 +148,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 627089,
-        "sha256": "bced71f1a550af613868a58d54522bd207ac9731e9e8be5e927024b1ea49df30"
+        "bytes": 630753,
+        "sha256": "32449ca63e17076367c6be5e0042d838302eb7c90329c8caa21d7fede0831edc"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -283,8 +283,8 @@
       },
       {
         "path": "frontend/app/friendlyerror.js",
-        "bytes": 44578,
-        "sha256": "721ccab7d5e435123825e6ae55835957d5d9a2bfb02b467525d328b69cbb22bc"
+        "bytes": 44560,
+        "sha256": "c10e25d2d35b9ce0798ed75eb7ee0910807945c49e513ff0d672e84462671467"
       },
       {
         "path": "frontend/app/fullscreen.js",
@@ -318,8 +318,8 @@
       },
       {
         "path": "frontend/app/harness.js",
-        "bytes": 81646,
-        "sha256": "105fe4776759b2f4f9fc387df502a1f48f4d87c82bf2157e717f5aa484f06842"
+        "bytes": 81765,
+        "sha256": "b5c98e760cda11d5ce4b3969b387f416b4cbabad211cab714afee6b9aae697e8"
       },
       {
         "path": "frontend/app/hint.js",
@@ -913,8 +913,8 @@
       },
       {
         "path": "frontend/app/windows/connectors.js",
-        "bytes": 117726,
-        "sha256": "edb6cbe994c283e403452874f086a33d93571477a594e638183e543b77a443f8"
+        "bytes": 119933,
+        "sha256": "3b7a7c6e212ffbfa2ea2f0871e41bd9fe091baccf579c4822b8e094cdabd26be"
       },
       {
         "path": "frontend/app/windows/logbook.js",
@@ -983,8 +983,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 36121,
-        "sha256": "263dce32822a8f8c8c4214aed22b441acded0f022eb21c04bcaf2cf46d7769e7"
+        "bytes": 37011,
+        "sha256": "0ae1eaa0b07b99be5b2cd7d17ab92e5c0c1423e6fe5c427b488e80cbbdc18baa"
       },
       {
         "path": "frontend/app/workview.js",
