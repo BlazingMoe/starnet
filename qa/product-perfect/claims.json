@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "fcd703b12d207207cb85312084e77b987085ffb4",
+    "sourceCommit": "57f589527f4222d73a5a6b5ac45ecf21159a93a9",
     "pathSetSha256": "35f806b0a0dbe801e6852fb7d699846911c65713289c283c13b96afb7baf576f",
     "files": [
       {
@@ -128,8 +128,8 @@
       },
       {
         "path": "frontend/app/bootguard.js",
-        "bytes": 11239,
-        "sha256": "e6a1074ee47dcee32a907203e75c388b70650fa4444ae9735a066468d89a2dd4"
+        "bytes": 11868,
+        "sha256": "9e1cf5a495345aa8a8ee3825dc3cc9d0e73344e47d48c90a67c20b00aa4b086a"
       },
       {
         "path": "frontend/app/bottlestore.js",
