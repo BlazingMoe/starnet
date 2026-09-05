@@ -52,3 +52,16 @@ provider. Installed-desktop behavior and release packaging are outside this proo
 The next product validation should assess whether recommended steps actually move
 users toward their success conditions, and tune scoring and recommendation ranking
 from that evidence. No powers or capabilities are locked behind Commander levels.
+
+## Integration verification
+
+Merged into `feat/harness-backend` as `46b944c11`, after combining the current website
+preview repair. Pre-merge gates passed 722/722 fast and 99/99 HTTP. The combined
+website candidate passed 722/722 fast and the live browser/restart proof again.
+Post-merge gates passed 722/722 fast and 99/99 HTTP, both exit 0, on the unchanged
+integration candidate. Logs are `dev/life-post-fast.log` and `dev/life-post-http.log`
+in the integration checkout. The seeded proof receipt is retained in the task
+worktree under `dev/.scratch-workspace/life-proof/receipt.json`.
+
+The pre-existing unstaged QA notes and Rooms handoff were preserved. No package was
+built or installed, and no release was published by this task.
