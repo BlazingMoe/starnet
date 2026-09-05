@@ -38,6 +38,12 @@ Keep historical disappearance open. 2b976f5f3 repairs false confirmation and pre
 
 Exact before/after customer reproduction is pending; see Repro and Verdict.
 
+2026-09-05 local recheck on source `94bff3a5f`: the real INBOX UI passed create/readback,
+stale-arm, lost acknowledgement, missing-row and duplicate cases. Restarting the seeded
+sidecar with `--keep` preserved exactly one named ONCE routine visible in Active Routines.
+See `qa/digests/2026-09-05-release-blockers.md`. Historical disappearance and installer/customer
+recovery remain unverified; no closure inferred from this passing local path.
+
 ## Sibling coverage
 
 {
