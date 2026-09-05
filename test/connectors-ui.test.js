@@ -9,6 +9,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 const A = require('./_assert.js');
 const { makeConnectorManager } = require('../sidecar/mcp/manager.js');
 
@@ -274,8 +275,13 @@ function fakeStack(tools) {
     'platform cards are identity-namespaced so GitHub/Notion/Stripe cannot collide with same-id MCP cards');
   A.ok(!/id="ky-catalog"/.test(station) && /CONNECTED API KEYS/.test(station),
     'KEYS shows connected credentials and no longer hides the curated platform catalog inside its add form');
-  A.ok(/to: 'catalog', title: 'Connect a platform API or POD service'/.test(station) && /Choose the platform here, then paste its key/.test(station),
+  const routeSource = /const ROUTES = (\[[\s\S]*?\n\s*\]);/.exec(station);
+  const routes = routeSource ? vm.runInNewContext(routeSource[1]) : [];
+  const podRoute = routes.find(r => /print.on.demand|\bPOD\b/i.test(r.title + ' ' + r.blurb));
+  A.ok(podRoute && podRoute.to === 'catalog',
     'the ABILITIES front door routes POD discovery through CATALOG before the KEYS setup path');
+  A.eq(routes.filter(r => r.to === 'catalog').length, 1,
+    'service and platform discovery share one catalog route');
 
   A.report('connectors-ui');
 })().catch(e => { console.log('FAIL: threw ' + (e && e.stack || e)); process.exit(1); });
