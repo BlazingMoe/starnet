@@ -67,7 +67,10 @@ A.ok(/offsetTop[\s\S]{0,80}offsetHeight/.test(js), 'the cut list is summed from 
 A.ok(/U\.elZoom/.test(js), 'visual rect px are converted through elZoom — TEXT SIZE is a body zoom (uiZoom law)');
 A.ok(/getBoundingClientRect\(\)[\s\S]{0,200}\/ z/.test(js), '…and converted exactly ONCE, where the rects are read');
 A.ok(/observe\(ul,\s*\{\s*childList:\s*true\s*\}\)/.test(js), 're-measures when crewRender replaces the rows');
-A.ok(/observe\(ul,\s*\{\s*subtree:\s*true,\s*attributeFilter:\s*\['class'\]\s*\}\)/.test(js), 're-measures when a row picks up .working (which opens the in-flight bar)');
+const rowWatch = /observe\(ul,\s*\{\s*subtree:\s*true,\s*attributeFilter:\s*\[([^\]]+)\]\s*\}\)/.exec(js);
+A.ok(rowWatch && rowWatch[1].includes("'class'"), 're-measures when a row picks up .working (which opens the in-flight bar)');
+A.ok(rowWatch && rowWatch[1].includes("'hidden'") && js.includes(".crew-row:not([hidden])"),
+  'activity-filter changes re-measure the rail and exclude hidden agents from row cuts');
 A.ok(!/childList:\s*true,\s*subtree:\s*true/.test(js), 'the row-count observer is NOT subtree — crewTick rewrites every status line each second, and watching that costs ~8 forced layouts a second');
 // motion.css §17 TRANSITIONS that bar open/closed, so the class toggle fires at the OLD height
 A.ok(/'transitionrun'/.test(js) && /requestAnimationFrame\(follow\)/.test(js), 'follows the in-flight bar frame by frame while it animates — a single re-measure samples it mid-collapse');
