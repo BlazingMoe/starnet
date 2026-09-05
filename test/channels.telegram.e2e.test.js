@@ -12,6 +12,7 @@ const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
+const { allocatePort } = require('./helpers/sidecar-fixture.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -224,10 +225,10 @@ function boot(port, env, attemptsLeft) {
     const onData = d => {
       out += d.toString();
       if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port }); }
-      else if (!settled && /already in use/i.test(out)) {
+      else if (!settled && /EADDRINUSE|Port \d+ is already in use/i.test(out)) {
         settled = true; try { child.kill(); } catch (_) {}
-        if (attemptsLeft > 0) resolve(boot(port + 1, env, attemptsLeft - 1));
-        else reject(new Error('no free port'));
+        if (attemptsLeft > 0) resolve(allocatePort().then(next => boot(next, env, attemptsLeft - 1)));
+        else reject(new Error('no free port; sidecar output:\n' + out));
       }
     };
     child.stdout.on('data', onData);
@@ -316,10 +317,10 @@ async function waitUntil(fn, ms, label) {
     SKYNET_TELEGRAM_API_BASE: tg.base,
     STARNET_TELEGRAM_API_BASE: tg.base
   };
-  const live = await boot(8960 + (process.pid % 50), env, 20);
+  const live = await boot(await allocatePort(), env, 20);
   let child = live.child;
   const port = live.port;
-  const B = 'http://' + HOST + ':' + port;
+  let B = 'http://' + HOST + ':' + port;
   let sse = null;
   try {
     let token = await bootToken(B, B);
@@ -583,8 +584,11 @@ async function waitUntil(fn, ms, label) {
     const restartEnv = Object.assign({}, env);
     delete restartEnv.SKYNET_TELEGRAM_TOKEN;
     delete restartEnv.STARNET_TELEGRAM_TOKEN;
-    const restarted = await boot(port, restartEnv, 0);
+    // Concurrent suites can claim the old address during shutdown. This proves
+    // credential persistence in the same workspace, independently of its HTTP port.
+    const restarted = await boot(await allocatePort(), restartEnv, 20);
     child = restarted.child;
+    B = 'http://' + HOST + ':' + restarted.port;
     token = await bootToken(B, B);
     await waitUntil(() => tg.calls.filter(c => c.method === 'getUpdates').length >= pollsBeforeRestart + 2, 7000, 'saved Telegram auto-start after restart');
     tg.pushText(9898, 99, '/start');   // a real post-restart update proves the restored poller can receive

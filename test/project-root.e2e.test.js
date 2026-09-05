@@ -26,10 +26,13 @@ function startProvider() {
         let body = {}; try { body = JSON.parse(raw); } catch (_) {}
         requests.push(body);
         const results = (body.messages || []).filter(message => message && message.role === 'tool');
+        const worker = (body.messages || []).some(message => message.role === 'system' && String(message.content).includes('PROJECT_WORKER_PROOF'));
         let call = null;
         if (results.length === 0) call = { id: 'brief', name: 'brief_proceed', args: { objective: 'prove project-relative native tools', deliverable: 'two authoritative read receipts', assumptions: ['The project root is already blessed'] } };
         else if (results.length === 1) call = { id: 'read', name: 'fs_read', args: { path: 'incident.log' } };
         else if (results.length === 2) call = { id: 'shell', name: 'shell_exec', args: { cmd: 'node -e "console.log(require(\'fs\').readFileSync(\'incident.log\',\'utf8\'))"' } };
+        else if (results.length === 3) call = { id: 'verify', name: 'verify_run', args: {} };
+        else if (results.length === 4 && !worker) call = { id: 'dispatch', name: 'team_dispatch', args: { workers: [{ agentId: 'project-worker', prompt: 'Read incident.log and verify the active project.' }] } };
 
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
         if (call) {
@@ -50,6 +53,7 @@ function startProvider() {
   const provider = await startProvider();
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-project-root-'));
   fs.writeFileSync(path.join(projectRoot, 'incident.log'), 'PROJECT_RELATIVE_OK\n', 'utf8');
+  fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "console.log(\'PROJECT_VERIFY_OK\')"' } }));
   const fixture = SidecarFixture.create({
     prefix: 'starnet-project-root-sidecar-', timeoutMs: 15000,
     env: {
@@ -65,7 +69,7 @@ function startProvider() {
     await fixture.start();
     const roster = await fixture.json('POST', '/api/roster', {
       updatedAt: 100,
-      agents: [{ agentId: 'project-agent', name: 'PROJECT', system: 'Use the requested native tools and report only their receipts.', provider: 'openrouter', model: 'test/project-root', approvalMode: 'full', executionProfile: 'trusted-project' }]
+      agents: ['project-agent', 'project-worker'].map(agentId => ({ agentId, name: agentId, system: agentId === 'project-worker' ? 'PROJECT_WORKER_PROOF' : 'Use the requested native tools and report only their receipts.', provider: 'openrouter', model: 'test/project-root', approvalMode: 'full', executionProfile: 'trusted-project' }))
     });
     A.eq(roster.status, 200, 'the real sidecar accepts the project test agent');
 
@@ -81,12 +85,18 @@ function startProvider() {
     const events = (await response.text()).split('\n').map(line => { try { return JSON.parse(line); } catch (_) { return null; } }).filter(Boolean);
     A.ok(events.some(event => event.name === 'agent.run.end' && event.payload && event.payload.reason === 'done'), 'the project-scoped run finishes normally');
 
-    const last = provider.requests[provider.requests.length - 1] || {};
-    const results = (last.messages || []).filter(message => message && message.role === 'tool');
+    const parentRequests = provider.requests.filter(request => !(request.messages || []).some(message => message.role === 'system' && String(message.content).includes('PROJECT_WORKER_PROOF')));
+    const results = parentRequests.flatMap(request => (request.messages || []).filter(message => message && message.role === 'tool'));
     const fsRead = results.find(message => message.tool_call_id === 'read');
     const shellRead = results.find(message => message.tool_call_id === 'shell');
     A.ok(fsRead && /PROJECT_RELATIVE_OK/.test(fsRead.content), 'relative fs.read returned the seeded file from projectRoot');
     A.ok(shellRead && /PROJECT_RELATIVE_OK/.test(shellRead.content) && /exit 0/.test(shellRead.content), 'relative shell.exec ran at projectRoot and returned an exit-zero receipt');
+    const allResults = provider.requests.flatMap(request => (request.messages || []).filter(message => message.role === 'tool'));
+    A.ok(allResults.some(message => message.tool_call_id === 'verify' && /PROJECT_VERIFY_OK/.test(message.content)), 'verify.run discovers and executes the selected project package test');
+    const workerRequests = provider.requests.filter(request => (request.messages || []).some(message => message.role === 'system' && String(message.content).includes('PROJECT_WORKER_PROOF')));
+    const workerResults = workerRequests.flatMap(request => (request.messages || []).filter(message => message.role === 'tool'));
+    A.ok(workerResults.some(message => message.tool_call_id === 'read' && /PROJECT_RELATIVE_OK/.test(message.content)), 'delegated worker reads the same active project');
+    A.ok(workerResults.some(message => message.tool_call_id === 'verify' && /PROJECT_VERIFY_OK/.test(message.content)), 'delegated worker verifies the same active project');
     A.ok(!fs.existsSync(path.join(fixture.workspace, 'project-agent', 'incident.log')), 'neither relative read silently fell back to the private agent workspace');
   } finally {
     await fixture.dispose();

@@ -92,6 +92,18 @@ const { makeVerifyTool } = require('../sidecar/tools/builtin/verify.js');
     }).verifyTool;
     A.throws(() => nestedTool.run({ cmd: 'npm test' }, ctx), 'verify.run scans the nested project that will execute');
     A.eq(nestedExecCalls, 0, 'unsafe nested verification is refused before process creation');
+
+    const project = path.join(root, 'a1', 'selected-project');
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ scripts: { test: 'exit 0' } }));
+    let selectedCwd;
+    const scoped = makeVerifyTool({ fs, pathMod: path, root, environment: {
+      backendId: 'local', getCwd: () => path.join(root, 'a1'), ensureWorkspace: () => path.join(root, 'a1'),
+      execute: o => { selectedCwd = o.cwd; return Promise.resolve({ exitCode: 0, out: 'selected project passed', ms: 1 }); }
+    } }).verifyTool;
+    const selected = await scoped.run({}, { ...ctx, projectRoot: project });
+    A.eq(selectedCwd, project, 'registered project controls default command lookup and execution');
+    A.ok(selected.content.includes('PASSED'), 'project verification passes without an explicit shell cwd workaround');
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
   }
