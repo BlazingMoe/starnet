@@ -20,6 +20,6 @@ All scenarios launched `node dev/seed.js --keep` with isolated workspaces, deter
 
 `seeded-proof.cjs <repository> <scenario>` reproduces these scenarios using the repository's integration drivers. Scenarios: `e2e.idempotency`, `project-root.e2e`, `cron.run-now.e2e`, `project-resume`, `routine-repair`.
 
-Event receipts, restart records, routine repair records, sanitized boot logs and raw gate logs are preserved beside this report. Temporary live-proof server trees were terminated and their workspaces disposed. Expected fixture warnings include synthetic model pricing, missing fixture roster identities, checkpoint initialization, intentionally unavailable channel delivery and intentional cancellation.
+Event receipts, restart records, routine repair records, sanitized boot logs, the proof launcher and raw gate logs are preserved in `C:/Users/andro/gen-trees/hermes-reliability-evidence-0905/`. Temporary live-proof server trees were terminated and their workspaces disposed. Expected fixture warnings include synthetic model pricing, missing fixture roster identities, checkpoint initialization, intentionally unavailable channel delivery and intentional cancellation.
 
 This is source/backend lane verification. No installer build, installed-app replacement, remote push or release-readiness claim is included.
