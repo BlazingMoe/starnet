@@ -31,3 +31,5 @@ The verified merge is `c2a62eeb9d084d6e582837e1a3c39d73de1300f4`. Full productio
 The first post-merge HTTP attempt hit a Telegram fixture port collision at restart, so the merge was rolled back with unrelated edits preserved. The test-only correction uses OS-allocated ports while retaining its workspace and all 60 assertions; a direct run and two simultaneous runs passed. The final full gates then passed. No production changes were needed for that correction.
 
 Final receipts are `test-fast-postmerge-retry.log`, `test-http-postmerge-retry.log`, their zero exit stamps, and `live-*-postmerge.log` in the preserved evidence directory above. Six seeded launches were confirmed stopped, with their temporary workspaces removed. The earlier comparison evidence remains preserved separately.
+
+The implementation worktree is retained clean and merged. Automatic approval review rejected removal of its dependency junction with "blocked by policy"; no alternate deletion was attempted, and the shared dependencies remain untouched.
