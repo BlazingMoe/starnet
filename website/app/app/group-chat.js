@@ -173,7 +173,7 @@ const GroupChat = (() => {
       row.append(group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase()), body);
       if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
       log.append(row);
-      for (const next of group.turns.filter(t => t.parent === m.turnId && !t.questionId && t.state !== 'stopped')) {
+      for (const next of group.turns.filter(t => m.turnId && t.parent === m.turnId && !t.questionId && t.state !== 'stopped')) {
         log.append(h('div', { class: 'gc-transfer' }, next.recoveryOf ? name(next.agentId) + ' is checking a handoff that did not start' :
           name(m.author) + ' asked ' + name(next.agentId) + ' to follow up'));
       }
