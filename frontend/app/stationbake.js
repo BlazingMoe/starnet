@@ -172,6 +172,7 @@ const StationBake = (() => {
      lamps square-on. It is cut MULTIPLICATIVELY, so the crown still darkens away from the lamps
      like everything else; it just never falls under the shell outside it. */
   let crownRects = [];
+  let cornerFaceRects = [];
   let doorOcclusion = [];   // solid entrance surfaces, kept for the entity depth pass
   const crown = (b, x, y, w, h, color) => {
     b.fillStyle = color; b.fillRect(x, y, w, h);
@@ -2368,6 +2369,15 @@ const StationBake = (() => {
           const tx = tx0 + i;
           recipe(g, pal, i * T, 0, h, { x: tx, y: ty, z: null }, h2(tx, ty, 'nwall'), true, h);
         }
+        // Curved/side faces are solid structure, not additional windows. Glass
+        // edge tints carry low alpha; reading their RGB as opaque paint made
+        // these faces bright cyan. Composite them over their own wall metal
+        // before sampling, while the straight window keeps its real sky hole.
+        if (matId === 'viewport') {
+          g.globalCompositeOperation = 'destination-over';
+          g.fillStyle = pal.face; g.fillRect(0, 0, w, h);
+          g.globalCompositeOperation = 'source-over';
+        }
         const img = g.getImageData(0, 0, w, h);
         strip = { d: img.data, w, h, x0: tx0 * T };
       }
@@ -3158,7 +3168,7 @@ const StationBake = (() => {
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
     const lit = shade(pal.cap, 0.08), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
-    const put = (x, y, w, h, c) => {
+    const put = (x, y, w, h, c, interior = false) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
       const y0 = Math.max(yLo, y), y1 = Math.min(yHi, y + h);
       if (x1 <= x0 || y1 <= y0) return;
@@ -3173,6 +3183,9 @@ const StationBake = (() => {
         const yEnd = Math.min(y1, lim);
         if (yEnd > y0) {
           b.fillStyle = c; b.fillRect(cx0, y0, cx1 - cx0, yEnd - y0);
+          // Record the face AFTER clipping to the silhouette and nearer walls.
+          // A raised corner is an interior wall, even above the floor footprint.
+          if (interior) cornerFaceRects.push([cx0, y0, cx1 - cx0, yEnd - y0]);
           // the ring's crown tones join the straights' in the ambient cut — a corner that stayed
           // under full ambient beside a lifted straight would be the same inversion, just localised.
           if (c === pal.cap || c === lit) crownRects.push([cx0, y0, cx1 - cx0, yEnd - y0]);
@@ -3181,6 +3194,7 @@ const StationBake = (() => {
         cx0 = cx1;
       }
     };
+    const putFace = (x, y, w, h, c) => put(x, y, w, h, c, true);
     /* the 45° split between the two duals — where the profile's own reach equals the distance along
        it, i.e. rad·2^(-1/n). At n = 2 that is the circle's HR/√2, written verbatim; at n = 1 (the
        shipped chamfer) it is HR/2, and using the circle's split there handed a slab of the chamfer
@@ -3268,14 +3282,14 @@ const StationBake = (() => {
         put(ex, py, 1, 1, shellEdge);                                             // the shell's own edge
         put(ex + 1, py, w, 1, pal.cap); put(ex + 1, py, 1, 1, lit);            // the lit top surface
         // face, down to the deck — depth 0 sits just inside the crown, so the material curves with it
-        cornerFaceSlice(put, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, 1, sOf(ex, py));
+        cornerFaceSlice(putFace, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, 1, sOf(ex, py));
         put(ex + 1 + w, py, 1, 1, seam);
       } else {
         // the lit edge is the crown's OUTERMOST row, i.e. ex - 1 here — putting it on `ex` paints
         // over the shell edge and rules a near-white line along the station's own silhouette.
         put(ex, py, 1, 1, shellEdge);
         put(ex - w, py, w, 1, pal.cap); put(ex - 1, py, 1, 1, lit);
-        cornerFaceSlice(put, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, -1, sOf(ex, py));
+        cornerFaceSlice(putFace, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, -1, sOf(ex, py));
         put(ex - 1 - w, py, 1, 1, seam);
       }
     }
@@ -3303,12 +3317,12 @@ const StationBake = (() => {
       if (outY < 0) {
         put(ix, ey, 1, 1, shellEdge);
         put(ix, ey + 1, 1, w, pal.cap); put(ix, ey + 1, 1, 1, lit);
-        cornerFaceSlice(put, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey + 2 + w, Math.max(0, inner - (ey + 2 + w)), 1, sOf(ix, ey));
+        cornerFaceSlice(putFace, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey + 2 + w, Math.max(0, inner - (ey + 2 + w)), 1, sOf(ix, ey));
         put(ix, ey + 1 + w, 1, 1, seam);
       } else {
         put(ix, ey, 1, 1, shellEdge);
         put(ix, ey - w, 1, w, pal.cap); put(ix, ey - 1, 1, 1, lit);   // outermost crown row, not the shell edge
-        cornerFaceSlice(put, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey - 2 - w, Math.max(0, (ey - 1 - w) - inner), -1, sOf(ix, ey));
+        cornerFaceSlice(putFace, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey - 2 - w, Math.max(0, (ey - 1 - w) - inner), -1, sOf(ix, ey));
         put(ix, ey - 1 - w, 1, 1, seam);
       }
     }
@@ -4254,6 +4268,10 @@ const StationBake = (() => {
       const up = Math.max(0, Math.round(e.room ? WALL.up : WALL.corUp));
       b.fillRect(e.x*T, e.y*T-up, T, up+(e.room ? NFACE : 5));
     }
+    // Continue the same interior exposure around the bend. Reuse the painter's
+    // exact face pixels; a rectangle or expanded floor mask would light the cap
+    // and exterior shell along with the wall.
+    for (const [x,y,w,h] of cornerFaceRects) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'destination-out';
     for (const [x,y,w,h] of crownRects) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'source-over';
@@ -4798,6 +4816,7 @@ const StationBake = (() => {
     stripCache = null;     // ...and the rendered face strips the curved surfaces sample
     viewportRects = [];    // ...and so are the window holes the wall pass punches
     crownRects = [];       // ...and the crown rects the ambient cut reads back
+    cornerFaceRects = [];  // ...and only the clipped interior faces of the corners
     doorOcclusion = [];
     crownReach = new Map();   // ...and the corner crown's measured reach, which the mask erase reads back
     VX = viewport ? viewport.x : 0; VY = viewport ? viewport.y : 0;

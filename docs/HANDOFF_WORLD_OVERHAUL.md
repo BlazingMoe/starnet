@@ -202,3 +202,20 @@ distinctness and chunk parity. Evidence and the comparison viewer: `.worldshots/
 `dev/apply-command-room-demo.mjs` applies only the reviewed fields to the owned scratch save,
 refusing if those fields moved since the comparison. Original room data remains in the review
 artifact for reversal. This is a command-room pilot, not a station-wide rollout or installed build.
+
+## September 5 wall-corner colour repair
+
+The interior-light receiver included straight raised walls but omitted their angled faces above
+the room footprint. This left 9,022 visible face pixels at exterior ambient in the current custom
+demo. Corner painting now records its exact interior pixels after silhouette/nearer-wall clipping;
+the receiver includes those pixels and still subtracts all crowns. No light settings change.
+
+Viewport strips had a second defect: low-alpha glass tint was read back as opaque RGB when sampled
+onto a solid corner, making that metal cyan. The strip now composites the tint over the wall's own
+face metal before sampling. The real straight windows keep their original transparency.
+
+Run `node dev/wall-blend-probe.mjs --before`, then `node dev/wall-blend-probe.mjs` against the owned
+custom demo. The live Chromium check records zero missed face pixels and zero crown coverage,
+with byte-identical crown art/light, exterior lighting and glass panes versus fe88f76b3. Captures
+of the command room and solid-walled quarters are under `.worldshots/wall-blend/`. This repair is
+baked with existing materials, does not edit the station save and adds no frame-loop work.
