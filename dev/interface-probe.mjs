@@ -69,7 +69,7 @@ try {
   await evalJS(cdp, `document.querySelector('#refit-guide-go')?.click()`);
   await evalJS(cdp, `document.querySelector('.refit-tool[data-tool="prop"]').click()`); await sleep(300);
   await evalJS(cdp, `document.querySelector('.fl-x')?.click()`);
-  await check('Armed prop tool expands its own tool shelf', `document.querySelector('.refit-tool.active').closest('details').open && !!document.querySelector('#refit-selected-prop canvas')`);
+  await check('All build tools remain visible with the prop catalog open', `Array.from(document.querySelectorAll('.refit-tool')).every(b=>b.getBoundingClientRect().height>0) && !!document.querySelector('#refit-selected-prop canvas')`);
   await shot('07-refit-catalog');
   const prop = await evalJS(cdp, `(() => {const input=document.querySelector('#refit-propsearch-input');input.value='table';input.dispatchEvent(new Event('input'));const btn=document.querySelector('.refit-proptile[data-prop]');btn.click();return btn.dataset.prop})()`);
   await check('Searching keeps input focus and selected preview matches selection', `document.querySelector('#refit-propsearch-input').value==='table' && document.querySelector('#refit-selected-prop b').textContent===PropSprites.spec(${JSON.stringify(prop)}).label`);

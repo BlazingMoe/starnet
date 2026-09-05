@@ -219,3 +219,25 @@ custom demo. The live Chromium check records zero missed face pixels and zero cr
 with byte-identical crown art/light, exterior lighting and glass panes versus fe88f76b3. Captures
 of the command room and solid-walled quarters are under `.worldshots/wall-blend/`. This repair is
 baked with existing materials, does not edit the station save and adds no frame-loop work.
+
+## September 5 construction inventory
+
+The collapsed build-tool groups could hide PROPS entirely on narrow layouts: CSS removed the
+details summaries but left their contents collapsed. Build mode now has ten persistent tool
+buttons and a Select landing with four direct starting points. The bottom construction tray
+has a global prop search, a flat category rail with catalog counts, sprite cards with footprints,
+and a separate selected-item inspector. PLACE ON DECK folds the inventory away; the next valid
+deck click still goes through the existing model validation and undo history.
+
+The inspector retains equipment-purpose and harness-backed access information. Workflow guidance
+is contextual to Belt/Lines (and active tutorials), with a height/position bound above the tray.
+Narrow trays offer ITEM DETAILS / BACK TO PROPS. Container queries keep tool labels readable
+when text is enlarged. Search preserves focus; selecting a card preserves shelf scroll and the
+existing canvases. Each thumbnail paints once, then only selected/hovered items animate.
+
+`node dev/build-kit-probe.mjs` verifies 25 live checks on a disposable in-memory copy of the
+custom station: full catalog, search/recovery, six viewport sizes, enlarged text, real pointer
+placement, undo/redo, contextual guidance, and exit. It leaves the user's scratch save untouched.
+`--gpu` also samples the full 144-item shelf; the local RTX 5060 Ti run measured 59.6 FPS,
+16.8 ms p95 frame intervals, and 8.1 ms mean build-render callback time. This is a local sample,
+not a frame-rate guarantee on other hardware. Evidence lives in `.worldshots/build-kit/`.

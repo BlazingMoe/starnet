@@ -1,0 +1,117 @@
+/* Construction inventory: fixed tools, scrollable shelves, independent inspector.
+   Percent heights belong to the overlay so body text zoom cannot push it offscreen. */
+.refit-top .bb, .refit-title { white-space: nowrap; flex-shrink: 0; }
+.refit-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.refit-dock {
+  container-type: inline-size;
+  left: 12px; right: 12px; top: auto; bottom: 12px; width: auto;
+  height: min(49%, 430px); max-height: calc(100% - 94px);
+  border: 1px solid var(--ph-dim); border-radius: 7px;
+  box-shadow: 0 0 0 3px rgba(0,0,0,.8), 0 -8px 30px rgba(0,0,0,.5), inset 0 1px 0 var(--ui-highlight);
+}
+.refit-dock-head { display: flex; gap: 12px; padding: 7px 12px; min-height: 24px; }
+.refit-dock-head-t { background: transparent; color: var(--ph-bright); box-shadow: none; padding: 0; font-size: 13px; letter-spacing: 2px; }
+.refit-dock-caption { color: var(--ph-dim); font-size: 11px; letter-spacing: 1px; }
+#refit-kit-toggle { margin-left: auto; min-height: 24px; padding: 4px 8px; font-size: 11px; }
+.refit-mode-section { padding: 6px 10px; background: var(--ui-face); }
+#refit-tools { display: grid; grid-template-columns: repeat(10,minmax(0,1fr)); gap: 5px; }
+.refit-dock .refit-tool { min-width: 0; min-height: 34px; padding: 6px 8px; font-size: 13px; letter-spacing: .5px; gap: 6px; }
+.refit-toolname { flex: 1; text-align: left; letter-spacing: .5px; }
+.refit-tool-reclaim { grid-column: auto; }
+.refit-tool .refit-key { font-size: 10px; border: 1px solid currentColor; padding: 1px 3px; opacity: .55; }
+.refit-dock .refit-tool.active { border-color: var(--ph-bright); color: var(--ph-bright); background: var(--ph-faint); box-shadow: inset 0 -2px var(--ph); }
+.refit-option-section { padding: 8px 12px; gap: 5px; }
+.refit-section-label { font-size: 10px; padding-bottom: 3px; }
+.refit-hint { flex: 0 0 auto; min-height: 0; padding: 7px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; background: var(--ui-face); }
+.refit-hint-verb { font-size: 13px; }
+.refit-hint-keys { margin-left: auto; font-size: 11px; }
+.refit-dock.is-collapsed { height: auto; }
+.refit-dock.is-collapsed .refit-option-section { display: none; }
+.refit-selectnote { display: flex; flex-direction: column; gap: 5px; margin: 2px 0 12px; font-size: 13px; letter-spacing: .3px; }
+.refit-selectnote b { font-size: 24px; font-weight: 400; color: var(--ph-bright); }
+.refit-starts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); width: 100%; gap: 10px; }
+.refit-start { position: relative; display: flex; flex-direction: column; gap: 9px; text-align: left; padding: 14px; min-height: 112px; background: var(--ui-face), var(--panel2); border: 1px solid var(--ui-edge); border-radius: 3px; color: var(--ph-dim); cursor: pointer; font: 13px 'VT323',monospace; }
+.refit-start b { color: var(--ph-bright); font-weight: 400; font-size: 20px; padding-right: 16px; }
+.refit-start em { margin-top: auto; color: var(--ph); font-size: 11px; letter-spacing: 1px; font-style: normal; }
+.refit-start-key { position: absolute; right: 10px; top: 12px; opacity: .5; }
+.refit-start:hover { border-color: var(--ph); background: var(--ph-faint); }
+.refit-overlay[data-tool="prop"] .refit-palette { display: block; overflow: hidden; padding: 0; }
+.refit-propworkspace { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr) 290px; gap: 14px; }
+.refit-propbrowser { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 8px; }
+.refit-propsearch { flex: 0 0 auto; }
+.refit-propsearch .refit-searchfield { font-size: 14px; letter-spacing: .4px; min-height: 32px; margin: 0; padding: 6px 10px; box-shadow: var(--ui-well); }
+.refit-shelves { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 12px; min-height: 0; flex: 1; }
+.refit-propcats { display: flex; flex-direction: column; flex-wrap: nowrap; overflow-y: auto; min-height: 0; gap: 3px; padding-right: 6px; scrollbar-width: thin; }
+.refit-propcats .refit-propcat { display: flex; justify-content: space-between; gap: 5px; min-height: 28px; white-space: normal; text-align: left; font-size: 12px; letter-spacing: .4px; padding: 6px 8px; opacity: 1; border-color: transparent; background: transparent; box-shadow: none; }
+.refit-propcat small { opacity: .5; font-size: 10px; }
+.refit-propcats .refit-propcat.active { color: var(--ph-bright); border-color: var(--ui-edge); background: var(--ph-faint); box-shadow: inset 2px 0 var(--ph); }
+#refit-propgrid-host { overflow-y: auto; min-height: 0; padding-right: 6px; box-sizing: border-box; scrollbar-width: thin; }
+.refit-searchnote { font-size: 11px; letter-spacing: 1px; margin: 3px 0 8px; }
+.refit-propgrid { grid-template-columns: repeat(auto-fill,minmax(106px,1fr)); gap: 8px; margin: 0; padding: 0 0 5px; justify-content: initial; }
+.refit-dock .refit-proptile { width: auto; min-width: 0; min-height: 110px; padding: 18px 5px 7px; border: 1px solid var(--ui-edge); border-radius: 3px; background: var(--panel2); color: var(--ph-dim); gap: 5px; }
+.refit-proptile-lbl { white-space: normal; max-width: 100%; font-size: 13px; line-height: 1.1; overflow: visible; }
+.refit-proptile-size { font-size: 10px; color: var(--ph-dim); opacity: .7; }
+.refit-proptile-grant { font-size: 9px; top: 4px; left: 5px; border: 0; background: transparent; padding: 0; letter-spacing: .8px; }
+.refit-dock .refit-proptile.active { border-color: var(--ph-bright); box-shadow: inset 0 -2px var(--ph), var(--ui-well); background: var(--ph-faint); color: var(--ph-bright); }
+.refit-dock .refit-proptile.active::after { content: '✓'; position: absolute; right: 5px; top: 3px; color: var(--ph-bright); }
+.refit-propinspector { min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--ui-edge); padding-left: 14px; scrollbar-width: thin; }
+.refit-selected-prop { margin: 0; border: 0; border-radius: 0; padding: 0; background: none; box-shadow: none; grid-template-columns: 96px minmax(0,1fr); gap: 10px; }
+.refit-preview-art { min-height: 86px; border-radius: 3px; }
+.refit-preview-art canvas { width: 94px; height: 82px; }
+.refit-preview-info { font-size: 11px; gap: 6px; }
+.refit-preview-info b { font-size: 21px; }
+.refit-preview-info .refit-preview-grant { font-size: 10px; letter-spacing: .5px; }
+.refit-preview-info .ui-overline { font-size: 9px; letter-spacing: 1px; color: var(--ok); }
+.refit-preview-actions .bb.xs { font-size: 10px; padding: 5px; min-height: 25px; }
+.refit-place-action { grid-column: 1 / -1; justify-content: center; padding: 9px; font-size: 13px; letter-spacing: 1px; }
+.refit-placement-note { grid-column: 1 / -1; font-size: 11px; color: var(--ph-dim); line-height: 1.35; }
+.refit-propinspector .refit-equipment-info { padding: 10px 0 0; margin: 10px 0 0; border: 0; border-top: 1px solid var(--ui-edge); background: none; color: var(--ph-dim); font-size: 12px; line-height: 1.4; }
+.refit-purpose { margin: 0 0 8px; }
+.refit-propinspector .refit-input { font-size: 12px; max-width: 100%; }
+.refit-dock .refit-details-toggle, .refit-dock .refit-details-back { display: none; }
+.refit-dock :is(button,input,select):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+.refit-finline { max-height: max(90px,calc((100vh - var(--refit-dock-clearance, 450px)) * var(--sn-unzoom, 1) - 80px)); overflow-y: auto; }
+@media (max-width: 1100px) { .refit-dock { height: min(53%,470px); } }
+@container (max-width: 1100px) {
+  #refit-tools { grid-template-columns: repeat(5,minmax(0,1fr)); }
+  .refit-propworkspace { grid-template-columns: minmax(0,1fr) 224px; gap: 10px; }
+  .refit-shelves { grid-template-columns: 116px minmax(0,1fr); gap: 8px; }
+  .refit-propcats .refit-propcat { font-size: 11px; padding: 6px; }
+  .refit-propinspector { padding-left: 10px; }
+  .refit-selected-prop { grid-template-columns: 72px minmax(0,1fr); padding: 0; }
+  .refit-preview-art canvas { width: 70px; height: 76px; }
+  .refit-preview-info b { font-size: 17px; }
+  .refit-starts { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .refit-start { min-height: 86px; padding: 10px; }
+}
+@media (max-width: 700px) { .refit-dock { left: 8px; right: 8px; bottom: 8px; height: min(57%,490px); } }
+@container (max-width: 700px) {
+  .refit-dock-head { padding: 5px 9px; }
+  .refit-dock-caption { display: none; }
+  .refit-dock-head-t { font-size: 11px; letter-spacing: 1px; }
+  .refit-dock .refit-tool { font-size: 11px; gap: 4px; padding: 5px; min-height: 32px; }
+  .refit-toolicon { width: 12px; height: 12px; }
+  .refit-tool .refit-key { display: none; }
+  .refit-propworkspace { display: block; }
+  .refit-propbrowser { height: 100%; }
+  .refit-propinspector { display: none; padding: 0; border: 0; height: 100%; }
+  .refit-propworkspace.show-details .refit-propinspector { display: block; }
+  .refit-propworkspace.show-details .refit-propbrowser { display: none; }
+  .refit-dock .refit-details-toggle, .refit-dock .refit-details-back { display: flex; font-size: 10px; padding: 6px; flex: 0 0 auto; }
+  .refit-details-back { margin-bottom: 10px; }
+  .refit-selected-prop { grid-template-columns: 96px minmax(0,1fr); }
+  .refit-preview-art canvas { width: 94px; height: 82px; }
+  .refit-propsearch .refit-searchfield { font-size: 12px; }
+  .refit-shelves { grid-template-columns: 110px minmax(0,1fr); }
+  .refit-propgrid { grid-template-columns: repeat(auto-fill,minmax(96px,1fr)); gap: 6px; }
+  .refit-hint-keys { display: none; }
+  .refit-start b { font-size: 17px; }
+}
+@media (max-width: 420px) { .refit-dock { height: min(65%,510px); } }
+@container (max-width: 420px) {
+  .refit-dock .refit-tool { flex-direction: column; font-size: 10px; padding: 5px 2px; gap: 3px; }
+  .refit-toolname { text-align: center; letter-spacing: 0; flex: initial; overflow: visible; text-overflow: clip; }
+}
+@media (max-height: 650px) {
+  .refit-dock:not(.is-collapsed) { height: 68%; }
+}

@@ -31,32 +31,13 @@ const Build = (() => {
        knows the word for that. Same law as SURFACE above: the LABEL changed, the tool id `reclaim`
        did not (the key map, the drag mode, the model verb and every saved reference key ride it). */
     { id: 'reclaim', key: '5', label: 'DELETE', verb: 'click anything to delete it', hint: 'click a room, prop, or belt to delete it · drag across a belt to clear the whole run (UNDO restores it)', cursor: 'not-allowed' },
-    { id: 'prop', key: '6', label: 'PROP', verb: 'click the deck to place it', hint: 'click to place furniture · agents walk around it', cursor: 'crosshair' },
+    { id: 'prop', key: '6', label: 'PROPS', verb: 'click the deck to place it', hint: 'browse equipment and decoration, then click the deck to place your selection', cursor: 'crosshair' },
     { id: 'belt', key: '7', label: 'BELT', verb: 'click one machine, then another', hint: 'CLICK one machine, then another — the belt lays itself · (or drag to lay tiles by hand)', cursor: 'crosshair' },
     { id: 'dupe', key: '8', label: 'DUPE', verb: 'click a thing to copy it', hint: 'click a room or prop to copy it · then every click stamps a copy — mirror your build fast', cursor: 'copy' },
     { id: 'line', key: '9', label: 'LINES', verb: 'pick a line, then click the deck', hint: 'pick a STARTER LINE below, then click the deck — a whole working layout stamps at once, yours to edit', cursor: 'copy' },
   ];
-  /* ---------- TOOL GROUPS (2026-08-07 build-mode overhaul) ----------
-     Ten equal-weight buttons in a flat 2×5 grid is a debug menu, not a build mode: nothing said
-     which tool comes FIRST, which ones change what already exists, or which ones are about work
-     rather than architecture. The same ten verbs now read as four answers to "what am I doing?":
-
-       STRUCTURE  make the space      ROOM · HALLWAY
-       SURFACES   dress it            SURFACE · PROP
-       WORKFLOW   make it run         BELT · LINES
-       EDIT       change what's there MOVE · DUPE · DELETE
-
-     SELECT sits ABOVE the groups on its own full-width row — it is not a fifth kind of building,
-     it's the cursor you fall back to (ESC / right-click / re-clicking the armed tool all land here).
-     Number keys are UNCHANGED: the quest system and the guide card cite them by number
-     (quests.js "drag a BELT (7)"), so grouping reorders the buttons, never the shortcuts. */
-  const TOOL_GROUPS = [
-    { label: 'STRUCTURE', why: 'make the space',       tools: ['room', 'hall'] },
-    { label: 'SURFACES',  why: 'dress it',             tools: ['paint', 'prop'] },
-    { label: 'WORKFLOW',  why: 'make it run',          tools: ['belt', 'line'] },
-    { label: 'EDIT',      why: 'change what is there', tools: ['move', 'dupe', 'reclaim'] },
-    // (no fifth band — SELECT rides its own row above these, see buildDOM)
-  ];
+  // Every tool stays visible. The Select landing offers four starting points without
+  // arming a placement tool. Shortcut numbers remain compatible with the guide/tutorial.
 
   /* ---------- PIXEL TOOL ICONS ----------
      Every tool used to label itself with a unicode symbol (◎ ▦ ═ ▧ ✥ ⌫ ⚇ ⇶ ⧉ ⇉). Those glyphs are
@@ -142,6 +123,7 @@ const Build = (() => {
 
   // interaction state
   let tool = 'select', kind = 'hab', style = 'cobalt', mat = 'plate', hallWidth = 2, propType = 'desk', propCat = 'workstation', propTier = 'functional';
+  let hoverThumb = null;
   // SURFACE targets one surface at a time — the deck or the walls — so the palette stays two rows
   // instead of four. 'follow' wall colour = inherit the room's floor hue (the default).
   let paintTarget = 'floor', wallMat = 'plating', wallStyle = 'follow';
@@ -338,8 +320,8 @@ const Build = (() => {
         <button class="bb sm" id="refit-help" title="how to build">? HELP</button>
         <button class="bb sm refit-primary" id="refit-done" title="finish + save (Esc)">✓ DONE</button>
       </div>
-      <div class="refit-dock" role="toolbar" aria-label="Refit mode controls">
-        <div class="refit-dock-head"><span class="refit-dock-head-t">BUILD KIT</span></div>
+      <div class="refit-dock" role="region" aria-label="Construction kit">
+        <div class="refit-dock-head"><span class="refit-dock-head-t">CONSTRUCTION KIT</span><span class="refit-dock-caption">SHAPE YOUR STATION</span><button class="bb sm" type="button" id="refit-kit-toggle" aria-expanded="true" aria-controls="refit-option-section">HIDE CATALOG ▾</button></div>
         <div class="refit-dock-section refit-mode-section">
           <div id="refit-tools"></div>
         </div>
@@ -386,21 +368,11 @@ const Build = (() => {
       return btn;
     };
     const byId = id => TOOLS.find(x => x.id === id);
-    // SELECT rides its own full-width row above the groups — the cursor, not a fifth kind of build
-    const selRow = document.createElement('div'); selRow.className = 'refit-tools refit-tools-sel';
-    selRow.appendChild(toolBtn(byId('select')));
-    tools.appendChild(selRow);
-    TOOL_GROUPS.forEach(g => {
-      const wrap = document.createElement('details'); wrap.className = 'refit-toolgroup';
-      wrap.open = g.tools.includes(tool) || g === TOOL_GROUPS[0];
-      const lab = document.createElement('summary'); lab.className = 'refit-group-label';
-      lab.innerHTML = '<span class="refit-group-n">' + esc(g.label) + '</span><span class="refit-group-why">' + esc(g.why) + '</span>';
-      wrap.appendChild(lab);
-      const grid = document.createElement('div'); grid.className = 'refit-tools';
-      g.tools.forEach(id => { const t = byId(id); if (t) grid.appendChild(toolBtn(t)); });
-      wrap.appendChild(grid);
-      tools.appendChild(wrap);
-    });
+    // Every tool stays visible. Collapsed details hid the entire prop tool on
+    // narrow screens when the old responsive layout removed their summaries.
+    tools.setAttribute('role', 'toolbar'); tools.setAttribute('aria-label', 'Build tools');
+    ['select','prop','room','hall','paint','belt','line','move','dupe','reclaim'].forEach(id => tools.appendChild(toolBtn(byId(id))));
+    root.querySelector('#refit-kit-toggle').onclick = () => toggleKit();
     renderPalette();
     repaintIcons();
     setCursor();
@@ -477,6 +449,7 @@ const Build = (() => {
   // what the gallery is showing right now: matches across the WHOLE catalog, or the chosen tab
   function propsForGrid() {
     if (isSearching()) return PropSearch.matchProps(catalog(), propQuery, searchOpts());
+    if (propCat === 'all') return catalog();
     const CATS = (typeof PropSprites !== 'undefined') ? PropSprites.CATS : {};
     return CATS[propCat] || [];
   }
@@ -507,7 +480,7 @@ const Build = (() => {
     inp.autocomplete = 'off';
     inp.setAttribute('aria-label', 'Search props');
     // the count is READ from the catalog — a hardcoded "120" becomes a lie the first time a prop lands
-    inp.placeholder = 'SEARCH ' + catalog().length + ' PROPS — NAME OR CATEGORY';
+    inp.placeholder = 'Search ' + catalog().length + ' props · name, category or ability';
     inp.oninput = () => { propQuery = inp.value; renderPropGrid(); };
     inp.onkeydown = (ev) => {
       if (ev.key !== 'Escape') return;
@@ -527,30 +500,34 @@ const Build = (() => {
     return row;
   }
 
-  /* rebuild ONLY the gallery (and the rows a search hides). Runs on every keystroke and every tile
+  /* rebuild ONLY the gallery and category selection. Runs on every keystroke and every tile
      pick, so it must never re-create the <input> above it. */
   function renderPropGrid() {
     const host = root && root.querySelector('#refit-propgrid-host');
     if (!host) return;
     const on = isSearching();
-    // .refit-tiers/.refit-propcats declare `display:flex`, which beats the UA's [hidden] rule — so the
-    // visibility toggle has to be an inline display, not the hidden attribute.
-    const tiers = root.querySelector('.refit-tiers'), cats = root.querySelector('.refit-propcats');
-    if (tiers) tiers.style.display = on ? 'none' : '';
-    if (cats) cats.style.display = on ? 'none' : '';
+    root.querySelectorAll('.refit-propcat').forEach(b => {
+      const active = !on && b.dataset.cat === propCat;
+      b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active));
+    });
     const clr = root.querySelector('.refit-searchclear');
     if (clr) clr.style.display = propQuery ? '' : 'none';
 
     propThumbs.length = 0;   // the gallery is the only thumb source; free the outgoing tiles' canvases
     host.innerHTML = '';
     const list = propsForGrid();
-    if (on) {
+    {
       const note = document.createElement('div');
       note.className = 'refit-searchnote' + (list.length ? '' : ' none');
+      note.setAttribute('role', 'status');
       note.textContent = list.length
-        ? list.length + (list.length === 1 ? ' MATCH' : ' MATCHES') + ' · ALL TIERS'
-        : 'NO PROP MATCHES "' + propQuery.trim().toUpperCase() + '"';
+        ? (on ? 'SEARCH · ALL CATEGORIES' : propCat === 'all' ? 'ALL PROPS' : catLabelOf(propCat)) + ' / ' + list.length + ' ITEMS'
+        : 'No props match “' + propQuery.trim() + '”. Try a name or ability, such as web, files or desk.';
       host.appendChild(note);
+      if (!list.length) {
+        const reset = document.createElement('button'); reset.type = 'button'; reset.className = 'bb sm'; reset.textContent = 'CLEAR SEARCH';
+        reset.onclick = () => clearSearch(); host.appendChild(reset);
+      }
     }
     const grid = document.createElement('div'); grid.className = 'refit-propgrid';
     grid.setAttribute('aria-label', 'Props');
@@ -558,7 +535,7 @@ const Build = (() => {
     host.appendChild(grid);
     renderPropPreview();
     renderEquipmentInfo();
-    try { paintThumbs(performance.now()); } catch (e) {}   // first frame now, so the gallery isn't blank for a beat
+    try { paintThumbs(performance.now(), true); } catch (e) {}   // paint each card once; animate only the selected/hovered item
   }
 
   // The selected prop's existing palette explains purpose, scope and effective access.
@@ -569,15 +546,18 @@ const Build = (() => {
     if (!spec) return;
     if (typeof Tutorial !== 'undefined' && Tutorial.onEquipmentInspect) Tutorial.onEquipmentInspect();
     let box = pal.querySelector('.refit-equipment-info');
-    if (!box) { box = document.createElement('div'); box.className = 'refit-equipment-info'; pal.prepend(box); }
+    if (!box) { box = document.createElement('div'); box.className = 'refit-equipment-info'; (pal.querySelector('.refit-propinspector') || pal).appendChild(box); }
     const agents = (opts && opts.agents && opts.agents()) || [];
     const h = typeof StationUI !== 'undefined' && StationUI.h;
     const chosen = h && h.present && h.present[h.sel];
     const aid = box.querySelector('select')?.value || (chosen && chosen.id) || (agents[0] && agents[0].id) || 'agent';
+    const infoKey = [spec.id, aid, geoVer, placedProp && placedProp.id].join('|');
+    if (box.dataset.infoKey === infoKey) return;
+    box.dataset.infoKey = infoKey;
     const facts = EquipmentHelp.inspect(station, aid, spec.id);
     const sharingOpen = !!box.querySelector('details[open]');
     const propRoom = placedProp && station.roomById(station.roomAt(placedProp.x, placedProp.y));
-    box.innerHTML = '<b>' + esc(spec.label) + '</b> · ' + esc(facts.purpose || spec.desc || 'Station decoration.')
+    box.innerHTML = '<p class="refit-purpose">' + esc(facts.purpose || spec.desc || 'Station decoration.') + '</p>'
       + (facts.cap ? (agents.length > 1 ? '<label> For <select class="refit-input" aria-label="Inspect equipment for agent">' + agents.map(a => '<option value="' + esc(a.id) + '"' + (a.id === aid ? ' selected' : '') + '>' + esc(a.name || a.id) + '</option>').join('') + '</select></label>' : '')
       + '<div class="equipment-status" role="status">Checking current access…</div>'
       + '<div>Equipment scope: ' + esc(facts.scope) + (propRoom ? ' · This copy: ' + esc(propRoom.name || propRoom.id) : '') + '</div>'
@@ -598,14 +578,22 @@ const Build = (() => {
     const section = root.querySelector('#refit-option-section');
     const label = root.querySelector('#refit-palette-label');
     let paletteLabel = '';
+    root.dataset.tool = tool;
     pal.innerHTML = '';
     propThumbs.length = 0;   // drop any preview tiles from a prior render (they're rebuilt below for the prop tool)
     if (tool === 'select') {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote';
-      note.textContent = 'Agents do the work. Equipment provides abilities. Conveyors pass a job through steps. Click an object to inspect it; use PROP to choose equipment or decoration. You can talk to your agent without building a conveyor.';
+      note.innerHTML = '<span class="ui-overline">YOUR STATION, YOUR DESIGN</span><b>What would you like to build?</b><span>Choose a kit below, or click something in the station to inspect it.</span>';
       pal.appendChild(note);
+      const starts = document.createElement('div'); starts.className = 'refit-starts';
+      for (const [id,name,why] of [['prop','Equipment & props','Workstations, tools, furniture and details'],['room','Rooms & hallways','Expand the floor and connect your spaces'],['paint','Materials & finishes','Choose floors, walls and exterior shells'],['line','Workflow layouts','Place a starter line, then assign your agents']]) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'refit-start'; b.dataset.startTool = id;
+        b.innerHTML = '<span class="refit-start-key">' + esc(TOOLS.find(t => t.id === id).key) + '</span><b>' + esc(name) + '</b><span>' + esc(why) + '</span><em>OPEN KIT →</em>';
+        b.onclick = () => selectTool(id); starts.appendChild(b);
+      }
+      pal.appendChild(starts);
     } else if (tool === 'room') {
       /* ROOM TYPE was the last palette in REFIT still made of bare text chips, next to a prop
          gallery of live animated previews and a material grid painted by the real bake. A room
@@ -652,50 +640,35 @@ const Build = (() => {
     } else if (tool === 'prop') {
       paletteLabel = 'CATALOG';
       const CATS = (typeof PropSprites !== 'undefined') ? PropSprites.CATS : {};
-      if (TIER_ORDER.indexOf(propTier) < 0) propTier = 'functional';
-      let cats = catsForTier(propTier);
-      if (cats.indexOf(propCat) < 0) { propCat = cats[0]; if (CATS[propCat] && CATS[propCat][0]) propType = CATS[propCat][0].id; }
-      // row -1 — SEARCH. Two tiers × ~11 category tabs is a fine map once you know which drawer a thing
-      // lives in and useless when you don't; with 120 props the taxonomy became the slow path. A query
-      // here goes FLAT across the whole catalog (both tiers, every category) and hides the browse rows
-      // while it's active, so what's on screen never disagrees with the lit tab.
-      pal.appendChild(propSearchRow());
-      // row 0 — the TIER toggle: a clear, hard split between props that DO something and props that are just looks
-      const tierRow = document.createElement('div'); tierRow.className = 'refit-tiers';
-      tierRow.setAttribute('aria-label', 'Prop tiers');
-      TIER_ORDER.forEach(t => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'bb sm refit-tier refit-tier-' + t + (t === propTier ? ' active' : '');
-        b.setAttribute('aria-pressed', t === propTier ? 'true' : 'false');
-        b.textContent = tierLabelOf(t);
-        b.onclick = () => { propQuery = ''; propTier = t; const cs = catsForTier(t); propCat = cs[0]; if (CATS[propCat] && CATS[propCat][0]) propType = CATS[propCat][0].id; hidePropCard(); renderPalette(); setHint(); sfx('click'); };
-        tierRow.appendChild(b);
-      });
-      pal.appendChild(tierRow);
-      // row 1 — category tabs WITHIN the chosen tier (clean, specific names — WORKSTATIONS · WORKFLOW · …)
-      const catRow = document.createElement('div'); catRow.className = 'refit-propcats';
+      const workspace = document.createElement('div'); workspace.className = 'refit-propworkspace';
+      const browser = document.createElement('div'); browser.className = 'refit-propbrowser';
+      const search = propSearchRow();
+      const details = document.createElement('button'); details.type = 'button'; details.className = 'bb sm refit-details-toggle'; details.textContent = 'ITEM DETAILS →';
+      details.onclick = () => { workspace.classList.add('show-details'); workspace.querySelector('.refit-details-back').focus(); };
+      search.appendChild(details); browser.appendChild(search);
+      const shelves = document.createElement('div'); shelves.className = 'refit-shelves';
+      const catRow = document.createElement('nav'); catRow.className = 'refit-propcats';
       catRow.setAttribute('aria-label', 'Prop categories');
-      cats.forEach(g => {
+      ['all', ...TIER_ORDER.flatMap(catsForTier)].forEach(g => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'bb sm refit-propcat' + (g === propCat ? ' active' : '');
         b.dataset.cat = g;   // lets the tutorial light the exact category tab a step needs
         b.setAttribute('aria-pressed', g === propCat ? 'true' : 'false');
-        b.textContent = catLabelOf(g);
-        b.onclick = () => { propQuery = ''; propCat = g; if (CATS[g] && CATS[g][0]) propType = CATS[g][0].id; hidePropCard(); renderPalette(); setHint(); sfx('click'); };
+        const count = g === 'all' ? catalog().length : (CATS[g] || []).length;
+        b.innerHTML = '<span>' + esc(g === 'all' ? 'ALL PROPS' : catLabelOf(g)) + '</span><small>' + count + '</small>';
+        b.onclick = () => { propQuery = ''; propCat = g; hidePropCard(); renderPalette(); setHint(); sfx('click'); };
         catRow.appendChild(b);
       });
-      pal.appendChild(catRow);
+      shelves.appendChild(catRow);
+      const gridHost = document.createElement('div'); gridHost.id = 'refit-propgrid-host';
+      shelves.appendChild(gridHost); browser.appendChild(shelves); workspace.appendChild(browser);
+      const inspector = document.createElement('aside'); inspector.className = 'refit-propinspector'; inspector.setAttribute('aria-label', 'Selected equipment details');
+      const back = document.createElement('button'); back.type = 'button'; back.className = 'bb sm refit-details-back'; back.textContent = '← BACK TO PROPS';
+      back.onclick = () => { workspace.classList.remove('show-details'); details.focus(); }; inspector.appendChild(back);
       const preview = document.createElement('section'); preview.id = 'refit-selected-prop';
       preview.className = 'refit-selected-prop'; preview.setAttribute('aria-label', 'Selected prop');
-      pal.appendChild(preview);
-      // row 2 — a scrollable gallery of LIVE previews: each tile draws the real animated sprite, not just its name.
-      // It lives in its own HOST because every keystroke rebuilds the gallery and NOTHING else: re-running
-      // renderPalette() here would replace the <input> mid-word and the field would lose focus (and the caret)
-      // after a single character — the classic way a search box ships broken.
-      const gridHost = document.createElement('div'); gridHost.id = 'refit-propgrid-host';
-      pal.appendChild(gridHost);
+      inspector.appendChild(preview); workspace.appendChild(inspector); pal.appendChild(workspace);
       renderPropGrid();
     } else if (tool === 'paint') {
       /* SURFACE — TWO AXES, TWO SECTIONS: the MATERIAL (what the surface is made of) and the HUE
@@ -930,6 +903,15 @@ const Build = (() => {
     document.body.style.setProperty('--refit-dock-clearance', Math.max(58, clearance) + 'px');
   }
 
+  function toggleKit(collapsed) {
+    const dock = root && root.querySelector('.refit-dock'); if (!dock) return;
+    const hide = collapsed == null ? !dock.classList.contains('is-collapsed') : collapsed;
+    dock.classList.toggle('is-collapsed', hide);
+    const b = root.querySelector('#refit-kit-toggle');
+    b.textContent = hide ? 'SHOW CATALOG ▴' : 'HIDE CATALOG ▾'; b.setAttribute('aria-expanded', String(!hide));
+    bumpUi(); updateSafetyClearance();
+  }
+
   /* ---------- visual prop palette: a scrollable gallery of LIVE animated previews ----------
      Each tile carries its own mini-canvas; paintThumbs() blits the real PropSprites art into it every
      few frames (driven by the main loop) so the screens/LEDs animate exactly like the placed prop. */
@@ -952,8 +934,8 @@ const Build = (() => {
     b.dataset.prop = c.id;   // lets the tutorial light a specific gear tile by id
     b.setAttribute('aria-pressed', c.id === propType ? 'true' : 'false');
     const grant = (typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp) ? WorldModel.grantLabelForProp(c.id) : null;
-    // The catalog owns the rich hover card below. Keep the short description accessible without
-    // a title/data-tip that would also summon the shared station tooltip over that card.
+    // The inspector owns item details. Keep the short description accessible without
+    // a title/data-tip that would cover the neighboring inventory cards.
     const purpose = PALETTE_PURPOSE[c.id] || '';
     b.setAttribute('data-no-tip', '');
     b.setAttribute('aria-description', c.label + ' · ' + c.w + '×' + c.h + (grant ? ' · grants ' + grant : '') + (purpose ? ' — ' + purpose : ''));
@@ -966,10 +948,16 @@ const Build = (() => {
     b.onclick = () => {
       propType = c.id;
       if (isSearching()) { propTier = c.tier || 'cosmetic'; propCat = c.cat || propCat; }
-      renderPropGrid(); setHint(); sfx('click');
+      // Keep scroll and keyboard focus in the inventory; choosing an item must not
+      // recreate 144 canvases or throw the user back to the top of the shelf.
+      root.querySelectorAll('.refit-proptile').forEach(tile => {
+        const active = tile.dataset.prop === propType;
+        tile.classList.toggle('active', active); tile.setAttribute('aria-pressed', String(active));
+      });
+      renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click');
     };
-    b.onmouseenter = (e) => showPropCard(c, null, e.clientX, e.clientY);   // "what does this do?" card
-    b.onmouseleave = hidePropCard;
+    b.onmouseenter = () => { hoverThumb = c.id; };
+    b.onmouseleave = () => { hoverThumb = null; };
 
     const DW = 76, DH = 50, SS = Math.max(2, Math.min(3, window.devicePixelRatio || 1));  // supersample so even wide props stay crisp
     const cvEl = document.createElement('canvas');
@@ -983,6 +971,7 @@ const Build = (() => {
 
     const lbl = document.createElement('span'); lbl.className = 'refit-proptile-lbl'; lbl.textContent = c.label;
     b.appendChild(cvEl); b.appendChild(lbl);
+    const size = document.createElement('span'); size.className = 'refit-proptile-size'; size.textContent = c.w + ' × ' + c.h + ' tiles'; b.appendChild(size);
     if (grant) {   // capability prop — flag the POWER it grants so the gallery shows at a glance which props matter
       const g = document.createElement('span'); g.className = 'refit-proptile-grant'; g.textContent = grant; b.appendChild(g);
     }
@@ -999,13 +988,15 @@ const Build = (() => {
     const c = catalog().find(c => c.id === propType);
     if (!host || !c) return;
     const r = propFacing(c.id), m = propFlipOn(c.id), box = propBox(c.id, r), grant = grantLabelOf(c);
+    const previewKey = [c.id,r,m].join('|'); if (host.dataset.previewKey === previewKey) return; host.dataset.previewKey = previewKey;
     host.innerHTML = '<div class="refit-preview-art"><canvas width="280" height="180" aria-label="' + esc(c.label) + ' preview"></canvas></div>' +
-      '<div class="refit-preview-info"><span class="ui-overline">SELECTED PROP</span><b>' + esc(c.label) + '</b>' +
+      '<div class="refit-preview-info"><span class="ui-overline">READY TO PLACE</span><b>' + esc(c.label) + '</b>' +
       '<span>' + box.w + ' × ' + box.h + ' tiles · ' + FACE_WORD[r] + (m ? ' · flipped' : '') + '</span>' +
       '<span class="refit-preview-grant">' + esc(grant ? 'GRANTS ' + grant : (c.seat ? 'AGENT WORKSTATION' : c.tier === 'functional' ? 'WORKFLOW EQUIPMENT' : 'DECOR')) + '</span>' +
       '<div class="refit-preview-actions">' +
       (canTurn(c.id) ? '<button class="bb xs" type="button" data-preview-turn>↻ TURN · R</button>' : '') +
-      (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>';
+      (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>' +
+      '<button class="bb refit-primary refit-place-action" type="button" data-preview-place>PLACE ON DECK →</button><span class="refit-placement-note">Click a clear tile to place. Green fits; red is blocked. Esc cancels.</span>';
     const nativeW = box.w * 12 + 24, nativeH = box.h * 12 + 24;
     const off = document.createElement('canvas'); off.width = nativeW; off.height = nativeH;
     const o = off.getContext('2d'); o.translate(12, 12); o.imageSmoothingEnabled = false;
@@ -1018,11 +1009,16 @@ const Build = (() => {
     const turn = host.querySelector('[data-preview-turn]'), flip = host.querySelector('[data-preview-flip]');
     if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); setHint(); sfx('click'); };
     if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); setHint(); sfx('click'); };
+    host.querySelector('[data-preview-place]').onclick = () => {
+      toggleKit(true); setHint(); hidePropCard();
+      const deck = root.querySelector('.refit-canvas'); deck.tabIndex = 0; deck.focus({ preventScroll: true });
+    };
   }
   // draw every visible preview tile for time `now` (animated). Renders native → fit-blits with nearest-neighbour.
-  function paintThumbs(now) {
+  function paintThumbs(now, all) {
     if (typeof PropSprites === 'undefined' || !propThumbs.length) return;
     for (const th of propThumbs) {
+      if (!all && th.id !== propType && th.id !== hoverThumb) continue;
       const o = th.octx;
       o.setTransform(1, 0, 0, 1, 0, 0);
       o.clearRect(0, 0, th.nativeW, th.nativeH);
@@ -1418,9 +1414,8 @@ const Build = (() => {
       const active = b.dataset.tool === id;
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
-      if (active && b.closest('details')) b.closest('details').open = true;
     });
-    renderPalette(); repaintIcons(); setHint(); setCursor();
+    toggleKit(false); renderPalette(); repaintIcons(); setHint(); setCursor();
     renderFinCard();
     if (id === 'line') frameBlueprint();   // a footprint you cannot see whole cannot be aimed
     if (!(o && o.silent)) sfx('click');
@@ -1461,6 +1456,8 @@ const Build = (() => {
     // the PROP hint carries the orientation the next stamp will use, and only advertises the keys
     // this prop actually honours — a prop with one authored facing never mentions R.
     if (tool === 'prop' && !msg) {
+      const spec = catalog().find(c => c.id === propType);
+      verb = (spec ? spec.label + ' · ' : '') + 'click a clear deck tile to place';
       const bits = [];
       if (canTurn(propType)) bits.push('R turn (facing ' + FACE_WORD[propFacing(propType)] + ')');
       if (canFlip(propType)) bits.push('M flip' + (propFlipOn(propType) ? ' ✓' : ''));
@@ -3168,6 +3165,10 @@ const Build = (() => {
   }
   function positionFinCard() {
     if (!finCardEl) return;
+    // Routing advice belongs to workflow editing, not the decoration/material inventory.
+    if (tool !== 'belt' && tool !== 'line' && !tutorialCoaching()) {
+      finCardEl.style.display = 'none'; finPosSig = ''; return;
+    }
     if (root && root.querySelector('.refit-firstrun')) { finCardEl.style.display = 'none'; finPosSig = ''; return; }
     const coach = tutorialCoaching() ? coachRect() : null;
     const coachKey = coach ? '|c' + Math.round(coach.left) + ',' + Math.round(coach.top) + ',' + Math.round(coach.right) + ',' + Math.round(coach.bottom) : '';
@@ -3208,8 +3209,12 @@ const Build = (() => {
     const w = cr.width || 232 * uiz, h = cr.height || 118 * uiz;
     // NEVER over the tool dock (the never-blocks-editing law): a left-sidebar dock raises the floor x
     const dock = root.querySelector('.refit-dock');
-    let minX = 8;
-    if (dock) { const d = dock.getBoundingClientRect(); if (d.width < window.innerWidth * 0.6 && d.left < window.innerWidth / 2) minX = Math.max(minX, d.right + 10); }
+    let minX = 8, maxY = window.innerHeight - h - 8;
+    if (dock) {
+      const d = dock.getBoundingClientRect();
+      if (d.width < window.innerWidth * 0.6 && d.left < window.innerWidth / 2) minX = Math.max(minX, d.right + 10);
+      else maxY = Math.min(maxY, d.top - h - 10);
+    }
     const rightX = sx((c.bbox.x2 + 1 + o.tx) * t) + 14;
     const leftX = sx((c.bbox.x1 + o.tx) * t) - w - 14;
     let x, y;
@@ -3217,10 +3222,10 @@ const Build = (() => {
     else if (leftX >= minX) { x = leftX; y = sy((c.bbox.y1 + o.ty) * t) - 4; }                            // beside, to the left
     else { x = sx((c.bbox.x2 + 1 + o.tx) * t) - w; y = sy((c.bbox.y2 + 1 + o.ty) * t) + 12; }             // no side room — under the line
     x = Math.max(minX, Math.min(x, window.innerWidth - w - 8));
-    y = Math.max(56, Math.min(y, window.innerHeight - h - 8));
+    y = Math.max(56, Math.min(y, maxY));
     // a coach bubble over the same spot: stack the checklist UNDER it (never hide it, never cover it)
     if (coach && x < coach.right && x + w > coach.left && y < coach.bottom && y + h > coach.top) {
-      y = Math.min(coach.bottom + 10, window.innerHeight - h - 8);
+      y = Math.min(coach.bottom + 10, maxY);
     }
     finCardEl.style.left = Math.round(x / uiz) + 'px';
     finCardEl.style.top = Math.round(y / uiz) + 'px';
@@ -4019,6 +4024,7 @@ const Build = (() => {
       sfx(r.ok ? 'click' : 'bad'); return;
     }
     if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'y' || ev.key === 'Y')) { ev.preventDefault(); sfx(station.redo().ok ? 'click' : 'bad'); return; }
+    if (ev.key === '/') { ev.preventDefault(); if (tool !== 'prop') selectTool('prop'); toggleKit(false); root.querySelector('#refit-propsearch-input')?.focus(); return; }
     if (ev.key === 'f' || ev.key === 'F') { fitCamera(); return; }
     // R turns · shift+R turns back · M flips. Acts on the prop UNDER THE CURSOR when there is one
     // (so a furnished room can be re-aimed without tearing anything down), otherwise on the pending
