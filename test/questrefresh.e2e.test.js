@@ -51,7 +51,7 @@ function startMock(refreshReply) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 6, completion_tokens: 4, total_tokens: 10 } }) + '\n\n');
             res.write('data: [DONE]\n\n'); res.end();
           };
-          if (body.indexOf('quest master') >= 0) { calls.quest++; text(refreshReply); }   // runQuestRefreshCycle's system marker
+          if (body.indexOf('quest master') >= 0) { calls.quest++; Promise.resolve(typeof refreshReply === 'function' ? refreshReply(body) : refreshReply).then(text); }   // runQuestRefreshCycle's system marker
           else text('ok, done.');
         });
         return;
@@ -169,6 +169,97 @@ const CRED = { SKYNET_OPENROUTER_KEY: 'sk-or-v1-questrefresh-fake', SKYNET_DEFAU
       try { mock.server.close(); } catch (_) {}
       await sleep(150);
       try { fs.rmSync(ws, { recursive: true, force: true }); } catch (_) {}
+    }
+  }
+
+  // Direct Commander life-action reporting, durable pauses, and restart reconciliation through real routes.
+  {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-life-quest-'));
+    seedEvidence(ws); seedAutonomy(ws, 'wait');
+    let child = null;
+    try {
+      let up = await boot(9125 + (process.pid % 10), Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20);
+      child = up.child;
+      let base = 'http://' + HOST + ':' + up.port, token = await bootToken(base, base);
+      const post = async (route, body) => (await fetch(base + route, { method: 'POST', headers: { Origin: base, 'X-StarNet-Token': token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+      const minted = await post('/api/quests/mint', { title: 'Attend a practice class', contract: { type: 'attest', key: '' }, domain: 'growth', executionMode: 'commander' });
+      A.ok(minted.ok, 'real route creates a Commander action');
+      const unauthorized = await fetch(base + '/api/quests/report', { method: 'POST', headers: { Origin: 'https://hostile.invalid', 'Content-Type': 'application/json' }, body: JSON.stringify({ id: minted.id, evidence: 'Unauthorized completion claim' }) });
+      A.eq(unauthorized.status, 403, 'completion route rejects an untrusted origin');
+      const paused = await post('/api/quests/disposition', { id: minted.id, disposition: 'too_big', reason: 'Need a beginner class first' });
+      A.ok(paused.ok && paused.quest.disposition.type === 'too_big', 'real route retains a too-big reason');
+      child.kill(); await new Promise(resolve => child.once('exit', resolve)); child = null;
+      up = await boot(up.port, Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20); child = up.child;
+      base = 'http://' + HOST + ':' + up.port; token = await bootToken(base, base);
+      const persisted = await (await fetch(base + '/api/quests', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      A.eq(persisted.quests.find(q => q.id === minted.id).disposition.reason, 'Need a beginner class first', 'pause survives sidecar restart');
+      A.ok((await post('/api/quests/disposition', { id: minted.id, disposition: 'resume' })).ok, 'real route resumes the action');
+      const report = await post('/api/quests/report', { id: minted.id, evidence: 'I attended the beginner class this morning' });
+      A.ok(report.ok && report.quest.status === 'done' && report.quest.attest.source === 'commander', 'only Commander report completes real-world action with source');
+      const journey = await (await fetch(base + '/api/journey', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      A.ok(journey.journey.outcomes.some(o => o.questId === minted.id && o.verifiedBy === 'commander-confirmed'), 'life action folds into Journey with Commander-confirmed provenance');
+      child.kill(); await new Promise(resolve => child.once('exit', resolve)); child = null;
+      up = await boot(up.port, Object.assign({ SKYNET_WORKSPACES: ws }, CRED, QUIET), 20); child = up.child;
+      base = 'http://' + HOST + ':' + up.port; token = await bootToken(base, base);
+      const final = await (await fetch(base + '/api/quests', { headers: { Origin: base, 'X-StarNet-Token': token } })).json();
+      const done = final.quests.find(q => q.id === minted.id);
+      A.ok(done.status === 'done' && done.attest.confirmed && done.attest.evidence.includes('beginner class'), 'completion evidence survives second sidecar restart');
+    } finally {
+      if (child) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
+      fs.rmSync(ws, { recursive: true, force: true });
+    }
+  }
+
+  // Goal-focused capacity and in-flight direction changes use the real planner/provider/store boundary.
+  {
+    let release = null, delayed = false, replyIndex = 0;
+    const mock = await startMock(async () => {
+      if (delayed) await new Promise(resolve => { release = resolve; });
+      return ['NORTH_STAR: Grow the channel', 'QUEST: Focused episode action ' + (++replyIndex), 'DESC: Publish the next episode.', 'CONTRACT: attest', 'WHY: the active channel goal needs an episode'].join('\n');
+    });
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-qrefresh-focus-'));
+    seedEvidence(ws); seedAutonomy(ws, 'wait');
+    let child = null;
+    try {
+      const up = await boot(9165 + (process.pid % 10), Object.assign({ SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base }, CRED, QUIET), 20); child = up.child;
+      const base = 'http://' + HOST + ':' + up.port, token = await bootToken(base, base);
+      const headers = { Origin: base, 'X-StarNet-Token': token, 'Content-Type': 'application/json' };
+      const post = async (route, body) => (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body || {}) })).json();
+      const list = async () => (await (await fetch(base + '/api/quests', { headers })).json()).quests;
+      for (let i = 0; i < 3; i++) A.ok((await post('/api/quests/mint', { title: 'Old focus episode ' + i, kind: 'generated', goalId: 'old', contract: { type: 'attest', key: '' } })).ok, 'old focused goal fills its slate');
+      let goal = { id: 'new', text: 'Grow the channel with episodes', milestoneId: 'm1', next: 'Publish episode', done: 0, total: 3 };
+      await post('/api/goals', { goal });
+      A.ok((await post('/api/quests/refresh/run')).started, 'new focus starts a refresh despite old full slate');
+      await pollRefresh(base, token, st => !st.inFlight && st.ledger.some(e => e.outcome === 'minted'), 'new focused goal mint');
+      let rows = await list();
+      A.eq(rows.filter(q => q.goalId === 'new').length, 1, 'new focus receives its own quest');
+      A.eq(rows.filter(q => q.goalId === 'old').length, 3, 'previous goal quests are retained');
+      for (const change of [{ id: 'newer' }, { milestoneId: 'm2', next: 'Publish another episode' }, { text: 'Grow the channel through interviews' }]) {
+        const before = rows.length;
+        delayed = true; release = null;
+        A.ok((await post('/api/quests/refresh/run')).started, 'delayed planning pass begins');
+        const until = Date.now() + 5000;
+        while (!release && Date.now() < until) await sleep(25);
+        if (!release) throw new Error('mock provider never reached delayed response');
+        goal = { ...goal, ...change };
+        await post('/api/goals', { goal });
+        release(); delayed = false;
+        await pollRefresh(base, token, st => !st.inFlight, 'stale response rejected');
+        rows = await list();
+        A.eq(rows.length, before, 'changed goal/milestone prevents stale response mint');
+        const st = await (await fetch(base + '/api/quests/refresh', { headers })).json();
+        A.ok(st.ledger[st.ledger.length - 1].reason.includes('changed during planning'), 'stale planning has an honest visible skipped reason');
+      }
+      A.ok((await post('/api/quests/refresh/run')).started, 'fresh direction can plan after stale response');
+      await pollRefresh(base, token, st => !st.inFlight && st.ledger[st.ledger.length - 1].outcome === 'minted', 'fresh direction receives new quest');
+      rows = await list();
+      const latest = rows[rows.length - 1];
+      A.eq(latest.goalId, goal.id, 'fresh quest binds to the captured goal');
+      A.eq(latest.milestoneId, goal.milestoneId, 'fresh quest binds to the captured milestone');
+    } finally {
+      if (release) release();
+      if (child) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
+      mock.server.close(); fs.rmSync(ws, { recursive: true, force: true });
     }
   }
 

@@ -8022,7 +8022,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (t === 'run') return 'the bound build runs to completion';
       if (t === 'fact') return 'the station learns this about you';
       if (t === 'artifact') return 'the deliverable lands in the workshop';
-      if (t === 'attest') return 'your agent reports it done with evidence and you confirm';
+      if (t === 'attest') return 'you report the result, or confirm your agent’s evidence';
       return 'its completion contract is met';
     }
     switch (q.kind) {
@@ -8057,6 +8057,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   };
   function questGoDest(q) {
     if (!q || q.status === 'done') return null;
+    if (typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.paused && QuestLedgerStore.paused(q)) return null;
     if (q.id === 'st:crew') {
       if (typeof App !== 'undefined' && App.openSummonBay) return 'recruit';
       return null;
@@ -8215,7 +8216,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // the one actionable front, offered ONCE — withheld while its bound build is in flight.
     const next = steps.find(s => s.isNext && s.status !== 'done');
     const accept = (next && !next.inFlight)
-      ? '<button class="consent-btn q-arc-accept q-track-accept" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">▶ ACCEPT THIS STEP</button>'
+      ? '<button class="consent-btn q-arc-accept q-track-accept" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">▶ ASK STARNET TO HELP</button>'
+        + '<details class="q-life-report"><summary>I DID THIS STEP</summary><label>What did you do?<textarea class="q-step-evidence" maxlength="1000" placeholder="Describe the action you completed outside StarNet"></textarea></label>'
+        + '<button class="consent-btn q-step-report" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">RECORD MY ACTION</button></details>'
       : (next && next.inFlight ? '<span class="sub q-track-running">the build for this step is running — finishing it completes the step.</span>' : '');
     const complete = total > 0 && doneN >= total;
     /* WHAT THE PATH CASHES OUT IN. The station's stage is the count of DISTINCT GOALS REACHED, and a goal
@@ -8233,7 +8236,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const j = (typeof JourneyStore !== 'undefined' && JourneyStore.status) ? JourneyStore.status() : null;
       const evo = j && j.evolution;
       if (evo && evo.next) {
-        payoff = '<div class="sub q-track-payoff">&#9670; finishing this path advances the station to <b>' + esc(evo.next) + '</b>'
+        payoff = '<div class="sub q-track-payoff">&#9670; confirming your goal’s outcome advances the station to <b>' + esc(evo.next) + '</b>'
           + '<span class="dim"> — the station’s expression, never your tools</span></div>';
       }
     } catch (_) { /* no evolution read → no claim */ }
@@ -8241,12 +8244,30 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '<span class="gx-tag">' + doneN + ' / ' + total + '</span></div>'
       + '<div class="q-track' + (complete ? ' q-track-done' : '') + '">'
       + '<div class="q-track-head"><b class="q-track-goal">' + esc(goal.title) + '</b>'
-      + '<span class="q-track-pct">' + pct + '%</span></div>'
+      + '<span class="q-track-pct">' + pct + '% of plan</span></div>'
       + '<div class="q-bar q-track-bar"><div class="q-bar-fill" style="width:' + pct + '%"></div></div>'
       + '<ol class="q-nodes">' + nodes + '</ol>'
       + payoff
+      + (complete ? '<div class="sub q-plan-complete">All planned steps are complete. Record the actual outcome below, or add a next step if the goal is still ahead.</div>' : '')
       + (accept ? '<div class="q-track-acts">' + accept + '</div>' : '')
+      + goalOutcomeHtml(goal.arcGoalId)
       + '</div>';
+  }
+  function goalOutcomeHtml(goalId) {
+    const g = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    if (!g || g.id !== goalId) return '';
+    const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+    const registered = j && Array.isArray(j.goals) ? j.goals.find(x => x.id === goalId) : null;
+    const condition = registered ? registered.successCondition : (g.successCondition || '');
+    return '<div class="q-life-goal" data-gid="' + esc(goalId) + '">'
+      + '<details class="q-life-condition"' + (condition ? '' : ' open') + '><summary>' + (condition ? 'SUCCESS CONDITION: ' + esc(condition) : 'DEFINE WHAT SUCCESS MEANS') + '</summary>'
+      + '<label>What observable result means you have reached this goal?<textarea class="q-success-condition" maxlength="500" placeholder="For example: I accepted a job offer">' + esc(condition) + '</textarea></label>'
+      + '<button class="consent-btn q-success-save">SAVE SUCCESS CONDITION</button></details>'
+      + (registered ? '<details class="q-life-report"><summary>MY GOAL IS ACHIEVED</summary><div class="sub">Confirm only when this is true: ' + esc(condition) + '</div>'
+        + '<label>What happened?<textarea class="q-goal-evidence" maxlength="1000" placeholder="Describe the result and when it happened"></textarea></label>'
+        + '<button class="consent-btn q-goal-confirm">CONFIRM MY OUTCOME</button><div class="sub dim">Saved as your report. Completing the plan alone never confirms this outcome.</div></details>' : '')
+      + '<details class="q-life-next"><summary>ADD A NEXT STEP</summary><label>Next action<input class="q-next-step" maxlength="140" placeholder="A concrete action that helps this goal"></label>'
+      + '<button class="consent-btn q-step-add">ADD STEP</button></details></div>';
   }
   // the celebration read, guarded once so questTrackHtml stays readable (the store may be absent)
   function QSS_CELEBRATING(id) {
@@ -8346,7 +8367,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const goalHtml = goal && goal.text
       ? '<div class="q-journey-goal"><span class="q-ns-eyebrow">ACTIVE LIFE GOAL</span><div class="q-journey-title">' + esc(goal.text) + '</div>'
         + '<div class="arc-bar q-bar"><div class="q-bar-fill" style="width:' + goalPct + '%"></div></div>'
-        + '<div class="sub">' + done + ' of ' + total + ' verified milestones' + (goal.next ? ' &middot; next: ' + esc(goal.next) : '') + '</div></div>'
+        + '<div class="sub">' + done + ' of ' + total + ' planned steps completed' + (goal.next ? ' &middot; next: ' + esc(goal.next) : ' &middot; outcome still requires confirmation') + '</div></div>'
       : '<div class="sub dim">set a goal arc to connect quests and evidence to your longer journey.</div>';
 
     const metricRows = (Array.isArray(j.metrics) ? j.metrics : []).map(m => {
@@ -8383,8 +8404,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         }).join('') : '<div class="sub dim">when verified mastery changes how an agent plans, the reason will appear here.</div>');
 
     const recent = (Array.isArray(j.outcomes) ? j.outcomes : []).slice(-3).reverse();
+    const progression = j.progression;
+    const achievements = progression && Array.isArray(progression.achievements) ? progression.achievements.slice(-5).reverse() : [];
+    const proofLabel = (kind, authority) => authority === 'commander-confirmed' ? 'You confirmed' : kind === 'metric' ? 'You recorded' : 'StarNet recorded';
+    const growthHtml = progression ? '<div class="q-commander-growth"><div class="q-journey-title">COMMANDER LEVEL ' + progression.level + '</div>'
+      + '<div class="sub">' + progression.points + ' achievement points · ' + progression.pointsToNextLevel + ' to the next level</div>'
+      + '<div class="sub dim">Recorded actions, metric checkpoints, and confirmed goals build your history. Setbacks never erase it.</div>'
+      + achievements.map(a => '<details class="sub q-achievement"><summary>◆ ' + esc(a.title || a.kind || 'Goal progress') + ' <span class="gx-tag">+' + (Number(a.points) || 0) + '</span></summary>'
+        + '<div>' + esc(a.evidence || '') + '</div><div class="dim">' + proofLabel(a.kind, a.verifiedBy) + '</div></details>').join('') + '</div>' : '';
     const outcomeHtml = recent.length ? '<div class="q-proof-list">' + recent.map(o => '<div class="sub"><span class="q-outcome">' + esc(o.kind) + '</span> '
-      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + esc(o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
+      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + proofLabel(o.kind, o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
     const staleHtml = journeyState && journeyState.stale
       ? '<div class="sub warn q-journey-stale">Journey snapshot is unconfirmed — showing the last verified sidecar response while the live read recovers.</div>'
       : '';
@@ -8392,8 +8421,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return '<div class="gx-sec"><span class="gx-title">COMMANDER JOURNEY</span> <span class="gx-tag">real goals, durable proof</span></div>'
       + '<div class="q-journey-card"><div class="q-evolution"><div><span class="q-ns-eyebrow">STATION EVOLUTION</span><div class="q-evolution-name">' + esc(evo.name) + '</div></div>'
       + '<span class="gx-tag">' + (Number(evo.goalsReached) || 0) + ' distinct goals reached</span></div>'
-      + staleHtml + goalHtml + metricsHtml + masteryHtml + receiptHtml + outcomeHtml
+      + staleHtml + growthHtml + goalHtml + metricsHtml + masteryHtml + receiptHtml + outcomeHtml
       + '<div class="sub dim q-journey-law">Evolution changes the station\'s expression, never your tools, permissions, or capabilities.</div></div>';
+  }
+
+  function lifeGoalsHtml() {
+    const goals = typeof GoalStore !== 'undefined' && GoalStore.listGoals ? GoalStore.listGoals().filter(g => g.status === 'active') : [];
+    const active = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    return '<details class="q-life-goal q-life-manage"><summary>' + (goals.length ? 'YOUR GOALS · CHOOSE A FOCUS / ADD A GOAL' : 'ADD YOUR LIFE GOAL') + '</summary>'
+      + goals.map(g => '<div class="q-hd"><span class="nm">' + esc(g.text) + '</span>' + (active && active.id === g.id ? '<span class="gx-tag">FOCUS</span>' : '<button class="consent-btn q-goal-focus" data-gid="' + esc(g.id) + '">FOCUS</button>') + '</div>').join('')
+      + '<label>Goal<input class="q-new-goal" maxlength="280" placeholder="Learn to play a song, change careers, build a business…"></label>'
+      + '<label>Success means<textarea class="q-new-success" maxlength="500" placeholder="The observable result you want to reach"></textarea></label>'
+      + '<label>First steps (one per line, up to five)<textarea class="q-new-steps" placeholder="Start with one concrete action. You can extend the plan later."></textarea></label>'
+      + '<button class="consent-btn q-goal-create">SAVE GOAL AND FOCUS</button></details>';
   }
 
   function buildQuests(body) {
@@ -8422,7 +8462,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const rest = qs.filter(q => !isArc(q));
     const milestones = rest.filter(q => q.kind === 'milestone');
     const current = rest.filter(q => q.kind !== 'milestone');
-    const open = current.filter(q => q.status !== 'done'), done = current.filter(q => q.status === 'done');
+    const isPaused = q => QLS && QLS.paused && QLS.paused(q);
+    const focus = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    const isOtherGoal = q => q.kind === 'ledger' && q.goalId && (!focus || q.goalId !== focus.id);
+    const deferred = current.filter(q => q.status !== 'done' && isPaused(q));
+    const otherGoals = current.filter(q => q.status !== 'done' && !isPaused(q) && isOtherGoal(q));
+    const open = current.filter(q => q.status !== 'done' && !isPaused(q) && !isOtherGoal(q)), done = current.filter(q => q.status === 'done');
     // a station-gap / work / maintenance quest is a fix-it or build SUGGESTION — always dismissible while open
     // (the sandbox law); each routes through its OWN store's denylist, not QuestState (whose dismiss is
     // dossier-only). Only the get-to-know-you (dossier) kind falls through to QuestState's dismissible check.
@@ -8473,7 +8518,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // §C — a GO affordance where a real, openable destination exists (never invents a window): dossier asks →
       // the Commander dossier; work/build → the TASK BOARD; a floor gap → REFIT. Absent target → no button.
       const goDest = questGoDest(q);
-      const goBtn = goDest ? '<button class="q-go" data-dest="' + esc(goDest) + '" data-qid="' + esc(q.id) + '" title="Open where you do this next">' + esc(GO_LABEL[goDest] || 'GO') + '</button>' : '';
+      const goBtn = goDest ? '<button class="q-go" data-dest="' + esc(goDest) + '" data-qid="' + esc(q.id) + '" title="Open where you do this next">' + esc(q.executionMode === 'commander' || q.executionMode === 'together' ? '▶ HELP ME PREPARE' : (GO_LABEL[goDest] || 'GO')) + '</button>' : '';
       // §C — EVERY open row answers "what do I do next": the honest completion condition in words.
       const cw = q.status !== 'done' ? questCompletesWhen(q) : '';
       const cwHtml = cw ? '<div class="sub q-cw">✓ completes when: ' + esc(cw) + '</div>' : '';
@@ -8501,13 +8546,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const kindHtml = kindTag ? '<span class="q-kind q-kind-' + esc(q.kind) + '">' + esc(kindTag) + '</span>' : '';
       const rewardHtml = q.reward ? '<div class="sub q-reward">&#9670; ' + esc(q.reward) + '</div>' : '';
       const actionRow = (goBtn || queueBtn) ? '<div class="q-actions">' + goBtn + queueBtn + '</div>' : '';
+      const lifeActions = q.kind === 'ledger' && q.status !== 'done' ? '<div class="q-life-quest" data-qid="' + esc(q.id) + '">'
+        + '<div class="sub q-owner">' + esc(q.executionMode === 'commander' ? 'YOUR ACTION' : q.executionMode === 'together' ? 'YOU + STARNET' : 'STARNET CAN HELP') + '</div>'
+        + (q.whyNow ? '<div class="sub">Why now: ' + esc(q.whyNow) + '</div>' : '')
+        + (isPaused(q) ? '<div class="sub">' + esc(q.disposition.type === 'later' ? 'Saved for tomorrow' : q.disposition.type === 'too_big' ? 'Needs a smaller step' : 'Blocked') + (q.disposition.reason ? ': ' + esc(q.disposition.reason) : '') + '</div><button class="consent-btn q-quest-disposition" data-action="resume">RESUME</button>'
+          : '<details><summary>CHANGE THIS RECOMMENDATION</summary><label>What needs to change?<input class="q-disposition-reason" maxlength="240" placeholder="For example: waiting for a reply, or only 15 minutes available"></label>'
+            + '<div class="consent-btns"><button class="consent-btn q-quest-disposition" data-action="later">TOMORROW</button><button class="consent-btn q-quest-disposition" data-action="blocked">BLOCKED</button><button class="consent-btn q-quest-disposition" data-action="too_big">TOO BIG</button></div></details>')
+        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea class="q-quest-evidence" maxlength="2000" placeholder="Describe your action and its result"></textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
+        + '</div>' : '';
       return '<div class="gx-tro q-card ' + (q.status === 'done' ? 'on' : 'off') + (glow ? ' q-celebrate' : '') + '" style="--ci:' + (i || 0) + '">'
         + '<div class="q-hd"><span class="gl">' + (q.status === 'done' ? '&#9733;' : '&#9675;') + '</span><span class="nm">' + esc(q.title) + '</span>'
         + kindHtml
         + (dis ? '<button class="q-dismiss" data-qid="' + esc(q.id) + '" title="Dismiss — the station will never raise this again">&#10005;</button>' : '')
         + '</div>'
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
-        + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + '</div>';
+        + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
     const meterHtml = m
       ? '<div class="gx-sec"><span class="gx-title">AGENT GROWTH</span> <span class="gx-tag">Lv ' + m.level + ' &middot; ' + m.pct + '% to next &middot; ' + esc(String(m.confLabel) + ' ' + String(m.band)) + '</span></div>'
@@ -8542,11 +8595,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        separate console. */
     body.innerHTML = '<div class="gx gx-quests">'
       + questTrackHtml(arcs)
+      + lifeGoalsHtml()
       + questRefreshHtml()
       + proposalsHtml
       + '<div class="gx-sec"><span class="gx-title">OPEN</span> <span class="gx-tag">' + open.length + '</span></div>'
-      + '<div class="dim q-lede">every quest pays out in real capability or work &mdash; never points. nothing is locked; the order just shows what tends to come next.</div>'
+      + '<div class="dim q-lede">choose a next action that helps your goal. Your recorded progress builds your Commander history.</div>'
       + '<div class="gx-tros q-grid q-open">' + (open.map(tro).join('') || '<p class="dim">all caught up.</p>') + '</div>'
+      + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
+      + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
       + '<div class="gx-sec"><span class="gx-title">DONE</span> <span class="gx-tag">' + done.length + '</span></div>'
       + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">nothing yet.</p>') + '</div>'
       + milestonesHtml
@@ -8556,6 +8612,43 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // COMMANDER JOURNEY writes are explicit. Empty/invalid numeric fields are rejected in the panel before the
     // request, and every successful response re-renders from the backend's returned proof snapshot.
     const journeyFail = r => notify((r && r.error) || 'journey update was not recorded', 'bad');
+    body.querySelectorAll('.q-goal-focus').forEach(b => b.addEventListener('click', () => { if (GoalStore.focusGoal(b.dataset.gid)) rerender('quests'); }));
+    body.querySelectorAll('.q-goal-create').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-manage'); b.disabled = true;
+      const r = await GoalStore.createGoal(row.querySelector('.q-new-goal').value, row.querySelector('.q-new-success').value,
+        row.querySelector('.q-new-steps').value.split('\n').map(s => s.trim()).filter(Boolean));
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-quest-disposition').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-quest'); b.disabled = true;
+      const r = await QLS.disposition(row.dataset.qid, b.dataset.action, (row.querySelector('.q-disposition-reason') || {}).value || '');
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-quest-report').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-quest'); b.disabled = true;
+      const r = await QLS.report(row.dataset.qid, row.querySelector('.q-quest-evidence').value);
+      if (r && r.ok) { sfx('quest'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-success-save').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-goal'); b.disabled = true;
+      const r = await GoalStore.setSuccessCondition(row.dataset.gid, row.querySelector('.q-success-condition').value);
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-goal-confirm').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-goal'); b.disabled = true;
+      const r = await GoalStore.confirmOutcome(row.dataset.gid, row.querySelector('.q-goal-evidence').value);
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-step-report').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await GoalStore.reportMilestone(b.dataset.gid, b.dataset.mid, b.closest('.q-life-report').querySelector('.q-step-evidence').value);
+      if (r && r.ok) { sfx('quest'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-step-add').forEach(b => b.addEventListener('click', () => {
+      const row = b.closest('.q-life-goal');
+      if (GoalStore.addStep(row.dataset.gid, row.querySelector('.q-next-step').value)) { sfx('click'); rerender('quests'); }
+      else notify('enter a new, concrete next action', 'warn');
+    }));
     const addMetric = body.querySelector('.q-metric-add');
     if (addMetric) addMetric.addEventListener('click', async ev => {
       ev.stopPropagation();

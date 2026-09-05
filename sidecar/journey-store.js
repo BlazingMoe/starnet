@@ -19,7 +19,7 @@ const STORE_KEY = 'station';
 const STORE_FILE = '_station.journey.json';
 const DOMAINS = ['building', 'research', 'writing', 'growth', 'operations', 'creative', 'planning', 'support'];
 const DOMAIN_SET = new Set(DOMAINS);
-const OUTCOME_KINDS = new Set(['quest', 'milestone', 'metric']);
+const OUTCOME_KINDS = new Set(['quest', 'milestone', 'metric', 'goal']);
 const TIER_STEPS = [[7, 'proven'], [3, 'practiced'], [1, 'tested']];
 const EVOLUTION_NAMES = ['DRIFT', 'VECTOR', 'ORBIT', 'CONSTELLATION', 'DEEP FIELD'];
 const METRIC_CAP = 40, OUTCOME_CAP = 300, RECEIPT_CAP = 100, HISTORY_CAP = 24;
@@ -87,6 +87,39 @@ function normOutcome(o) {
   };
 }
 
+function normGoal(g) {
+  if (!g || typeof g !== 'object') return null;
+  const id = clip(g.id, 64), text = clip(g.text, 280), successCondition = clip(g.successCondition, 1000);
+  if (!id || !text || !successCondition) return null;
+  return { id, text, successCondition, status: g.status === 'achieved' ? 'achieved' : 'active',
+    createdAt: stamp(g.createdAt), updatedAt: stamp(g.updatedAt), achievedAt: g.achievedAt == null ? null : stamp(g.achievedAt),
+    evidence: clip(g.evidence, 1000), verifiedBy: g.status === 'achieved' ? 'commander-confirmed' : null };
+}
+
+function normAchievement(a) {
+  if (!a || typeof a !== 'object' || !['quest', 'milestone', 'metric', 'goal'].includes(a.kind)) return null;
+  const key = clip(a.key, 200), goalId = clip(a.goalId, 64);
+  if (!key || !goalId) return null;
+  return { key, goalId, kind: a.kind, points: a.kind === 'goal' ? 100 : 10, title: clip(a.title, 140),
+    evidence: clip(a.evidence, 1000), verifiedBy: a.verifiedBy === 'commander-confirmed' ? 'commander-confirmed' : 'commander-client', at: stamp(a.at) };
+}
+
+function progressionFor(rec) {
+  const points = rec.commanderPoints;
+  const level = Math.floor(points / 100) + 1;
+  return { level, points, levelStartsAt: (level - 1) * 100, nextLevelAt: level * 100,
+    pointsToNextLevel: level * 100 - points, achievements: rec.achievements.slice(-30) };
+}
+
+function award(rec, input, now) {
+  const a = normAchievement(Object.assign({}, input, { at: now }));
+  if (!a || rec.achievementKeys.includes(a.key) || !rec.goals.some(g => g.id === a.goalId)) return null;
+  rec.achievementKeys.push(a.key); rec.commanderPoints += a.points;
+  rec.achievements.push(a);
+  if (rec.achievements.length > OUTCOME_CAP) rec.achievements.shift();
+  return a;
+}
+
 function normMastery(m) {
   if (!m || typeof m !== 'object') return null;
   const aid = agent(m.agentId), d = domain(m.domain), count = Math.max(0, Number(m.count) | 0);
@@ -132,7 +165,11 @@ function normalize(raw) {
       if (Object.keys(clean).length) suppressed[aid] = clean;
     }
   }
-  return { v: 1, seq: Math.max(0, Number(r.seq) | 0), commanderEpoch: stamp(r.commanderEpoch), startedAt: stamp(r.startedAt), metrics, outcomes, outcomeKeys, mastery, receipts, goalsReached, suppressed };
+  const goals = (Array.isArray(r.goals) ? r.goals : []).map(normGoal).filter(Boolean);
+  const achievements = (Array.isArray(r.achievements) ? r.achievements : []).map(normAchievement).filter(Boolean).slice(-OUTCOME_CAP);
+  const achievementKeys = [...new Set((Array.isArray(r.achievementKeys) ? r.achievementKeys : []).map(v => clip(v, 200)).filter(Boolean).concat(achievements.map(a => a.key)))];
+  const commanderPoints = Math.max(achievements.reduce((sum, a) => sum + a.points, 0), Math.max(0, Math.floor(number(r.commanderPoints) || 0)));
+  return { goals, achievements, achievementKeys, commanderPoints, v: 1, seq: Math.max(0, Number(r.seq) | 0), commanderEpoch: stamp(r.commanderEpoch), startedAt: stamp(r.startedAt), metrics, outcomes, outcomeKeys, mastery, receipts, goalsReached, suppressed };
 }
 
 function reached(metric) {
@@ -163,7 +200,7 @@ function foldOutcome(rec, input, now) {
   rec.outcomeKeys.push(d.sourceId);
   rec.outcomes.push(d);
   while (rec.outcomes.length > OUTCOME_CAP) rec.outcomes.shift();
-  if (d.goalDone) addGoalReached(rec, d.goalId || d.sourceId);
+  // Work completion never proves a whole life goal. Only confirmGoal can evolve the station.
 
   let receipt = null;
   if (d.agentId && d.domain) {
@@ -206,6 +243,7 @@ function makeJourneyStore(deps) {
         id: clip(activeGoal.id, 64) || null, text: clip(activeGoal.text, 280), done: Math.max(0, Number(activeGoal.done) | 0),
         total: Math.max(0, Number(activeGoal.total) | 0), next: clip(activeGoal.next, 200) || null
       } : null,
+      goals: rec.goals, progression: progressionFor(rec),
       metrics: rec.metrics.filter(m => m.status !== 'retired'),
       outcomes: rec.outcomes.slice(-50), mastery: rec.mastery.slice(), receipts: rec.receipts.slice(-20),
       suppressed: rec.suppressed, evolution: evolutionFor(rec.goalsReached)
@@ -216,7 +254,7 @@ function makeJourneyStore(deps) {
     if (!q || !q.id || q.status !== 'done') return { ok: false, error: 'a completed quest is required' };
     const attest = q.attest && q.attest.confirmed === true ? q.attest : null;
     if (q.contract && q.contract.type === 'attest' && !attest) return { ok: false, error: 'attest completion requires Commander-confirmed evidence' };
-    const aid = agent(q.completedBy) || agent(attest && attest.agentId) || agent(q.agentId);
+    const aid = attest && attest.source === 'commander' ? null : (agent(q.completedBy) || agent(attest && attest.agentId) || agent(q.agentId));
     const proof = q.contract && q.contract.type === 'attest' ? 'commander-confirmed' : 'harness-contract';
     const evidence = attest && attest.evidence
       ? attest.evidence
@@ -231,6 +269,11 @@ function makeJourneyStore(deps) {
         sourceId: 'quest:' + q.id, kind: 'quest', questId: q.id, goalId: q.goalId,
         milestoneId: q.milestoneId, agentId: aid, domain: q.domain, title: q.title, evidence, verifiedBy: proof, goalDone: false
       }, now);
+      if (result.changed && proof === 'commander-confirmed' && rec.goals.some(g => g.id === clip(q.goalId, 64) && g.status === 'active')) {
+        const milestoneId = clip(q.milestoneId, 80);
+        award(rec, { key: milestoneId ? 'milestone:' + clip(q.goalId, 64) + ':' + milestoneId : 'quest:' + q.id,
+          kind: 'quest', goalId: q.goalId, title: q.title, evidence, verifiedBy: proof }, now);
+      }
       return result.changed ? rec : undefined;
     });
     return { ok: true, duplicate: !result.changed && !result.skipped, skipped: !!result.skipped, outcome: result.outcome, receipt: result.receipt };
@@ -244,11 +287,50 @@ function makeJourneyStore(deps) {
       const rec = normalize(cur);
       result = foldOutcome(rec, {
         sourceId, kind: 'milestone', goalId: d.goalId, milestoneId: d.milestoneId, agentId: d.agentId,
-        domain: d.domain, title: d.milestoneText || d.goalText, evidence: d.evidence, verifiedBy: 'commander-client', goalDone: !!d.goalDone
+        domain: d.domain, title: d.milestoneText || d.goalText, evidence: d.evidence, verifiedBy: d.source === 'commander' ? 'commander-confirmed' : 'commander-client', goalDone: false
       }, now);
+      if (result.changed) award(rec, { key: sourceId, goalId: d.goalId, kind: 'milestone',
+        title: d.milestoneText || d.goalText, evidence: d.evidence, verifiedBy: d.source === 'commander' ? 'commander-confirmed' : 'commander-client' }, now);
       return result.changed ? rec : undefined;
     });
     return { ok: true, duplicate: !result.changed, outcome: result.outcome, receipt: result.receipt };
+  }
+
+  async function registerGoal(d, now) {
+    d = d || {};
+    const id = clip(d.id, 64), text = clip(d.text, 280), successCondition = clip(d.successCondition, 1000);
+    if (typeof d.id !== 'string' || typeof d.text !== 'string' || typeof d.successCondition !== 'string' || !id || d.id.length > 64 || !text || !successCondition) return { ok: false, error: 'goal id, text, and success condition are required' };
+    let goal = null, error = null;
+    await durable.update(STORE_KEY, cur => {
+      const rec = normalize(cur); goal = rec.goals.find(g => g.id === id);
+      if (goal && goal.status === 'achieved') {
+        if (goal.text !== text || goal.successCondition !== successCondition) error = 'an achieved goal cannot be redefined';
+        return undefined;
+      }
+      if (goal) Object.assign(goal, { text, successCondition, updatedAt: stamp(now) });
+      else { goal = normGoal({ id, text, successCondition, createdAt: now, updatedAt: now }); rec.goals.push(goal); }
+      return rec;
+    });
+    return error ? { ok: false, error } : { ok: true, goal };
+  }
+
+  async function confirmGoal(d, now) {
+    d = d || {}; const id = clip(d.id, 64), evidence = clip(d.evidence, 1000);
+    if (typeof d.id !== 'string' || typeof d.evidence !== 'string' || !id || d.id.length > 64 || !evidence) return { ok: false, error: 'goal id and Commander evidence are required' };
+    let goal = null, outcome = null, duplicate = false;
+    await durable.update(STORE_KEY, cur => {
+      const rec = normalize(cur); goal = rec.goals.find(g => g.id === id);
+      if (!goal) return undefined;
+      if (goal.status === 'achieved') { duplicate = true; return undefined; }
+      Object.assign(goal, { status: 'achieved', achievedAt: stamp(now), updatedAt: stamp(now), evidence, verifiedBy: 'commander-confirmed' });
+      outcome = foldOutcome(rec, { sourceId: 'goal:' + id + ':confirmed', kind: 'goal', goalId: id,
+        title: goal.text, evidence, verifiedBy: 'commander-confirmed', goalDone: true }, now).outcome;
+      addGoalReached(rec, id);
+      award(rec, { key: 'goal:' + id + ':confirmed', kind: 'goal', goalId: id,
+        title: goal.text, evidence, verifiedBy: 'commander-confirmed' }, now);
+      return rec;
+    });
+    return goal ? { ok: true, duplicate, goal, outcome } : { ok: false, error: 'register a goal with a success condition first' };
   }
 
   async function createMetric(d, now) {
@@ -290,6 +372,15 @@ function makeJourneyStore(deps) {
         outcome = foldOutcome(rec, { sourceId: 'metric:' + m.id + ':reached', kind: 'metric', goalId: m.goalId,
           title: m.label + ' reached ' + m.target + (m.unit ? ' ' + m.unit : ''), evidence: 'Commander recorded ' + value + (m.unit ? ' ' + m.unit : ''),
           verifiedBy: 'commander-client', goalDone: false }, now);   // one metric target proves itself, never the whole life goal
+      }
+      // Goal-scoped high-water checkpoints survive metric retirement/replacement and regressions.
+      // They describe a Commander-reported metric improvement, never a percentage of the life goal.
+      const progress = (m.current - m.baseline) / (m.target - m.baseline);
+      for (const checkpoint of [25, 50, 75, 100]) {
+        if (progress * 100 >= checkpoint) award(rec, { key: 'goal:' + m.goalId + ':metric:' + checkpoint,
+          kind: 'metric', goalId: m.goalId, title: m.label + ': ' + checkpoint + '% of metric target',
+          evidence: 'Commander recorded ' + value + (m.unit ? ' ' + m.unit : '') + (d.note ? ' — ' + clip(d.note, 240) : ''),
+          verifiedBy: 'commander-client' }, now);
       }
       metric = Object.assign({}, m); return rec;
     });
@@ -344,7 +435,7 @@ function makeJourneyStore(deps) {
     return lines.join('\n');
   }
 
-  return { read, snapshot, currentEpoch, recordQuest, recordMilestone, createMetric, updateMetric, retireMetric, setSuppressed, reset, adaptationBlock, _durable: durable };
+  return { read, snapshot, currentEpoch, registerGoal, confirmGoal, recordQuest, recordMilestone, createMetric, updateMetric, retireMetric, setSuppressed, reset, adaptationBlock, _durable: durable };
 }
 
-module.exports = { makeJourneyStore, normalize, tierFor, evolutionFor, DOMAINS, _internals: { normMetric, normOutcome, reached, foldOutcome } };
+module.exports = { makeJourneyStore, normalize, tierFor, evolutionFor, progressionFor, DOMAINS, _internals: { normMetric, normOutcome, reached, foldOutcome } };

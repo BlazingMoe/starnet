@@ -1,5 +1,40 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
+
+Owner request: plan and execute a goal-centered leveling and quest loop.
+
+1. Separate completed planned actions from achieved life outcomes. Store success conditions;
+   require explicit Commander outcome evidence; retain existing earned history.
+2. Give Commander progression its own durable, deduplicated achievement points and headline
+   level; keep crew feedback XP separate. Credit intermediate goal-linked actions/metrics.
+3. Feed goal metrics, evidence, and blocker feedback into quest refresh. Add bounded reactive
+   refresh, durable later/blocked/too-big/resume, and explicit real-world action reporting.
+4. Connect the quest-log UI to those APIs, including user-performed milestone reporting,
+   extending a completed plan, and specific achievement receipts.
+5. Verify action -> evidence -> next step -> goal confirmation -> station evolution in the
+   seeded running app, repeat reads after restart, then fast/http gates and integration.
+
+Done means a completed plan leaves the goal active; a reported real-world action advances
+the plan with labelled evidence; a recorded metric informs planning; explicit goal outcome
+confirmation advances Commander level and station evolution exactly once, surviving restart.
+
+Implemented: explicit success conditions and goal confirmation, manual goal creation with one
+or more steps, focus switching, extending plans, user-performed action reports, Commander
+achievement progression, metric checkpoint dedupe, adaptive quest evidence, and defer/resume.
+Independent review corrected assigned-agent attribution for user actions, lost registration
+responses, and active-plan preservation when history is capped.
+
+Live seeded proof (`node dev/life-goal-proof.mjs`, :9143): three action reports left the goal
+active at 100% of plan and 30 points; metrics reached the model directive; a generated quest
+paused, resumed, and completed from a user report; explicit goal confirmation produced 160
+points, Commander Lv 2, and evolution stage 1. Restart preserved those values and repeat
+confirmation minted nothing. Browser warning/exception lists and native-control paint count
+were empty. The provider was a local deterministic mock, so real-provider recommendation
+quality and installed-desktop behavior remain unverified. Pre-merge gates passed: 722/722
+fast and 99/99 HTTP. The combined website-repair candidate also passed 722/722 fast and
+the live restart proof. Integration verification remains pending.
+
 ## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
 
 Merged as `6002f57f5` after synchronizing with conversation trunk `368d6a8b9`.

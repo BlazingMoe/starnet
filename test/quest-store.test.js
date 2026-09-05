@@ -267,5 +267,42 @@ const attestContract = () => ({ type: 'attest', key: '' });
     A.ok(s.get('q:1') && s.get('q:1').status === 'open', 'no open quest was evicted');
   }
 
+  // Life quests: pauses free recommendation slots without erasing history; only owner reports settle attest.
+  {
+    const fs = memFs(), s = freshStore(fs);
+    const ids = [];
+    for (let i = 0; i < 3; i++) ids.push((await s.mint({ title: 'Practice ' + i, kind: 'generated', contract: attestContract() }, 100)).id);
+    A.ok((await s.setDisposition(ids[0], { disposition: 'blocked', reason: 'Waiting for class signup' }, 200)).ok, 'blocked reason saves');
+    A.eq(s.get(ids[0]).status, 'open', 'paused quest remains open');
+    A.eq(s.openForAgent(null, 300).length, 2, 'paused quest is excluded from actionable agent slate');
+    A.ok((await s.mint({ title: 'Smaller next action', kind: 'generated', contract: attestContract() }, 300)).ok, 'pausing frees generated capacity');
+    A.ok(!(await s.mint({ title: 'Practice 0', contract: attestContract() }, 300)).ok, 'paused title remains deduplicated');
+    const restarted = freshStore(fs);
+    A.eq(restarted.get(ids[0]).disposition.reason, 'Waiting for class signup', 'feedback survives a new store instance');
+    A.ok((await restarted.setDisposition(ids[0], { disposition: 'resume' }, 400)).ok, 'resume succeeds');
+    A.eq(restarted.get(ids[0]).disposition, null, 'resume removes active pause');
+    A.eq(restarted.get(ids[0]).dispositionHistory.length, 1, 'resume retains feedback history');
+    A.ok(!(await restarted.setDisposition(ids[1], { disposition: 'later', snoozeUntil: 300 }, 400)).ok, 'past snooze rejected');
+    await restarted.setDisposition(ids[1], { disposition: 'later', snoozeUntil: 600 }, 400);
+    A.ok(!restarted.openForAgent(null, 599).some(q => q.id === ids[1]), 'snooze hides until due');
+    A.ok(restarted.openForAgent(null, 600).some(q => q.id === ids[1]), 'snooze becomes actionable exactly when due');
+    A.ok(!(await restarted.reportCompletion(ids[0], 'done', 700)).ok, 'empty accomplishment report rejected');
+    A.ok((await restarted.reportCompletion(ids[0], 'I attended my first class today', 700)).ok, 'Commander report completes real-world action');
+    const done = freshStore(fs).get(ids[0]);
+    A.eq(done.attest.source, 'commander', 'direct user report retains provenance after restart');
+    A.eq(done.attest.confirmed, true, 'report is explicitly Commander confirmed');
+    A.eq(done.completedBy, null, 'life action is not attributed to an agent');
+    const mech = await restarted.mint({ title: 'Machine work', contract: runContract('r-life') }, 800);
+    A.ok(!(await restarted.reportCompletion(mech.id, 'I say this finished successfully', 900)).ok, 'reports cannot bypass mechanical contracts');
+    A.ok(!(await restarted.reportCompletion(ids[0], 'Another report of this action', 900)).ok, 'report is not duplicated on a done quest');
+  }
+  {
+    const s = freshStore();
+    for (let i = 0; i < 3; i++) A.ok((await s.mint({ title: 'Old focus ' + i, kind: 'generated', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'old focus fills its own generated scope');
+    A.ok(!(await s.mint({ title: 'Old focus fourth', kind: 'generated', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'same goal still caps at three');
+    A.ok((await s.mint({ title: 'New focus first', kind: 'generated', goalId: 'goal:new', contract: attestContract() }, 100)).ok, 'new goal has independent generated capacity');
+    A.ok((await s.mint({ title: 'Legacy unbound', kind: 'generated', contract: attestContract() }, 100)).ok, 'legacy unbound scope remains separate');
+    A.ok((await s.mint({ title: 'Agent-specific old focus', kind: 'generated', agentId: 'hero', goalId: 'goal:old', contract: attestContract() }, 100)).ok, 'agent scope remains independent within a goal');
+  }
   A.report('quest-store.test');
 })();
