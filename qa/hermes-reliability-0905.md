@@ -2,7 +2,7 @@
 
 The three observed StarNet reliability gaps are implemented in commits d4c4c2195, 505236bd5 and 8ccf27916. The implementation branch was synchronized with integration commit ff9e147cf in 9cb517883.
 
-1. Command execution through MCP no longer receives reusable write receipts. Repeating an identical check after repair executes it again. External sends and other ordinary writes retain per-work-item deduplication. Command execution still follows the existing mutation/consent policy.
+1. Recognized MCP command-execution tools, including `run_command`, no longer receive reusable write receipts. Repeating an identical check after repair executes it again. External sends and other ordinary writes retain per-work-item deduplication. Command execution still follows the existing mutation/consent policy.
 2. Native verification uses the active project root when no narrower execution directory exists. Dispatch, clones, structured-result repair and resumed workers inherit host-owned project scope. Background worker records persist that scope.
 3. A routine addressed to a captured local session passes scheduled preflight and uses the existing acknowledged station-delivery bridge. Remote channel targets still require their channel. Native routine inspection exposes actionable errors, and routine.manage can repair local/origin delivery.
 
@@ -23,3 +23,11 @@ All scenarios launched `node dev/seed.js --keep` with isolated workspaces, deter
 Event receipts, restart records, routine repair records, sanitized boot logs, the proof launcher and raw gate logs are preserved in `C:/Users/andro/gen-trees/hermes-reliability-evidence-0905/`. Temporary live-proof server trees were terminated and their workspaces disposed. Expected fixture warnings include synthetic model pricing, missing fixture roster identities, checkpoint initialization, intentionally unavailable channel delivery and intentional cancellation.
 
 This is source/backend lane verification. No installer build, installed-app replacement, remote push or release-readiness claim is included.
+
+## Completed integration
+
+The verified merge is `c2a62eeb9d084d6e582837e1a3c39d73de1300f4`. Full production-candidate pre-gates passed 716 fast steps and 96 HTTP steps; final post-merge gates passed 716 fast steps and 96 HTTP steps with exit 0. The five live scenarios also passed against the merged production source.
+
+The first post-merge HTTP attempt hit a Telegram fixture port collision at restart, so the merge was rolled back with unrelated edits preserved. The test-only correction uses OS-allocated ports while retaining its workspace and all 60 assertions; a direct run and two simultaneous runs passed. The final full gates then passed. No production changes were needed for that correction.
+
+Final receipts are `test-fast-postmerge-retry.log`, `test-http-postmerge-retry.log`, their zero exit stamps, and `live-*-postmerge.log` in the preserved evidence directory above. Six seeded launches were confirmed stopped, with their temporary workspaces removed. The earlier comparison evidence remains preserved separately.
