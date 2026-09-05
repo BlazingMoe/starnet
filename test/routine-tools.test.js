@@ -427,5 +427,17 @@ const call = (name, args) => ({ id: 'c1', name, args: args || {}, argsRaw: JSON.
   A.ok(/function liftCronHalt/.test(src), 'liftCronHalt is still the one documented lift seam');
 }
 
+{
+  const job = { id: 'blocked', name: 'Local monitor', agentId: 'agent', state: 'blocked_config', lastError: 'origin delivery has no captured channel target', lastReason: 'blocked_config', deliver: 'origin' };
+  let updated;
+  const rt = makeRoutineTools({ roster: () => roster, listJobs: () => [job], updateRoutine: async (id, patch) => { updated = patch; return Object.assign({}, job, patch); } });
+  const listed = JSON.parse((await rt.listTool.run({}, { agentId: 'agent' })).content).jobs[0];
+  A.eq(listed.lastError, job.lastError, 'routine list exposes the actionable dispatch error');
+  A.eq(listed.deliver, 'origin', 'routine list exposes delivery configuration for diagnosis');
+  const result = JSON.parse((await rt.manageTool.run({ action: 'update', id: job.id, deliver: 'local', attachToSession: false }, { agentId: 'agent' })).content);
+  A.eq(updated.deliver, 'local', 'agent can repair routine delivery through the native tool');
+  A.eq(updated.attachToSession, false, 'explicit detached local delivery is preserved');
+  A.eq(result.job.deliver, 'local', 'read-back reports repaired delivery');
+}
 A.report('routine-tools');
 })().catch(e => { console.log('FAIL: routine-tools threw -- ' + (e && e.stack || e)); process.exit(1); });
