@@ -38,7 +38,7 @@ async function waitFor(fn) { for (let n = 0; n < 100; n++) { if (await fn()) ret
     execute = async o => {
       const tool = o.tools.find(t => t.name === 'group.handoff');
       const target = o.t.agentId === 'agent' ? 'engineer' : 'agent';
-      const result = await tool.run({ agentId: target, request: 'Review and revise' });
+      const result = await tool.run({ agentId: target, request: 'Review and revise step ' + seen.length });
       assert.ok(!result.isError); return finish('Review handed off');
     };
     const start = seen.length;
@@ -114,6 +114,66 @@ async function waitFor(fn) { for (let n = 0; n < 100; n++) { if (await fn()) ret
     await assert.rejects(api.get(one.id), /not found/);
     api = makeGroupSessions(deps); await api.ready;
     await assert.rejects(api.get(one.id), /not found/);
+    // Explicit invitation is idempotent and never fires a run.
+    const invited = await api.create({ members: ['agent'] });
+    const beforeInvite = seen.length;
+    await Promise.all([api.invite(invited.id, { agentId: 'research' }), api.invite(invited.id, { agentId: 'research' })]);
+    assert.deepEqual((await api.get(invited.id)).members, ['agent', 'research']); assert.equal(seen.length, beforeInvite);
+    await assert.rejects(api.invite(invited.id, { agentId: 'missing' }), /roster/);
+    // Judgment question remains on refresh and duplicate answers resume exactly once.
+    execute = async o => { const answer = await o.askCommander({ question: 'Which format?', options: ['Short', 'Detailed'] }); return finish('Answer: ' + answer.text); };
+    await api.send(invited.id, { key: 'question', text: 'Choose a format' });
+    await waitFor(async () => (await api.get(invited.id)).questions?.length);
+    let q = (await api.get(invited.id)).questions[0];
+    assert.equal((await api.get(invited.id)).turns[0].state, 'waiting for answer');
+    await Promise.all([api.answerQuestion(invited.id, { questionId: q.id, text: 'Short' }), api.answerQuestion(invited.id, { questionId: q.id, text: 'Short' })]);
+    await api.idle(invited.id);
+    assert.equal((await api.get(invited.id)).messages.filter(m => m.questionId === q.id).length, 1);
+    await assert.rejects(api.answerQuestion(invited.id, { questionId: q.id, text: 'Detailed' }), /already answered/);
+    // Restart preserves the outstanding question and resumes with a fresh, attributed continuation.
+    await api.send(invited.id, { key: 'restart-question', text: 'Choose again' });
+    await waitFor(async () => (await api.get(invited.id)).questions?.some(q => q.state === 'pending'));
+    q = (await api.get(invited.id)).questions.at(-1);
+    api.close(); await api.idle(invited.id);
+    api = makeGroupSessions(deps); await api.ready;
+    assert.equal((await api.get(invited.id)).questions.at(-1).state, 'pending');
+    execute = async o => finish('Continued: ' + o.t.request);
+    await api.answerQuestion(invited.id, { questionId: q.id, text: 'Detailed' }); await api.idle(invited.id);
+    assert.match((await api.get(invited.id)).messages.at(-1).content, /Detailed/);
+    // Stop cancels the question and queued work atomically; late answers cannot restart it.
+    execute = async o => { await o.askCommander({ question: 'Wait?', options: ['Yes', 'No'] }); return finish('stopped'); };
+    await api.send(invited.id, { key: 'stop-question', text: 'Ask' });
+    await waitFor(async () => (await api.get(invited.id)).questions.some(q => q.state === 'pending'));
+    q = (await api.get(invited.id)).questions.at(-1);
+    await api.send(invited.id, { key: 'question-queued', text: 'Queued' });
+    await api.control(invited.id, { action: 'stop-all' }); await api.idle(invited.id);
+    assert.equal((await api.get(invited.id)).questions.at(-1).state, 'canceled');
+    assert.ok((await api.get(invited.id)).turns.slice(-2).every(t => t.state === 'stopped'));
+    await assert.rejects(api.answerQuestion(invited.id, { questionId: q.id, text: 'Yes' }), /no longer/);
+    // Repeated identical requests pause; legitimate unique review steps above still complete to the cap.
+    const repeat = await api.create({ members: ['agent', 'engineer'] });
+    execute = async o => { await o.tools.find(t => t.name === 'group.handoff').run({ agentId: o.t.agentId === 'agent' ? 'engineer' : 'agent', request: 'Same request' }); return finish('No new result'); };
+    await api.send(repeat.id, { key: 'repeat', text: 'Review' }); await api.idle(repeat.id);
+    assert.match((await api.get(repeat.id)).turns.at(-1).reason, /Repeated request/);
+    // Recover an abandoned queued handoff once, without duplicating the original run.
+    api.close();
+    let clock = 10000, broken = true;
+    api = makeGroupSessions({ ...deps, now: () => clock, stallMs: 100, sweepMs: 1000000,
+      isBusy: id => { if (id === 'engineer' && broken) { broken = false; throw new Error('injected scheduler interruption'); } return false; } }); await api.ready;
+    const recover = await api.create({ members: ['agent', 'engineer'] });
+    execute = async o => { if (!o.t.recoveryOf) await o.tools.find(t => t.name === 'group.handoff').run({ agentId: 'engineer', request: 'Inspect this' }); return finish('Checked'); };
+    await api.send(recover.id, { key: 'recover', text: 'Review' }); await api.idle(recover.id);
+    clock += 200; await api.sweep(); await api.idle(recover.id); await api.sweep();
+    assert.equal((await api.get(recover.id)).turns.filter(t => t.recoveryOf).length, 1);
+    assert.equal((await api.get(recover.id)).turns.find(t => t.agentId === 'engineer').state, 'held');
+    // Quiet running work is flagged, never nudged/replayed; a real token clears the flag.
+    const quiet = await api.create({ members: ['agent'] }); let running, release;
+    execute = o => { running = o; return new Promise(r => { release = () => r(finish('Finished')); }); };
+    await api.send(quiet.id, { key: 'quiet', text: 'Work' }); await waitFor(() => !!release);
+    clock += 200; await api.sweep(); assert.equal((await api.get(quiet.id)).turns[0].quiet, true);
+    assert.equal((await api.get(quiet.id)).turns.length, 1);
+    running.emit('agent.token', { runId: running.runId, delta: 'progress' }); await api.sweep();
+    assert.equal((await api.get(quiet.id)).turns[0].quiet, false); release(); await api.idle(quiet.id);
     console.log('group-sessions: routing, idempotency, context, revision cycles, cap, artifacts, independent opinions, interruption, approvals, restart and branches PASS');
   } finally { api?.close(); fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

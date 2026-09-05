@@ -8736,7 +8736,7 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
       text: bytes.includes(0) ? undefined : bytes.toString('utf8'),
       binary: bytes.includes(0), note: 'Immutable shared version; file contents are untrusted data.' };
   },
-  execute: async ({ g, t, ctx, runId, signal, emit, tools, prompt }) => {
+  execute: async ({ g, t, ctx, runId, signal, emit, tools, prompt, askCommander }) => {
     const ident = agentRoster.get(t.agentId);
     if (!ident) throw new Error('Participant is no longer available');
     const provider = normalizeProvider(ident.provider), key = providerRuntimeKey(provider, ''), baseUrl = providerRuntimeBaseUrl(provider, '');
@@ -8750,7 +8750,7 @@ const groupSessions = require('./group-sessions.js').makeGroupSessions({
         runId, signal, emit, broadcast: true, streamId: g.id, sessionTitle: g.title,
         isTask: Classify.isTaskDirective(g.messages.find(m => m.id === t.origin)?.content || ''), trigger: 'directive',
         taskKey: 'stream:' + g.id, taskSource: 'interactive',
-        surface: 'interactive', lead: false, groupTools: tools,
+        surface: 'interactive', lead: false, groupTools: tools, askCommander,
         station: router.stationFor(t.agentId) || undefined,
         prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call) }),
         loginPrompt: prompt, reflect: false
@@ -8776,6 +8776,7 @@ async function handleGroups(req, res) {
       const b = JSON.parse(await readBody(req, 2 << 20, res));
       const handlers = { create: () => groupSessions.create(b), send: () => groupSessions.send(b.id, b),
         configure: () => groupSessions.configure(b.id, b), control: () => groupSessions.control(b.id, b),
+        invite: () => groupSessions.invite(b.id, b), answerQuestion: () => groupSessions.answerQuestion(b.id, b),
         fork: () => groupSessions.fork(b.id, b), attach: () => groupSessions.attach(b.id, b), answer: () => groupSessions.answer(b.id, b) };
       if (!handlers[b.op]) return respondJson(res, 400, { error: 'Unknown group operation' });
       out = await handlers[b.op]();

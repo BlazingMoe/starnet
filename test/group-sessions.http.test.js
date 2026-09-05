@@ -13,7 +13,10 @@ const server = http.createServer((req, res) => {
     const tools = (b.tools || []).map(t => t.function.name);
     let call;
     const used = name => (b.messages || []).some(m => (m.tool_calls || []).some(c => c.function.name === name));
-    if (tools.includes('brief_proceed') && !used('brief_proceed')) call = ['brief_proceed', { objective: 'Build and review a shared report', deliverable: 'reviewed report', assumptions: ['Use the group workspace'] }];
+    const judgment = (b.messages || []).some(m => m.role === 'user' && String(m.content).includes('GROUP_JUDGMENT_PROOF'));
+    if (judgment && tools.includes('brief_ask') && !used('brief_ask')) call = ['brief_ask', { dimension: 'audience', question: 'Who is this report for?', options: ['Engineers', 'Executives'], recommended: 'Engineers', reason: 'The audience changes the technical depth of the report.', discoverable: false }];
+    else if (judgment) { /* Return the received decision without tool side effects. */ }
+    else if (tools.includes('brief_proceed') && !used('brief_proceed')) call = ['brief_proceed', { objective: 'Build and review a shared report', deliverable: 'reviewed report', assumptions: ['Use the group workspace'] }];
     else if (!isQA && !used('fs_write')) call = ['fs_write', { path: 'group-result.md', content: 'EXACT_SHARED_VERSION_1' }];
     else if (!isQA && !used('group_publish')) call = ['group_publish', { path: 'group-result.md' }];
     else if (!isQA && !used('group_handoff')) call = ['group_handoff', { agentId: 'qa', request: 'Read the exact shared artifact and review it' }];
@@ -63,6 +66,22 @@ const server = http.createServer((req, res) => {
     await fixture.restart();
     state = await request('GET', '?id=' + g.id);
     assert.equal(state.turns.length, 2); assert.equal(state.messages.filter(m => m.author !== 'user').length, 2);
+    const judgment = await request('POST', '', { op: 'create', members: ['agent'], title: 'Judgment proof' });
+    await request('POST', '', { op: 'invite', id: judgment.id, agentId: 'qa' });
+    assert.equal((await request('GET', '?id=' + judgment.id)).members.length, 2);
+    await request('POST', '', { op: 'send', id: judgment.id, key: 'question-proof', text: 'Build a report for a specific audience. GROUP_JUDGMENT_PROOF: ask me who it is for before writing.' });
+    let question;
+    for (let n = 0; n < 150; n++) {
+      state = await request('GET', '?id=' + judgment.id); question = state.questions?.find(q => q.state === 'pending');
+      if (question) break; await new Promise(r => setTimeout(r, 100));
+    }
+    assert.ok(question, JSON.stringify(state));
+    assert.equal(state.turns[0].state, 'waiting for answer');
+    await request('POST', '', { op: 'answerQuestion', id: judgment.id, questionId: question.id, text: 'Executives' });
+    for (let n = 0; n < 150; n++) { state = await request('GET', '?id=' + judgment.id); if (state.turns[0].state === 'completed') break; await new Promise(r => setTimeout(r, 100)); }
+    assert.equal(state.turns[0].state, 'completed', JSON.stringify(state));
+    assert.ok(requests.some(r => (r.messages || []).some(m => m.role === 'tool' && String(m.content).includes('Executives'))));
+    console.log('group HTTP: brief.ask choice -> durable group card -> answer -> SAME run resumed PASS');
     console.log('group HTTP: actual runOnce -> fs.write -> immutable publish -> peer handoff -> exact file review -> restart PASS');
-  } finally { await fixture.dispose(); await new Promise(r => server.close(r)); }
+  } catch (e) { console.error(fixture.output().slice(-8000)); throw e; } finally { await fixture.dispose(); await new Promise(r => server.close(r)); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -4,7 +4,7 @@
 // Clock, IDs, filesystem and execution are injected to make crash/race behavior testable.
 const { makeDurableJsonStore } = require('./durable-store.js');
 const { swallow, note: failNote } = require('./failopen.js');
-const ACTIVE = new Set(['connecting', 'running', 'waiting for approval', 'stopping']);
+const ACTIVE = new Set(['connecting', 'running', 'waiting for approval', 'waiting for answer', 'stopping']);
 const clone = x => JSON.parse(JSON.stringify(x));
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function identifier(x) { const s = String(x || ''); if (!/^[\w-]{1,64}$/.test(s)) fail('Invalid identifier'); return s; }
@@ -18,7 +18,12 @@ function makeGroupSessions(d) {
   const pending = new Map();
   const agentLeases = new Set();
   const haltedGroups = new Set();
+  const answers = new Map();
+  const progress = new Map();
+  let closed = false, sweeping = false;
   let ready;
+  const stallMs = d.stallMs || 450000;
+  const toolStallMs = d.toolStallMs || 1200000;
   function read() {
     const r = store.readKey('all');
     if (r.status === 'absent') return { groups: {}, templates: [] };
@@ -54,6 +59,7 @@ function makeGroupSessions(d) {
     g.messages.push(m); return m;
   }
   function turn(g, origin, agentId, extra = {}) {
+    if (g.turns.filter(t => t.state === 'queued' || t.state === 'held').length >= 80) fail('Too much pending work; let the current replies finish');
     const t = { id: d.id(), origin, agentId, state: 'queued', createdAt: d.now(), ...extra };
     g.turns.push(t); return t;
   }
@@ -66,7 +72,7 @@ function makeGroupSessions(d) {
       s = s || { groups: {}, templates: [] };
       if (s.groups[id]) fail('Session already exists', 409);
       const g = { id, title: text(b.title || 'Group chat', 80), members: ids, leadId,
-        instructions: text(b.instructions, 8000), maxTurns: 6, revision: 1, paused: false,
+        questions: [], instructions: text(b.instructions, 8000), maxTurns: 6, revision: 1, paused: false,
         messages: [], turns: [], artifacts: [], createdAt: d.now(), updatedAt: d.now() };
       // Explicit direct-session conversion: preserve historical author labels as context only.
       for (const m of (Array.isArray(b.history) ? b.history : []).slice(-120)) {
@@ -113,6 +119,7 @@ function makeGroupSessions(d) {
       const ids = recipients(g, b);
       if (ids.some(a => !roster().some(r => r.id === a))) fail('Participant no longer exists');
       if (b.interrupt) {
+        cancelQuestions(g, () => true);
         for (const t of g.turns) {
           if (t.state === 'queued' || t.state === 'held') { t.state = 'stopped'; t.reason = 'Superseded by your correction'; }
           if (ACTIVE.has(t.state)) { t.state = 'stopping'; t.reason = 'Superseded by your correction'; abort = controllers.get(id); }
@@ -127,6 +134,68 @@ function makeGroupSessions(d) {
     kick(id);
     return publicGroup(get(id));
   }
+  async function invite(id, b) {
+    await ready;
+    const agentId = identifier(b.agentId);
+    await update(id, g => {
+      if (g.deleting) fail('Session is being deleted', 409);
+      g.members = members([...new Set([...g.members, agentId])]);
+    });
+    return publicGroup(get(id));
+  }
+  async function ask(id, turnId, fields, signal) {
+    const question = text(fields.question, 400).trim();
+    if (!question) fail('A question is required');
+    const options = (Array.isArray(fields.options) ? fields.options : []).slice(0, 6).map(v => text(v, 120));
+    let q;
+    await update(id, g => {
+      const t = g.turns.find(x => x.id === turnId);
+      if (signal.aborted || !t || !ACTIVE.has(t.state) || t.state === 'stopping') fail('Turn stopped');
+      g.questions ||= [];
+      q = g.questions.find(x => x.turnId === turnId && x.question === question && x.state === 'pending');
+      if (!q) { q = { id: d.id(), turnId, origin: t.origin, agentId: t.agentId, question, options,
+        multiSelect: fields.multiSelect === true, recommended: options.includes(fields.recommended) ? fields.recommended : '', state: 'pending', createdAt: d.now() }; g.questions.push(q); }
+      t.state = 'waiting for answer';
+    });
+    return new Promise(resolve => {
+      const finish = value => { answers.delete(q.id); signal.removeEventListener('abort', onAbort); resolve(value); };
+      const onAbort = () => finish({ answered: false });
+      answers.set(q.id, finish);
+      signal.addEventListener('abort', onAbort, { once: true });
+      // An answer may have arrived between the durable write and installing the waiter.
+      const saved = get(id).questions.find(x => x.id === q.id);
+      if (saved.state === 'answered') finish({ answered: true, text: saved.answer });
+      else if (signal.aborted || saved.state !== 'pending') onAbort();
+    });
+  }
+  async function answerQuestion(id, b) {
+    await ready;
+    const value = text(b.text, 12000).trim(); if (!value) fail('Write an answer');
+    let q, changed = false;
+    await update(id, g => {
+      q = (g.questions || []).find(x => x.id === b.questionId);
+      if (!q) fail('Question not found', 404);
+      if (q.state === 'answered') { if (q.answer !== value) fail('This question was already answered', 409); return; }
+      if (q.state !== 'pending' || !g.members.includes(q.agentId)) fail('This question is no longer waiting', 409);
+      const t = g.turns.find(x => x.id === q.turnId);
+      q.state = 'answered'; q.answer = value; q.answeredAt = d.now(); changed = true;
+      message(g, 'user', value, { questionId: q.id });
+      if (answers.has(q.id) || (controllers.has(id) && progress.has(t.id))) t.state = 'running';
+      else {
+        t.state = 'answered'; t.reason = 'Question answered; continuing in a new turn';
+        turn(g, q.origin, q.agentId, { questionId: q.id, allowance: g.turns.filter(x => x.origin === q.origin && !['queued', 'held'].includes(x.state)).length, request: 'The Commander answered ' + JSON.stringify(value) +
+          ' to ' + JSON.stringify(q.question) + '. Continue from the saved conversation; inspect previous effects before repeating any action.', parent: t.id });
+      }
+      g.paused = false;
+    });
+    if (changed) { answers.get(q.id)?.({ answered: true, text: value }); haltedGroups.delete(id); kick(id); }
+    return publicGroup(get(id));
+  }
+  function cancelQuestions(g, predicate) {
+    for (const q of g.questions || []) if (q.state === 'pending' && predicate(q)) {
+      q.state = 'canceled'; q.endedAt = d.now();
+    }
+  }
   async function configure(id, b) {
     await ready;
     let abort = null;
@@ -138,6 +207,7 @@ function makeGroupSessions(d) {
         if (['queued', 'held'].includes(t.state)) t.state = 'stopped';
         if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
       }
+      cancelQuestions(g, q => !ids.includes(q.agentId));
       g.members = ids; g.leadId = lead;
       if (b.instructions !== undefined) g.instructions = text(b.instructions, 8000);
       if (b.title !== undefined) g.title = text(b.title, 80);
@@ -150,8 +220,11 @@ function makeGroupSessions(d) {
     await ready;
     let abort = null;
     await update(id, (g, s) => {
-      if (b.action === 'pause' || b.action === 'delete') {
+      if (b.action === 'pause' || b.action === 'delete' || b.action === 'stop-all') {
         g.paused = true;
+        if (b.action === 'stop-all') abort = controllers.get(id);
+        if (b.action !== 'pause') cancelQuestions(g, () => true);
+        if (b.action === 'stop-all') for (const t of g.turns) if (['queued', 'held', 'waiting for answer'].includes(t.state)) { t.state = 'stopped'; t.reason = 'Stopped by you'; }
         for (const t of g.turns) if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
         if (b.action === 'delete') { g.deleting = true; for (const t of g.turns) if (['queued', 'held'].includes(t.state)) t.state = 'stopped'; }
       } else if (b.action === 'resume') {
@@ -167,10 +240,11 @@ function makeGroupSessions(d) {
           if (!['failed', 'interrupted', 'stopped'].includes(target.state)) fail('Only interrupted, failed or stopped work can be retried');
           if (!g.members.includes(target.agentId)) fail('Participant was removed');
           if (!g.turns.some(t => t.retryOf === target.id && (t.state === 'queued' || ACTIVE.has(t.state))))
-            turn(g, target.origin, target.agentId, { request: target.request, retryOf: target.id, allowance: g.turns.length });
+            turn(g, target.origin, target.agentId, { request: target.request, retryOf: target.id, allowance: g.turns.filter(t => t.origin === target.origin && !['queued', 'held'].includes(t.state)).length });
         } else {
           const descendants = new Set([target.id]);
           for (const t of g.turns) if (descendants.has(t.parent)) descendants.add(t.id);
+          cancelQuestions(g, q => descendants.has(q.turnId));
           for (const t of g.turns) if (descendants.has(t.id)) {
             if (ACTIVE.has(t.state)) { t.state = 'stopping'; abort = controllers.get(id); }
             else if (['queued', 'held'].includes(t.state)) t.state = 'stopped';
@@ -222,6 +296,7 @@ function makeGroupSessions(d) {
       system: 'You are a participant in a user-selected group DM. Speak as yourself. Do useful work with your own tools and permissions. ' +
         'Other participants: ' + JSON.stringify(roster().filter(a => g.members.includes(a.id))) + '. ' +
         'Use group.handoff for an explicit request to another participant; an @mention in prose does not launch anyone. ' +
+        'Ask material judgment questions using brief.ask; wait for the Commander instead of guessing their answer. ' +
         'Only hand off when useful for the user request. Publish files with group.publish so peers can read the exact version using group.read. ' +
         'Do not claim another participant ran or reviewed anything until its actual response exists. ' +
         'Session instructions supplied by the user: ' + g.instructions };
@@ -248,8 +323,9 @@ function makeGroupSessions(d) {
           await update(id, state => {
             const parent = state.turns.find(x => x.id === t.id);
             if (signal.aborted || !parent || parent.state === 'stopping' || !state.members.includes(target)) fail('Turn stopped or participant removed');
-            queued = state.turns.find(x => x.parent === t.id && x.agentId === target && x.request === request);
-            if (!queued) queued = turn(state, t.origin, target, { parent: t.id, request, allowance: t.allowance || 0 });
+            queued = state.turns.find(x => x.origin === t.origin && x.agentId === target && x.request?.trim().toLowerCase() === request.toLowerCase() && (x.parent === t.id || ['queued', 'held'].includes(x.state)));
+            if (queued?.state === 'held' && queued.reason === 'Handoff did not start; lead is checking') { queued.state = 'queued'; queued.parent = t.id; queued.createdAt = d.now(); queued.reason = ''; }
+            if (!queued) queued = turn(state, t.origin, target, { parent: t.id, request, hop: (t.hop || 0) + 1, allowance: t.allowance || 0 });
           });
           return { queued: true, turnId: queued.id, agentId: target };
         }),
@@ -278,12 +354,19 @@ function makeGroupSessions(d) {
   async function pump(id) {
     for (;;) {
       let g = get(id);
-      if (g.paused || g.deleting || haltedGroups.has(id)) return;
+      if (closed || g.paused || g.deleting || haltedGroups.has(id) || (g.questions || []).some(q => q.state === 'pending')) return;
       let t = g.turns.find(x => x.state === 'queued');
       if (!t) return;
+      const checkpoint = [...new Set(g.artifacts.map(a => a.hash))].sort().join('|') + ':' + (g.questions || []).filter(q => q.origin === t.origin && q.state === 'answered').length;
+      const repeated = t.request && g.turns.filter(x => x.origin === t.origin && x.agentId === t.agentId && x.state === 'completed' &&
+        x.request?.trim().toLowerCase() === t.request.trim().toLowerCase() && x.checkpoint === checkpoint).length >= 2;
+      if (repeated && !t.allowance) {
+        await update(id, state => { Object.assign(state.turns.find(x => x.id === t.id), { state: 'held', reason: 'Repeated request without a new shared result; review before continuing' }); });
+        continue;
+      }
       const count = g.turns.filter(x => x.origin === t.origin && !['queued', 'held', 'stopped'].includes(x.state)).length;
       if (t.parent && count >= g.maxTurns + (t.allowance || 0)) {
-        await update(id, state => { state.turns.find(x => x.id === t.id).state = 'held'; });
+        await update(id, state => { Object.assign(state.turns.find(x => x.id === t.id), { state: 'held', reason: 'Automatic replies paused; ' + t.agentId + ' still owes a reply' }); });
         continue;
       }
       if (!g.members.includes(t.agentId) || !roster().some(a => a.id === t.agentId)) {
@@ -301,14 +384,17 @@ function makeGroupSessions(d) {
       try { await update(id, state => {
         const current = state.turns.find(x => x.id === t.id);
         if (state.paused || state.deleting || haltedGroups.has(id) || current.state !== 'queued') return;
-        Object.assign(current, { state: 'connecting', reason: '', runId, contextCutoff: ctx.cutoff, startedAt: d.now() }); claimed = true;
+        Object.assign(current, { state: 'connecting', checkpoint, reason: '', runId, contextCutoff: ctx.cutoff, startedAt: d.now() }); claimed = true;
       }); }
       catch (e) { agentLeases.delete(t.agentId); controllers.delete(id); throw e; }
       if (!claimed) { agentLeases.delete(t.agentId); controllers.delete(id); continue; }
       t = get(id).turns.find(x => x.id === t.id);
       let chain = Promise.resolve(), output = '', error = '', usd = null;
+      progress.set(t.id, { at: d.now(), tools: new Set() });
       const emit = (name, p) => {
         if (p.runId && p.runId !== runId) return;
+        const pulse = progress.get(t.id);
+        if (pulse && ['agent.token', 'agent.run.start', 'agent.tool_call', 'agent.tool_result'].includes(name)) { pulse.at = d.now(); if (name === 'agent.tool_call') pulse.tools.add(p.callId); if (name === 'agent.tool_result') pulse.tools.delete(p.callId); }
         if (name === 'agent.token') { output += String(p.delta || ''); drafts.set(t.id, output); }
         if (name === 'agent.run.error') error = String(p.message || 'Run failed');
         if (name === 'agent.cost' && p.reconciled && Number.isFinite(p.usd)) usd = (usd || 0) + p.usd;
@@ -316,7 +402,7 @@ function makeGroupSessions(d) {
       };
       try {
         if (get(id).turns.find(x => x.id === t.id).state === 'stopping') ac.abort();
-        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, tools: toolDefs(id, t.id, ac.signal),
+        const result = await d.execute({ g, t, ctx, runId, signal: ac.signal, emit, askCommander: async fields => { await chain; return ask(id, t.id, fields, ac.signal); }, tools: toolDefs(id, t.id, ac.signal),
           prompt: async fields => {
             const promptId = d.id();
             await chain;
@@ -338,48 +424,82 @@ function makeGroupSessions(d) {
         if (last) output = last.content;
         await update(id, state => {
           const current = state.turns.find(x => x.id === t.id);
+          const waiting = (state.questions || []).some(q => q.turnId === t.id && q.state === 'pending');
           const stopped = ac.signal.aborted || current.state === 'stopping';
-          Object.assign(current, { state: stopped ? 'stopped' : error || result?.reason !== 'done' ? 'failed' : 'completed',
+          Object.assign(current, { state: waiting ? 'waiting for answer' : stopped ? 'stopped' : error || result?.reason !== 'done' ? 'failed' : 'completed',
             reason: stopped ? (current.reason || 'Stopped') : error || result?.reason || 'No result', endedAt: d.now(), usd });
           delete current.approval;
           if (output) message(state, t.agentId, output, { runId, turnId: t.id, partial: stopped || current.state === 'failed' });
-          if (current.state !== 'completed') for (const child of state.turns) if (child.parent === t.id && child.state === 'queued') { child.state = 'stopped'; child.reason = 'Parent did not complete'; }
+          if (!['completed', 'waiting for answer'].includes(current.state)) for (const child of state.turns) if (child.parent === t.id && child.state === 'queued') { child.state = 'stopped'; child.reason = 'Parent did not complete'; }
         });
       } catch (e) {
         await chain.catch(swallow('group.turn.event-chain'));
         await update(id, state => {
           const cur = state.turns.find(x => x.id === t.id);
-          Object.assign(cur, { state: ac.signal.aborted ? 'stopped' : 'failed', reason: e.message, endedAt: d.now() });
+          Object.assign(cur, { state: (state.questions || []).some(q => q.turnId === t.id && q.state === 'pending') ? 'waiting for answer' : ac.signal.aborted ? 'stopped' : 'failed', reason: e.message, endedAt: d.now() });
           delete cur.approval;
           if (output) message(state, t.agentId, output, { runId, turnId: t.id, partial: true });
           for (const child of state.turns) if (child.parent === t.id && child.state === 'queued') child.state = 'stopped';
         });
-      } finally { drafts.delete(t.id); controllers.delete(id); agentLeases.delete(t.agentId); }
+      } finally { progress.delete(t.id); drafts.delete(t.id); controllers.delete(id); agentLeases.delete(t.agentId); }
     }
   }
   function kick(id) {
-    if (workers.has(id)) return;
+    if (closed || workers.has(id)) return;
     let failed = false;
     const task = Promise.resolve().then(() => pump(id)).catch(e => { failed = true; d.log('group session ' + id + ': ' + e.message); }).finally(() => {
       workers.delete(id);
-      if (!failed) try { const g = get(id); if (!g.paused && !g.deleting && !haltedGroups.has(id) && g.turns.some(t => t.state === 'queued')) kick(id); } catch (e) { if (e.status !== 404) failNote('group.worker.rearm', e); }
+      if (!closed && !failed) try { const g = get(id); if (!g.paused && !g.deleting && !haltedGroups.has(id) && !(g.questions || []).some(q => q.state === 'pending') && g.turns.some(t => t.state === 'queued')) kick(id); } catch (e) { if (e.status !== 404) failNote('group.worker.rearm', e); }
     });
     workers.set(id, task);
   }
+  async function sweep() {
+    await ready;
+    if (closed || sweeping) return;
+    sweeping = true;
+    try {
+      for (const g of Object.values(read().groups)) {
+        if (g.deleted || g.deleting || g.paused || haltedGroups.has(g.id) || (g.questions || []).some(q => q.state === 'pending')) continue;
+        for (const t of g.turns.filter(t => ['connecting', 'running'].includes(t.state))) {
+          const pulse = progress.get(t.id);
+          if (!pulse) continue;
+          const quiet = d.now() - pulse.at >= (pulse.tools.size ? toolStallMs : stallMs);
+          if (!!t.quiet !== quiet) await update(g.id, state => { const current = state.turns.find(x => x.id === t.id); if (['connecting', 'running'].includes(current.state)) current.quiet = quiet; });
+        }
+        // Missing worker is recoverable without replaying a tool call. Busy agents and approvals are not stalls.
+        const t = g.turns.find(t => t.state === 'queued');
+        if (!t || workers.has(g.id) || g.turns.some(t => ACTIVE.has(t.state)) || agentLeases.has(t.agentId) || d.isBusy?.(t.agentId)) continue;
+        if (d.now() - t.createdAt < stallMs) { kick(g.id); continue; }
+        await update(g.id, state => {
+          const current = state.turns.find(x => x.id === t.id);
+          if (current.state !== 'queued' || state.paused) return;
+          if (t.parent && !state.turns.some(x => x.origin === t.origin && x.recoveryOf)) {
+            current.state = 'held'; current.reason = 'Handoff did not start; lead is checking';
+            turn(state, t.origin, state.leadId, { parent: t.parent, recoveryOf: t.id,
+              request: 'A queued handoff to ' + t.agentId + ' never started: ' + t.request +
+                '. Check what is still needed; do not claim that work ran. You may explicitly hand off again.' });
+          } else { current.state = 'held'; current.reason = 'Reply did not start; continue when ready'; }
+        });
+        kick(g.id);
+      }
+    } finally { sweeping = false; }
+  }
+  const monitor = setInterval(() => sweep().catch(e => d.log('group recovery: ' + e.message)), d.sweepMs || 5000);
+  monitor.unref?.();
   ready = store.update('all', s => {
     s = s || { groups: {}, templates: [] };
     for (const g of Object.values(s.groups)) {
       if (g.deleted) continue;
       if (g.turns.some(t => ACTIVE.has(t.state) || t.state === 'queued')) g.paused = true;
-      for (const t of g.turns) if (ACTIVE.has(t.state)) { t.state = 'interrupted'; t.reason = 'Sidecar restarted; review effects before retrying'; delete t.approval; }
-      for (const t of g.turns) if (t.parent && t.state === 'queued' && g.turns.some(p => p.id === t.parent && p.state !== 'completed')) {
+      for (const t of g.turns) if (ACTIVE.has(t.state) && !(g.questions || []).some(q => q.turnId === t.id && q.state === 'pending')) { t.state = 'interrupted'; t.reason = 'Sidecar restarted; review effects before retrying'; delete t.approval; }
+      for (const t of g.turns) if (t.parent && t.state === 'queued' && g.turns.some(p => p.id === t.parent && !['completed', 'answered'].includes(p.state))) {
         t.state = 'stopped'; t.reason = 'Parent was interrupted; review before retrying';
       }
     }
     return s;
   });
   ready.catch(e => d.log('group storage unavailable: ' + e.message));
-  return { ready, create, send, configure, control, fork,
+  return { ready, create, send, configure, control, fork, invite, answerQuestion, sweep,
     list: async () => { await ready; return { groups: Object.values(read().groups).filter(g => !g.deleted).map(g => ({ id: g.id, title: g.title, members: g.members, leadId: g.leadId })), templates: read().templates, roster: roster() }; },
     get: async id => { await ready; return publicGroup(get(id)); },
     file: async (id, aid) => { await ready; const f = get(id).artifacts.find(a => a.id === aid); if (!f) fail('Shared file not found', 404); return f; },
@@ -389,9 +509,9 @@ function makeGroupSessions(d) {
     halt: () => {
       for (const g of Object.values(read().groups)) if (!g.deleted) haltedGroups.add(g.id);
       for (const ac of controllers.values()) ac.abort();
-      return store.update('all', s => { for (const g of Object.values(s.groups)) if (!g.deleted) { g.paused = true; g.revision++; } return s; });
+      return store.update('all', s => { for (const g of Object.values(s.groups)) if (!g.deleted) { g.paused = true; cancelQuestions(g, () => true); g.revision++; } return s; });
     },
-    close: () => { for (const ac of controllers.values()) ac.abort(); }
+    close: () => { closed = true; clearInterval(monitor); for (const ac of controllers.values()) ac.abort(); }
   };
 }
 module.exports = { makeGroupSessions };
