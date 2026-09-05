@@ -304,3 +304,22 @@ classification, alternatives, pointer placement, undo/redo, a simulated access o
 sizes and enlarged text. No runtime exceptions. The 112-item decoration shelf measured 60 FPS,
 16.8 ms p95 frame intervals and 9.2 ms mean render callback time on the local GPU run. Evidence:
 `.worldshots/prop-abilities/`. These measurements do not guarantee performance on other hardware.
+
+## September 5 direct prop placement and hover identification
+
+The selected-prop footer no longer has PLACE PROP or CANCEL buttons. Choosing a catalog item
+already arms placement: move onto the station to preview its footprint, then click a clear spot.
+Escape returns to Select. The footer now keeps the sprite, name, purpose badge, short description,
+supported orientation controls and a plain placement hint. Detailed access and sharing explanations
+remain under About; the live ability overview stays above the catalog. Decoration shows its own
+description. The smaller footer and reduced minimum panel height give space back to browsing.
+
+Catalog hover and keyboard focus use the existing shared station tooltip for the prop name and
+purpose. They never change selection or open an inspector. The tooltip clears on departure;
+there is no new tooltip controller, native title bubble or per-frame work.
+
+The updated `dev/prop-abilities-probe.mjs --gpu` passes 36 live checks, including direct pointer
+placement without an intermediate button, Escape cancellation, hover/focus behavior, About details,
+responsive layout, undo/redo and access truth. No runtime exceptions. The 112-item decoration shelf
+measured 60 FPS, 16.7 ms p95 frame intervals and 7.55 ms mean render callback time in this local run.
+Current receipts and screenshots supersede the earlier placement-button UI in `.worldshots/prop-abilities/`.

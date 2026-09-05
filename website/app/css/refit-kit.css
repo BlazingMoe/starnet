@@ -30,7 +30,7 @@
 .refit-tool .refit-key { font-size: 9px; border: 1px solid currentColor; padding: 1px 3px; opacity: .5; }
 .refit-dock .refit-tool.active { border-color: var(--ph-bright); color: var(--ph-bright); background: var(--ph-faint); box-shadow: inset 2px 0 var(--ph); }
 .refit-option-section { padding: 8px 10px; gap: 6px; min-height: 400px; }
-.refit-overlay[data-tool="prop"] .refit-option-section { min-height: calc(650px * var(--sn-unzoom,1)); }
+.refit-overlay[data-tool="prop"] .refit-option-section { min-height: calc(540px * var(--sn-unzoom,1)); }
 .refit-section-label { font-size: 10px; padding-bottom: 5px; }
 .refit-hint { flex: 0 0 auto; min-height: 0; padding: 9px 10px; display: flex; flex-direction: column; gap: 5px; background: var(--ui-face); }
 .refit-hint-verb { font-size: 12px; line-height: 1.25; }
@@ -120,16 +120,12 @@
 .refit-preview-info .refit-preview-actions { grid-column: 2; grid-row: 3; }
 .refit-preview-info b { font-size: 16px; }
 .refit-preview-info .refit-preview-grant { display: block; font-size: 10px; letter-spacing: .3px; color: var(--ph-bright); }
-.refit-preview-info .ui-overline { font-size: 9px; letter-spacing: .7px; color: var(--ok); }
 .refit-preview-actions .bb.xs { font-size: 10px; padding: 3px 5px; min-height: 22px; }
-.refit-propworkspace:not(.show-details) .refit-preview-info .ui-overline { display: none; }
-.refit-placement-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; }
-.refit-placement-actions .bb { font-size: 11px; padding: 7px; }
-.refit-place-action { grid-column: 1 / -1; justify-content: center; padding: 6px; font-size: 12px; letter-spacing: .8px; }
-.refit-placement-actions .refit-place-action { grid-column: auto; }
 .refit-placement-note { display: block; grid-column: 1 / -1; font-size: 10px; color: var(--ph-dim); line-height: 1.35; }
 .refit-propinspector .refit-equipment-info { grid-column: 1 / -1; display: block; padding: 6px 0; margin: 0; border: 0; border-top: 1px solid var(--ui-edge); background: none; color: var(--ph-dim); font-size: 11px; line-height: 1.3; }
 .refit-purpose { margin: 0 0 6px; color: var(--ph-bright); }
+.refit-propworkspace:not(.show-details) .refit-purpose { margin: 0; }
+.refit-propworkspace:not(.show-details) :is(.equipment-status,.refit-equipment-scope) { display: none; }
 .equipment-status { margin-bottom: 6px; }
 .refit-equipment-scope { font-size: 10px; }
 .refit-equipment-detail { display: none; margin-top: 10px; }
@@ -162,5 +158,5 @@
   .refit-dock { overflow-y: auto; scrollbar-width: thin; }
   .refit-dock-head { position: sticky; top: 0; z-index: 2; background: var(--panel); }
   .refit-option-section { flex: 0 0 410px; }
-  .refit-overlay[data-tool="prop"] .refit-option-section { flex-basis: calc(650px * var(--sn-unzoom,1)); }
+  .refit-overlay[data-tool="prop"] .refit-option-section { flex-basis: calc(540px * var(--sn-unzoom,1)); }
 }

@@ -670,13 +670,13 @@ const Build = (() => {
     if (!box) {
       box = document.createElement('div'); box.className = 'refit-equipment-info';
       const preview = inspector.querySelector('#refit-selected-prop');
-      preview.insertBefore(box, preview.querySelector('.refit-placement-actions'));
+      preview.insertBefore(box, preview.querySelector('.refit-placement-note'));
     }
     const { id } = libraryAgent(), facts = EquipmentHelp.inspect(station, id, spec.id), category = sectionOf(spec);
     const key = [spec.id, id, geoVer].join('|');
     if (box.dataset.infoKey !== key) {
       box.dataset.infoKey = key;
-      const purpose = facts.purpose || PALETTE_PURPOSE[spec.id] || (category === 'decoration' ? 'Changes the look of your station. Adds no agent tools.' : spec.desc || 'Equipment for arranging work in the station.');
+      const purpose = facts.purpose || PALETTE_PURPOSE[spec.id] || spec.desc || (category === 'decoration' ? 'Changes the look of your station. Adds no agent tools.' : 'Equipment for arranging work in the station.');
       box.innerHTML = '<p class="refit-purpose">' + esc(purpose) + '</p>' +
         (facts.cap ? '<div class="equipment-status" role="status">Checking current access…</div><div class="refit-equipment-scope">' +
         esc('Equipment sharing: ' + facts.scope + '.') + '</div>' :
@@ -1100,10 +1100,11 @@ const Build = (() => {
     if (core) b.dataset.coreAbility = capOf(c);
     b.setAttribute('aria-pressed', selected ? 'true' : 'false');
     const grant = (typeof WorldModel !== 'undefined' && WorldModel.grantLabelForProp) ? WorldModel.grantLabelForProp(c.id) : null;
-    // The inspector owns item details. Keep the short description accessible without
-    // a title/data-tip that would cover the neighboring inventory cards.
+    // A brief shared tooltip identifies the item without selecting it or opening a card.
+    // Full details remain in the inspector; no native browser title bubble.
     const purpose = PALETTE_PURPOSE[c.id] || '';
-    b.setAttribute('data-no-tip', '');
+    const glance = purpose || EquipmentHelp.PURPOSE[capOf(c)] || '';
+    b.setAttribute('data-tip', c.label + ' · ' + EquipmentHelp.label(c, capOf(c)) + (glance ? '\n' + glance : ''));
     b.setAttribute('aria-description', c.label + ' · ' + c.w + '×' + c.h + (grant ? ' · grants ' + grant : '') + (purpose ? ' — ' + purpose : ''));
     // Grid-only re-render: a full renderPalette() here would rebuild the search field and steal focus
     // out of it mid-search. But a pick out of a SEARCH result does change tab state — the prop almost
@@ -1158,14 +1159,13 @@ const Build = (() => {
     const r = propFacing(c.id), m = propFlipOn(c.id), box = propBox(c.id, r), grant = grantLabelOf(c);
     const previewKey = [c.id,r,m].join('|'); if (host.dataset.previewKey === previewKey) return; host.dataset.previewKey = previewKey;
     host.innerHTML = '<div class="refit-preview-art"><canvas width="280" height="180" aria-label="' + esc(c.label) + ' preview"></canvas></div>' +
-      '<div class="refit-preview-info"><span class="ui-overline">READY TO PLACE</span><b>' + esc(c.label) + '</b>' +
+      '<div class="refit-preview-info"><b>' + esc(c.label) + '</b>' +
       '<span>' + box.w + ' × ' + box.h + ' tiles · ' + FACE_WORD[r] + (m ? ' · flipped' : '') + '</span>' +
       '<span class="refit-preview-grant">' + esc(EquipmentHelp.label(c, capOf(c))) + '</span>' +
       '<div class="refit-preview-actions">' +
       (canTurn(c.id) ? '<button class="bb xs" type="button" data-preview-turn>↻ TURN · R</button>' : '') +
       (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>' +
-      '<div class="refit-placement-actions"><button class="bb refit-primary refit-place-action" type="button" data-preview-place>PLACE PROP →</button><button class="bb" type="button" data-preview-cancel>CANCEL</button></div>' +
-      '<span class="refit-placement-note">Click a clear tile to place · Esc cancels</span>';
+      '<span class="refit-placement-note">Click a clear spot on the station · Esc cancels</span>';
     const alternatives = capOf(c) && capOf(c) !== 'computer' ? catalog().filter(p => capOf(p) === capOf(c)) : [];
     const more = root.querySelector('.refit-prop-more');
     more?.querySelector('.refit-designs')?.remove();
@@ -1186,12 +1186,6 @@ const Build = (() => {
     const turn = host.querySelector('[data-preview-turn]'), flip = host.querySelector('[data-preview-flip]');
     if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click'); };
     if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); renderEquipmentInfo(); setHint(); sfx('click'); };
-    host.querySelector('[data-preview-place]').onclick = () => {
-      setHint(); hidePropCard();
-      root.querySelector('.refit-propworkspace')?.classList.remove('show-details');
-      const deck = root.querySelector('.refit-canvas'); deck.tabIndex = 0; deck.focus({ preventScroll: true });
-    };
-    host.querySelector('[data-preview-cancel]').onclick = () => { deselectTool(); root.querySelector('[data-tool="select"]').focus(); };
   }
   // draw every visible preview tile for time `now` (animated). Renders native → fit-blits with nearest-neighbour.
   function paintThumbs(now, all) {
