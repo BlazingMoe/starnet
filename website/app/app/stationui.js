@@ -5546,7 +5546,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           Harness.api.post('/api/config/import', { envelope: env })
             .then(({ ok, j }) => {
               fileIn.value = '';
-              if (!ok) { setMsg((j && j.error) || 'import failed'); sfx('bad'); return; }
+              if (!ok) {
+                const partial = j && Array.isArray(j.applied) && j.applied.length ? ' (already applied: ' + j.applied.join(', ') + ')' : '';
+                setMsg(((j && j.error) || 'import failed') + partial); sfx('bad'); return;
+              }
               // restore the browser-owned slices locally.
               const b = (j && j.browser) || {};
               if (b.settings) { Object.assign(store.settings, b.settings); }
@@ -5558,10 +5561,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               // never later demote FROM a rung the dial isn't even at (the silent-escalation blocker).
               try { if (typeof TrustStore !== 'undefined' && TrustStore.onManualInitiative && typeof AutonomyStore !== 'undefined' && AutonomyStore.get) TrustStore.onManualInitiative((AutonomyStore.get() || {}).initiative); } catch (_) {}
               const need = (j && j.secretsNeeded) || [];
-              const needTxt = need.length ? ' — re-enter secrets for: ' + need.map(n => n.id || n.kind).join(', ') : '';
-              setMsg('✓ imported ' + ((j.applied || []).length) + ' section' + (((j.applied || []).length) === 1 ? '' : 's') + needTxt, true);
-              sfx('level');
               rerender('settings');   // repaint so the imported budgets/chains/prefs show
+              const needTxt = need.length ? ' — re-enter: ' + need.map(n => {
+                const name = n.id || n.kind;
+                return name + (Array.isArray(n.fields) && n.fields.length ? ' (' + n.fields.join(', ') + ')' : '');
+              }).join('; ') : '';
+              const freshMsg = document.querySelector('#bk-msg');
+              if (freshMsg) {
+                freshMsg.textContent = '✓ imported ' + ((j.applied || []).length) + ' section' + (((j.applied || []).length) === 1 ? '' : 's') + needTxt;
+                freshMsg.className = 'msg ok';
+              }
+              sfx('level');
             }).catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); });
         };
         reader.readAsText(f);
