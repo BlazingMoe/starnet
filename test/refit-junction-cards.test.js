@@ -148,7 +148,9 @@ A.ok(!/JSON\.stringify\(plan\.(junctions|gate)/.test(src('world.js')), 'nothing 
 // palette purposes: every WORKFLOW machine has a one-line purpose in the tile tooltip
 const pm = build.slice(build.indexOf('const PALETTE_PURPOSE'), build.indexOf('const THUMB_PAD'));
 for (const id of ['intake', 'bay', 'filter', 'merger', 'splitter', 'joiner', 'loop', 'outbox']) A.ok(new RegExp('\\b' + id + ': \'').test(pm), 'palette purpose for ' + id);
-A.ok(/b\.title = c\.label \+ ' · ' \+ c\.w \+ '×' \+ c\.h[^\n]*purpose/.test(build), 'the tile title carries the purpose (tooltip.js adopts it)');
+A.ok(/b\.setAttribute\('aria-description', c\.label[^\n]*purpose/.test(build), 'the tile accessible description carries the purpose');
+const tile = build.slice(build.indexOf('function propTile(c)'), build.indexOf('function paintThumbs(now)'));
+A.ok(/setAttribute\('data-no-tip'/.test(tile) && !/b\.title\s*=/.test(tile), 'catalog tiles keep their own card without triggering a second tooltip');
 A.ok(/wait here/i.test(pm) && /straight through/.test(pm), 'MERGER (rides straight through) vs JOINER (branches wait) are distinguishable by tooltip alone');
 
 // sample-run feedback: rendered on the card, scoped to its line, ③ ticks only on delivered
