@@ -904,9 +904,12 @@ const Harness = (() => {
   // resumes the SAME paused turn — deliberately a separate route from consent, whose decisions are a closed
   // enum with grant semantics. Fire-and-forget; a stale id is a harmless no-op (the run fell back to the
   // durable end-run question).
-  async function consentAnswer(runId, promptId, answer) {
+  async function consentAnswer(runId, promptId, answer, receipt) {
     if (!runId || !promptId || !answer) return;
-    try { await fetch('/api/consent/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId, answer }) }); } catch (_) {}
+    try {
+      const r=await fetch('/api/consent/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId, answer, receipt:receipt===true }) });
+      if(receipt) return r.ok ? await r.json() : {ok:false};
+    } catch (_) { if(receipt) return {ok:false}; }
   }
 
   // answer a live crew.summon.request: report the new agentId we summoned (or null if we couldn't), which resolves

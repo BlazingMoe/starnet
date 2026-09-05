@@ -13,9 +13,10 @@ function compose(input) {
   if (b && b.originalDirective) {
     lines.push('<task_brief id="' + clip(b.id, 100).replace(/["<>]/g, '') + '" status="' + clip(b.status, 20) + '">');
     lines.push('ORIGINAL REQUEST: ' + clip(b.originalDirective, 4000));
-    for (const q of (b.questions || []).slice(-4)) {
-      lines.push('DECISION: ' + clip(q.text, 240) + (q.answer ? (' => ' + clip(q.answer, 500)) : ' => unanswered'));
+    for (const q of (b.questions || []).slice(-6)) {
+      lines.push('DECISION: ' + clip(q.text, 240) + (q.answer ? (' => ' + clip(q.answer, q.mode==='conversation' ? 4000 : 500)) : ' => unanswered') + (q.mode==='conversation' ? ' [sourceId: '+q.id+']' : ''));
     }
+    if(b.context) lines.push('WORKING UNDERSTANDING (model interpretation with user quotations; assumptions are not confirmed facts): '+JSON.stringify(b.context));
     for (const a of (b.assumptions || []).slice(-6)) lines.push('ASSUMPTION: ' + clip(a, 300));
     lines.push('Continue this same task. Do not re-ask answered decisions. Verify the result against the original request and decisions.');
     lines.push('</task_brief>');

@@ -1,4 +1,5 @@
 # Sidecar/HTTP integration gate. Run in order by scripts/run-test-list.mjs; one isolated Node process per line.
+test/task-conversation.http.test.js
 test/provider-recovery.e2e.test.js
 test/tool-model-fallback.e2e.test.js
 test/sidecar.http.test.js

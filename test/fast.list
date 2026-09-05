@@ -715,3 +715,5 @@ test/platform-handoff.test.js
 test/ease-of-use.test.js
 test/workflow-takeover.test.js
 test/workflow-takeover-ui.test.js
+test/task-conversation.test.js
+test/task-conversation-ui.test.js

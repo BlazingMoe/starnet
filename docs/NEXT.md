@@ -1,5 +1,16 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 conversational task context (`agent/rec-vision-audit-0905`)
+
+Owner approved concrete experience questions, whole-answer extraction, adaptive follow-ups,
+draft-led clarification, and stopping when the next useful action is clear, with a better COMMS UI.
+Extend the durable Task Brief and existing clarify/answer path. Keep choices optional, show cited
+working understanding separately from assumptions, preserve long answers and restart continuity,
+and honor a single use-your-judgment escape. Legacy choice callers remain compatible.
+Done: live open question -> rich answer -> grounded adaptive follow-up/sample -> proceed; simple
+requests run immediately; restart restores the pending conversation. Fast/HTTP gates and themed
+UI/keyboard/narrow-layout checks must pass. Respect the Hermes/platform trunk gate hold.
+
 ## IN PROGRESS — 2026-09-05 platform connection integration (`agent/platform-handoff-0905`)
 
 Integrate connector task continuation, saved browser-profile contention, and Google account identity
