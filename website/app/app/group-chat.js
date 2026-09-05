@@ -37,7 +37,9 @@ const GroupChat = (() => {
   function colorOf(id) { const c = typeof App !== 'undefined' && App.agents ? App.agents().find(a => a.id === id)?.color : ''; return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : ''; }
   function participantsHeader(element, ids, paused) {
     element.replaceChildren(h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
-    const people = h('div', { class: 'gc-people', 'aria-label': 'Agents in this session' });
+    /* One line, ellipsized — never a scrollbar. The count beside it says how many; the full list is
+       one hover (station tip) or one click (the picker) away. */
+    const people = h('button', { type: 'button', class: 'gc-people', title: ids.map(name).join(' · '), 'aria-label': 'Agents in this chat: ' + ids.map(name).join(', ') + '. Add or remove agents', onclick: () => picker(true) });
     for (const id of ids) people.append(h('span', { class: 'gc-person' }, name(id)));
     element.append(people);
     if (paused) element.append(h('small', {}, 'Paused'));
@@ -70,8 +72,9 @@ const GroupChat = (() => {
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
       .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
-      .gc-people{display:flex;flex:1;gap:14px;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ph-dim) transparent}
-      .gc-person{flex:0 0 auto;font-size:14px;line-height:18px;letter-spacing:1px;color:var(--ph);white-space:nowrap}.gc-person::before{content:'▪';margin-right:6px;color:var(--ph-dim)}
+      .gc-people{display:block;flex:1 1 0;min-width:0;margin:0;padding:0;border:0;background:none;font:inherit;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;color:var(--ph)}
+      .gc-people:hover .gc-person{color:var(--ph-bright)}
+      .gc-person{display:inline;font-size:14px;line-height:18px;letter-spacing:1px;color:var(--ph);white-space:nowrap}.gc-person+.gc-person{margin-left:14px}.gc-person::before{content:'▪';margin-right:6px;color:var(--ph-dim)}
       #group-chat .bb,#gc-add-agents{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise)}
       #group-chat .bb:hover,#gc-add-agents:hover{border-color:var(--ph);background:var(--ph-faint)}
       #group-chat :focus-visible,.gc-picker :focus-visible{outline:1px solid var(--ph);outline-offset:2px}
