@@ -8,7 +8,9 @@
      P1-10 the reflect gate reads the live memoryConfig (on/off + cooldown) + the /api/memory/config routes */
 const assert = require('assert');
 const fs = require('fs'); const path = require('path');
+const { fnBody } = require('./_assert.js');
 const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+const importBody = fnBody(src, 'async function handleConfigImport');
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
@@ -25,9 +27,10 @@ ok(/function collectExportSnapshot\(/.test(src), 'P1-7: a collector gathers the 
 ok(!/collectExportSnapshot[\s\S]{0,900}channelSecrets/.test(src), 'P1-7: the export collector never reads channelSecrets (no bot tokens)');
 ok(!/collectExportSnapshot[\s\S]{0,900}runtimeKeys/.test(src), 'P1-7: the export collector never reads provider keys');
 // import writes through the SAME durable stores (not a bypass)
-ok(/handleConfigImport[\s\S]{0,2600}saveBudgetOverrides\(\)/.test(src), 'P1-7: import persists budget through its durable store');
-ok(/handleConfigImport[\s\S]{0,3200}saveAgentRoster\(\)/.test(src), 'P1-7: import persists roster through its durable store');
-ok(/handleConfigImport[\s\S]{0,6200}persistConnectorState\(nextState\.configs, nextState\.oauth\)/.test(src), 'P1-7: import transactionally persists connector config and OAuth state');
+ok(importBody.length > 0 && importBody.length < src.length, 'P1-7: import source-lock resolves the complete function body');
+ok(/saveBudgetOverrides\(\)/.test(importBody), 'P1-7: import persists budget through its durable store');
+ok(/saveAgentRoster\(\)/.test(importBody), 'P1-7: import persists roster through its durable store');
+ok(/persistConnectorState\(nextState\.configs, nextState\.oauth\)/.test(importBody), 'P1-7: import transactionally persists connector config and OAuth state');
 ok(/handleConfigReset[\s\S]{0,2200}unknown or non-resettable section/.test(src), 'P1-7: reset rejects an unknown section');
 
 // ---- P1-9 advanced runtime knobs: env > saved > default ----
