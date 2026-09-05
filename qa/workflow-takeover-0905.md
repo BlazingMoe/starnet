@@ -42,3 +42,7 @@ authenticated routes; concurrent creation produces one job; restart, pause and f
 No new execution loop, inferred schedule, automatic access grant, shared event/schema change, or
 claim of unattended readiness is introduced. The user reviews instructions, changing dates and
 access in the existing form before creation. Full gate results are recorded in the merge digest.
+
+Pre-merge gates: `npm run test:fast` passed all 714 steps; `npm run test:http` passed all 96 steps.
+The release surface manifest was refreshed for the reviewed UI changes; existing claim verdicts
+and release qualifications remain unchanged. The claims planning authority passes.
