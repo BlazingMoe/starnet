@@ -8406,12 +8406,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const recent = (Array.isArray(j.outcomes) ? j.outcomes : []).slice(-3).reverse();
     const progression = j.progression;
     const achievements = progression && Array.isArray(progression.achievements) ? progression.achievements.slice(-5).reverse() : [];
+    const proofLabel = (kind, authority) => authority === 'commander-confirmed' ? 'You confirmed' : kind === 'metric' ? 'You recorded' : 'StarNet recorded';
     const growthHtml = progression ? '<div class="q-commander-growth"><div class="q-journey-title">COMMANDER LEVEL ' + progression.level + '</div>'
       + '<div class="sub">' + progression.points + ' achievement points · ' + progression.pointsToNextLevel + ' to the next level</div>'
       + '<div class="sub dim">Recorded actions, metric checkpoints, and confirmed goals build your history. Setbacks never erase it.</div>'
-      + achievements.map(a => '<div class="sub q-achievement">◆ ' + esc(a.title || a.kind || 'Goal progress') + ' <span class="gx-tag">+' + (Number(a.points) || 0) + '</span></div>').join('') + '</div>' : '';
+      + achievements.map(a => '<details class="sub q-achievement"><summary>◆ ' + esc(a.title || a.kind || 'Goal progress') + ' <span class="gx-tag">+' + (Number(a.points) || 0) + '</span></summary>'
+        + '<div>' + esc(a.evidence || '') + '</div><div class="dim">' + proofLabel(a.kind, a.verifiedBy) + '</div></details>').join('') + '</div>' : '';
     const outcomeHtml = recent.length ? '<div class="q-proof-list">' + recent.map(o => '<div class="sub"><span class="q-outcome">' + esc(o.kind) + '</span> '
-      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + esc(o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
+      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + proofLabel(o.kind, o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
     const staleHtml = journeyState && journeyState.stale
       ? '<div class="sub warn q-journey-stale">Journey snapshot is unconfirmed — showing the last verified sidecar response while the live read recovers.</div>'
       : '';
@@ -8461,8 +8463,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const milestones = rest.filter(q => q.kind === 'milestone');
     const current = rest.filter(q => q.kind !== 'milestone');
     const isPaused = q => QLS && QLS.paused && QLS.paused(q);
+    const focus = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    const isOtherGoal = q => q.kind === 'ledger' && q.goalId && (!focus || q.goalId !== focus.id);
     const deferred = current.filter(q => q.status !== 'done' && isPaused(q));
-    const open = current.filter(q => q.status !== 'done' && !isPaused(q)), done = current.filter(q => q.status === 'done');
+    const otherGoals = current.filter(q => q.status !== 'done' && !isPaused(q) && isOtherGoal(q));
+    const open = current.filter(q => q.status !== 'done' && !isPaused(q) && !isOtherGoal(q)), done = current.filter(q => q.status === 'done');
     // a station-gap / work / maintenance quest is a fix-it or build SUGGESTION — always dismissible while open
     // (the sandbox law); each routes through its OWN store's denylist, not QuestState (whose dismiss is
     // dossier-only). Only the get-to-know-you (dossier) kind falls through to QuestState's dismissible check.
@@ -8597,6 +8602,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '<div class="dim q-lede">choose a next action that helps your goal. Your recorded progress builds your Commander history.</div>'
       + '<div class="gx-tros q-grid q-open">' + (open.map(tro).join('') || '<p class="dim">all caught up.</p>') + '</div>'
       + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
+      + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
       + '<div class="gx-sec"><span class="gx-title">DONE</span> <span class="gx-tag">' + done.length + '</span></div>'
       + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">nothing yet.</p>') + '</div>'
       + milestonesHtml
