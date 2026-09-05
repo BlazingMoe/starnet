@@ -132,6 +132,9 @@ jobs:
       - name: Fast test gate (red = the whole train stops)
         run: npm run test:fast
 
+      - name: Customer journey regression gate (red = the whole train stops)
+        run: npm run qa:customer-journeys
+
   # -------------------------------------------------------------------------------------------
   # Job 2 — build: the Windows + macOS release matrix, with updater signing REQUIRED and
   # a post-build check that each leg actually produced its updater artifact + .sig.

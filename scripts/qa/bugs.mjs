@@ -80,6 +80,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fingerprintOf } from './ledger.mjs';
+import { LIFECYCLE_FIELDS, lifecycleErrors, coverageRows, escapeSummary, isEscape, makeCoverageChecker } from './bug-lifecycle.mjs';
 
 /* ─────────────────────────────── PURE CORE ─────────────────────────────── */
 
@@ -187,7 +188,9 @@ export function extractAnchors(bug) {
   for (const m of fix.toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
   // A commit named in the Verdict ("Fixed by abc1234", "landed in `deadbeef`") is closure
   // evidence too — but never the record's own 8-hex fingerprint.
-  for (const m of str(sections.Verdict).toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
+  // Reported escapes often name RELATED fixes while explaining why the report stays open.
+  // Only their explicit fix field asserts causality; legacy sweep prose keeps its old semantics.
+  if (!isEscape(bug)) for (const m of str(sections.Verdict).toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
 
   for (const name of SECTIONS) {
     const text = str(sections[name]);
@@ -197,7 +200,7 @@ export function extractAnchors(bug) {
       if (!seenTest.has(t)) { seenTest.add(t); out.tests.push(t); }
       // A test named in the VERDICT is the regression the fix left behind (hard evidence when it
       // passes); one named elsewhere is "existing coverage" that passed BEFORE the fix too (weak).
-      if (name === 'Verdict' && !out.regressionTests.includes(t)) out.regressionTests.push(t);
+      if (name === 'Verdict' && (!isEscape(bug) || fix) && !out.regressionTests.includes(t)) out.regressionTests.push(t);
     }
     // file[:line] citations, in document order, so a snippet can bind to the nearest one above it.
     const cites = [];
@@ -327,6 +330,7 @@ export function makeBugRegister(opts) {
       sections,
       meta
     };
+    for (const field of LIFECYCLE_FIELDS) bug[field] = trimmed(meta[field]);
 
     if (!bug.fingerprint) errors.push(file + ': frontmatter `fingerprint` is required');
     if (!bug.slug) errors.push(file + ': frontmatter `slug` is required');
@@ -365,6 +369,7 @@ export function makeBugRegister(opts) {
       errors.push(file + ': `status: ' + bug.status + '` requires a non-empty `## Verdict` saying why');
     }
 
+    errors.push(...lifecycleErrors(bug).map(e => file + ': ' + e));
     return { ok: errors.length === 0, bug, errors };
   }
 
@@ -381,15 +386,16 @@ export function makeBugRegister(opts) {
     lines.push('status: ' + trimmed(bug.status));
     lines.push('found: ' + trimmed(bug.found));
     lines.push('lane: ' + trimmed(bug.lane));
-    lines.push('fix: ' + trimmed(bug.fix));
+    lines.push('fix:' + (trimmed(bug.fix) ? ' ' + trimmed(bug.fix) : ''));
+    for (const field of LIFECYCLE_FIELDS) if (trimmed(bug[field])) lines.push(field + ': ' + trimmed(bug[field]).replace(/[\r\n]/g, ' '));
     lines.push('---');
     lines.push('');
     lines.push('# ' + trimmed(bug.title));
     lines.push('');
-    for (const name of SECTIONS) {
+    for (const name of [...SECTIONS, ...Object.keys(sections).filter(k => !SECTIONS.includes(k))]) {
       lines.push('## ' + name);
       lines.push('');
-      lines.push(trimmed(sections[name]) || PLACEHOLDERS[name]);
+      lines.push(trimmed(sections[name]) || PLACEHOLDERS[name] || '');
       lines.push('');
     }
     return lines.join('\n');
@@ -485,6 +491,12 @@ export function makeBugRegister(opts) {
       }
     };
     bug.file = fileNameFor(bug);
+    for (const field of LIFECYCLE_FIELDS) bug[field] = trimmed(input[field]);
+    if (!bug.origin && bug.found >= '2026-09-05') bug.origin = 'unknown';
+    if (isEscape(bug)) {
+      bug.installer ||= 'unverified'; bug.recovery ||= 'unconfirmed';
+      bug.sections.Regression = ''; bug.sections['Sibling coverage'] = '';
+    }
 
     let persisted = true;
     try { writeBug(bug.file, render(bug)); }
@@ -512,6 +524,9 @@ export function makeBugRegister(opts) {
     if (patch.lane != null) next.lane = trimmed(patch.lane);
     if (patch.fix != null) next.fix = trimmed(patch.fix);
     if (patch.verdict != null) next.sections.Verdict = trimmed(patch.verdict);
+    for (const field of LIFECYCLE_FIELDS) if (patch[field] != null) next[field] = trimmed(patch[field]);
+    if (patch.regression != null) next.sections.Regression = trimmed(patch.regression);
+    if (patch.coverage != null) next.sections['Sibling coverage'] = trimmed(patch.coverage);
 
     // Law 3 + Law 4 enforced at the WRITE seam, not only at validate() — so a `--set --status
     // fixed` with no commit is refused at the moment of the lie, where it is cheapest to correct.
@@ -522,6 +537,11 @@ export function makeBugRegister(opts) {
       return { ok: false, status: 'rejected', reason: 'verdict-required: `--status ' + next.status + '` requires `--verdict "<why>"`' };
     }
 
+    const lifecycle = lifecycleErrors(next);
+    if (typeof io.checkCoverage === 'function') for (const row of coverageRows(next)) {
+      const reason = io.checkCoverage(row); if (reason) lifecycle.push(reason);
+    }
+    if (lifecycle.length) return { ok: false, status: 'rejected', reason: lifecycle.join('; ') };
     let persisted = true;
     try { writeBug(next.file, render(next)); }
     catch (_) { persisted = false; }
@@ -536,6 +556,12 @@ export function makeBugRegister(opts) {
     for (const r of parsed) {
       for (const e of r.errors) errors.push(e);
       const bug = r.bug;
+      if (bug && typeof io.checkCoverage === 'function') {
+        for (const row of coverageRows(bug)) {
+          const reason = io.checkCoverage(row);
+          if (reason) errors.push(bug.file + ': ' + reason);
+        }
+      }
       if (!bug || !bug.fingerprint) continue;
       // Law 6 — one row per defect. Two files on one fingerprint means the register is lying
       // about how many distinct bugs exist, which is the one thing it must never do.
@@ -589,6 +615,19 @@ export function makeBugRegister(opts) {
     lines.push('**' + c.open + '** open (open+claimed) of ' + c.total + ' total — ' +
       c.bySeverity.P0 + ' P0 · ' + c.bySeverity.P1 + ' P1 · ' + c.bySeverity.P2 + ' P2');
     lines.push('');
+    const outcomes = escapeSummary(bugs);
+    lines.push('Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.');
+    lines.push('');
+    lines.push('User/owner reports: **' + outcomes.reports + '** · source fixed: **' + outcomes.sourceFixed +
+      '** · installer verified: **' + outcomes.installerVerified + '** · customer confirmed: **' + outcomes.customerConfirmed +
+      '** · still reported failing: **' + outcomes.customerPersists + '** · recovery unconfirmed: **' + outcomes.customerUnconfirmed + '**.');
+    lines.push('');
+    if (outcomes.reports) {
+      lines.push('| Report | Family | Source | Installer | Customer |');
+      lines.push('| --- | --- | --- | --- | --- |');
+      for (const b of bugs.filter(isEscape)) lines.push('| [' + b.title.replace(/\|/g, '\\|') + '](bugs/' + b.file + ') | ' + b.family + ' | ' + b.status + ' | ' + b.installer + ' | ' + b.recovery + ' |');
+      lines.push('');
+    }
     if (!bugs.length) {
       lines.push('_Register empty. No bug has been filed yet._');
       lines.push('');
@@ -650,6 +689,7 @@ if (INVOKED_DIRECTLY) {
   };
 
   const realIo = () => ({
+    checkCoverage: makeCoverageChecker(ROOT),
     listBugs() {
       let names;
       try { names = fs.readdirSync(BUGS_DIR); } catch (_) { return []; }
@@ -691,6 +731,9 @@ if (INVOKED_DIRECTLY) {
       else if (t === '--fix') a.fix = argv[++i] || '';
       else if (t === '--verdict') a.verdict = argv[++i] || '';
       else if (t === '--found') a.found = argv[++i] || '';
+      else if (LIFECYCLE_FIELDS.some(f => '--' + f === t)) a[t.slice(2)] = argv[++i] || '';
+      else if (t === '--regression') a.regression = argv[++i] || '';
+      else if (t === '--coverage') a.coverage = argv[++i] || '';
       else a._.push(t);
     }
     return a;
@@ -710,7 +753,8 @@ if (INVOKED_DIRECTLY) {
   if (args.new) {
     const res = reg.create({
       title: args.title, slug: args.slug, surface: args.surface,
-      severity: args.severity, lane: args.lane, found: args.found
+      severity: args.severity, lane: args.lane, found: args.found,
+      ...Object.fromEntries(LIFECYCLE_FIELDS.map(f => [f, args[f]]))
     });
     if (res.ok && res.status === 'created') {
       writeIndex();
@@ -725,7 +769,8 @@ if (INVOKED_DIRECTLY) {
   } else if (args.set) {
     const res = reg.set(args.set, {
       status: args.status, severity: args.severity, lane: args.lane,
-      fix: args.fix, verdict: args.verdict
+      fix: args.fix, verdict: args.verdict, regression: args.regression, coverage: args.coverage,
+      ...Object.fromEntries(LIFECYCLE_FIELDS.map(f => [f, args[f]]))
     });
     if (res.ok) {
       writeIndex();
