@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "84231b6b4c221d08b12c5ba0f0fd581e6bd1230f",
-    "pathSetSha256": "8da0e090e9a9dc29720c32047efb667cd53f48b6fd1c844ad89ff31bc05fef0d",
+    "sourceCommit": "a94da2a61a3ade438cd4407e41b35cf6acee40de",
+    "pathSetSha256": "a67f24fa66e28156a8502f8952917be96c8bc6b819c6c9eac9ba5f6888174137",
     "files": [
       {
         "path": "INSTALL.md",
@@ -148,8 +148,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 627089,
-        "sha256": "bced71f1a550af613868a58d54522bd207ac9731e9e8be5e927024b1ea49df30"
+        "bytes": 628563,
+        "sha256": "a72dd625af81d0875dae96d2b3ea153f60cd6aafc8ed545b6f18d0e53239cf76"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -678,8 +678,8 @@
       },
       {
         "path": "frontend/app/routinenudgestore.js",
-        "bytes": 11203,
-        "sha256": "6707ca01aace0176b936efb8f1a903bc4925dcce31049f44aaa4546496f52fa4"
+        "bytes": 11287,
+        "sha256": "244c27dd94f0978f34b6f9d7599fe6fae54937174978a5dd2a5a28594d2cc20f"
       },
       {
         "path": "frontend/app/safety.js",
@@ -908,8 +908,8 @@
       },
       {
         "path": "frontend/app/windows/automation.js",
-        "bytes": 3149,
-        "sha256": "bfa13251a87cf7e47daf25b2fa4c18193c6457b88409090d53d60ab510e19737"
+        "bytes": 4243,
+        "sha256": "c7fb0affad042fc0ab34c01368f17cefe57f6d0b0f82b3e6cbbf661f43d11a69"
       },
       {
         "path": "frontend/app/windows/connectors.js",
@@ -943,13 +943,18 @@
       },
       {
         "path": "frontend/app/windows/routines.js",
-        "bytes": 52879,
-        "sha256": "290026d202971eb991cd0a07b8233b119edfdf6af848015269d53d707fd6dc66"
+        "bytes": 53144,
+        "sha256": "91dd6b6b98546c61e7337777b86cc66045f45bb0f18be7dc8dba1c74d712b0af"
       },
       {
         "path": "frontend/app/windows/trophies.js",
         "bytes": 4503,
         "sha256": "cbcea1cb78abcecfd912691d8eb9b3de58e450d1d2d61c3f0a4b471899bff655"
+      },
+      {
+        "path": "frontend/app/workflowtakeoverstore.js",
+        "bytes": 3819,
+        "sha256": "88adf8fb083dd371b2b19f682021a1789f8a7ff81e0ee5a9400cf86953227775"
       },
       {
         "path": "frontend/app/workhub.js",
@@ -1098,8 +1103,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 80215,
-        "sha256": "0077f79a6e47cd4edbecd98545dd8bb2f6d6ac2a674b554eb3226c3410902619"
+        "bytes": 80268,
+        "sha256": "299271ed4082371265606f050ff0c648be25b5e7ceafb24c4ccdc69580b775f4"
       },
       {
         "path": "frontend/js/arcade.js",
