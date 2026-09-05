@@ -105,7 +105,7 @@ const AutoSessions = (() => {
       const map = Object.create(null);
       for (const j of jobs) {
         if (!j || !j.id) continue;
-        map[j.id] = { name: String(j.name || '').trim(), agentId: String(j.agentId || 'agent'), prompt: String(j.prompt || '') };
+        map[j.id] = { id: j.id, name: String(j.name || '').trim(), agentId: String(j.agentId || 'agent'), prompt: String(j.prompt || '') };
       }
       routines = map;
     } catch (_) { routines = routines || {}; }   // fail-open: names are cosmetic, a session still forms
@@ -123,7 +123,8 @@ const AutoSessions = (() => {
     const title = (job && job.name) || 'Routine';
     const agentId = (job && job.agentId) || 'agent';
     const seed = (job && job.prompt) ? [{ role: 'user', content: String(job.prompt) }] : [];
-    const ws = Workstreams.adopt({ id: id, title: title, agentId: agentId, lane: 'active', history: seed });
+    const ws = Workstreams.adopt({ id: id, title: title, agentId: agentId, lane: 'active', history: seed,
+      automation: { kind: 'routine', id: (job && job.id) || '', name: title } });
     if (!ws) return null;   // a session the Commander DELETED stays deleted (adopt refused the tombstoned id)
     // mark the row busy via the SAME per-workstream channel state chat.js drives (Channels.begin) so the
     // rail's railRowState paints the pulsing "running" dot — reused, not a bespoke busy flag.
@@ -269,6 +270,7 @@ const AutoSessions = (() => {
         // /api/runs list once it's DONE, so backfilling it here is correct — and it also clears the wedged busy
         // state (foldTurns → completeSession-style, plus Channels.end below).
         const existing = Workstreams.get(sid);
+        if (existing && run.cronJobId) Workstreams.adopt({ id: sid, automation: { kind: 'routine', id: run.cronJobId, name: run.cronJobName || run.title || 'Routine' } });
         const runId = String(sid).slice(STREAM_PREFIX.length);
         const outcome = String(run.runId || '') === runId ? outcomeOfRun(run) : null;
         if (existing && hasReadableOutput(existing.history)) {
@@ -278,7 +280,7 @@ const AutoSessions = (() => {
           continue;
         }
         // adopt (idempotent) — an existing seed-only session is preserved by adopt; a while-away run is already DONE.
-        Workstreams.adopt({ id: sid, title: String(run.title || 'Routine').split('\n')[0].slice(0, 80) || 'Routine', agentId: String(run.agentId || 'agent'), lane: 'active', history: (existing && existing.history) || [] });
+        Workstreams.adopt({ id: sid, title: String(run.title || 'Routine').split('\n')[0].slice(0, 80) || 'Routine', agentId: String(run.agentId || 'agent'), lane: 'active', history: (existing && existing.history) || [], automation: { kind: 'routine', id: run.cronJobId || '', name: run.cronJobName || run.title || 'Routine' } });
         const ws = Workstreams.get(sid);
         if (!ws) continue;
         const loaded = await fetchTranscript(ws.agentId, sid, options);
@@ -302,7 +304,7 @@ const AutoSessions = (() => {
       // unknown routine → refresh the catalogue, then (re)seed the session's title once names arrive.
       loadRoutines().then(() => { const j = routineFor(p.jobId); const ws = Workstreams.get && Workstreams.get(streamOf(p.runId)); if (j && ws && (ws.title === 'Routine' || !ws.title)) { ws.title = j.name || 'Routine'; if (ws.agentId === 'agent' && j.agentId) ws.agentId = j.agentId; if (!ws.history.length && j.prompt) ws.history.push({ role: 'user', content: j.prompt }); refreshRail(); persist(); } });
     }
-    beginSession(p.runId, job);
+    beginSession(p.runId, Object.assign({ id: p.jobId || '' }, job || {}));
   }
   function onResult(p) {
     if (!p || !p.runId) return;

@@ -16,7 +16,7 @@ let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 
 // ---- the card exists and is composed into the CONFIG tab ----
 ok(/function personaCard\(/.test(ui), 'the dossier renders a per-agent PERSONALITY card');
-ok(/personaCard\(a\)\s*\+/.test(ui), 'personaCard is composed into agConfig');
+ok(/function agConfig\(a\)[\s\S]*?personaCard\(a\)/.test(ui), 'personaCard is composed into agConfig');
 ok(/Personas\.list\(\)\.map/.test(ui), 'the chips are built from Personas.list() — new presets appear automatically');
 ok(/id="ag-persona-chips"/.test(ui), 'the chip row is addressable for wiring');
 ok(/ov-vchip/.test(ui), 'the chips reuse the genesis .ov-vchip vocabulary');
