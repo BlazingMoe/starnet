@@ -9,6 +9,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 const A = require('./_assert.js');
 const { makeConnectorManager } = require('../sidecar/mcp/manager.js');
 
@@ -296,8 +297,23 @@ function fakeStack(tools) {
     'platform cards are identity-namespaced so GitHub/Notion/Stripe cannot collide with same-id MCP cards');
   A.ok(!/id="ky-catalog"/.test(station) && /CONNECTED API KEYS/.test(station),
     'KEYS shows connected credentials and no longer hides the curated platform catalog inside its add form');
+  const routeSource = /const ROUTES = (\[[\s\S]*?\n\s*\]);/.exec(station);
+  const routes = routeSource ? vm.runInNewContext(routeSource[1]) : [];
+  const podRoute = routes.find(r => /print.on.demand|\bPOD\b/i.test(r.title + ' ' + r.blurb));
+  A.ok(podRoute && podRoute.to === 'catalog',
+    'the ABILITIES front door routes POD discovery through CATALOG before the KEYS setup path');
+  A.eq(routes.filter(r => r.to === 'catalog').length, 1,
+    'service and platform discovery share one catalog route');
   A.ok(/to: 'catalog', title: 'Connect a service you use'/.test(station) && /entry\.platformApi \? 'keys' : 'mcp'/.test(station),
     'one service front door preserves the correct platform-key and connector management paths');
+
+  const availabilitySource = A.fnBody(station, 'function tsAvailability(');
+  const availability = vm.runInNewContext('(' + availabilitySource + ')');
+  A.eq(availability({available:true, enabled:false, switchEffective:false}), 'AVAILABLE', 'Full Access overrides a saved disabled switch');
+  A.eq(availability({available:true, enabled:true, placed:false, profileGranted:true, switchEffective:true}), 'AVAILABLE', 'execution profile grants do not require a prop');
+  A.eq(availability({available:false, enabled:false, placed:false, switchEffective:true}), 'DISABLED', 'effective disabled switch takes priority over missing equipment');
+  A.eq(availability({available:false, enabled:true, placed:false, profileGranted:false, switchEffective:true}), 'NEEDS PROP', 'ASK mode without any grant identifies missing equipment');
+  A.eq(availability({available:false, enabled:true, placed:true, switchEffective:false}), 'UNAVAILABLE', 'missing host grant never implies availability');
 
   A.report('connectors-ui');
 })().catch(e => { console.log('FAIL: threw ' + (e && e.stack || e)); process.exit(1); });

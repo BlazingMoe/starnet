@@ -1,5 +1,13 @@
 # NEXT.md — current priorities & task queue
 
+
+## IN PROGRESS — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
+
+Owner approved the custom station and all six UI upgrades for immediate integration. Syncing the
+approved branch with trunk `010a6b50f` in its own worktree, then checking the combined tree before
+merging. The live custom demo and six-panel review remain on ports 9177 and 9178. Preserve the
+integration tree's unrelated, uncommitted QA status and Rooms handoff files.
+
 ## 2026-09-05 — HERMES RECONNECT + WEBSITE LOOKUP (`agent/hermes-reconnect-capture-0905`)
 
 Implemented bounded SSE replay (1,024 events / 2 MiB), boot-scoped cursors, duplicate suppression,
@@ -112,6 +120,7 @@ port conflict in nightshift-focus; that test passed alone and in the full succes
 
 Implementation: `e33914cb2`; mechanical source lock: `431578620`. No integration merge, desktop build,
 or publication has been performed. Customers need a desktop release containing this branch.
+
 
 ## 2026-09-03 — POST-AUDIT: NEXT CUT MUSTS (owner-directed, audit items 1–5)
 

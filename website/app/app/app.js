@@ -2909,7 +2909,7 @@ const App = (() => {
     // at create AND backfills it on migrate — a stamp that is never SAVED would re-roll on every reload,
     // and every per-station REFIT latch keyed on it would be lost. Read before deserialize mutates it.)
     const hadStationId = !!(pendingStationDoc && pendingStationDoc.meta && pendingStationDoc.meta.createdAt);
-    station = (pendingStationDoc && pendingStationDoc.rooms) ? WorldModel.deserialize(pendingStationDoc) : WorldModel.create();
+    station = (pendingStationDoc && pendingStationDoc.rooms) ? WorldModel.deserialize(pendingStationDoc) : WorldModel.create(WorldModel.starterDoc());
     pendingStationDoc = null;
     // THE OVERSEER'S DESK IS A REAL PROP: materialize the starter workstation the world used to merely
     // DRAW (synthetic auto-desk) as a real hero-assigned desk in the doc, BEFORE the world derives its

@@ -69,7 +69,7 @@ const GroupChat = (() => {
     const css = h('style'); css.textContent = `
       #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:var(--panel);padding:0;gap:0}
       #group-chat[hidden],#gc-header[hidden]{display:none}
-      #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model{display:none}
+      #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model,#chat-panel #comms-idbar.gc-group>.comms-identity,#chat-panel #comms-idbar.gc-group>.comms-portrait{display:none}
       #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
       .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
