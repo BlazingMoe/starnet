@@ -67,3 +67,56 @@ node scripts/qa/bugs.mjs --validate
    and listed by the report for back-fill.
 
 Identity is **(surface + slug)**, frozen at creation. Re-wording a title never re-keys a bug.
+
+## Customer and owner reports (from 2026-09-05)
+
+Classify new records with `origin: customer|owner|audit|unknown`. An unknown origin cannot
+close as fixed. Older unclassified records remain historical evidence, not a customer census.
+Keep one record per symptom; an email and GitHub copy of the same report share one record.
+Use sanitized report references or public issue links. Never commit customer names, addresses,
+tokens, raw diagnostics, or private mailbox URLs.
+
+Customer/owner records require `report` (source), `affected` (build/platform, or explicitly
+unknown), `family`, `installer` and `recovery`. The three outcomes mean different things:
+
+| Outcome | Required evidence |
+| --- | --- |
+| `status: fixed` | `fix` commit; `## Regression` describing before-fix failure and after-fix proof; four sibling dimensions below |
+| `installer: verified` | Source fixed, `installerVersion`, exact 64-character lowercase `installerSha256`, and `installerEvidence` describing behavior on that artifact |
+| `recovery: confirmed` | Source fixed and `recoveryEvidence` identifying the reporter's successful retest |
+| `recovery: persists` | `recoveryEvidence` identifying the continued failure; this is not inferred from silence |
+
+Defaults are `installer: unverified` and `recovery: unconfirmed`. Tag ancestry, an upstream
+issue being closed, and passing source tests cannot advance either outcome. Use
+`installer: not-applicable` only with an explanation in `installerEvidence`, such as a
+server-only repair. Customer silence remains unconfirmed. Do not relabel a report as an
+audit finding to bypass these requirements.
+
+Before closing a user-reported bug, enumerate **adapters, entrypoints, displays, lifecycle**
+in `## Sibling coverage` as JSON (without a code fence):
+
+```json
+{
+  "adapters": [{"target":"managed-compatible","state":"covered","test":"test/provider.openai-compatible.test.js","scenario":"orphan tool result replay","gate":"fast"}],
+  "entrypoints": [{"target":"sample","state":"covered","test":"test/routing.sample-provider.e2e.test.js","scenario":"mixed-provider docks after restart","gate":"http"}],
+  "displays": [{"target":"physical Mac","state":"blocked","reason":"The affected hardware is unavailable; release lane must verify the actual installer."}],
+  "lifecycle": [{"target":"restart","state":"covered","test":"test/customer-journey.e2e.test.js","scenario":"saved roster and routines reused after process restart","gate":"http"}]
+}
+```
+
+List each relevant sibling, including untested ones; this example is not a complete review.
+`covered` means the **named scenario**, not the whole target. It requires an existing test
+registered in the named fast/http gate. `blocked` or `not-applicable` requires a substantive
+reason. The validator checks evidence structure and gate membership; a reviewer must still
+check that the scenario actually exercises the claim. A blocked sibling remains visible and
+does not prevent closing an independently proven source repair.
+
+`--new` accepts the metadata flags; `--set` also accepts `--regression` and `--coverage`
+(JSON text). You can edit the record directly, then run `npm run qa:bugs:validate` and
+`npm run qa:bugs:index`. The fast gate rejects incomplete closure and a stale generated index.
+
+Run `npm run qa:customer-journeys` for the focused campaign in `test/customer-journeys.list`.
+Every included suite also runs in a mandatory fast/http gate; CI cannot silently skip the
+new five-adapter journey. See `qa/CUSTOMER_JOURNEYS.md` for the acceptance scope and remaining
+external/hardware proof. The September import contains 15 recent symptom records, not a
+complete classification of the entire historical register.

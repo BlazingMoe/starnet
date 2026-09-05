@@ -268,6 +268,7 @@ test/work-recap.test.js
 test/qa-ledger.test.js
 test/qa-saboteur.test.js
 test/qa-bugs.test.js
+test/qa-bug-lifecycle.test.js
 test/qa-bugs-register.test.js
 test/ledger-reconcile.test.js
 test/qa-guardian.test.js

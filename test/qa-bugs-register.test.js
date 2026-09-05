@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const A = require('./_assert.js');
 const { makeBugRegister, SURFACES } = require('../scripts/qa/bugs.mjs');
+const { makeCoverageChecker } = require('../scripts/qa/bug-lifecycle.mjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const BUGS_DIR = path.join(ROOT, 'qa', 'bugs');
@@ -34,6 +35,7 @@ function readKnownFingerprints() {
 }
 
 const io = {
+  checkCoverage: makeCoverageChecker(ROOT),
   listBugs() {
     let names;
     try { names = fs.readdirSync(BUGS_DIR); } catch (_) { return []; }
