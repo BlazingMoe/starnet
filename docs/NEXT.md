@@ -1,5 +1,28 @@
 # NEXT.md — current priorities & task queue
 
+## 2026-09-05 — HERMES RECONNECT + WEBSITE LOOKUP (`agent/hermes-reconnect-capture-0905`)
+
+Implemented bounded SSE replay (1,024 events / 2 MiB), boot-scoped cursors, duplicate suppression,
+obsolete-connection guards, and authoritative snapshot recovery. `station.command` is never replayed:
+reconnecting cannot retry a renderer mutation that already executed or timed out. Recovery stays
+visibly degraded until a snapshot succeeds. The shipped website renderer mirror stays identical.
+
+`browser.network({deriveReadClient:true})` now derives up to eight runnable GET Fetch/XHR clients
+from successful observed requests. No cookies, headers or bodies are captured; signed/credential
+query parameters are excluded. Generated clients reject redirects, HTTP failures, non-JSON data,
+and oversized responses. The bundled **Learn a Website Lookup** procedure requires comparison
+against the live page before saving a runtime skill and its script through `skill.manage`.
+This first slice covers read-only JSON lookups, not authenticated or mutating workflow replay.
+
+Live proof: seeded station showed DOWN after its sidecar stopped and recovered after restart;
+the new boot's cursor requested snapshot reset. Real Chromium observed a fixture's lookup, the
+production browser tool derived its client, and direct JSON matched the rendered result. Focused
+tests prove disconnected channel replay, restart expiry, no duplicate replay, command exclusion,
+HTTP failure handling, and exact skill script read-back in a fresh process. Integrated by exact
+fast-forward at `9c9f788d0`; both before and after integration, fast **712/712** and HTTP **95/95**
+passed. Evidence: `qa/digests/2026-09-05-hermes-reconnect-capture.md`. No installed-binary or
+station-wide readiness claim.
+
 ## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
 
 Initial slices: `b4d83cf56` and `ff2946022`. Final integration and verification are recorded below.

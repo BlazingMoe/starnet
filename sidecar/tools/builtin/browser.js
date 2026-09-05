@@ -20,6 +20,7 @@
   const CP = require('node:child_process');
   const NET = require('node:net');
   const Challenge = require('./browserchallenge.js');
+  const { deriveReadClient } = require('./browser-workflow.js');
   // UNTRUSTED-CONTENT FENCE (2026-07-25): page text, snapshots, console rows and dialog messages are all
   // authored by the SITE, not the Commander. web_* has fenced since the web lane; these reads did not, so
   // the most direct "read a hostile page" path arrived raw. Same marker pair as web — one model contract.
@@ -2756,11 +2757,15 @@
           const v = r && r.value;
           return { content: typeof v === 'string' ? v : JSON.stringify(v), summary: 'eval' };
         }),
-      read('browser.network', 'List the network requests the CURRENT page made — method, URL, type, HTTP status, size, and any transport failure. Use this when a page "did nothing": it separates a 401/403, a request that failed outright, and a request that was never made. "filter" matches the URL; "failedOnly" shows just errors and non-2xx.', { type: 'object', properties: { limit: { type: 'number' }, filter: { type: 'string' }, failedOnly: { type: 'boolean' } } },
+      read('browser.network', 'List observed requests from the current page. filter matches the URL; failedOnly shows errors. deriveReadClient returns runnable Node.js GET client templates for observed successful Fetch/XHR requests, without capturing credentials or executing traffic. Use this to learn a repeated read-only website lookup; verify the client against the browser before saving it as a skill.', { type: 'object', properties: { limit: { type: 'number' }, filter: { type: 'string' }, failedOnly: { type: 'boolean' }, deriveReadClient: { type: 'boolean' } } },
         async a => {
           let rows = session.networkLog(a.limit || 60);
           if (a.filter) { const f = String(a.filter).toLowerCase(); rows = rows.filter(r => String(r.url).toLowerCase().indexOf(f) >= 0); }
           if (a.failedOnly === true) rows = rows.filter(r => r.failure || (r.status && (r.status < 200 || r.status >= 300)));
+          if (a.deriveReadClient === true) {
+            const derived = deriveReadClient(rows);
+            return { content: fenceExternal(JSON.stringify(derived, null, 2), 'observed website request templates; unverified external data'), summary: derived.candidates.length + ' read-only client candidate(s), unverified' };
+          }
           if (!rows.length) return { content: 'No matching network requests were recorded for this page.', summary: '0 requests' };
           const line = r => (r.method || 'GET') + ' ' + (r.status ? r.status : (r.failure ? 'FAILED' : 'pending')) +
             ' ' + clamp(r.url, 200) + (r.type ? ' [' + r.type + ']' : '') +
