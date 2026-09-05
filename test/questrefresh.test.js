@@ -212,4 +212,7 @@ A.eq(pc.metrics.length, 1, 'planner metrics scoped to the active goal');
 const pd = R.buildDirective({ goalNote: 'Find a job', progress: pc });
 A.ok(pd.includes('No replies') && pd.includes('commander-confirmed') && pd.includes('Only 10 minutes available'), 'planner sees metric history, provenance and user constraints');
 A.ok(pd.includes('Completed work does not prove the life goal happened'), 'planner separates activity from goal attainment');
+const boundGoal = { id: 'g', text: 'Find a job', milestoneId: 'm1', next: 'Apply', done: 0, total: 3 };
+A.eq(R.goalBinding(boundGoal), R.goalBinding({ ...boundGoal, pct: 99 }), 'nonbinding display percentage does not invalidate planning');
+for (const change of [{ id: 'new' }, { text: 'Learn music' }, { milestoneId: 'm2' }, { next: 'Interview' }]) A.ok(R.goalBinding(boundGoal) !== R.goalBinding({ ...boundGoal, ...change }), 'goal and milestone changes invalidate planning');
 A.report();

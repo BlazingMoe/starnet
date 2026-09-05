@@ -211,6 +211,7 @@ function makeQuestStore(deps) {
     const nt = normTitle(title);
     const kind = clipKind(d.kind);
     const agentId = agentIdOrNull(d.agentId);
+    const goalId = d.goalId == null ? null : clip(d.goalId, 64);
     const createdBy = d.createdBy != null ? clip(d.createdBy, 60) : (agentId ? 'agent:' + agentId : 'system');
     let out = { ok: false, error: 'mint failed' };
     return durable.update(STORE_KEY, (cur) => {
@@ -222,9 +223,10 @@ function makeQuestStore(deps) {
         const dup = rec.quests.find(q => q.status === 'open' && normTitle(q.title) === nt);
         if (dup) { out = { ok: false, error: 'that quest is already open', id: dup.id }; return undefined; }
       }
-      // generative-minting guardrail: ≤3 OPEN generated quests per agent scope.
+      // Generative guardrail: at most three actionable generated quests per agent + goal.
+      // Legacy unbound quests retain their original null-goal scope.
       if (kind === 'generated') {
-        const openGen = rec.quests.filter(q => actionable(q, numOr(now, 0)) && q.kind === 'generated' && q.agentId === agentId).length;
+        const openGen = rec.quests.filter(q => actionable(q, numOr(now, 0)) && q.kind === 'generated' && q.agentId === agentId && (q.goalId || null) === (goalId || null)).length;
         if (openGen >= OPEN_GENERATED_CAP) { out = { ok: false, error: 'this agent already has the max open generated quests' }; return undefined; }
       }
       const id = 'q:' + (++rec.seq);
@@ -246,7 +248,7 @@ function makeQuestStore(deps) {
         declineNote: null,
         groundedIn: d.groundedIn == null ? null : clip(d.groundedIn, 200),
         domain: domainOrNull(d.domain),
-        goalId: d.goalId == null ? null : clip(d.goalId, 64),
+        goalId: goalId,
         milestoneId: d.milestoneId == null ? null : clip(d.milestoneId, 80),
         completedBy: null,
         runId: null,

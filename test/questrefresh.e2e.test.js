@@ -51,7 +51,7 @@ function startMock(refreshReply) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 6, completion_tokens: 4, total_tokens: 10 } }) + '\n\n');
             res.write('data: [DONE]\n\n'); res.end();
           };
-          if (body.indexOf('quest master') >= 0) { calls.quest++; text(refreshReply); }   // runQuestRefreshCycle's system marker
+          if (body.indexOf('quest master') >= 0) { calls.quest++; Promise.resolve(typeof refreshReply === 'function' ? refreshReply(body) : refreshReply).then(text); }   // runQuestRefreshCycle's system marker
           else text('ok, done.');
         });
         return;
@@ -207,6 +207,59 @@ const CRED = { SKYNET_OPENROUTER_KEY: 'sk-or-v1-questrefresh-fake', SKYNET_DEFAU
     } finally {
       if (child) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
       fs.rmSync(ws, { recursive: true, force: true });
+    }
+  }
+
+  // Goal-focused capacity and in-flight direction changes use the real planner/provider/store boundary.
+  {
+    let release = null, delayed = false, replyIndex = 0;
+    const mock = await startMock(async () => {
+      if (delayed) await new Promise(resolve => { release = resolve; });
+      return ['NORTH_STAR: Grow the channel', 'QUEST: Focused episode action ' + (++replyIndex), 'DESC: Publish the next episode.', 'CONTRACT: attest', 'WHY: the active channel goal needs an episode'].join('\n');
+    });
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-qrefresh-focus-'));
+    seedEvidence(ws); seedAutonomy(ws, 'wait');
+    let child = null;
+    try {
+      const up = await boot(9165 + (process.pid % 10), Object.assign({ SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base }, CRED, QUIET), 20); child = up.child;
+      const base = 'http://' + HOST + ':' + up.port, token = await bootToken(base, base);
+      const headers = { Origin: base, 'X-StarNet-Token': token, 'Content-Type': 'application/json' };
+      const post = async (route, body) => (await fetch(base + route, { method: 'POST', headers, body: JSON.stringify(body || {}) })).json();
+      const list = async () => (await (await fetch(base + '/api/quests', { headers })).json()).quests;
+      for (let i = 0; i < 3; i++) A.ok((await post('/api/quests/mint', { title: 'Old focus episode ' + i, kind: 'generated', goalId: 'old', contract: { type: 'attest', key: '' } })).ok, 'old focused goal fills its slate');
+      let goal = { id: 'new', text: 'Grow the channel with episodes', milestoneId: 'm1', next: 'Publish episode', done: 0, total: 3 };
+      await post('/api/goals', { goal });
+      A.ok((await post('/api/quests/refresh/run')).started, 'new focus starts a refresh despite old full slate');
+      await pollRefresh(base, token, st => !st.inFlight && st.ledger.some(e => e.outcome === 'minted'), 'new focused goal mint');
+      let rows = await list();
+      A.eq(rows.filter(q => q.goalId === 'new').length, 1, 'new focus receives its own quest');
+      A.eq(rows.filter(q => q.goalId === 'old').length, 3, 'previous goal quests are retained');
+      for (const change of [{ id: 'newer' }, { milestoneId: 'm2', next: 'Publish another episode' }, { text: 'Grow the channel through interviews' }]) {
+        const before = rows.length;
+        delayed = true; release = null;
+        A.ok((await post('/api/quests/refresh/run')).started, 'delayed planning pass begins');
+        const until = Date.now() + 5000;
+        while (!release && Date.now() < until) await sleep(25);
+        if (!release) throw new Error('mock provider never reached delayed response');
+        goal = { ...goal, ...change };
+        await post('/api/goals', { goal });
+        release(); delayed = false;
+        await pollRefresh(base, token, st => !st.inFlight, 'stale response rejected');
+        rows = await list();
+        A.eq(rows.length, before, 'changed goal/milestone prevents stale response mint');
+        const st = await (await fetch(base + '/api/quests/refresh', { headers })).json();
+        A.ok(st.ledger[st.ledger.length - 1].reason.includes('changed during planning'), 'stale planning has an honest visible skipped reason');
+      }
+      A.ok((await post('/api/quests/refresh/run')).started, 'fresh direction can plan after stale response');
+      await pollRefresh(base, token, st => !st.inFlight && st.ledger[st.ledger.length - 1].outcome === 'minted', 'fresh direction receives new quest');
+      rows = await list();
+      const latest = rows[rows.length - 1];
+      A.eq(latest.goalId, goal.id, 'fresh quest binds to the captured goal');
+      A.eq(latest.milestoneId, goal.milestoneId, 'fresh quest binds to the captured milestone');
+    } finally {
+      if (release) release();
+      if (child) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
+      mock.server.close(); fs.rmSync(ws, { recursive: true, force: true });
     }
   }
 
