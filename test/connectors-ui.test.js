@@ -84,6 +84,18 @@ function fakeStack(tools) {
     A.ok(threw, 'array headers are rejected');
   }
 
+  // durable missing-field requirements are a runtime gate even if a caller or hand-edited file sets enabled=true.
+  {
+    const { seen, makeTransport, makeClient } = fakeStack([]);
+    const m = makeConnectorManager({ makeTransport, makeClient, makeToolDef: () => ({}) });
+    const r = await m.configure('incomplete', { transport: 'stdio', command: 'node', enabled: true,
+      missingFields: ['args:0', 'env:ACCESS'] });
+    A.eq(r.ok, false, 'an enabled incomplete connector is refused by the runtime');
+    A.ok(/args:0/.test(r.error) && /env:ACCESS/.test(r.error), 'runtime refusal names the durable missing fields');
+    A.eq(seen.transport, null, 'runtime does not create a transport for incomplete configuration');
+    A.eq(m.status('incomplete').missingFields, ['args:0', 'env:ACCESS'], 'safe status exposes only the missing field names');
+  }
+
   // oauth connectors pass a tokenProvider() (not a frozen token) so EVERY (re)connect/Reload fetches a FRESH bearer
   // — the fix for the token dying ~1h into a session. The resolved token never leaks into the summary.
   {
@@ -98,6 +110,9 @@ function fakeStack(tools) {
     A.ok(JSON.stringify(s).indexOf('fresh-1') === -1, 'the resolved oauth token never leaves the summary');
     await m.refresh('oa');
     A.eq(seen.transport.token, 'fresh-2', 'Reload/refresh re-invokes the tokenProvider (fresh bearer, not a frozen stale one)');
+    await m.configure('oa', { transport: 'http', url: 'https://mcp.example/x', token: 'manual', tokenProvider: null, enabled: false });
+    A.eq(m.status('oa').oauth, false, 'an explicit null tokenProvider switches the runtime out of OAuth mode');
+    A.eq(m.status('oa').hasToken, true, 'the replacement manual token remains configured after leaving OAuth mode');
   }
 
   // ---------- 2. SOURCE GUARD: the frontend panel ----------

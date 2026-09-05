@@ -26,12 +26,13 @@ const env = C.buildExport({
   dossier: 'the commander block',
   permissions: ['fs.write:workspace', 'shell.exec:*'],
   connectors: [{
-    id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET',
+    id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET#FRAGMENT_SECRET',
     headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' }, hasToken: true,
     enabled: false, oauth: true, label: 'GitHub'
   }, {
     id: 'stdio-sec', transport: 'stdio', command: 'node',
-    args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok'],
+    args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok',
+      '--pwd=SHORT_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'],
     env: { ACCESS: 'ENV_SECRET_WITH_INNOCENT_NAME' }, agentId: 'lead', cwd: 'C:/work', enabled: false
   }, {
     id: 'bad-url', transport: 'http', url: 'https://bad host/mcp?opaque=MALFORMED_URL_SECRET'
@@ -72,11 +73,10 @@ eq(stdio.cwd, 'C:/work', 'stdio working directory is exported');
 eq(stdio.enabled, false, 'disabled stdio connector stays disabled in the export');
 eq(stdio.env.ACCESS, undefined, 'stdio environment values are excluded regardless of variable name');
 ok(stdio.redactedFields.indexOf('env:ACCESS') >= 0, 'excluded environment variable is named for re-entry');
-ok(stdio.args.some(x => x === '--api-token=<redacted>'), 'inline secret argument is scrubbed');
-ok(stdio.args.some(x => x === '<redacted>'), 'value following a secret flag is scrubbed');
-ok(stdio.args.some(x => /access_token=%3Credacted%3E/.test(x)), 'secret URL argument is scrubbed');
+ok(stdio.args.length === 9 && stdio.args.every(x => x === '<redacted>'), 'every opaque stdio argument is replaced by a positional marker');
+ok(stdio.redactedFields.filter(x => x.indexOf('args:') === 0).length === 9, 'every argument position is listed for local restoration or re-entry');
 const exportBytes = JSON.stringify(env);
-for (const secret of ['SEKRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
+for (const secret of ['SEKRET', 'FRAGMENT_SECRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'SHORT_SECRET', 'HEADER_ARG_SECRET', 'JSON_ARG_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
   ok(exportBytes.indexOf(secret) < 0, 'connector secret excluded: ' + secret);
 }
 eq(env.sections.connectors[2].url, '<redacted>', 'an invalid URL is excluded because its auth material cannot be parsed safely');
@@ -95,6 +95,19 @@ eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
 eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');
 eq(p.sections.connectors[1].agentId, 'lead', 'Safe Cell owner round-trips');
 eq(p.sections.connectors[1].cwd, 'C:/work', 'working directory round-trips');
+
+const fortyArgs = Array.from({ length: 40 }, (_, i) => 'arg-' + i);
+const fortyExport = C.buildExport({ connectors: [{ id: 'forty', transport: 'stdio', command: 'node', args: fortyArgs }] });
+eq(fortyExport.sections.connectors[0].args.length, 40, 'supported argv is exported without the former 32-entry truncation');
+eq(C.parseImport(fortyExport).sections.connectors[0].args.length, 40, 'supported argv is imported without truncation');
+assert.throws(() => C.buildExport({ connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] }), /128/, 'oversized argv fails export explicitly'); n++;
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] } }).ok, false, 'oversized argv is rejected before import');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-http', transport: 'http', url: 'file:///tmp/x' }] } }).ok, false, 'import applies the edit route HTTP URL rule');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-marker', transport: 'stdio', command: 'node', redactedFields: ['args:999'] }] } }).ok, false, 'out-of-range redaction markers are rejected');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [
+  { id: 'duplicate', transport: 'http', url: 'https://one.example/mcp' },
+  { id: 'duplicate', transport: 'http', url: 'https://two.example/mcp' }
+] } }).ok, false, 'duplicate connector ids are rejected before mutation');
 
 // Old schema-1 exports omitted operational fields. Their absence must survive parsing so the live importer can
 // preserve an existing row or choose a disabled default for a new connector instead of activating it.
