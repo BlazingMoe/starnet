@@ -1573,7 +1573,7 @@ const StationBake = (() => {
     const a = lfv(cx, cy), b2 = lfv(cx + 1, cy), c = lfv(cx, cy + 1), d = lfv(cx + 1, cy + 1);
     return (a + (b2 - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty - 0.5;
   }
-  function bakeDeck(b, r) {
+  function bakeDeck(b, r, tiles = r) {
     const px = (x, y, w, h, c) => { b.fillStyle = c; b.fillRect(x, y, w, h); };
     const fd = Math.max(0, DEPTH.floorDetail);
     const mat = matOf(r.z);
@@ -1581,7 +1581,11 @@ const StationBake = (() => {
     const zAt = (x, y) => (x < 0 || y < 0 || x >= COLS || y >= ROWS) ? null : zg[idx(x, y)];
     const doorTo = (x, y, nx, ny) => { const nz = zAt(nx, ny); return nz != null && nz !== r.z && (G.canStep(x, y, nx, ny) || G.canStep(nx, ny, x, y)); };
     const wallTo = (x, y, nx, ny) => zAt(nx, ny) !== r.z && !doorTo(x, y, nx, ny);
-    for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) {
+    // Local repairs retain the room's material and wear geometry while painting
+    // only their intersecting tiles, rather than rebuilding the entire room.
+    const x1 = Math.max(r.x1, tiles.x1), x2 = Math.min(r.x2, tiles.x2);
+    const y1 = Math.max(r.y1, tiles.y1), y2 = Math.min(r.y2, tiles.y2);
+    for (let y = y1; y <= y2; y++) for (let x = x1; x <= x2; x++) {
       /* LOW-FREQUENCY TONE — a painted floor is never one flat swatch. Smooth value noise on a 4-tile
          lattice (bilinear, smoothstepped) drifts the base tone ±5% across the room, so plates a few
          tiles apart sit at slightly different values and the deck reads as a SURFACE with light and
@@ -1662,8 +1666,8 @@ const StationBake = (() => {
      of a corridor and not of a room: a hallway is a thing people walk down, and foot-polish down
      the middle is that fact rendered. They also ride DEPTH.floorWear, so they are wear, not
      decoration, and they vanish with the rest of the wear at 0. */
-  function bakeCorridorFloor(b, r) {
-    bakeDeck(b, r);
+  function bakeCorridorFloor(b, r, tiles = r) {
+    bakeDeck(b, r, tiles);
     const wear = Math.max(0, DEPTH.floorWear);
     if (wear <= 0.001) return;
     const vertical = (r.y2 - r.y1) > (r.x2 - r.x1);
@@ -3358,6 +3362,74 @@ const StationBake = (() => {
     }
   }
 
+  // A north-facing room wall rises above the deck. Its corridor opening needs
+  // two splayed return faces down that full height, not the corridor's short
+  // side rails carried straight through the wall. Derive runs from real doors.
+  function bakeCorridorMouths(b) {
+    const rows = new Map();
+    for (const e of edges) {
+      if (e.side !== 'n' || !e.room || !e.door || e.open) continue;
+      const other = G.zoneGrid[G.idx(e.x, e.y - 1)];
+      if (!G.isCorridor(other)) continue;
+      const key = e.z + ',' + e.y;
+      if (!rows.has(key)) rows.set(key, []);
+      rows.get(key).push(e);
+    }
+    for (const row of rows.values()) {
+      row.sort((a, b) => a.x - b.x);
+      for (let i = 0; i < row.length;) {
+        const first = row[i]; let last = first;
+        while (++i < row.length && row[i].x === last.x + 1) last = row[i];
+        const x0 = first.x * T, x1 = (last.x + 1) * T, Y = first.y * T;
+        const up = Math.max(0, Math.round(WALL.up)); if (up < 4) continue;
+        const top = Y - up, foot = Y + NFACE, capH = Math.max(2, Math.round(WALL.capH));
+        const reach = Math.min(6, Math.max(1, Math.floor((x1 - x0 - 8) / 2)));
+        const pal = wallPal(first.z);
+        // The room face now owns the old corridor crown pixels beside the
+        // opening. Leaving those crown records behind makes dark vertical bars
+        // in the lighting mask even after the wall art painted over the rails.
+        const lx = x0 - sideCapW() - 2, rx = x1 + sideCapW() + 2;
+        crownRects = crownRects.flatMap(([x, y, w, h]) => {
+          const ax = Math.max(x, lx), ay = Math.max(y, top), bx = Math.min(x + w, rx), by = Math.min(y + h, foot + 1);
+          if (ax >= bx || ay >= by) return [[x, y, w, h]];
+          const keep = [];
+          if (y < ay) keep.push([x, y, w, ay - y]);
+          if (by < y + h) keep.push([x, by, w, y + h - by]);
+          if (x < ax) keep.push([x, ay, ax - x, by - ay]);
+          if (bx < x + w) keep.push([bx, ay, x + w - bx, by - ay]);
+          return keep;
+        });
+        // Repaint only the open throat from its original deck recipes. This
+        // removes the short corridor rail ends without flattening either wall.
+        b.save(); b.beginPath(); b.rect(x0, top - capH, x1 - x0, foot - top + capH + 1); b.clip();
+        const tiles = { x1: first.x, x2: last.x, y1: Math.floor((top - capH) / T), y2: Math.floor(foot / T) };
+        for (const r of G.allRects) {
+          if ((r.x2 + 1) * T <= x0 || r.x1 * T >= x1 || (r.y2 + 1) * T <= top - capH || r.y1 * T > foot) continue;
+          (G.isCorridor(r.z) ? bakeCorridorFloor : bakeDeck)(b, r, tiles);
+        }
+        b.restore();
+        for (let side = 0; side < 2; side++) {
+          const edge = side ? x1 : x0;
+          for (let y = top; y <= foot; y++) {
+            const t = (y - top) / (foot - top), w = 1 + Math.round(reach * (1 - t));
+            const x = side ? edge - w : edge;
+            b.fillStyle = shade(pal.face, (side ? 0.08 : -0.18) - 0.16 * t); b.fillRect(x, y, w, 1);
+            const inner = side ? x : edge + w - 1;
+            b.fillStyle = shade(pal.base, -0.65); b.fillRect(inner, y, 1, 1);
+            if (w > 2) { b.fillStyle = shade(pal.face, side ? 0.22 : -0.03); b.fillRect(side ? inner + 1 : inner - 1, y, 1, 1); }
+          }
+          // The crown ends turn into the opening; never bridge over its centre.
+          for (let k = 0; k < capH; k++) {
+            const w = 1 + Math.round(reach * (k + 1) / capH), x = side ? edge - w : edge;
+            crown(b, x, top - capH + k, w, 1, pal.cap);
+            crown(b, side ? x : edge + w - 1, top - capH + k, 1, 1, shade(pal.cap, 0.08));
+          }
+          b.fillStyle = shade(pal.cap, -0.45); b.fillRect(side ? edge - reach - 1 : edge, top - 1, reach + 1, 1);
+        }
+      }
+    }
+  }
+
   /* a doorway threshold: a recessed metal track + lit lip across the open seam */
   function bakeThreshold(b, e, X, Y) {
     const track = '#3a352c', lip = 'rgba(255,236,196,0.18)';
@@ -4397,6 +4469,7 @@ const StationBake = (() => {
     bakeEdgeAO(b);
     bakeCorridorDressing(b);
     bakeWalls(b);
+    bakeCorridorMouths(b);
 
     /* The chamfer pass runs BEFORE bakeRoomLighting (2026-07-25). It used to run after, which made
        a rounded corner the only surface in the room the ceiling lights never touched — the corner

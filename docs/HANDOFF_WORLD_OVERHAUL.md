@@ -132,3 +132,15 @@ improved from approximately 37 FPS to 56.8 FPS, with p95 frame interval 16.8ms. 
 renderer measurement, not an all-device performance guarantee. Reproduce with
 `node dev/world-performance-probe.mjs review --gpu --settled`; add `--close` for the close-up.
 `dev/nav-light-probe.mjs` and `dev/world-cache-probe.mjs` reproduce placement/art/cache checks.
+
+Hallway entrance follow-up: real corridor openings through the room's raised north/back wall
+now have splayed jamb faces and mitered crown ends, with a continuous deck through the throat.
+The old short corridor rails previously carried straight into the room face. Their stale crown
+records also excluded interior light after wall art had painted over them, leaving detached dark
+vertical strips. The mouth pass replaces that geometry and removes only the superseded crown
+records. Jambs receive interior light; crown tops remain excluded, and glass stays transparent.
+It is a bake-only repair bounded to the entrance tiles, with no per-frame work or traversal changes.
+`node dev/junction-probe.mjs` compares the custom demo against 14f7ac19a and checks one- through
+four-tile entrances with both bulkhead and viewport walls in Chromium. All eight variants remain
+walkable, and the custom station's base/light pixel changes stay entirely inside doorway regions
+(zero changes outside). The interior/exterior/window probe and six focused test steps also passed.
