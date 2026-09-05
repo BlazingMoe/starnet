@@ -194,9 +194,11 @@ const GroupChat = (() => {
     for (const q of (group.questions || []).filter(q => q.state === 'pending')) {
       const id = group.id, card = h('div', { class: 'gc-question', role: 'group', 'aria-label': name(q.agentId) + ' needs your answer' });
       card.append(h('div', { class: 'gc-verb' }, name(q.agentId) + ' · waiting for your answer'), h('p', {}, q.question));
+      if (q.reason) card.append(h('p', {}, q.reason));
+      if (q.sample) card.append(h('small', {}, 'A starting point · draft'), h('p', { style: 'white-space:pre-wrap' }, q.sample));
       const choices = h('div', { class: 'gc-question-choices' });
       for (const option of q.options) choices.append(button(option, () => {
-        if (!q.multiSelect) return answerQuestion(id, q.id, option);
+        if (!q.multiSelect && q.mode !== 'conversation') return answerQuestion(id, q.id, option);
         const input = $('chat-input'); const parts = input.value ? input.value.split('; ') : [];
         if (!parts.includes(option)) parts.push(option); input.value = parts.join('; '); draftKey = null; input.focus();
       }));

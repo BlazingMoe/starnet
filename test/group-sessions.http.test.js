@@ -14,7 +14,7 @@ const server = http.createServer((req, res) => {
     let call;
     const used = name => (b.messages || []).some(m => (m.tool_calls || []).some(c => c.function.name === name));
     const judgment = (b.messages || []).some(m => m.role === 'user' && String(m.content).includes('GROUP_JUDGMENT_PROOF'));
-    if (judgment && tools.includes('brief_ask') && !used('brief_ask')) call = ['brief_ask', { dimension: 'audience', question: 'Who is this report for?', options: ['Engineers', 'Executives'], recommended: 'Engineers', reason: 'The audience changes the technical depth of the report.', discoverable: false }];
+    if (judgment && tools.includes('brief_ask') && !used('brief_ask')) call = ['brief_ask', { dimension: 'audience', mode: 'conversation', question: 'Who is this report for?', sample: 'Draft: A technical report for engineers.', options: ['Engineers', 'Executives'], recommended: 'Engineers', reason: 'The audience changes the technical depth of the report.', discoverable: false }];
     else if (judgment) { /* Return the received decision without tool side effects. */ }
     else if (tools.includes('brief_proceed') && !used('brief_proceed')) call = ['brief_proceed', { objective: 'Build and review a shared report', deliverable: 'reviewed report', assumptions: ['Use the group workspace'] }];
     else if (!isQA && !used('fs_write')) call = ['fs_write', { path: 'group-result.md', content: 'EXACT_SHARED_VERSION_1' }];
@@ -76,6 +76,9 @@ const server = http.createServer((req, res) => {
       if (question) break; await new Promise(r => setTimeout(r, 100));
     }
     assert.ok(question, JSON.stringify(state));
+    assert.equal(question.mode, 'conversation');
+    assert.equal(question.sample, 'Draft: A technical report for engineers.');
+    assert.match(question.reason, /technical depth/);
     assert.equal(state.turns[0].state, 'waiting for answer');
     await request('POST', '', { op: 'answerQuestion', id: judgment.id, questionId: question.id, text: 'Executives' });
     for (let n = 0; n < 150; n++) { state = await request('GET', '?id=' + judgment.id); if (state.turns[0].state === 'completed') break; await new Promise(r => setTimeout(r, 100)); }
