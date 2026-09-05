@@ -636,6 +636,9 @@ const World = (() => {
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
+    for (const d of cache.doorOccluders || []) {
+      if (d.image.addEventListener) d.image.addEventListener('contextlost', () => { bakeDirty = true; });
+    }
     bakeDirty = false;
     recordBakeProbe();
   }
@@ -5916,6 +5919,14 @@ const World = (() => {
     };
     if (agent && !agent.unplaced) items.push(bodyItem(agent, rposY()));
     for (const b of crew) items.push(bodyItem(b, (b.seated ? b.seatPy : b.py)));   // the other agents, at their bays (seated → sort by the cushion pos like the hero's rposY, so a couch-lounging crew body tucks just behind the back-facing couch panel, head over the cap)
+    // A raised doorway stands in front of a body until its feet clear the wall.
+    // Use the baked surfaces in the same depth order as props and agents; leaving
+    // them only in baseCv made every body paint through the solid jambs.
+    for (const d of cache.doorOccluders || []) {
+      if ((d.x + d.w) * scale + panX < 0 || d.x * scale + panX > cv.width ||
+          (d.y + d.h) * scale + panY < 0 || d.y * scale + panY > cv.height) continue;
+      items.push({ y: d.sortY, draw: () => ctx.drawImage(d.image, d.x, d.y) });
+    }
     // THE FLOOR PASS — every decal, in doc order, before anything that stands on the deck. This is what
     // lets a body walk across a rug: the rug is already down when the sorted items paint over it.
     if (decals.length && typeof PropSprites !== 'undefined') {

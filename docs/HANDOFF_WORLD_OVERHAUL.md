@@ -144,3 +144,15 @@ It is a bake-only repair bounded to the entrance tiles, with no per-frame work o
 four-tile entrances with both bulkhead and viewport walls in Chromium. All eight variants remain
 walkable, and the custom station's base/light pixel changes stay entirely inside doorway regions
 (zero changes outside). The interior/exterior/window probe and six focused test steps also passed.
+
+September 5 doorway depth correction: Andrew observed agents painting through those new jambs.
+The doorway had only been drawn in baseCv, beneath every entity. The bake now supplies ten small
+solid entrance overlays in the custom demo, sorted with props/bodies at the wall's floor contact.
+These include the adjacent solid shoulders so an occluded arm cannot reappear on the next wall
+panel. The glass tint stays in the base only; glass panes are excluded from the solid overlays.
+Empty station pixels and bodies already in front remain identical. Overlays are created during
+bake, skipped offscreen, and rebaked after context loss. Movement/collision rules are unchanged.
+`node dev/door-depth-probe.mjs` verifies opaque wall occlusion, visible aperture pixels, unchanged
+empty/front views and transparent panes for eight width/material combinations; it also walks the
+real movement helper through every fixture in both directions with zero illegal tile transitions,
+drives a live custom-world agent across the entrance, and checks context-loss recovery.

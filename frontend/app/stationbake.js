@@ -172,6 +172,7 @@ const StationBake = (() => {
      lamps square-on. It is cut MULTIPLICATIVELY, so the crown still darkens away from the lamps
      like everything else; it just never falls under the shell outside it. */
   let crownRects = [];
+  let doorOcclusion = [];   // solid entrance surfaces, kept for the entity depth pass
   const crown = (b, x, y, w, h, color) => {
     b.fillStyle = color; b.fillRect(x, y, w, h);
     if (w > 0 && h > 0) crownRects.push([x, y, w, h]);
@@ -3385,6 +3386,16 @@ const StationBake = (() => {
         const top = Y - up, foot = Y + NFACE, capH = Math.max(2, Math.round(WALL.capH));
         const reach = Math.min(6, Math.max(1, Math.floor((x1 - x0 - 8) / 2)));
         const pal = wallPal(first.z);
+        const occlusion = { x: x0 - T * 2, y: top - capH, w: x1 - x0 + T * 4, h: foot - top + capH + 1, sortY: foot + 0.5, rects: [] };
+        // Include the solid wall shoulders too: hiding an arm behind the jamb
+        // must not leave it visible again on the wall immediately beside it.
+        for (const e of edges) {
+          if (e.z !== first.z || e.y !== first.y || e.side !== 'n' || e.door) continue;
+          const x = e.x * T;
+          if (x < occlusion.x || x >= occlusion.x + occlusion.w) continue;
+          const y = e.exterior ? top - capH : Y;
+          occlusion.rects.push([x, y, T, foot - y + 1]);
+        }
         // The room face now owns the old corridor crown pixels beside the
         // opening. Leaving those crown records behind makes dark vertical bars
         // in the lighting mask even after the wall art painted over the rails.
@@ -3413,6 +3424,7 @@ const StationBake = (() => {
           for (let y = top; y <= foot; y++) {
             const t = (y - top) / (foot - top), w = 1 + Math.round(reach * (1 - t));
             const x = side ? edge - w : edge;
+            occlusion.rects.push([x, y, w, 1]);
             b.fillStyle = shade(pal.face, (side ? 0.08 : -0.18) - 0.16 * t); b.fillRect(x, y, w, 1);
             const inner = side ? x : edge + w - 1;
             b.fillStyle = shade(pal.base, -0.65); b.fillRect(inner, y, 1, 1);
@@ -3421,11 +3433,13 @@ const StationBake = (() => {
           // The crown ends turn into the opening; never bridge over its centre.
           for (let k = 0; k < capH; k++) {
             const w = 1 + Math.round(reach * (k + 1) / capH), x = side ? edge - w : edge;
+            occlusion.rects.push([x, top - capH + k, w, 1]);
             crown(b, x, top - capH + k, w, 1, pal.cap);
             crown(b, side ? x : edge + w - 1, top - capH + k, 1, 1, shade(pal.cap, 0.08));
           }
           b.fillStyle = shade(pal.cap, -0.45); b.fillRect(side ? edge - reach - 1 : edge, top - 1, reach + 1, 1);
         }
+        doorOcclusion.push(occlusion);
       }
     }
   }
@@ -4708,6 +4722,7 @@ const StationBake = (() => {
     stripCache = null;     // ...and the rendered face strips the curved surfaces sample
     viewportRects = [];    // ...and so are the window holes the wall pass punches
     crownRects = [];       // ...and the crown rects the ambient cut reads back
+    doorOcclusion = [];
     crownReach = new Map();   // ...and the corner crown's measured reach, which the mask erase reads back
     VX = viewport ? viewport.x : 0; VY = viewport ? viewport.y : 0;
     CW = viewport ? viewport.w : W; CH = viewport ? viewport.h : H;
@@ -4720,7 +4735,22 @@ const StationBake = (() => {
 
   function blankBake(geo) {
     const blank = canvas(1, 1);
-    return { baseCv: blank, lightCv: blank, W: geo.W, H: geo.H, origin: geo.origin, flickers: [], lamps: [] };
+    return { baseCv: blank, lightCv: blank, doorOccluders: [], W: geo.W, H: geo.H, origin: geo.origin, flickers: [], lamps: [] };
+  }
+
+  // Copy the final, already lit wall art once. Transparent glass and the open
+  // throat stay transparent; the renderer only depth-sorts these small sprites.
+  function buildDoorOccluders(baseCv) {
+    return doorOcclusion.filter(d => d.x < VX + CW && d.x + d.w > VX && d.y < VY + CH && d.y + d.h > VY).map(d => {
+      const image = canvas(d.w, d.h), b = image.getContext('2d');
+      b.beginPath();
+      for (const [x, y, w, h] of d.rects) b.rect(x - d.x, y - d.y, w, h);
+      b.clip(); b.drawImage(baseCv, VX - d.x, VY - d.y);
+      // Glass is translucent decoration, not an opaque barrier. Its tint is
+      // already in the base; copying it again would darken the empty station.
+      for (const v of viewportRects) b.clearRect(v.x - d.x, v.y - d.y, v.w, v.h);
+      return { x: d.x, y: d.y, w: d.w, h: d.h, sortY: d.sortY, image };
+    });
   }
 
   // Build the clip during the bake, so the frame loop never reads surface pixels.
@@ -4795,7 +4825,8 @@ const StationBake = (() => {
     const baseCv = buildBase();
     const { lightCv, interiorCv, flickers, lamps } = buildLightMap();
     const navLights = hullNavLights(baseCv, interiorCv), interiorPath = interiorLightPath(interiorCv);
-    return { baseCv, lightCv, interiorCv, interiorPath, navLights, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
+    const doorOccluders = buildDoorOccluders(baseCv);
+    return { baseCv, lightCv, interiorCv, interiorPath, navLights, doorOccluders, W: geo.W, H: geo.H, origin: geo.origin, flickers, lamps, viewport: viewport || { x: 0, y: 0, w: geo.W, h: geo.H } };
   }
 
   function bake(geo) {
