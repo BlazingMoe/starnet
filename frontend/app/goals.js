@@ -197,7 +197,9 @@
     m.evidence = clip(evidence, EVIDENCE_CHARS);
     goal.updatedAt = now;
     res.changed = true;
-    if (allDone(goal)) { goal.status = 'done'; res.goalDone = true; }
+    // A completed plan is evidence of actions, not proof that the life outcome happened.
+    // The goal remains active until the Commander reports its stored success condition met.
+    res.planDone = allDone(goal);
     return res;
   }
 
@@ -278,7 +280,7 @@
     // group its steps under it. reward names the real outcome (the goal itself).
     out.push({
       id: 'arc:goal:' + goal.id, kind: 'arc-goal', title: '◇ ' + clip(goal.text, 120),
-      desc: pr.total ? (pr.done + ' of ' + pr.total + ' milestones · ' + pr.pct + '%') : 'no milestones',
+      desc: pr.total ? (pr.done + ' of ' + pr.total + ' planned steps completed') : 'no planned steps',
       reward: 'the goal, reached', status: 'open', arcGoalId: goal.id, pct: pr.pct, done: pr.done, total: pr.total
     });
     const next = nextMilestone(goal);
@@ -296,7 +298,7 @@
         id: 'arc:step:' + m.id, kind: 'arc-step', title: (isDone ? 'done — ' : (isNext ? '▸ ' : '· ')) + clip(m.text, 120),
         desc: isDone ? ('done.' + (m.evidence ? ' ' + m.evidence : ''))
           : inFlight ? 'in progress — the build is running; finishing it completes this step.'
-          : (isNext ? 'the next step — accept it to make it a real build.' : 'coming up after the step above.'),
+          : (isNext ? 'the next step — do it yourself or ask StarNet for help.' : 'coming up after the step above.'),
         reward: 'progress on “' + clip(goal.text, 60) + '”', status,
         arcGoalId: goal.id, milestoneId: m.id, isNext: !!isNext, inFlight: inFlight
       });

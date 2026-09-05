@@ -36,6 +36,7 @@ const JourneyStore = (() => {
     if (unchanged) return true;   // same journey, new object — nothing to repaint
     const prior = lastStage;
     lastStage = Math.max(0, Number(journey.evolution && journey.evolution.stage) | 0);
+    try { if (typeof Topbar !== 'undefined' && Topbar._paintXp) Topbar._paintXp(); } catch (_) {}
     try { document.body.dataset.journeyStage = String(lastStage); } catch (_) {}
     if (seeded && lastStage > prior) {
       try { if (typeof SFX === 'object' && SFX.milestone) SFX.milestone(); } catch (_) {}
@@ -100,6 +101,8 @@ const JourneyStore = (() => {
     return envelope && envelope.ok && envelope.journey ? envelope.journey : null;
   }
   function createMetric(d) { return post(Object.assign({ op: 'metric.create' }, d || {})); }
+  function registerGoal(d) { return post(Object.assign({}, d || {}, { op: 'goal.register' })); }
+  function confirmGoal(d) { return post(Object.assign({}, d || {}, { op: 'goal.confirm' })); }
   function updateMetric(id, current, note) { return post({ op: 'metric.update', id: String(id || ''), current: Number(current), note: String(note || '') }); }
   function retireMetric(id) { return post({ op: 'metric.retire', id: String(id || '') }); }
   function suppress(agentId, domain) { return post({ op: 'adaptation.suppress', agentId, domain }); }
@@ -115,6 +118,6 @@ const JourneyStore = (() => {
     d.op = 'milestone.complete';
     return post(d);
   }
-  return { init, sync, status, state, createMetric, updateMetric, retireMetric, suppress, resume, reset, noteMilestone, _apply: publish };
+  return { init, sync, status, state, registerGoal, confirmGoal, createMetric, updateMetric, retireMetric, suppress, resume, reset, noteMilestone, _apply: publish };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = { JourneyStore };

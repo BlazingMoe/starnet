@@ -1,5 +1,24 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
+
+Owner request: plan and execute a goal-centered leveling and quest loop.
+
+1. Separate completed planned actions from achieved life outcomes. Store success conditions;
+   require explicit Commander outcome evidence; retain existing earned history.
+2. Give Commander progression its own durable, deduplicated achievement points and headline
+   level; keep crew feedback XP separate. Credit intermediate goal-linked actions/metrics.
+3. Feed goal metrics, evidence, and blocker feedback into quest refresh. Add bounded reactive
+   refresh, durable later/blocked/too-big/resume, and explicit real-world action reporting.
+4. Connect the quest-log UI to those APIs, including user-performed milestone reporting,
+   extending a completed plan, and specific achievement receipts.
+5. Verify action -> evidence -> next step -> goal confirmation -> station evolution in the
+   seeded running app, repeat reads after restart, then fast/http gates and integration.
+
+Done means a completed plan leaves the goal active; a reported real-world action advances
+the plan with labelled evidence; a recorded metric informs planning; explicit goal outcome
+confirmation advances Commander level and station evolution exactly once, surviving restart.
+
 ## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
 
 Merged as `6002f57f5` after synchronizing with conversation trunk `368d6a8b9`.
