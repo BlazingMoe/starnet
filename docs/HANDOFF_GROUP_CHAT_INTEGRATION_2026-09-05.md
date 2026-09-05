@@ -57,3 +57,9 @@ No merge back to trunk, installed desktop certification, push, or release perfor
 This task prepares a verified local candidate for the user's final usability test.
 Watchdog long thresholds remain covered by deterministic fault tests rather than
 waiting 450/1200 seconds in the interactive preview.
+
+Final-candidate live follow-up: NOVA dispatched one group.handoff to RESEARCHER;
+run `43eba908-bacb-482d-8319-9e326e6cda95` completed with HANDOFF SENT and peer run
+`70c889bc-d02e-478b-8086-99670a16cefa` completed with PEER OK. The transcript displayed
+NOVA asked RESEARCHER to follow up once. Browser warning/error log was empty.
+Final preview launcher PID: 12212 (rediscover child before stopping).
