@@ -69,7 +69,13 @@ The two task-owned dev stations were stopped; their scratch evidence was retaine
 Beginner and installed-exe smoke stamps in this fresh worktree. No status was promoted.
 Full HTTP: **100/100 GREEN**, exit 0, including all six new paid lifecycle scenarios after
 the logging correction. The 18 fast steps following the error-handler guard also passed
-in a focused tail check. Final full-fast and integration outcomes follow after completion.
+in a focused tail check. Final full fast: **722/722 GREEN**, exit 0. Customer campaign:
+**29/29 GREEN**. Source runtime is `dd8738648`; subsequent commits only retain receipts.
+
+Integration snapshot: `5cae71ecf83346d4a4969aefd50c1114a373ec67`. The integration tree's
+pre-existing `qa/STATUS.md` edits and Rooms handoff are excluded from this lane. Because
+STATUS is actively edited elsewhere, this isolated digest is the merge receipt; no other
+agent's in-flight notes are staged or overwritten.
 
 ## Outstanding customer evidence
 
