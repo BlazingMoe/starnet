@@ -1,12 +1,15 @@
 # NEXT.md — current priorities & task queue
 
 
-## IN PROGRESS — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
+## DONE — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
 
-Owner approved the custom station and all six UI upgrades for immediate integration. Syncing the
-approved branch with trunk `010a6b50f` in its own worktree, then checking the combined tree before
-merging. The live custom demo and six-panel review remain on ports 9177 and 9178. Preserve the
-integration tree's unrelated, uncommitted QA status and Rooms handoff files.
+Owner approved the custom station and all six UI upgrades for immediate integration. Combined with
+trunk `010a6b50f`, verified, and fast-forwarded into trunk at `6085f26b8`: 712/712 fast steps green
+(extended timeout), 21 live UI checks, no browser exceptions. The integrated tree exactly matched
+the verified candidate. Capability badges preserve the newer per-agent effective-authority model;
+Refit keeps both the selected sprite preview and equipment explanations. The custom demo and review
+remain on ports 9177 and 9178. Unrelated, uncommitted QA status and Rooms handoff files were hash-checked
+and preserved. No installed binary, publication, or project-wide readiness claim.
 
 ## 2026-09-05 — HERMES RECONNECT + WEBSITE LOOKUP (`agent/hermes-reconnect-capture-0905`)
 
