@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "69f898797589af129868caf6353683c6970b42a7",
+    "sourceCommit": "d34171d0466ec3c9bb780b5c6b161d03a3457da8",
     "pathSetSha256": "1e72712bd204040dfeed89cf70ea863beb10ccf3805dd7dcb49fc25b05309320",
     "files": [
       {
@@ -138,8 +138,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 377634,
-        "sha256": "5fdb9c766405c3a5f42a708e083aef1945cbef05516c39cd2abe499d14c0df8e"
+        "bytes": 381005,
+        "sha256": "5cef251c4c10466ea46bed6f5ed10a39005b54cdc2fff4c706294c61e903fd2e"
       },
       {
         "path": "frontend/app/channels.js",
@@ -843,8 +843,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 81360,
-        "sha256": "fb7b684c63328d39e669107047a6ffde98c4f4cbaee060d633562ef5b153f78e"
+        "bytes": 81660,
+        "sha256": "be4465dec1267b574fc9459fc44dd7973af636e5bed2cd9328009dbcd29d7dc4"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1053,8 +1053,8 @@
       },
       {
         "path": "frontend/css/refit-kit.css",
-        "bytes": 9176,
-        "sha256": "397e541c24ddd86021d9275bc29535baacd741b08f6c9ed671c55e8630071962"
+        "bytes": 10896,
+        "sha256": "1fec49a633c3e8a596360dceb4826369aa72376e0c31ab90cd4342fbf00b3472"
       },
       {
         "path": "frontend/css/refit.css",
