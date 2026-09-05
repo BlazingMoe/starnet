@@ -1,4 +1,4 @@
-# Group coordination follow-up — 2026-09-05
+# Group coordination follow-up â€” 2026-09-05
 
 Worktree: C:\Users\andro\gen-trees\group-dm-plan-0904
 Branch: agent/group-dm-plan-0904. Not merged into trunk.
@@ -53,11 +53,20 @@ were set to this worktree's dev/.group-profile. Discover actual processes before
 
 ## Gate status
 
-Full gates are still being verified. Initial simultaneous runs hit unrelated LSP
-process-count and HTTP sidecar boot timeout failures. The LSP check passed alone.
-A subsequent fast run reached step 196/702 and hit workshop-implement sidecar boot
- timeout. These are not green receipts. See dev/group-coordination-fast.log and
- dev/group-coordination-http.log for the eventual final result.
+Final verification: all 702 fast steps and all 90 HTTP steps GREEN.
+Logs: dev/group-coordination-fast.log and dev/group-coordination-http.log.
+The unchanged manifests were run sequentially with a 1200-second outer deadline
+using scripts/timeout.mjs and npm run test:fast:raw / test:http:raw. Earlier runs
+hit an LSP process-count race, unrelated sidecar boot timeouts and the default
+600-second whole-suite deadline. The LSP and workshop cases passed in isolation;
+the final complete sequential runs passed without excluding tests.
+
+Final live reload: zero old settings or second-composer elements; matching header,
+transcript and composer geometry with no horizontal overflow. Internal TASK_QUESTION
+fallback markers no longer appear in chat; the durable card owns question rendering.
+After Stop and the final backend restart, a new normal-composer message completed
+with the requested READY reply. Preview launcher PID at handoff: 30944 (rediscover
+its actual child before stopping it). No merge into trunk was performed.
 
 ## Scope
 
