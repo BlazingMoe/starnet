@@ -125,10 +125,15 @@ Do not bring back group settings or an extra header row.
 
 Andrew: "fix the UI for agent group chats." Smallest visual fixes, no new controls, no settings.
 
-- Identity line: the scrolling `▪ NAME ▪ NAME` list + `N agents` + bare `Paused` became ONE pill in
-  the direct chat's select voice (`▸ NOVA · RESEARCHER · ENGINEER ▾`, names in roster colour,
-  ellipsized, click = ADD AGENTS picker). `paused` shows as a gold status only while paused.
-  `+ Add agents` → `+ ADD` in group mode, `+ ADD AGENTS` in direct mode.
+- Identity line: UNCHANGED. A pill version was tried and Andrew reverted it the same evening
+  ("I actually liked the top bar before") — keep the `▪ NAME ▪ NAME · N agents · + Add agents` row.
+- ADD AGENTS picker REBUILT (Andrew: "terrible, I need it easier to understand and use"): two
+  lists, one verb each. IN THIS CHAT (rows show colour LED, NAME, class tagline, `✕ REMOVE`; the
+  lead is marked LEAD and cannot be removed) and ADD TO THIS CHAT (`+ ADD` moves the row up
+  instantly). Hint line explains @name vs the lead answering. Footer shows the pending delta
+  (`+1 agent · −1 agent`, "no changes yet") and SAVE is disabled until something changed; from a
+  direct chat the button reads START GROUP CHAT. Search box appears only when the crew > 6.
+  No toggles, no checkboxes, no "Added" state to decode.
 - Speaker labels: `YOU` → `COMMANDER` (matches direct chat). Agent names take the agent's roster
   colour and the bubble rail follows it. The per-message `REPLY` button is gone: clicking a
   speaker's name is the reply affordance (sets `to NAME ✕` above the composer).

@@ -35,25 +35,26 @@ const GroupChat = (() => {
   }
   function name(id) { return id === 'user' ? 'COMMANDER' : (roster.find(a => a.id === id)?.name || App.agents?.().find(a => a.id === id)?.name || id); }
   function colorOf(id) { const c = typeof App !== 'undefined' && App.agents ? App.agents().find(a => a.id === id)?.color : ''; return /^#[0-9a-f]{3,8}$/i.test(c || '') ? c : ''; }
-  /* The identity line in group mode: one pill in the same voice as the direct-chat agent select
-     (▸ NAME · NAME · NAME), ellipsized, opens the picker; a status word on the right where the
-     direct chat prints the model. No second header row, no scrolling name list. */
   function participantsHeader(element, ids, paused) {
-    const names = ids.map(name);
-    const pill = h('button', { type: 'button', class: 'gc-pill', 'aria-label': 'Agents on the line: ' + names.join(', ') + '. Add or remove agents', onclick: () => picker(true) });
-    pill.append(h('span', { class: 'gc-sigil', 'aria-hidden': 'true' }, '▸'));
-    const line = h('span', { class: 'gc-names' });
-    names.forEach((n, i) => { if (i) line.append(h('span', { class: 'gc-sep', 'aria-hidden': 'true' }, '·')); line.append(h('span', { class: 'gc-name', style: colorOf(ids[i]) ? 'color:' + colorOf(ids[i]) : '' }, n)); });
-    pill.append(line, h('span', { class: 'gc-caret', 'aria-hidden': 'true' }, '▾'));
-    element.replaceChildren(pill);
-    if (paused) element.append(h('span', { class: 'gc-status paused', 'aria-live': 'polite' }, 'paused'));
+    element.replaceChildren(h('span', { class: 'gc-count' }, ids.length + (ids.length === 1 ? ' agent' : ' agents')));
+    const people = h('div', { class: 'gc-people', 'aria-label': 'Agents in this session' });
+    for (const id of ids) people.append(h('span', { class: 'gc-person' }, name(id)));
+    element.append(people);
+    if (paused) element.append(h('small', {}, 'Paused'));
+  }
+  /* Per-row description for the picker: the class tagline when the agent was recruited from the
+     catalog, otherwise its role. Never invented — blank beats a made-up job title. */
+  function describe(id) {
+    const a = typeof App !== 'undefined' && App.agents ? App.agents().find(x => x.id === id) : null; if (!a) return '';
+    const spec = a.specialtyId && typeof Specialties !== 'undefined' && Specialties.get ? Specialties.get(a.specialtyId) : null;
+    return spec?.tagline || (a.role === 'overseer' || id === 'agent' ? 'the overseer' : a.role || '');
   }
   function init() {
     if (root) return;
     const bar = $('comms-idbar'); if (!bar) return;
     root = h('section', { id: 'group-chat', 'aria-label': 'Group conversation', hidden: '' });
     const header = h('div', { id: 'gc-header', class: 'gc-header', hidden: '' });
-    const addAgents = button('+ ADD', () => picker(true)); addAgents.id = 'gc-add-agents'; addAgents.setAttribute('aria-label', 'Add agents to this conversation');
+    const addAgents = button('+ Add agents', () => picker(true)); addAgents.id = 'gc-add-agents';
     bar.append(header, addAgents);
     const files = h('div', { class: 'gc-files' }); files.append(h('div', { id: 'gc-files' }), h('div', { id: 'gc-preview' }));
     const transcript = h('div', { id: 'gc-log', role: 'log', 'aria-label': 'Group messages', 'aria-live': 'polite', class: 'scrolly' });
@@ -66,17 +67,14 @@ const GroupChat = (() => {
       #group-chat{position:relative;display:flex;flex:1 1 0;min-width:0;min-height:0;flex-direction:column;overflow:hidden;color:var(--text);background:var(--panel);padding:0;gap:0}
       #group-chat[hidden],#gc-header[hidden]{display:none}
       #comms-idbar{flex:0 0 auto;flex-wrap:nowrap}#comms-idbar.gc-group>.comms-agent-wrap,#comms-idbar.gc-group>#comms-agent-model{display:none}
-      #gc-header{display:flex;align-items:center;gap:8px;flex:1 1 0;min-width:0}
-      .gc-pill{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;max-width:100%;margin:0;padding:3px 9px;font-family:inherit;font-size:14px;line-height:18px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);background:linear-gradient(180deg,color-mix(in srgb,var(--ph) 8%,var(--panel2)),var(--panel2));border:1px solid var(--ph-dim);border-radius:4px;cursor:pointer;text-shadow:0 0 5px var(--ph-glow);box-shadow:inset 0 1px 0 rgba(var(--ph-rgb),.12),0 1px 0 rgba(0,0,0,.4);transition:color .12s,border-color .12s,background-color .12s,box-shadow .12s}
-      .gc-pill:hover{border-color:var(--ph);background:var(--ph-faint);box-shadow:inset 0 1px 0 rgba(var(--ph-rgb),.18),0 0 9px var(--ph-glow2),0 1px 0 rgba(0,0,0,.4)}
-      .gc-pill .gc-sigil,.gc-pill .gc-caret{flex:0 0 auto;color:var(--ph-dim);font-size:12px;text-shadow:none}.gc-pill .gc-caret{font-size:11px}.gc-pill:hover .gc-caret{color:var(--ph)}
-      .gc-names{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gc-sep{margin:0 5px;color:var(--ph-dim);text-shadow:none}
-      .gc-status{flex:0 0 auto;margin-left:auto;font-size:11px;letter-spacing:.8px;color:var(--ph-dim);opacity:.82;white-space:nowrap}
-      .gc-status.paused{color:var(--gold);opacity:1}.gc-status.paused::before{content:'⏸ ';opacity:.85}
+      #gc-header{display:flex;align-items:center;gap:10px;flex:1;min-width:0;color:var(--ph)}
+      .gc-count{order:2;flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim);white-space:nowrap}
       #gc-add-agents{flex:0 0 auto;white-space:nowrap}
+      .gc-people{display:flex;flex:1;gap:14px;min-width:0;overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--ph-dim) transparent}
+      .gc-person{flex:0 0 auto;font-size:14px;line-height:18px;letter-spacing:1px;color:var(--ph);white-space:nowrap}.gc-person::before{content:'▪';margin-right:6px;color:var(--ph-dim)}
       #group-chat .bb,#gc-add-agents{margin:0;padding:3px 8px;min-height:26px;font-size:13px;line-height:18px;letter-spacing:1px;border:1px solid var(--ph-faint);border-radius:3px;background:var(--panel2);color:var(--ph);box-shadow:var(--raise)}
       #group-chat .bb:hover,#gc-add-agents:hover{border-color:var(--ph);background:var(--ph-faint)}
-      #group-chat :focus-visible,.gc-picker :focus-visible,.gc-pill:focus-visible{outline:1px solid var(--ph);outline-offset:2px}
+      #group-chat :focus-visible,.gc-picker :focus-visible{outline:1px solid var(--ph);outline-offset:2px}
       #gc-log{flex:1 1 0;min-height:0;min-width:0;overflow:auto;padding:8px 12px;display:flex;flex-direction:column;gap:5px;background:var(--panel);user-select:text;scrollbar-color:var(--ph-dim) transparent}
       #gc-log>.gc-message{flex:0 0 auto;margin:0;background:none;overflow-wrap:anywhere;white-space:normal}#gc-log .body{margin:0}#gc-log .gc-message .who{display:block}
       #gc-log .gc-message.agent .who{color:var(--gc-c,var(--ph-dim))}#gc-log .gc-message.agent{border-left-color:var(--gc-c,var(--ph-faint))}
@@ -100,10 +98,19 @@ const GroupChat = (() => {
       .gc-state.bad{border-left-color:var(--bad)}.gc-state.bad .gc-dot,.gc-state.bad .gc-verb{color:var(--bad);animation:none;text-shadow:none}
       .gc-state .gc-approval{flex:1 0 100%;font-size:12px;color:var(--text);opacity:.9;overflow-wrap:anywhere}.gc-state .bb{margin-left:auto!important;font-size:11px!important;min-height:20px!important;padding:0 6px!important}.gc-state .bb+.bb{margin-left:0!important}
       #gc-notice:empty{display:none}#gc-notice{flex:0 0 auto;padding:4px 12px;font-size:13px;color:var(--gold);overflow-wrap:anywhere}
-      .gc-picker{min-width:0}.gc-picker>.key-input{display:block;width:100%;box-sizing:border-box;margin:0 0 12px}
-      .gc-picker-choices{max-height:35vh;overflow:auto}.gc-agent-choice{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;box-sizing:border-box;text-align:left;padding:10px 12px;margin:0;border:0;border-bottom:1px solid var(--ph-faint);border-left:2px solid transparent;border-radius:0;background:transparent;color:var(--text);font:inherit;cursor:pointer;overflow-wrap:anywhere}.gc-agent-choice[aria-pressed=true]{border-left-color:var(--ph);background:var(--ph-faint);color:var(--ph)}.gc-agent-choice:hover{background:var(--panel2);color:var(--ph-bright)}.gc-agent-choice[hidden]{display:none}.gc-agent-state{flex:0 0 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
-      .gc-picker .gc-selection{margin:10px 0;color:var(--ph-dim);font-size:12px;letter-spacing:1px;text-transform:uppercase}.gc-picker>p{margin:8px 0;font-size:14px;line-height:1.35;color:var(--ph-dim)}.gc-picker>[role=alert]:empty{display:none}
-      .gc-picker-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 0;border-top:1px solid var(--ph-faint)}
+      .gc-picker{min-width:0;display:flex;flex-direction:column;gap:10px}.gc-picker>.key-input{display:block;width:100%;box-sizing:border-box;margin:0}
+      .gc-sect{display:flex;flex-direction:column;min-width:0}.gc-sect-h{display:flex;align-items:baseline;gap:8px;margin:0 0 4px;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ph-dim)}.gc-sect-h b{font-weight:normal;color:var(--ph)}
+      .gc-sect-list{max-height:28vh;overflow:auto;border:1px solid var(--ph-faint);border-radius:3px;background:rgba(0,0,0,.18)}.gc-sect-list:empty{display:none}
+      .gc-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--ph-faint);min-width:0}.gc-row:last-child{border-bottom:0}.gc-row[hidden]{display:none}
+      .gc-row .gc-led{flex:0 0 auto;width:8px;height:8px;border-radius:2px;background:var(--ph-dim)}.gc-row.in .gc-led{box-shadow:0 0 6px var(--ph-glow)}
+      .gc-row .gc-id{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}.gc-row .gc-nm{font-size:14px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag{font-size:12px;color:var(--ph-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gc-row .gc-tag:empty{display:none}
+      .gc-row.in .gc-nm{color:var(--ph)}.gc-row .bb{flex:0 0 auto;min-width:74px;text-align:center}.gc-row.in .bb{color:var(--ph-dim)}.gc-row.in .bb:hover{color:var(--bad);border-color:var(--bad);background:transparent}
+      .gc-row .gc-lead{flex:0 0 auto;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--gold)}
+      .gc-empty{padding:10px;font-size:13px;line-height:1.4;color:var(--ph-dim)}.gc-empty a{color:var(--ph);cursor:pointer}
+      .gc-hint{margin:0;font-size:13px;line-height:1.4;color:var(--ph-dim)}.gc-hint b{font-weight:normal;color:var(--ph)}
+      .gc-picker>[role=alert]{margin:0;color:var(--bad);font-size:13px}.gc-picker>[role=alert]:empty{display:none}
+      .gc-picker-footer{display:flex;align-items:center;gap:8px;padding:10px 0 0;border-top:1px solid var(--ph-faint)}.gc-picker-footer .gc-delta{flex:1 1 auto;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--ph-dim)}
+      .gc-picker-footer .bb[disabled]{opacity:.45;cursor:default}.gc-picker-footer .bb.primary{color:var(--ph-bright);border-color:var(--ph-dim)}
     `; document.head.append(css);
     discover().catch(showError);
   }
@@ -121,7 +128,6 @@ const GroupChat = (() => {
     for (const id of ['chat-log', 'chat-queued']) { const e = $(id); if (e) e.style.display = enabled ? 'none' : ''; }
     $('chat-inputrow').style.display = '';
     root.hidden = !enabled;
-    $('gc-add-agents').textContent = enabled ? '+ ADD' : '+ ADD AGENTS';
     if (active?.id === ws?.id) return;
     if (openedFileUrl) { URL.revokeObjectURL(openedFileUrl); openedFileUrl = null; openedFile = null; $('gc-preview').replaceChildren(); }
     if (active) composerDrafts.set(active.id, $('chat-input').value);
@@ -277,42 +283,66 @@ const GroupChat = (() => {
     if (App.pushRoster) await App.pushRoster();
     const info = await api(); roster = info.roster;
     const origin = convert ? active : null, existing = origin?.conversationMode === 'group' ? await api(null, '?id=' + origin.id) : null;
+    /* Two lists, one verb each. IN THIS CHAT (remove with ✕) and ADD TO THIS CHAT (+ ADD moves the
+       row up instantly). Nothing is a toggle you have to decode; the footer says exactly what SAVE
+       will do ("+2 · −1"). The lead is marked and cannot be removed — someone must answer an
+       unaddressed message. Search appears only when the crew is big enough to need it. */
     const dialog = h('div', { id: 'gc-picker', class: 'gc-picker' });
     const close = () => StationUI.closeTerm('group-agents');
-    const search = h('input', { type: 'search', class: 'key-input', placeholder: 'Find an agent', 'aria-label': 'Find an agent' }); dialog.append(search);
-    const chosen = new Set(existing ? existing.members : [origin?.agentId || 'agent']);
-    const choices = h('div', { class: 'gc-picker-choices', role: 'group', 'aria-label': 'Select agents' }); dialog.append(choices);
-    for (const a of roster) {
-      const display = a.name + (roster.filter(r => r.name === a.name).length > 1 ? ' (' + a.id + ')' : '');
-      const row = h('button', { type: 'button', class: 'gc-agent-choice', 'aria-label': display,
-        'data-agent-id': a.id, 'data-agent-name': display.toLowerCase(),
-        onclick: () => { if (chosen.has(a.id)) chosen.delete(a.id); else chosen.add(a.id); options(); } });
-      row.append(h('span', {}, display), h('span', { class: 'gc-agent-state', 'aria-hidden': 'true' })); choices.append(row);
-    }
-    search.addEventListener('input', () => { for (const row of choices.children) row.hidden = !row.dataset.agentName.includes(search.value.toLowerCase()); });
-    const count = h('div', { class: 'gc-selection', 'aria-live': 'polite' }); dialog.append(count);
-    function options() {
-      for (const row of choices.children) {
-        const selected = chosen.has(row.dataset.agentId);
-        row.setAttribute('aria-pressed', String(selected)); row.lastElementChild.textContent = selected ? 'Added' : '';
-      }
-      const n = chosen.size; count.textContent = n + (n === 1 ? ' agent selected' : ' agents selected');
-    }
-    options();
-    dialog.append(h('p', {}, 'Selected agents can see this conversation and its shared files.'));
+    const initial = new Set(existing ? existing.members : [origin?.agentId || 'agent']);
+    const chosen = new Set(initial);
+    const leadId = existing?.leadId || origin?.agentId || 'agent';
+    const dup = id => roster.filter(r => r.name === roster.find(a => a.id === id)?.name).length > 1;
+    const label = id => name(id) + (dup(id) ? ' (' + id + ')' : '');
+    const search = roster.length > 6 ? h('input', { type: 'search', class: 'key-input', placeholder: 'Find an agent by name', 'aria-label': 'Find an agent by name' }) : null;
+    if (search) dialog.append(search);
+    const inHead = h('div', { class: 'gc-sect-h' }), inList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents in this chat' });
+    const outHead = h('div', { class: 'gc-sect-h' }), outList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents you can add' });
+    const outEmpty = h('div', { class: 'gc-empty' });
+    dialog.append(h('div', { class: 'gc-sect' }, null), h('div', { class: 'gc-sect' }, null));
+    dialog.children[search ? 1 : 0].append(inHead, inList); dialog.children[search ? 2 : 1].append(outHead, outList, outEmpty);
+    const hint = h('p', { class: 'gc-hint' }); dialog.append(hint);
     const errors = h('p', { role: 'alert' }); dialog.append(errors);
-    const footer = h('div', { class: 'gc-picker-footer' });
-    footer.append(button('ADD', async () => {
+    const footer = h('div', { class: 'gc-picker-footer' }), delta = h('span', { class: 'gc-delta', 'aria-live': 'polite' });
+    const saveBtn = button('SAVE', async () => {
       try {
         const members = roster.filter(a => chosen.has(a.id)).map(a => a.id);
-        const previousLead = existing?.leadId || origin?.agentId || 'agent';
-        const data = { members, leadId: members.includes(previousLead) ? previousLead : members[0], title: existing?.title || origin?.title || 'Group chat' };
+        const data = { members, leadId: members.includes(leadId) ? leadId : members[0], title: existing?.title || origin?.title || 'Group chat' };
         const g = await api(existing ? { op: 'configure', id: existing.id, revision: existing.revision, ...data } : { op: 'create', ...(origin ? { id: origin.id, history: origin.history, originalAgentId: origin.agentId } : {}), ...data });
         adopt(g); save(); close(); active = null; App.openWorkstream(g.id); if (typeof Chat !== 'undefined') Chat.load(Workstreams.get(g.id));
       } catch (e) { errors.textContent = e.message; }
-    }), button('Cancel', close));
-    dialog.append(footer);
-    StationUI.toggleTerm('group-agents', 'ADD AGENTS', body => body.replaceChildren(dialog), { onClose: () => dialog.remove() });
+    }); saveBtn.classList.add('primary');
+    footer.append(delta, saveBtn, button('CANCEL', close)); dialog.append(footer);
+    function row(a, inChat) {
+      const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase() });
+      const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); if (colorOf(a.id)) led.style.background = colorOf(a.id);
+      const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)), h('span', { class: 'gc-tag' }, describe(a.id)));
+      r.append(led, idc);
+      if (inChat && a.id === leadId) r.append(h('span', { class: 'gc-lead', title: 'Answers when you do not @ anyone' }, 'lead'));
+      else if (inChat) { const b = button('✕ REMOVE', () => { chosen.delete(a.id); render(); }); b.setAttribute('aria-label', 'Remove ' + label(a.id) + ' from this chat'); r.append(b); }
+      else { const b = button('+ ADD', () => { chosen.add(a.id); render(); }); b.setAttribute('aria-label', 'Add ' + label(a.id) + ' to this chat'); r.append(b); }
+      return r;
+    }
+    function render() {
+      const q = (search?.value || '').toLowerCase();
+      const ins = roster.filter(a => chosen.has(a.id)), outs = roster.filter(a => !chosen.has(a.id));
+      inHead.replaceChildren('In this chat ', h('b', {}, String(ins.length)));
+      outHead.replaceChildren('Add to this chat');
+      inList.replaceChildren(...ins.map(a => row(a, true))); outList.replaceChildren(...outs.map(a => row(a, false)));
+      for (const r of [...inList.children, ...outList.children]) r.hidden = !!q && !r.dataset.agentName.includes(q);
+      outEmpty.replaceChildren();
+      if (!outs.length) { outEmpty.append('Your whole crew is already in this chat. Recruit more under CREW.'); }
+      const lead = chosen.has(leadId) ? leadId : ins[0]?.id;
+      hint.replaceChildren('Talk to one agent with ', h('b', {}, '@name'), '. Without an @, ', h('b', {}, lead ? name(lead) : 'the lead'), ' answers. Everyone here sees the whole conversation and its shared files.');
+      const added = [...chosen].filter(id => !initial.has(id)).length, removed = [...initial].filter(id => !chosen.has(id)).length;
+      const parts = []; if (added) parts.push('+' + added + (added === 1 ? ' agent' : ' agents')); if (removed) parts.push('−' + removed + (removed === 1 ? ' agent' : ' agents'));
+      delta.textContent = parts.length ? parts.join(' · ') : 'no changes yet';
+      const changed = !!parts.length || (!existing && chosen.size > 1);
+      saveBtn.disabled = !changed || !chosen.size; saveBtn.textContent = !existing && chosen.size > 1 ? 'START GROUP CHAT' : 'SAVE';
+    }
+    if (search) search.addEventListener('input', render);
+    render();
+    StationUI.toggleTerm('group-agents', existing ? 'AGENTS IN THIS CHAT' : 'ADD AGENTS', body => body.replaceChildren(dialog), { onClose: () => dialog.remove() });
   }
   async function rename(id, title) { const state = await api(null, '?id=' + encodeURIComponent(id)); await api({ op: 'configure', id, revision: state.revision, title }); return true; }
   async function remove(id) { await api({ op: 'control', id, action: 'delete' }); }
