@@ -169,3 +169,45 @@ test('a late first-link balance check cannot clear a newer funded link', { timeo
     await fixture.dispose(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('managed HTTP 400 keeps local, relay and upstream correlation through restart', { timeout: 30000 }, async () => {
+  const model = 'anthropic/claude-sonnet-5';
+  const server = http.createServer((req, res) => {
+    if (req.url.includes('/chat/completions')) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'X-StarNet-Request-Id': 'relay-fixture-123' });
+      res.end(JSON.stringify({ error: { message: 'Provider returned error. '.repeat(35),
+        request_id: 'relay-fixture-123', upstream_request_id: 'upstream-fixture-456',
+        metadata: { raw: 'PRIVATE PROMPT MUST NOT LEAK' } } })); return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ balanceUsd: 22, entries: [], data: [{ id: model, context_length: 8000 }] }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = 'http://127.0.0.1:' + server.address().port;
+  const fixture = SidecarFixture.create({ prefix: 'paid-error-receipt-', env: {
+    STARNET_CLOUD_URL: url, STARNET_CREDITS_URL: '', SKYNET_CREDITS_URL: '', STARNET_CREDITS_TOKEN: ''
+  } });
+  fs.mkdirSync(path.join(fixture.workspace, '.secrets'), { recursive: true });
+  fs.writeFileSync(path.join(fixture.workspace, '.secrets', 'credits.json'), JSON.stringify({ url, deviceToken: 'fixture-managed-token', accountId: 'fixture-managed-account' }));
+  try {
+    await fixture.start();
+    await fixture.json('POST', '/api/roster', { updatedAt: Date.now(), agents: [{ agentId: 'paid-proof', name: 'Proof', model, provider: 'starnet' }] });
+    const run = await fixture.json('POST', '/api/run', { agentId: 'paid-proof', provider: 'starnet', model,
+      internal: true, isTask: false, messages: [{ role: 'user', content: 'Fixture request' }] });
+    assert.equal(run.status, 200, run.text);
+    const events = run.text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+    const failure = events.find(e => e.name === 'agent.run.error');
+    assert.ok(failure, run.text);
+    assert.match(failure.payload.message, /relay-fixture-123/);
+    for (let boot = 0; boot < 2; boot++) {
+      const receipt = (await fixture.json('GET', '/api/diagnostics')).body;
+      const error = receipt.report.errors.find(e => e.runId === failure.payload.runId);
+      assert.ok(error, 'error remains associated with the failing local run');
+      assert.match(error.message, /relay-fixture-123/);
+      assert.match(error.message, /upstream-fixture-456/);
+      assert.ok(!JSON.stringify(receipt).includes('PRIVATE PROMPT'));
+      assert.ok(!JSON.stringify(receipt).includes('fixture-managed-token'));
+      if (boot === 0) { await fixture.stop(); await fixture.start(); }
+    }
+  } finally { await fixture.dispose(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});

@@ -23,8 +23,10 @@ This is a source verification campaign, not an installed release/customer-recove
 
 ## Verification
 
-`test/paid-link-lifecycle.e2e.test.js`: five real-sidecar scenarios passed, including funded
-link/diagnostic persistence and account switching. Registered in HTTP and customer campaigns.
+`test/paid-link-lifecycle.e2e.test.js`: six real-sidecar scenarios passed, including funded
+link/diagnostic persistence, account switching, and a controlled managed HTTP 400 whose
+local/relay/upstream correlation survives both diagnostic truncation and restart.
+Registered in HTTP and customer campaigns.
 Focused unit results: credits 113 assertions; link 95; diagnostics 47; compatible provider 83.
 The customer campaign now explicitly includes credit/link unit regressions as well.
 
