@@ -513,6 +513,7 @@
            The head above stays SESSIONS/PROJECTS + NEW only (Commander directive, 2026-07-08). -->
       <div id="ws-rail-search" class="ws-rail-search">
         <label><span class="sr-only">Search session titles and transcripts</span><input id="ws-search" type="search" placeholder="⌕ search sessions + transcripts" autocomplete="off"></label>
+        <div id="ws-kind-filter" class="ws-kind-filter" role="group" aria-label="Session view" title="Filter the rail. Active runs, failures, pinned sessions and your open conversation stay visible. Search always includes every transcript."><button type="button" data-ws-kind="all" aria-pressed="true">ALL</button><button type="button" data-ws-kind="conversations" aria-pressed="false">CHATS</button><button type="button" data-ws-kind="automated" aria-pressed="false">AUTOMATED</button></div>
         <ul id="ws-search-results" aria-live="polite"></ul>
       </div>
       <ul id="workstreams"></ul>
@@ -898,6 +899,7 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/dockglow.js"></script><!-- deferred BUILD-dock glow (G1c): soft hint on the BUILD dock while a station quest is open; reuses the kit-out traps; tutorial wins -->
 <script src="app/mintstore.js"></script>
 <script src="app/seedstore.js"></script>
+<script src="app/workflowtakeoverstore.js"></script>
 <script src="app/autonomystore.js"></script>
 <script src="app/autojobstore.js"></script>
 <script src="app/autopilotstore.js"></script>

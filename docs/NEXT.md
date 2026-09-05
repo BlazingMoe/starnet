@@ -1,5 +1,33 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 platform connection integration (`agent/platform-handoff-0905`)
+
+Integrate connector task continuation, saved browser-profile contention, and Google account identity
+with trunk snapshot `ff9e147cf`. Preserve unrelated trunk QA status and Rooms handoff bytes.
+Done means the combined branch passes fast/HTTP gates and seeded live task restart/continuation
+and real-Chrome saved-cookie reuse, followed by a serialized trunk integration and post-merge gates.
+Production Google OAuth provisioning and installed-app release are outside this local merge.
+
+## DONE — 2026-09-05 repeated-work takeover (`agent/rec-vision-audit-0905`)
+
+Plan: use durable task briefs joined to completed run evidence to detect the same bounded workflow
+on at least three separate occasions. Exclude retries/corrections, failed/internal runs, conflicting
+targets and existing routines. Offer one evidence-backed takeover through the existing routine beat;
+acceptance opens the existing editable routine draft with the original agent, sources and instructions.
+The user chooses the cadence and confirms creation; no schedule is inferred from counts. Persist
+offer/defer/never decisions, honor paused/forgotten personalization, and suppress scheduled workflows.
+
+Done means: in a seeded live station, repeated completed requests earn a concrete takeover card;
+review opens a prefilled routine draft, confirmation creates exactly one real scheduler job, and
+restart retains the job/decision without another offer. Negative scenarios remain silent. Focused,
+fast and HTTP gates pass before the user-authorized merge. Use existing scheduler execution and
+authority, with no new agent loop or capability unlock. Preserve unrelated trunk work.
+
+Implemented and source-app verified: takeover card -> evidence-backed editable draft -> confirmed
+Monday routine -> successful scheduler result -> restart without another offer. Branch gates:
+714/714 fast and 96/96 HTTP steps green. See `qa/workflow-takeover-0905.md` for fixture boundaries
+and run receipts. Post-merge gate result belongs in `qa/STATUS.md`.
+
 
 ## DONE — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
 
