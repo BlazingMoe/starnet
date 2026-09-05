@@ -64,6 +64,9 @@ test('customer journey campaign cannot drift outside mandatory fast/http gates',
   const campaign=read('customer-journeys');
   assert.ok(campaign.length>0); assert.equal(new Set(campaign).size,campaign.length);
   for(const file of campaign) { assert.ok(gates.has(file),file+' must run in a mandatory gate'); assert.ok(fs.existsSync(path.join(root,file))); }
+  for(const workflow of ['fast-gate.yml','release-train.yml']) {
+    assert.match(fs.readFileSync(path.join(root,'.github/workflows',workflow),'utf8'),/^\s+run: npm run qa:customer-journeys\s*$/m,workflow+' must execute the customer campaign, not just register its tests');
+  }
 });
 
 test('related fix prose cannot promote an unresolved customer report in reconciliation', ()=>{

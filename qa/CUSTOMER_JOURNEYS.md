@@ -3,6 +3,8 @@
 Run `npm run qa:customer-journeys` from an isolated worktree. It uses the existing sequential
 test runner, isolated profiles and loopback provider services. It does not use live customer
 credentials. New coverage is also registered in the normal HTTP/fast gates.
+The PR/trunk `fast-gate.yml` and tagged `release-train.yml` workflows both execute this
+focused campaign after the fast gate. The fast gate checks that this wiring remains present.
 
 ## Complete local execution journey
 
