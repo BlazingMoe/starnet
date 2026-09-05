@@ -88,6 +88,7 @@
     if (c.enabled === false) bits.push('disabled');
     bits.push(state === 'up' ? (c.toolCount || 0) + ' tools' : state + (c.detail ? ': ' + str(c.detail).slice(0, 120) : ''));
     if (c.oauth) bits.push('oauth');
+    if (c.account && c.account.email) bits.push('account at last sign-in: ' + str(c.account.email));
     return '- ' + str(c.id) + (name && name !== str(c.id) ? ' (' + name + ')' : '') + ' — ' + bits.join(', ');
   }
 
@@ -108,7 +109,7 @@
       if (!rows.length) return { label: 'connected', count: 0, head: 'CONNECTED (0)', body: ['(no MCP connectors added yet)'] };
       return {
         label: 'connected', count: rows.length,
-        head: 'CONNECTED (' + rows.length + ') — a connector\'s tools reach an agent whose room has that connector object placed',
+        head: 'CONNECTED (' + rows.length + ') — normal COMMS runs receive enabled connector tools; routed rooms and unattended tasks follow their own effective access. Account identity is not verified by this list.',
         body: rows.map(connectedLine)
       };
     }
@@ -205,7 +206,7 @@
         + 'connected, and — the part you cannot otherwise know — the vetted connectors and platform keys the '
         + 'Commander could add but has not (GitHub, Notion, Stripe, Google Workspace, Printify, Etsy and more). '
         + 'Check this BEFORE telling the Commander that StarNet cannot reach a service: it usually can, and the '
-        + 'honest answer is "that one is one click away in ABILITIES › CONNECTORS — want me to walk you through '
+        + 'honest answer is "that service has a setup path in ABILITIES › CATALOG — I can walk you through '
         + 'it?". Read-only: you cannot install or authenticate anything, and you never see a key\'s value. '
         + 'Optional `query` filters by service or category; `scope` narrows to connected or available. '
         + 'Pass `goal` (the Commander\'s task in their words, e.g. "email my notes to myself") to get SUGGESTED: '
@@ -238,7 +239,7 @@
         }
         if (goal) {
           parts.push(suggested.length
-            ? { label: 'suggested', count: suggested.length, head: 'SUGGESTED for "' + goal + '" — NOT connected yet. The Commander now has a ⇄ CONNECT chip for it under your reply: tell them to tap it (ABILITIES › CATALOG, one sign-in). You cannot connect it yourself.', body: suggested.map(x => '- ' + x.id + ' — ' + x.reason) }
+            ? { label: 'suggested', count: suggested.length, head: 'SUGGESTED for "' + goal + '" — NOT connected yet. The Commander now has a ⇄ CONNECT chip for it under your reply: tell them to tap it (ABILITIES › CATALOG). Setup varies by provider and may require an API key or developer app setup before sign-in. You cannot connect it yourself.', body: suggested.map(x => '- ' + x.id + ' — ' + x.reason) }
             : { label: 'suggested', count: 0, head: 'SUGGESTED (0) for "' + goal + '" — nothing unconnected in the catalog matches this goal (or what it needs is already connected).', body: [] });
           if (lost.length) parts.push({ label: 'suggested-emit-lost', count: lost.length, head: 'NOTE: the connect chip could not be raised for: ' + lost.join('; '), body: [] });
         }
