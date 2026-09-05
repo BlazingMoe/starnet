@@ -18,8 +18,10 @@ Live proof: seeded station showed DOWN after its sidecar stopped and recovered a
 the new boot's cursor requested snapshot reset. Real Chromium observed a fixture's lookup, the
 production browser tool derived its client, and direct JSON matched the rendered result. Focused
 tests prove disconnected channel replay, restart expiry, no duplicate replay, command exclusion,
-HTTP failure handling, and exact skill script read-back in a fresh process. Full gates/integration
-are pending in this lane; no installed-binary or station-wide readiness claim.
+HTTP failure handling, and exact skill script read-back in a fresh process. Integrated by exact
+fast-forward at `9c9f788d0`; both before and after integration, fast **712/712** and HTTP **95/95**
+passed. Evidence: `qa/digests/2026-09-05-hermes-reconnect-capture.md`. No installed-binary or
+station-wide readiness claim.
 
 ## 2026-09-04 — LIVE TRANSCRIPTS + VOICE TURN FLOW (`agent/voice-flow-0904`)
 
