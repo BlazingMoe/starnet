@@ -180,6 +180,7 @@ No removed options or second composer remained in the DOM. Opened the simplified
 picker from both group and direct chats and canceled without changing membership.
 Attachment transfer uses the existing staged-file route; native file selection was
 not exercised in this follow-up.
+Full fast suite: all 702 steps passed (`dev/group-simple-fast.log`).
 
 ## Scope of the evidence
 
