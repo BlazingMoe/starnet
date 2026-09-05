@@ -1,12 +1,35 @@
 # NEXT.md — current priorities & task queue
 
+## DONE — 2026-09-05 repeated-work takeover (`agent/rec-vision-audit-0905`)
 
-## IN PROGRESS — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
+Plan: use durable task briefs joined to completed run evidence to detect the same bounded workflow
+on at least three separate occasions. Exclude retries/corrections, failed/internal runs, conflicting
+targets and existing routines. Offer one evidence-backed takeover through the existing routine beat;
+acceptance opens the existing editable routine draft with the original agent, sources and instructions.
+The user chooses the cadence and confirms creation; no schedule is inferred from counts. Persist
+offer/defer/never decisions, honor paused/forgotten personalization, and suppress scheduled workflows.
 
-Owner approved the custom station and all six UI upgrades for immediate integration. Syncing the
-approved branch with trunk `010a6b50f` in its own worktree, then checking the combined tree before
-merging. The live custom demo and six-panel review remain on ports 9177 and 9178. Preserve the
-integration tree's unrelated, uncommitted QA status and Rooms handoff files.
+Done means: in a seeded live station, repeated completed requests earn a concrete takeover card;
+review opens a prefilled routine draft, confirmation creates exactly one real scheduler job, and
+restart retains the job/decision without another offer. Negative scenarios remain silent. Focused,
+fast and HTTP gates pass before the user-authorized merge. Use existing scheduler execution and
+authority, with no new agent loop or capability unlock. Preserve unrelated trunk work.
+
+Implemented and source-app verified: takeover card -> evidence-backed editable draft -> confirmed
+Monday routine -> successful scheduler result -> restart without another offer. Branch gates:
+714/714 fast and 96/96 HTTP steps green. See `qa/workflow-takeover-0905.md` for fixture boundaries
+and run receipts. Post-merge gate result belongs in `qa/STATUS.md`.
+
+
+## DONE — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
+
+Owner approved the custom station and all six UI upgrades for immediate integration. Combined with
+trunk `010a6b50f`, verified, and fast-forwarded into trunk at `6085f26b8`: 712/712 fast steps green
+(extended timeout), 21 live UI checks, no browser exceptions. The integrated tree exactly matched
+the verified candidate. Capability badges preserve the newer per-agent effective-authority model;
+Refit keeps both the selected sprite preview and equipment explanations. The custom demo and review
+remain on ports 9177 and 9178. Unrelated, uncommitted QA status and Rooms handoff files were hash-checked
+and preserved. No installed binary, publication, or project-wide readiness claim.
 
 ## 2026-09-05 — HERMES RECONNECT + WEBSITE LOOKUP (`agent/hermes-reconnect-capture-0905`)
 

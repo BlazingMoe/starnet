@@ -37,7 +37,7 @@ A.ok(/setTimeout\(\(\) => \{ recommendPass\(p, 'slow'\); \}, BEAT_SLOW_ARM_MS\)/
   'and the SLOW pass, once reflection has landed and both turn-in stashes are written');
 A.ok(/const BEAT_ARM_MS = 1600;/.test(chatSrc) && /const BEAT_SLOW_ARM_MS = 12000;/.test(chatSrc),
   'the slow arm is the old STUDY_ARM_MS reality (12s), the fast arm stays at 1.6s');
-A.ok(/const slow = phase === 'slow';/.test(passBody), 'the ONE pass body serves both arms (one arbiter, never two)');
+A.ok(/const slow = phase !== 'fast';/.test(passBody) && /const takeoverOnly = phase === 'takeover';/.test(passBody), 'the ONE pass serves fast, slow and post-rating takeover collection');
 A.ok(passBody.indexOf('rateCandidate(agentId, runId)') < passBody.indexOf('arcCandidate(runId)'),
   'the FAST arm collects the rating; every fetch-backed / produced-evidence channel collects on the SLOW arm');
 // MEMORY WINS BY RESERVATION, not by an arm delay: memory.proposed reserves the slot the instant it fires, so a
@@ -57,7 +57,7 @@ A.ok(/if \(askBudgetSpent\(\)\) \{[\s\S]{0,40}return;|\} else if \(askBudgetSpen
 A.ok(/Recommend\.asksBudget\(winner\.kind\)\) sessionAsks \+= 1;/.test(passBody),
   'the budget is spent by a card that actually FIRED, never by one that merely collected');
 // S1: a blocked moment defers the run's turn-ins instead of destroying them
-A.ok(/if \(slow && isHeroRun && runId\) \{ queueStudy\(runId, agentId\); queueThread\(runId, agentId\); \}/.test(passBody),
+A.ok(/if \(slow && !takeoverOnly && isHeroRun && runId\) \{ queueStudy\(runId, agentId\); queueThread\(runId, agentId\); \}/.test(passBody),
   'a blocked moment QUEUES this run\'s study + thread (the pre-spine listeners deferred them; returning dropped them forever)');
 
 // the pass asks the PURE spine who speaks, and exactly one candidate ever fires
@@ -154,7 +154,7 @@ A.ok(passBody.indexOf('rateCandidate(agentId, runId)') > 0
 const iCurNudge = chatSrc.indexOf('function curiosityNudge');
 const iGentle = chatSrc.indexOf('function nudge(');
 A.ok(iCurNudge > 0 && /clearNudge\(\);/.test(chatSrc.slice(iCurNudge, iCurNudge + 220)), 'curiosityNudge retires a prior nudge before creating a new one');
-A.ok(iGentle > 0 && /clearNudge\(\);/.test(chatSrc.slice(iGentle, iGentle + 220)), 'the gentle nudge() retires a prior nudge before creating a new one');
+A.ok(iGentle > 0 && /clearNudge\(\);/.test(chatSrc.slice(iGentle, chatSrc.indexOf("const r = row('agent')", iGentle))), 'the gentle nudge() retires an unprotected prior nudge before creating a new one');
 A.ok(/return\s*\{[^}]*\bclearNudge\b/.test(chatSrc), 'clearNudge is exported (so pitchstore can retire a live nudge before the First Pitch panel opens)');
 
 /* ---------- 2. behavioral: the real SuggestStore decision drives the mutual exclusion ---------- */
@@ -278,7 +278,7 @@ const iBottleCall = rateBody.indexOf('BottleStore.onVerdict');
 const iResummonCall = rateBody.indexOf('ResummonStore.onVerdict');
 A.ok(iBottleCall > 0 && iResummonCall > 0, 'rateWork hands the verdict to BOTH BottleStore and ResummonStore');
 A.ok(iBottleCall < iResummonCall, 'BottleStore is consulted BEFORE ResummonStore (bottle keeps priority for the shared slot)');
-A.ok(/bottleWillOffer/.test(rateBody) && /if \(!bottleWillOffer\) ResummonStore\.onVerdict/.test(rateBody),
+A.ok(/bottleWillOffer/.test(rateBody) && /if \(!takeoverReady && !bottleWillOffer\) ResummonStore\.onVerdict/.test(rateBody),
   're-summon fires ONLY when a bottle offer will NOT (mutually exclusive per 👍 run — never both, never a slot clobber)');
 // P3.2: the crew capture is wired at init, and the split rides the SAME memory.feedback mint path per worker.
 A.ok(chatSrc.indexOf('wireCrewCapture()') > 0, 'chat.js wires wireCrewCapture at init (records forwarded worker spend)');
