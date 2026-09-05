@@ -661,168 +661,181 @@ const SpaceBG = (() => {
 
 
 
-  /* ----------------------------------------------------------- BACKDROP: DEEP VOID ---- */
-  /* THE VOID, sharpened. Same bones, deliberately — starfield, faint distant nebulas, a
-     galactic band, the meteor — because that look is the one Andrew signed off on and keeps
-     choosing. Law 1 freezes THE VOID itself, so the improvements live here, as a sibling.
+  /* ------------------------------------------------------------ BACKDROP: ANDROMEDA ---- */
+  /* Built to a REFERENCE Andrew supplied on 2026-09-04 after rejecting two guesses (a face-on
+     black-hole disc: "i hate it"; the void sharpened: "just looks like our original but worse").
+     The reference: a hard-quantized pixel-art galaxy — pure black, then FOUR blues (navy, blue,
+     cyan, white) and nothing else; chunky 2-4px cells; a tilted spiral with a blown-white core
+     falling off through cyan and blue to scattered single navy pixels; a dense dust of tiny blue
+     stars everywhere; a few big ROUND white stars. His words: "something like this but animated,
+     should have space travel actively moving in the background, stars that actually twinkle, and
+     a galaxy or maybe even black hole."
 
-     (2026-09-04: a face-on black-hole disc was built as the fourth sky first. Andrew: "i hate
-     it pls base it off what we had before i like our current style, just improved". Noted for
-     the next agent: the void's signature — sparse cold points on real black — IS the style. A
-     new space sky can invert it only if it is opt-in and still reads as space; the safer win is
-     THIS: the same sky with every layer a notch better.)
+     So, the three things the reference does not do on its own and this must:
+       1. TRAVEL. The star layers STREAM, continuously and visibly (the void's drift is 3-15 px/s
+          and reads as still; this runs 5-30 px/s diagonally, far slow / near fast) and the
+          galaxy, being the farthest thing, barely moves at all. That speed ladder IS the travel.
+       2. TWINKLE that reads as pixels: the near stars step between three brightness levels
+          rather than fading smoothly, and the big stars pulse their halo ring on and off.
+       3. THE GALAXY as the subject: a fixed tile (like THE NURSERY) so a resize never re-rolls
+          it, pinned to the frame centre with a slow sway, plus a hair of camera parallax.
 
-     What "improved" means here, layer by layer:
-       1. THE BAND IS A MILKY WAY, not a faint smear. A dense core of thousands of faint stars
-          gathered onto the curve, a warmer glow, and a DARK RIFT — a ragged dust lane cut out
-          of the glow along its length, which is the single feature that makes a galactic band
-          read as one.
-       2. A FEW BIG STARS. THE VOID's brightest points only flare at twinkle peak. Here a dozen
-          named-star-sized points sit in the field permanently, with 4-point spikes and real
-          colour (blue-white, amber), so the eye has anchors.
-       3. (A hash-dither grain pass on the gas was tried and dropped: quantizing a faint haze to
-          steps made it BLOCKY, not textured. The void's smooth gas is the style being kept.)
-       4. DEPTH. Layers carry tiny parallax depths (THE VOID's are 0/0), so a pan slides the near
-          stars a hair more than the far ones. Every layer that parallaxes in y is authored
-          toroidally (puff9 / tile2), so a vertical pan never tears a seam.
-       5. The drift, the twinkle rhythm, the meteor and the bolide are the void's, unchanged. */
+     Palette law: NOTHING in this backdrop is drawn outside the five-colour ramp below. That is
+     what makes it match the reference instead of the void with a galaxy stuck on. */
 
-  const DEEP_BG = {
-    label: 'DEEP VOID',
-    blurb: 'The void, sharper. A real Milky Way, a dark rift, and a few great stars.',
-    base: '#030306',
-    SPD: { neb: 1.2, dust: 3, mid: 8, near: 15 },   // the void's drift rates, untouched
-    D: { neb: 0.004, dust: 0.010, mid: 0.018, near: 0.032 },
-    DIM_MID: 0.8, DIM_NEAR: 1.0,
+  const GALAXY_BG = {
+    label: 'ANDROMEDA',
+    blurb: 'Hard blue pixels, a spiral in frame, and the field streaming past.',
+    base: '#000000',
+    PAL: {
+      NAVY: [0, 24, 120], BLUE: [0, 88, 255], CYAN: [56, 200, 255], WHITE: [236, 250, 255],
+      TEAL: [64, 224, 200],                  // the reference's rare green-cyan speck
+    },
+    // travel: px/sec per layer along DIR (far → near), and the parallax depth of each
+    DIR: [-0.94, 0.34],
+    SPD: { far: 5, gal: 0.8, mid: 13, big: 9, near: 28 },
+    D: { far: 0.010, gal: 0.020, mid: 0.030, big: 0.035, near: 0.055 },
+    SWAY: { x: 30, y: 10, sx: 260, sy: 330 },
+    CELL: 3,                                 // galaxy pixel size in device px — the chunk
+
+    fixedTile: () => {
+      const scr = (typeof window !== 'undefined' && window.screen) || {};
+      const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+      const long = Math.max(Number(scr.width) || 0, Number(scr.height) || 0) || 1600;
+      return Math.max(1200, Math.min(2048, Math.round(long * Math.min(dpr, 2))));
+    },
 
     build(w, h, rnd) {
-      const area = w * h;
-      const u = px1();
+      const P = GALAXY_BG.PAL, u = px1();
+      const col = (c, a) => rgba(c, a == null ? 1 : a);
+      const hash = (x, y) => {
+        let k = Math.imul(x + 0x5BD1E995, 0x27D4EB2D) ^ Math.imul(y + 0x2545F491, 0x165667B1);
+        k = Math.imul(k ^ (k >>> 15), 0x2C1B3C6D);
+        return ((k ^ (k >>> 12)) >>> 0) / 4294967296;
+      };
 
-      /* ---- layer 1: NEBULAS + THE BAND (farthest) ---- */
-      const nebCv = mkCv(w, h);
-      const nc = nebCv.getContext('2d');
-      nc.globalCompositeOperation = 'lighter';
-      const blobs = area > 2.2e6 ? 4 : 3;
-      for (let b = 0; b < blobs; b++) {
-        const cx = rnd() * w, cy = h * (0.10 + 0.72 * rnd());
-        const R = (0.20 + 0.24 * rnd()) * Math.min(w, h);
-        const hue = NEB_HUES[Math.floor(rnd() * NEB_HUES.length) % NEB_HUES.length];
-        const acc = NEB_HUES[Math.floor(rnd() * NEB_HUES.length) % NEB_HUES.length];
-        for (let p = 0; p < 7; p++) {
-          const px = cx + (rnd() - 0.5) * R * 1.3, py = cy + (rnd() - 0.5) * R * 0.9;
-          puff9(nc, w, h, px, py, R * (0.35 + 0.45 * rnd()), p < 5 ? hue : acc, 0.06 + 0.05 * rnd());
+      /* ---- 1. FAR DUST: the reference's ground texture — thousands of single navy/blue pixels ---- */
+      const farCv = mkCv(w, h), fc = farCv.getContext('2d');
+      const farN = Math.min(26000, Math.round((w * h) / 110));
+      for (let i = 0; i < farN; i++) {
+        const r = rnd();
+        fc.fillStyle = r < 0.62 ? col(P.NAVY, 0.9) : r < 0.93 ? col(P.BLUE, 0.75) : r < 0.985 ? col(P.CYAN, 0.7) : col(P.TEAL, 0.8);
+        fc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, u, u);
+      }
+
+      /* ---- 2. THE GALAXY, at cell resolution, hard-quantized ----
+         A tilted spiral: elliptical falloff for the disc, a steep core, two log-spiral arms
+         modulating the density, and low-frequency noise so the edge is ragged. Quantized to the
+         ramp with a per-cell hash dither at the thresholds, so the bands interlock in pixels the
+         way the reference's do instead of drawing clean contour lines. Where the density is too
+         thin for a band, the cell becomes a SINGLE SCATTERED PIXEL with probability ~ density —
+         which is how the reference dissolves its outskirts into the star dust. */
+      const galCv = mkCv(w, h), gc = galCv.getContext('2d');
+      const C = GALAXY_BG.CELL, GW = Math.ceil(w / C), GH = Math.ceil(h / C);
+      const ang = -0.62, ca = Math.cos(ang), sa = Math.sin(ang);
+      const A = 0.23 * w, B = 0.085 * w;               // semi-axes (the tile is square) — the reference's galaxy is ~40% of frame
+      const cx = w * 0.5, cy = h * 0.5;
+      const rag = wrapNoise(9, rnd), rag2 = wrapNoise(23, rnd), rag3 = wrapNoise(47, rnd);
+      const mass = { cxs: 0, sxs: 0, cys: 0, sys: 0, m: 0 };
+      for (let gy = 0; gy < GH; gy++) {
+        for (let gx = 0; gx < GW; gx++) {
+          const px = gx * C + C / 2 - cx, py = gy * C + C / 2 - cy;
+          const x = px * ca + py * sa, y = -px * sa + py * ca;   // into galaxy frame
+          const ex = x / A, ey = y / B;
+          const rho = Math.hypot(ex, ey);
+          if (rho > 1.9) continue;
+          const th = Math.atan2(ey, ex);
+          const arm = 0.5 + 0.5 * Math.cos(2 * th - 4.2 * Math.log(rho + 0.12));
+          const n = rag(gx / GW, gy / GH) * 0.5 + rag2(gx / GW, gy / GH) * 0.3 + rag3(gx / GW, gy / GH) * 0.2;
+          let d = Math.exp(-rho * 1.9) * (0.40 + 0.60 * arm) + Math.exp(-rho * 7.0) * 1.15;
+          d *= 0.55 + 0.90 * n;                          // ragged and lumpy, not a clean ellipse
+          d *= Math.max(0, 1 - Math.pow(rho / 1.9, 3));  // and it does end
+          const dth = (hash(gx, gy) - 0.5) * 0.16;
+          const v = d + dth;
+          let c = null, a = 1;
+          if (v > 0.84) c = P.WHITE;
+          else if (v > 0.46) c = P.CYAN;
+          else if (v > 0.24) c = P.BLUE;
+          else if (v > 0.11) c = P.NAVY;
+          else if (hash(gx + 7919, gy + 104729) < d * 2.8) { c = hash(gx, gy + 31) < 0.7 ? P.NAVY : P.BLUE; a = 0.9; }
+          if (!c) continue;
+          gc.fillStyle = col(c, a);
+          gc.fillRect(gx * C, gy * C, C, C);
+          // circular mean of the mass, for the framing pin (torus-safe, as THE NURSERY does it)
+          const ax = (gx / GW) * Math.PI * 2, ay = (gy / GH) * Math.PI * 2;
+          mass.cxs += d * Math.cos(ax); mass.sxs += d * Math.sin(ax);
+          mass.cys += d * Math.cos(ay); mass.sys += d * Math.sin(ay);
+          mass.m += d;
         }
-        puff9(nc, w, h, cx, cy, R * 0.30, hue, 0.16);
-        for (let s = 0, n = 24 + Math.floor(rnd() * 20); s < n; s++) {
-          const ang = rnd() * Math.PI * 2, d = rnd() * R;
-          nc.fillStyle = 'rgba(220,225,250,' + (0.10 + 0.25 * rnd()).toFixed(3) + ')';
-          nc.fillRect(((cx + Math.cos(ang) * d) % w + w) % w, ((cy + Math.sin(ang) * d * 0.8) % h + h) % h, 1, 1);
-        }
       }
-      // the band: a sine periodic in w. Wider and warmer than the void's — this is the subject.
-      const bandY = h * (0.25 + 0.45 * rnd()), bandAmp = h * (0.05 + 0.06 * rnd()), bandPh = rnd() * Math.PI * 2;
-      const bandHalf = h * 0.10;
-      const bandAt = x => bandY + bandAmp * Math.sin((x / w) * Math.PI * 2 + bandPh);
-      const bandHue = [225, 215, 205];                  // starlight, barely warm — the glow is a whisper, the STARS are the band
-      for (let i = 0; i < 40; i++) {
-        const bx = (i / 40) * w + (rnd() - 0.5) * w * 0.03;
-        puff9(nc, w, h, bx, bandAt(bx) + (rnd() - 0.5) * bandHalf * 0.8, bandHalf * (1.0 + 0.7 * rnd()), bandHue, 0.010 + 0.010 * rnd());
-      }
-      // a tighter, brighter spine down the middle of the band
-      for (let i = 0; i < 60; i++) {
-        const bx = (i / 60) * w + (rnd() - 0.5) * w * 0.02;
-        puff9(nc, w, h, bx, bandAt(bx) + (rnd() - 0.5) * bandHalf * 0.3, bandHalf * (0.35 + 0.3 * rnd()), bandHue, 0.014 + 0.010 * rnd());
-      }
-      /* THE DARK RIFT (improvement 1). A ragged dust lane erased OUT of the glow, hugging the
-         curve, wandering off-centre and thickening and thinning along its length. Erasing (rather
-         than painting dark) keeps the black true and lets the stars behind still show through the
-         dust plate below at their normal brightness. */
-      nc.globalCompositeOperation = 'destination-out';
-      /* SOFT and BROKEN. The first cut was a continuous 35-65% erase and read as a black road painted
-         across the sky. Dust is mottled: faint patches that come and go along the curve. */
-      const riftOff = wrapNoise(4, rnd), riftW = wrapNoise(6, rnd), riftOn = wrapNoise(9, rnd);
-      for (let i = 0; i < 220; i++) {
-        const bx = (i / 220) * w;
-        if (riftOn(bx / w, 0.5) < 0.42) continue;                // gaps in the lane
-        const off = (riftOff(bx / w, 0) - 0.5) * bandHalf * 1.2;
-        const rw = bandHalf * (0.15 + 0.35 * riftW(bx / w, 0.3));
-        for (let k = 0; k < 2; k++) {
-          const ry = bandAt(bx) + off + (rnd() - 0.5) * rw * 0.8;
-          puff9(nc, w, h, bx + (rnd() - 0.5) * w * 0.015, ry, rw * (0.7 + 0.8 * rnd()), [0, 0, 0], 0.10 + 0.14 * rnd());
-        }
-      }
-      nc.globalCompositeOperation = 'source-over';
-      /* ---- layer 2: DUST — the far field, with the MILKY WAY CORE condensed onto the band ---- */
-      const dustCv = mkCv(w, h);
-      const dc = dustCv.getContext('2d');
-      const dustN = Math.min(9000, Math.round(area / 1000));
-      for (let i = 0; i < dustN; i++) {
-        const x = rnd() * w;
-        const y = rnd() < 0.30 ? bandAt(x) + (rnd() + rnd() - 1) * bandHalf : rnd() * h;
-        dc.fillStyle = pickTint(rnd()) + (0.25 + 0.5 * rnd()).toFixed(3) + ')';
-        dc.fillRect(x, ((y % h) + h) % h, rnd() < 0.88 ? 1 : 2, 1);
-      }
-      // the core: thousands more, faint, gaussian-tight on the curve — this is what makes it a galaxy
-      const coreN = Math.min(11000, Math.round(area / 720));
-      for (let i = 0; i < coreN; i++) {
-        const x = rnd() * w;
-        const g = (rnd() + rnd() + rnd() + rnd() - 2) * 0.5;      // ~gaussian in [-1,1]
-        const y = bandAt(x) + g * bandHalf * 0.9;
-        dc.fillStyle = 'rgba(240,232,215,' + (0.10 + 0.22 * rnd()).toFixed(3) + ')';
-        dc.fillRect(x, ((y % h) + h) % h, 1, 1);
+      const turn = (c, s) => { const t = Math.atan2(s, c); return (t < 0 ? t + Math.PI * 2 : t) / (Math.PI * 2); };
+      const focus = mass.m > 0
+        ? { x: turn(mass.cxs, mass.sxs) * w, y: turn(mass.cys, mass.sys) * h, r: Math.min(Math.hypot(mass.cxs, mass.sxs), Math.hypot(mass.cys, mass.sys)) / mass.m }
+        : { x: 0, y: 0, r: 0 };
+
+      /* ---- 3. MID STARS: brighter singles, blue/cyan, with the odd 2px ---- */
+      const midCv = mkCv(w, h), mc = midCv.getContext('2d');
+      const midN = Math.min(5000, Math.round((w * h) / 560));
+      for (let i = 0; i < midN; i++) {
+        const r = rnd();
+        mc.fillStyle = r < 0.5 ? col(P.BLUE) : r < 0.9 ? col(P.CYAN) : col(P.WHITE, 0.85);
+        const s = rnd() < 0.85 ? u : 2 * u;
+        mc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, s, s);
       }
 
-      /* ---- layers 3+4: the live twinkle bands (the void's) ---- */
-      const mid = [], near = [];
-      const midN = Math.min(340, Math.round(area / 11000)), nearN = Math.min(190, Math.round(area / 24000));
-      for (let i = 0; i < midN; i++) mid.push({ x: rnd(), y: rnd(), r: rnd() < 0.85 ? u : u * 2, ph: rnd() * 10, c: pickTint(rnd()) });
-      for (let i = 0; i < nearN; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.6 ? u : u * 2, ph: rnd() * 10, c: pickTint(rnd()), glint: rnd() < 0.08 });
+      /* ---- 4. LIVE layers: the near twinklers and the big round stars ---- */
+      const near = [];
+      const nearN = Math.min(260, Math.round((w * h) / 9000));
+      for (let i = 0; i < nearN; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.7 ? u : 2 * u, ph: rnd() * 10, rate: 700 + rnd() * 900, c: rnd() < 0.55 ? P.CYAN : P.WHITE });
+      const big = [];
+      for (let i = 0, n = 9 + Math.floor(rnd() * 4); i < n; i++) big.push({ x: rnd(), y: rnd(), ph: rnd() * 10, rate: 1600 + rnd() * 1400, huge: rnd() < 0.2 });
 
-      /* ---- layer 5: THE GREAT STARS (improvement 2) — a dozen anchors with spikes and colour ---- */
-      const bigCv = mkCv(w, h), bc = bigCv.getContext('2d');
-      const BIG = [[210, 225, 255], [255, 244, 225], [255, 205, 150], [170, 200, 255]];
-      for (let i = 0, n = 10 + Math.floor(rnd() * 5); i < n; i++) {
-        const x = (rnd() * w) | 0, y = (rnd() * h) | 0;
-        const c = BIG[Math.floor(rnd() * BIG.length) % BIG.length];
-        const big = rnd() < 0.3;
-        const arm = big ? 5 * u : 3 * u;
-        bc.fillStyle = rgba(c, 0.10); bc.fillRect(x - u, y - u, 3 * u, 3 * u);   // a soft square halo
-        bc.fillStyle = rgba(c, 0.32);
-        bc.fillRect(x - arm, y, 2 * arm + u, u); bc.fillRect(x, y - arm, u, 2 * arm + u);
-        bc.fillStyle = rgba(c, 0.95); bc.fillRect(x, y, u, u);
-        if (big) { bc.fillStyle = rgba(c, 0.55); bc.fillRect(x - u, y, u, u); bc.fillRect(x + u, y, u, u); bc.fillRect(x, y - u, u, u); bc.fillRect(x, y + u, u, u); }
-      }
-
-      return { nebCv, dustCv, bigCv, mid, near };
+      return { farCv, galCv, midCv, near, big, focus };
     },
 
     draw(ctx, w, h, now, cam, st) {
-      const S = DEEP_BG.SPD, D = DEEP_BG.D, t = now / 1000;
-      ctx.globalAlpha = 0.9 + 0.1 * Math.sin(now / 7000);
-      tile2(ctx, st.nebCv, w, h, t * S.neb + parX(cam, D.neb), parY(cam, D.neb));
-      ctx.globalAlpha = 0.92 + 0.08 * Math.sin(now / 4100);
-      tile2(ctx, st.dustCv, w, h, t * S.dust + parX(cam, D.dust), parY(cam, D.dust));
-      ctx.globalAlpha = 1;
-      tile2(ctx, st.bigCv, w, h, t * S.mid + parX(cam, D.mid), parY(cam, D.mid));
+      const S = GALAXY_BG.SPD, D = GALAXY_BG.D, P = GALAXY_BG.PAL, [dx, dy] = GALAXY_BG.DIR;
+      const t = now / 1000;
+      const TW = st.farCv.width, TH = st.farCv.height;
+      const fl = v => Math.floor(v);
 
-      const mx = parX(cam, D.mid), my = parY(cam, D.mid);
-      for (const s of st.mid) {
-        const tw = (0.35 + 0.65 * Math.abs(Math.sin(now / (900 + s.ph * 300) + s.ph))) * DEEP_BG.DIM_MID;
-        ctx.fillStyle = s.c + tw.toFixed(3) + ')';
-        ctx.fillRect(((s.x * w + t * S.mid + mx) % w + w) % w, ((s.y * h + my) % h + h) % h, s.r, s.r);
-      }
-      const nx = parX(cam, D.near), ny = parY(cam, D.near);
-      for (const s of st.near) {
-        const tw = (0.35 + 0.65 * Math.abs(Math.sin(now / (900 + s.ph * 300) + s.ph))) * DEEP_BG.DIM_NEAR;
-        const x = ((s.x * w + t * S.near + nx) % w + w) % w, y = ((s.y * h + ny) % h + h) % h;
-        ctx.fillStyle = s.c + tw.toFixed(3) + ')';
-        ctx.fillRect(x, y, s.r, s.r);
-        if (s.glint && tw > 0.55) {
-          ctx.fillStyle = s.c + (tw * 0.30).toFixed(3) + ')';
-          ctx.fillRect(x - s.r * 2, y + (s.r >> 1), s.r * 5, 1);
-          ctx.fillRect(x + (s.r >> 1), y - s.r * 2, 1, s.r * 5);
+      // far dust streams slowest
+      tileN(ctx, st.farCv, TW, TH, w, h, parX(cam, D.far) + t * S.far * dx, parY(cam, D.far) + t * S.far * dy);
+
+      // the galaxy: pinned to the frame centre, swaying, creeping along DIR at the slowest rate
+      const F = st.focus || { r: 0 }, SW = GALAXY_BG.SWAY;
+      const pinX = F.r > 0.08 ? w / 2 - F.x : 0, pinY = F.r > 0.08 ? h / 2 - F.y : 0;
+      tileN(ctx, st.galCv, TW, TH, w, h,
+        parX(cam, D.gal) + pinX + SW.x * Math.sin(t / SW.sx * Math.PI * 2) + t * S.gal * dx,
+        parY(cam, D.gal) + pinY + SW.y * Math.sin(t / SW.sy * Math.PI * 2) + t * S.gal * dy);
+
+      tileN(ctx, st.midCv, TW, TH, w, h, parX(cam, D.mid) + t * S.mid * dx, parY(cam, D.mid) + t * S.mid * dy);
+
+      /* the big round stars: a white 3x3 heart with a plus, and a blue halo ring that pulses.
+         Stepped: the ring is either on or off, the heart is always on. */
+      const bx0 = parX(cam, D.big) + t * S.big * dx, by0 = parY(cam, D.big) + t * S.big * dy;
+      for (const b of st.big) {
+        const x = fl(((b.x * w + bx0) % w + w) % w), y = fl(((b.y * h + by0) % h + h) % h);
+        // a ROUND star, as the reference draws them: a pixel disc of radius 3-5 with a blue rim
+        const R = b.huge ? 5 : 3;
+        const on = Math.sin(now / b.rate + b.ph) > 0.2;
+        for (let yy = -R - 1; yy <= R + 1; yy++) {
+          const half = Math.floor(Math.sqrt(Math.max(0, (R + 1) * (R + 1) - yy * yy)));
+          const inner = Math.floor(Math.sqrt(Math.max(0, R * R - yy * yy)));
+          if (on) { ctx.fillStyle = rgba(P.BLUE, 0.9); ctx.fillRect(x - half, y + yy, 2 * half + 1, 1); }
+          if (inner >= 0 && Math.abs(yy) <= R) { ctx.fillStyle = rgba(P.CYAN, 1); ctx.fillRect(x - inner, y + yy, 2 * inner + 1, 1); }
+          const core = Math.floor(Math.sqrt(Math.max(0, (R - 1) * (R - 1) - yy * yy)));
+          if (Math.abs(yy) <= R - 1) { ctx.fillStyle = rgba(P.WHITE, 1); ctx.fillRect(x - core, y + yy, 2 * core + 1, 1); }
         }
+      }
+
+      /* the near twinklers: THREE brightness steps, snapped — a pixel star does not fade */
+      const nx0 = parX(cam, D.near) + t * S.near * dx, ny0 = parY(cam, D.near) + t * S.near * dy;
+      for (const s of st.near) {
+        const ph = Math.sin(now / s.rate + s.ph);
+        const lv = ph > 0.45 ? 1 : ph > -0.4 ? 0.62 : 0.3;
+        ctx.fillStyle = rgba(s.c, lv);
+        ctx.fillRect(fl(((s.x * w + nx0) % w + w) % w), fl(((s.y * h + ny0) % h + h) % h), s.r, s.r);
       }
 
       drawMeteor(ctx, w, h, now);
@@ -1208,8 +1221,8 @@ const SpaceBG = (() => {
 
   /* ---------------------------------------------------------------------- registry ---- */
 
-  const BACKDROPS = { void: VOID_BG, deep: DEEP_BG, nursery: NURSERY_BG, ocean: OCEAN_BG, city: CITY_BG };
-  const ORDER = ["void", "deep", "nursery", "ocean", "city"];
+  const BACKDROPS = { void: VOID_BG, galaxy: GALAXY_BG, nursery: NURSERY_BG, ocean: OCEAN_BG, city: CITY_BG };
+  const ORDER = ["void", "galaxy", "nursery", "ocean", "city"];
   const DEFAULT_ID = 'void';
 
   const has = id => Object.prototype.hasOwnProperty.call(BACKDROPS, id);
