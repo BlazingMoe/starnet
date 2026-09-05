@@ -96,7 +96,9 @@ function makeGroupSessions(d) {
     if (handles.some(h => h.toLowerCase() === 'all')) return g.members.slice();
     const ids = [];
     for (const h of handles) {
-      const choices = roster().filter(a => g.members.includes(a.id) && (a.id === h || a.name.toLowerCase() === h.toLowerCase()));
+      const live = roster().filter(a => g.members.includes(a.id));
+      const exact = live.find(a => a.id === h);
+      const choices = exact ? [exact] : live.filter(a => a.name.toLowerCase() === h.toLowerCase());
       if (choices.length !== 1) fail('Unknown or ambiguous @' + h + '; choose a participant from autocomplete');
       if (!ids.includes(choices[0].id)) ids.push(choices[0].id);
     }
@@ -239,6 +241,8 @@ function makeGroupSessions(d) {
         if (b.action === 'retry') {
           if (!['failed', 'interrupted', 'stopped'].includes(target.state)) fail('Only interrupted, failed or stopped work can be retried');
           if (!g.members.includes(target.agentId)) fail('Participant was removed');
+          // Retry is an explicit request to restart work, including after boot/E-STOP paused it.
+          g.paused = false; haltedGroups.delete(id);
           if (!g.turns.some(t => t.retryOf === target.id && (t.state === 'queued' || ACTIVE.has(t.state))))
             turn(g, target.origin, target.agentId, { request: target.request, retryOf: target.id, allowance: g.turns.filter(t => t.origin === target.origin && !['queued', 'held'].includes(t.state)).length });
         } else {
