@@ -188,7 +188,9 @@ export function extractAnchors(bug) {
   for (const m of fix.toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
   // A commit named in the Verdict ("Fixed by abc1234", "landed in `deadbeef`") is closure
   // evidence too — but never the record's own 8-hex fingerprint.
-  for (const m of str(sections.Verdict).toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
+  // Reported escapes often name RELATED fixes while explaining why the report stays open.
+  // Only their explicit fix field asserts causality; legacy sweep prose keeps its old semantics.
+  if (!isEscape(bug)) for (const m of str(sections.Verdict).toLowerCase().match(RE_HEX) || []) { if (m !== fp && !seenCommit.has(m)) { seenCommit.add(m); out.commits.push(m); } }
 
   for (const name of SECTIONS) {
     const text = str(sections[name]);
@@ -198,7 +200,7 @@ export function extractAnchors(bug) {
       if (!seenTest.has(t)) { seenTest.add(t); out.tests.push(t); }
       // A test named in the VERDICT is the regression the fix left behind (hard evidence when it
       // passes); one named elsewhere is "existing coverage" that passed BEFORE the fix too (weak).
-      if (name === 'Verdict' && !out.regressionTests.includes(t)) out.regressionTests.push(t);
+      if (name === 'Verdict' && (!isEscape(bug) || fix) && !out.regressionTests.includes(t)) out.regressionTests.push(t);
     }
     // file[:line] citations, in document order, so a snippet can bind to the nearest one above it.
     const cites = [];

@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { makeBugRegister } = require('../scripts/qa/bugs.mjs');
+const { makeReconciler } = require('../scripts/qa/ledger-reconcile.mjs');
 const { lifecycleErrors, escapeSummary, makeCoverageChecker } = require('../scripts/qa/bug-lifecycle.mjs');
 const path = require('node:path');
 const covered = { target: 'managed', state: 'covered', test: 'test/provider.openai-compatible.test.js', scenario: 'interrupted tool pair recovery', gate: 'fast' };
@@ -63,4 +64,14 @@ test('customer journey campaign cannot drift outside mandatory fast/http gates',
   const campaign=read('customer-journeys');
   assert.ok(campaign.length>0); assert.equal(new Set(campaign).size,campaign.length);
   for(const file of campaign) { assert.ok(gates.has(file),file+' must run in a mandatory gate'); assert.ok(fs.existsSync(path.join(root,file))); }
+});
+
+test('related fix prose cannot promote an unresolved customer report in reconciliation', ()=>{
+  const {reg,b}=setup();
+  const r=reg.set(b.fingerprint,{verdict:'Related commit 2b976f5f3 does NOT reproduce the customer disappearance. test/provider.openai-compatible.test.js passes for a different symptom.'});
+  assert.equal(r.ok,true);
+  const reconciler=makeReconciler({io:{isAncestor:()=>true,fileExists:()=>true,runTest:()=>({ok:true,code:0}),readFile:()=>'',searchCode:()=>[]}});
+  const judged=reconciler.judgeRecord(reg.list()[0]);
+  assert.equal(judged.verdict,'unverifiable');
+  assert.deepEqual(judged.anchors.commits,[],'only the explicit fix field identifies the source repair');
 });

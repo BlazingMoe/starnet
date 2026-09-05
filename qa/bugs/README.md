@@ -92,6 +92,10 @@ issue being closed, and passing source tests cannot advance either outcome. Use
 server-only repair. Customer silence remains unconfirmed. Do not relabel a report as an
 audit finding to bypass these requirements.
 
+For reported bugs, reconciliation uses the explicit `fix` field as source-fix evidence.
+A commit mentioned in a verdict may be a related repair that did not resolve this symptom.
+Passing baseline tests or removed files cannot promote an uncorrelated report to likely-fixed.
+
 Before closing a user-reported bug, enumerate **adapters, entrypoints, displays, lifecycle**
 in `## Sibling coverage` as JSON (without a code fence):
 
