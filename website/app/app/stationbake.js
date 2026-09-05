@@ -4670,15 +4670,14 @@ const StationBake = (() => {
     return path;
   }
 
-  // Navigation fixtures mount on the visible south-facing skirt, not on the
-  // floor-plane corner or the wall crown. Validate their whole housing against
-  // the rendered shell, since adjacent rooms can hide an otherwise valid mount.
+  // Navigation fixtures sit in the flat front armour panels. Keep them well
+  // clear of corner bevels, corridor mouths, panel seams and the wall crown.
+  // Validate the entire housing since neighbouring rooms can hide a panel.
   function hullNavLights(baseCv, interiorCv) {
     const result = [];
     if (!baseCv.getContext('2d').getImageData) return result;
     const base = baseCv.getContext('2d').getImageData(0,0,CW,CH).data;
     const inside = interiorCv.getContext('2d').getImageData(0,0,CW,CH).data;
-    const reach = (T+pad-3)*Math.pow(0.5,1/cornerExp());
     const skirt = Math.max(4,Math.round(WALL.skirt));
     const onShell = (x,y) => {
       for(let yy=y-2;yy<=y+2;yy++)for(let xx=x-2;xx<=x+2;xx++) {
@@ -4691,17 +4690,28 @@ const StationBake = (() => {
       }
       return true;
     };
-    for(const [cx,cy,kind] of G.chamfers) {
-      if(kind!=='bl'&&kind!=='br')continue;
-      const west=kind==='bl';
-      const x=Math.round((cx+(west?1:0))*T+(west?-reach:reach));
-      const y0=Math.round(cy*T+reach+skirt*0.55);
-      // Small vertical adjustments keep the housing fully on visible armour.
-      for(const offset of [0,2,-2,4,-4]) {
-        const y=y0+offset;
-        if(!onShell(x,y)||result.some(l=>Math.hypot(l.x-x,l.y-y)<18))continue;
-        result.push({x,y,red:west,phase:((cx*37+cy*61)%100+100)%100/100});
-        break;
+    // Adjacent room rectangles can form one continuous facade; do not double
+    // the lamps merely because the builder split that room into two shapes.
+    const fronts=[];
+    for(const r of G.allRects.filter(r=>!G.isCorridor(r.z)).slice().sort((a,b)=>a.y2-b.y2||a.x1-b.x1)){
+      const previous=fronts[fronts.length-1];
+      if(previous&&previous.y2===r.y2&&r.x1<=previous.x2+1)previous.x2=Math.max(previous.x2,r.x2);
+      else fronts.push({x1:r.x1,x2:r.x2,y2:r.y2});
+    }
+    for(const r of fronts) {
+      if(skirt<24)continue;
+      const left=(r.x1+1)*T+8,right=r.x2*T-8;
+      if(right-left<10)continue;
+      // Centre the housing between the strake's rivet lip and its lower seam.
+      const y=(r.y2+1)*T+pad+STRAKE+6;
+      const centres=[];
+      for(let x=19+Math.ceil((left-19)/28)*28;x<=right;x+=28)if(onShell(x,y))centres.push(x);
+      const targets=right-left>=100?[left+(right-left)*0.25,left+(right-left)*0.75]:[(left+right)/2];
+      for(let i=0;i<targets.length;i++){
+        const x=centres.slice().sort((a,b)=>Math.abs(a-targets[i])-Math.abs(b-targets[i]))
+          .find(x=>!result.some(l=>Math.hypot(l.x-x,l.y-y)<36));
+        if(x==null)continue;
+        result.push({x,y,red:targets.length>1&&i===0,phase:((x*37+y*61)%100+100)%100/100});
       }
     }
     return result;

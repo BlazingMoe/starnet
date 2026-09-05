@@ -111,9 +111,11 @@ and more resolved bulkhead and shell service fittings. It does not change lighti
 chair designs, footprints, capability state, or the custom layout. Reviewed at normal and
 close zoom; 17 focused test steps passed, followed by two floor/chunk checks after hatch placement.
 
-Performance / beacon follow-up: running lights now occupy 26 validated south-facing hull mounts,
-with a recessed 5px housing. All housing pixels are opaque shell, outside the interior receiver
-and floor tiles; the old 52 unvalidated corner offsets are gone. Geometry checks run during bake.
+Performance / beacon follow-up: running lights now occupy 22 validated flat front-wall panels,
+with a recessed 5px housing between the seams. Andrew rejected mounts on the sharp chamfered
+corners: keep those clear. Small fronts get one lamp and wider fronts get two; adjoining shapes
+share a facade. All housing pixels are opaque shell, outside the interior receiver and floor
+tiles; the old 52 unvalidated corner offsets are gone. Geometry checks run during bake.
 
 Idle bay/desk/desk2/plant art caches preserve discrete blink/name/mirror/chroma states; working
 props still render live. Prop bodies/shadows outside the viewport are culled with a 64px margin.

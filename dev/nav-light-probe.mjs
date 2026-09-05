@@ -16,9 +16,14 @@ try {
       const i=(y*b.baseCv.width+x)*4+3,tx=Math.floor(x/12),ty=Math.floor(y/12);
       if(base[i]<250||inside[i]||(tx>=0&&ty>=0&&tx<geo.COLS&&ty<geo.ROWS&&geo.zoneGrid[geo.idx(tx,ty)]!=null))invalid++;
     }
-    return {lights:lights.length,invalidHousingPixels:invalid,oldCornerLights:geo.chamfers.length};
+    const nonFlatMounts=lights.filter(l=>{
+      const tx=Math.floor(l.x/12),ty=Math.floor((l.y-25)/12);
+      return [-1,0,1].some(dx=>geo.zoneGrid[geo.idx(tx+dx,ty)]==null);
+    }).length;
+    const panelSeamOverlap=lights.filter(l=>{const offset=((l.x-5)%28+28)%28;return offset<3||offset>24;}).length;
+    return {lights:lights.length,invalidHousingPixels:invalid,nonFlatMounts,panelSeamOverlap,oldCornerLights:geo.chamfers.length};
   })()`);
-  console.log(JSON.stringify(nav));if(!nav.lights||nav.invalidHousingPixels)throw Error('Invalid hull fixture placement');
+  console.log(JSON.stringify(nav));if(!nav.lights||nav.invalidHousingPixels||nav.nonFlatMounts||nav.panelSeamOverlap)throw Error('Invalid flat hull panel fixture placement');
   const raw=execFileSync('git',['show','8edf29f19:frontend/app/propsprites.js'],{encoding:'utf8'});
   const parity=await evalJS(cdp,`(async()=>{
     await document.fonts.ready;
