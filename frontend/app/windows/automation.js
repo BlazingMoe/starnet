@@ -60,6 +60,21 @@
     body.querySelector('#auto-initiative').onclick = () => H.openTerm('settings', 'autonomy');
     renderAway();
     if (draft) {
+      if (draft.workflowTakeoverId) {
+        const prompt = body.querySelector('#rt-prompt');
+        if (prompt) {
+          prompt.dataset.workflowTakeoverId = draft.workflowTakeoverId;
+          const note = document.createElement('p'); note.className = 'set-about';
+          note.textContent = 'Takeover review — ' + draft.count + ' separate completed requests. Check sources, changing dates, saved choices and required access. Choose the schedule below; nothing is scheduled until you add the routine.';
+          prompt.insertAdjacentElement('beforebegin', note);
+          const evidence = document.createElement('details');
+          const summary = document.createElement('summary'); summary.textContent = 'Requests behind this offer'; evidence.appendChild(summary);
+          for (const item of (draft.evidence || [])) {
+            const line = document.createElement('p'); line.textContent = new Date(item.at).toLocaleDateString() + ' — ' + item.quote; evidence.appendChild(line);
+          }
+          prompt.insertAdjacentElement('beforebegin', evidence);
+        }
+      }
       if(String(draft.prompt || '').includes('Pasted source (JSON string):')) {
         const note=document.createElement('p');note.className='warn';note.textContent='This draft contains a fixed pasted sample. For fresh updates on each run, replace that sample with an approved source folder before adding the routine.';
         const prompt=body.querySelector('#rt-prompt');if(prompt)prompt.insertAdjacentElement('beforebegin',note);

@@ -712,3 +712,5 @@ test/effective-toolsets.test.js
 test/discovery-documents.test.js
 test/value-loop-replay.test.mjs
 test/ease-of-use.test.js
+test/workflow-takeover.test.js
+test/workflow-takeover-ui.test.js

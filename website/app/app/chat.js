@@ -2727,7 +2727,12 @@ const Chat = (() => {
     // mints nothing here (the editor confirm does that). Fail-open — a bottle offer is never load-bearing. Placed
     // AFTER the taste beat so this verdict's other one-beat consumers keep their precedence; BottleStore's own slot
     // guards (busy / a live rate|turn-in control) already stop it from stacking on any beat still on screen.
-    if (typeof BottleStore !== 'undefined' && BottleStore.onVerdict) { try { BottleStore.onVerdict(runId, verdict, agentId || 'agent'); } catch (_) {} }
+    let takeoverReady = false;
+    if (verdict === 'great' && typeof WorkflowTakeoverStore !== 'undefined') {
+      await WorkflowTakeoverStore.refresh();
+      takeoverReady = !!WorkflowTakeoverStore.candidate(agentId || 'agent');
+    }
+    if (!takeoverReady && typeof BottleStore !== 'undefined' && BottleStore.onVerdict) { try { BottleStore.onVerdict(runId, verdict, agentId || 'agent'); } catch (_) {} }
     // P3.1 RE-SUMMON SIGNAL: a 👍 on a real interactive run may earn a one-time "run it again?" beat — SAME direct
     // hand-off, SAME shared gold-inset slot + defer-not-stack discipline as BottleStore. Bottle and re-summon are
     // BOTH 👍-triggered offers competing for the ONE post-run beat, so they must be MUTUALLY EXCLUSIVE per run:
@@ -2742,7 +2747,7 @@ const Chat = (() => {
           const bs = BottleStore._state(); const bi = App.runBottleInfo(runId);
           bottleWillOffer = !!(bi && !BottleStore.isDecided(bs, runId) && BottleStore.shouldOffer(bs, verdict, bi));
         }
-        if (!bottleWillOffer) ResummonStore.onVerdict(runId, verdict, agentId || 'agent');
+        if (!takeoverReady && !bottleWillOffer) ResummonStore.onVerdict(runId, verdict, agentId || 'agent');
       } catch (_) {}
     }
     // OUTCOME LOOP (recipe lane B): if THIS run was launched from a recipe (RUN_META provenance spine), fold the
@@ -2811,6 +2816,8 @@ const Chat = (() => {
       // consequence: the follow-up beat asks what missed and writes the answer into the dossier. Rides every
       // rate path (standalone beat, turn-in card, outbox) because it hangs off settle, not off any one caller.
       setTimeout(() => { try { if (onSettle) onSettle(verdict); } finally { verdictFollowupBeat(agentId, runId, verdict); } }, 700);
+      // Rejoin the same arbiter after the rating fades; do not bank work twice or rerun other offers.
+      if (verdict === 'great') setTimeout(() => { recommendPass({ agentId, runId }, 'takeover'); }, 2200);
     }
     function mk(label, cls, verdict, flash, isDeny) {
       const b = document.createElement('button'); b.className = 'consent-btn' + (cls ? ' ' + cls : ''); b.textContent = label;
@@ -4955,9 +4962,10 @@ const Chat = (() => {
   // a reusable GENTLE post-run beat (used by the ongoing-suggestion engine, suggeststore.js) — the same quiet
   // register as the curiosity nudge: a .nudge aside, never the lit .reply headline. text = the line; options =
   // [{label,value,skip}]; onPick(item) fires on a choice (the choice row removes itself on pick).
-  function nudge(text, options, onPick) {
+  function nudge(text, options, onPick, opts) {
     if (!log) return null;
     if (taskQuestionLive()) return null;   // a pending task question owns the moment
+    if (activeNudge && activeNudge.keepUntilDecision) return null;
     clearNudge();   // one gentle beat at a time: retire any prior unanswered nudge before this one (no cross-run stacking)
     const r = row('agent'); r.d.classList.add('nudge');
     renderNudgeBody(r.body, text);
@@ -4971,6 +4979,7 @@ const Chat = (() => {
     const beat = beatCards && beatCards.claim({ kind: 'nudge', node: r.d, data: { text: text } });
     if (!beat) { if (choiceRow) { activeChoiceRows.delete(choiceRow); choiceRow.remove(); } vanish(r.d); return null; }
     activeNudge = { row: r.d, choiceRow: choiceRow, dim: null, beat: beat };   // share the curiosity-nudge lifecycle so a turn-in's clearNudge() retires a suggestion beat too (keeps "one beat at a time")
+    activeNudge.keepUntilDecision = !!(opts && opts.keepUntilDecision);
     return { row: r.d, choiceRow: choiceRow };
   }
 
@@ -5833,7 +5842,8 @@ const Chat = (() => {
      needs nothing the run has yet to produce) and once at the SLOW arm ('slow': every channel whose evidence
      the run must first WRITE). Both phases share the one arbiter and fire at most one candidate between them. */
   async function recommendPass(p, phase) {
-    const slow = phase === 'slow';
+    const takeoverOnly = phase === 'takeover';
+    const slow = phase !== 'fast';
     const agentId = (p && p.agentId) || 'agent';
     const isHeroRun = agentId === 'agent';
     const runId = (p && (p.runId || p.id)) || null;
@@ -5845,7 +5855,7 @@ const Chat = (() => {
       /* A BLOCKED MOMENT MUST NOT DROP THE RUN'S TURN-INS. Returning here discarded this run's study and
          thread offers FOREVER (the pre-spine listeners queued them). Enqueue the markers instead — the
          existing FIFO flush paths re-fetch and re-offer them at a later, free moment. */
-      if (slow && isHeroRun && runId) { queueStudy(runId, agentId); queueThread(runId, agentId); }
+      if (slow && !takeoverOnly && isHeroRun && runId) { queueStudy(runId, agentId); queueThread(runId, agentId); }
       return;
     }
     if (typeof Recommend === 'undefined' || !Recommend.pick) return;        // no spine → no proactive beat
@@ -5862,6 +5872,12 @@ const Chat = (() => {
       const rate = rateCandidate(agentId, runId); if (rate) cands.push(rate);
     } else if (askBudgetSpent()) {
       return;   // the session's proactive-ask budget is spent: the station stays quiet for every consent channel
+    } else if (takeoverOnly) {
+      if (!isHeroRun || turninOwnsMoment(runId) || typeof WorkflowTakeoverStore === 'undefined') return;
+      await WorkflowTakeoverStore.refresh();
+      if (stale() || momentBlocked()) return;
+      const takeover = WorkflowTakeoverStore.candidate(agentId);
+      if (takeover) cands.push(takeover);
     } else {
       // ── the TURN-IN half: hero-only, gated by the shared arbiter + the stand-down guards ──
       if (isHeroRun) {
@@ -5879,12 +5895,20 @@ const Chat = (() => {
           // An intent offer is earned by the Commander's just-finished directive, so it is allowed before
           // the accumulated-work floor. Consume the staged text exactly once on the slow post-run arm.
           const staged = meta && meta.intentOfferText; if (meta) meta.intentOfferText = null;
-          if (staged && maybeIntentOffer(staged)) return;
           // WORK-EARNED ASK FLOOR: a real task-run banks toward the session's ask budget, and no gentle
           // unsolicited beat fires until the station has completed Curiosity.MIN_WORK task-runs this session.
           if (typeof CuriosityStore !== 'undefined' && CuriosityStore.noteWork) CuriosityStore.noteWork();
           const earned = !(typeof CuriosityStore !== 'undefined' && CuriosityStore.earned && !CuriosityStore.earned());
-          if (earned) {
+          // Three separate completed requests earn this specific offer even across browser sessions.
+          let takeover = null;
+          if (typeof WorkflowTakeoverStore !== 'undefined') {
+            await WorkflowTakeoverStore.refresh();
+            if (stale() || momentBlocked()) return;
+            takeover = WorkflowTakeoverStore.candidate(agentId);
+          }
+          if (takeover) cands.push(takeover);
+          if (!takeover && staged && maybeIntentOffer(staged)) return;
+          if (earned && !takeover) {
             const s = suggestCandidate(); if (s) cands.push(s);                 // SuggestStore.willSuggest()
             const sd = seedCandidate(); if (sd) cands.push(sd);                 // SeedStore.willPropose()
             if (typeof RoutineNudgeStore !== 'undefined' && RoutineNudgeStore.onRunEnd) { try { RoutineNudgeStore.onRunEnd(); } catch (_) {} }
