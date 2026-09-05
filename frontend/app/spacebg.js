@@ -855,6 +855,243 @@ const SpaceBG = (() => {
     },
   };
 
+  /* ------------------------------------------------ shared: the BLUE PIXEL space family ---- */
+  /* ANDROMEDA set the language (Andrew's reference, 2026-09-04): black, then navy / blue / cyan
+     and nothing else, single-pixel star dust, round white stars that pulse, and the field
+     STREAMING so the station reads as travelling. EVENT HORIZON and THE BELT are the same sky
+     with a different thing in it, so the field is built and drawn by these shared helpers. */
+
+  function blueField(w, h, rnd, o) {
+    const P = GALAXY_BG.PAL, u = px1(), col = (c, a) => rgba(c, a == null ? 1 : a);
+    const farCv = mkCv(w, h), fc = farCv.getContext('2d');
+    const farN = Math.min(16000, Math.round((w * h) / (o.farDiv || 190)));
+    for (let i = 0; i < farN; i++) {
+      const r = rnd();
+      fc.fillStyle = r < 0.62 ? col(P.NAVY, 0.6) : r < 0.93 ? col(P.BLUE, 0.45) : r < 0.985 ? col(P.CYAN, 0.45) : col(P.TEAL, 0.5);
+      fc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, u, u);
+    }
+    const midCv = mkCv(w, h), mc = midCv.getContext('2d');
+    const midN = Math.min(3000, Math.round((w * h) / (o.midDiv || 950)));
+    for (let i = 0; i < midN; i++) {
+      const r = rnd();
+      mc.fillStyle = r < 0.5 ? col(P.BLUE, 0.7) : r < 0.9 ? col(P.CYAN, 0.65) : col(P.WHITE, 0.7);
+      const s = rnd() < 0.85 ? u : 2 * u;
+      mc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, s, s);
+    }
+    const near = [];
+    const nearN = Math.min(260, Math.round((w * h) / 9000));
+    for (let i = 0; i < nearN; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.7 ? u : 2 * u, ph: rnd() * 10, rate: 700 + rnd() * 900, c: rnd() < 0.55 ? P.CYAN : P.WHITE });
+    const big = [];
+    for (let i = 0, n = (o.bigN || 9) + Math.floor(rnd() * 4); i < n; i++) big.push({ x: rnd(), y: rnd(), ph: rnd() * 10, rate: 1600 + rnd() * 1400, huge: rnd() < 0.2 });
+    return { farCv, midCv, near, big };
+  }
+
+  /* the live part of the field: round pulsing stars and three-step twinklers, streaming along dir */
+  function drawBlueLive(ctx, w, h, now, cam, st, dir, spd, dep) {
+    const P = GALAXY_BG.PAL, t = now / 1000, fl = Math.floor, [dx, dy] = dir;
+    const bx0 = parX(cam, dep.big) + t * spd.big * dx, by0 = parY(cam, dep.big) + t * spd.big * dy;
+    for (const b of st.big) {
+      const x = fl(((b.x * w + bx0) % w + w) % w), y = fl(((b.y * h + by0) % h + h) % h);
+      const R = b.huge ? 5 : 3;
+      const on = Math.sin(now / b.rate + b.ph) > 0.2;
+      for (let yy = -R - 1; yy <= R + 1; yy++) {
+        const half = Math.floor(Math.sqrt(Math.max(0, (R + 1) * (R + 1) - yy * yy)));
+        const inner = Math.floor(Math.sqrt(Math.max(0, R * R - yy * yy)));
+        if (on) { ctx.fillStyle = rgba(P.BLUE, 0.9); ctx.fillRect(x - half, y + yy, 2 * half + 1, 1); }
+        if (Math.abs(yy) <= R) { ctx.fillStyle = rgba(P.CYAN, 1); ctx.fillRect(x - inner, y + yy, 2 * inner + 1, 1); }
+        const core = Math.floor(Math.sqrt(Math.max(0, (R - 1) * (R - 1) - yy * yy)));
+        if (Math.abs(yy) <= R - 1) { ctx.fillStyle = rgba(P.WHITE, 1); ctx.fillRect(x - core, y + yy, 2 * core + 1, 1); }
+      }
+    }
+    const nx0 = parX(cam, dep.near) + t * spd.near * dx, ny0 = parY(cam, dep.near) + t * spd.near * dy;
+    for (const s of st.near) {
+      const ph = Math.sin(now / s.rate + s.ph);
+      const lv = ph > 0.45 ? 0.85 : ph > -0.4 ? 0.5 : 0.22;
+      ctx.fillStyle = rgba(s.c, lv);
+      ctx.fillRect(fl(((s.x * w + nx0) % w + w) % w), fl(((s.y * h + ny0) % h + h) % h), s.r, s.r);
+    }
+  }
+
+  /* -------------------------------------------------------------- BACKDROP: THE BELT ---- */
+  /* A meteor shower, flown through. Andrew, 2026-09-05: "make the belts asteroids a bit smaller,
+     make it more like a meteor shower vibe and give it the orange red hue." So: the red family
+     (the palette of the Interstellar reference he liked — deep red, red, orange, yellow, with
+     purple in the dust and four-point cross stars), SMALL pixel rocks in three parallax layers,
+     and the shower itself: a live swarm of fast streaks with fading ember tails crossing the frame
+     along the travel direction, plus a fireball — a rock with a burning tail — every so often.
+     Rocks occlude the stars; that occlusion is what makes them solid. */
+
+  const BELT_BG = {
+    label: 'THE BELT',
+    blurb: 'A meteor shower, flown through. Small rocks, fast embers, the odd fireball.',
+    base: '#000000',
+    PAL: {
+      DEEP: [72, 8, 16], RED: [196, 26, 22], ORANGE: [255, 108, 24], YELLOW: [255, 208, 96], HOT: [255, 244, 200],
+      DUSTR: [140, 20, 30], DUSTP: [120, 30, 170], DUSTO: [200, 80, 30], STARP: [190, 70, 255], STARR: [255, 80, 60],
+      BODY: [58, 16, 14], DARK: [26, 6, 8], BODY2: [92, 30, 18],
+    },
+    DIR: [-0.94, 0.34],
+    SPD: { far: 5, mid: 12, near: 24, rockFar: 16, rockMid: 36, rockNear: 75 },
+    D: { far: 0.010, mid: 0.030, near: 0.055, rockFar: 0.06, rockMid: 0.14, rockNear: 0.30 },
+    ROCKS: [
+      { n: 60, min: 2.5, max: 6 },            // far — grains
+      { n: 26, min: 5, max: 11 },             // mid
+      { n: 9, min: 10, max: 22 },             // near
+    ],
+    LIGHT: [-0.55, -0.83],                   // sunward (up-left): where the rims are lit
+    STREAKS: 56,                             // live embers in flight at once
+
+    build(w, h, rnd) {
+      const P = BELT_BG.PAL, u = px1(), col = (c, a) => rgba(c, a == null ? 1 : a);
+      /* ---- the field: red/purple dust, cross stars, near twinklers ---- */
+      const farCv = mkCv(w, h), fc = farCv.getContext('2d');
+      const farN = Math.min(24000, Math.round((w * h) / 115));
+      for (let i = 0; i < farN; i++) {
+        const r = rnd();
+        fc.fillStyle = r < 0.45 ? col(P.DUSTR, 0.8) : r < 0.85 ? col(P.DUSTP, 0.75) : col(P.DUSTO, 0.65);
+        fc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, u, u);
+      }
+      const midCv = mkCv(w, h), mc = midCv.getContext('2d');
+      const midN = Math.min(3400, Math.round((w * h) / 850));
+      for (let i = 0; i < midN; i++) {
+        const r = rnd();
+        mc.fillStyle = r < 0.45 ? col(P.STARR, 0.75) : r < 0.85 ? col(P.STARP, 0.7) : col(P.YELLOW, 0.7);
+        const s = rnd() < 0.8 ? u : 2 * u;
+        mc.fillRect((rnd() * w) | 0, (rnd() * h) | 0, s, s);
+      }
+      const near = [];
+      for (let i = 0, n = Math.min(220, Math.round((w * h) / 10000)); i < n; i++) near.push({ x: rnd(), y: rnd(), r: rnd() < 0.7 ? u : 2 * u, ph: rnd() * 10, rate: 700 + rnd() * 900, c: rnd() < 0.5 ? P.STARR : rnd() < 0.6 ? P.STARP : P.YELLOW });
+      const cross = [];
+      for (let i = 0, n = 16 + Math.floor(rnd() * 6); i < n; i++) cross.push({ x: rnd(), y: rnd(), ph: rnd() * 10, rate: 1400 + rnd() * 1600, c: rnd() < 0.5 ? P.STARP : rnd() < 0.7 ? P.STARR : P.YELLOW, big: rnd() < 0.3 });
+
+      /* ---- the rocks: noise-deformed pixel discs, two-tone body, lit rim toward LIGHT ---- */
+      const [lx, ly] = BELT_BG.LIGHT;
+      const rock = (c, cx, cy, R) => {
+        const prof = new Float32Array(32);
+        const base = rnd() * 0.3;
+        for (let i = 0; i < 32; i++) prof[i] = R * (0.68 + base + 0.32 * rnd());
+        for (let i = 1; i < 32; i++) prof[i] = prof[i] * 0.5 + prof[i - 1] * 0.5;
+        prof[0] = (prof[0] + prof[31]) * 0.5;
+        const at = th => { const f = ((th / (Math.PI * 2)) + 1) % 1 * 32, i = Math.floor(f), t = f - i; return prof[i % 32] * (1 - t) + prof[(i + 1) % 32] * t; };
+        const craters = [];
+        for (let k = 0, n = R > 12 ? 1 + Math.floor(rnd() * 2) : 0; k < n; k++) {
+          const a = rnd() * Math.PI * 2, d = rnd() * R * 0.5;
+          craters.push([cx + Math.cos(a) * d, cy + Math.sin(a) * d, R * (0.14 + 0.16 * rnd())]);
+        }
+        const warm = rnd() < 0.35 ? P.BODY2 : P.BODY;
+        const B = Math.ceil(R * 1.05) + 2;
+        for (let y = -B; y <= B; y++) for (let x = -B; x <= B; x++) {
+          const d = Math.hypot(x, y); if (d < 0.001) { c.fillStyle = col(warm); c.fillRect(cx, cy, 1, 1); continue; }
+          const th = Math.atan2(y, x), edge = at(th);
+          if (d > edge) continue;
+          const facing = (x * lx + y * ly) / d;
+          let cc = (facing * (d / edge) < -0.15) ? P.DARK : warm;
+          const rimW = Math.max(1.5, R * 0.18);
+          if (d > edge - rimW && facing > 0.05) cc = facing > 0.55 && d > edge - rimW * 0.6 ? P.YELLOW : P.ORANGE;
+          else if (facing > 0.3 && d > edge * 0.35 && ((x * 7 + y * 13) & 3) === 0) cc = P.RED;
+          for (const [kx, ky, kr] of craters) {
+            if (Math.hypot(cx + x - kx, cy + y - ky) < kr) cc = P.DARK;
+          }
+          c.fillStyle = col(cc); c.fillRect(cx + x, cy + y, 1, 1);
+        }
+      };
+      const layers = BELT_BG.ROCKS.map(L => {
+        const cv = mkCv(w, h), c = cv.getContext('2d');
+        for (let i = 0; i < L.n; i++) {
+          const R = L.min + rnd() * (L.max - L.min);
+          rock(c, Math.round(R + 2 + rnd() * (w - 2 * R - 4)), Math.round(R + 2 + rnd() * (h - 2 * R - 4)), R);
+        }
+        return cv;
+      });
+      // the fireball: one mid-size rock with a burning tail, pre-rendered head only (tail is live)
+      const FR = 9 + rnd() * 9, fireCv = mkCv(Math.ceil(FR * 2.2) + 4, Math.ceil(FR * 2.2) + 4);
+      rock(fireCv.getContext('2d'), Math.round(FR * 1.1 + 2), Math.round(FR * 1.1 + 2), FR);
+
+      return { farCv, midCv, near, cross, layers, fireCv, fire: null, nextFire: 0, streaks: [], lastT: null };
+    },
+
+    draw(ctx, w, h, now, cam, st) {
+      const S = BELT_BG.SPD, D = BELT_BG.D, [dx, dy] = BELT_BG.DIR, t = now / 1000, P = BELT_BG.PAL;
+      tile2(ctx, st.farCv, w, h, parX(cam, D.far) + t * S.far * dx, parY(cam, D.far) + t * S.far * dy);
+      tile2(ctx, st.midCv, w, h, parX(cam, D.mid) + t * S.mid * dx, parY(cam, D.mid) + t * S.mid * dy);
+      tile2(ctx, st.layers[0], w, h, parX(cam, D.rockFar) + t * S.rockFar * dx, parY(cam, D.rockFar) + t * S.rockFar * dy);
+
+      // cross stars and twinklers (the red family's live field)
+      const cx0 = parX(cam, D.mid) + t * S.mid * dx, cy0 = parY(cam, D.mid) + t * S.mid * dy;
+      for (const s of st.cross) {
+        const x = Math.floor(((s.x * w + cx0) % w + w) % w), y = Math.floor(((s.y * h + cy0) % h + h) % h);
+        const p = 0.5 + 0.5 * Math.sin(now / s.rate + s.ph);
+        const arm = (s.big ? 3 : 2) + Math.round(p * (s.big ? 3 : 2));
+        ctx.fillStyle = rgba(s.c, 0.55 + 0.35 * p);
+        ctx.fillRect(x - arm, y, 2 * arm + 1, 1); ctx.fillRect(x, y - arm, 1, 2 * arm + 1);
+        if (s.big) { ctx.fillStyle = rgba(s.c, 0.35 * p); ctx.fillRect(x - 1, y - 1, 3, 3); }
+        ctx.fillStyle = rgba(P.HOT, 0.9); ctx.fillRect(x, y, 1, 1);
+      }
+      const nx0 = parX(cam, D.near) + t * S.near * dx, ny0 = parY(cam, D.near) + t * S.near * dy;
+      for (const s of st.near) {
+        const ph = Math.sin(now / s.rate + s.ph);
+        const lv = ph > 0.45 ? 0.9 : ph > -0.4 ? 0.55 : 0.25;
+        ctx.fillStyle = rgba(s.c, lv);
+        ctx.fillRect(Math.floor(((s.x * w + nx0) % w + w) % w), Math.floor(((s.y * h + ny0) % h + h) % h), s.r, s.r);
+      }
+
+      tile2(ctx, st.layers[1], w, h, parX(cam, D.rockMid) + t * S.rockMid * dx, parY(cam, D.rockMid) + t * S.rockMid * dy);
+
+      /* THE SHOWER: fast embers with fading tails. dt-driven; each respawns off the entering edge
+         (DIR points down-left, so they enter from the top and right). Under reduced-motion the
+         swarm is empty — this is exactly the dramatic motion that setting asks us not to add. */
+      const dt = st.lastT == null ? 0 : Math.min(0.1, t - st.lastT); st.lastT = t;
+      const spawn = () => {
+        const fromTop = Math.random() < 0.55;
+        return {
+          x: fromTop ? Math.random() * w * 1.3 : w + 20, y: fromTop ? -20 : Math.random() * h * 0.8,
+          spd: 300 + Math.random() * 480, len: 18 + Math.floor(Math.random() * 30), c: Math.random() < 0.6 ? P.ORANGE : Math.random() < 0.5 ? P.YELLOW : P.RED,
+          big: Math.random() < 0.28,
+        };
+      };
+      if (!reduceMotion()) while (st.streaks.length < BELT_BG.STREAKS) st.streaks.push(spawn());
+      for (let i = st.streaks.length - 1; i >= 0; i--) {
+        const s = st.streaks[i];
+        s.x += dx * s.spd * dt; s.y += dy * s.spd * dt;
+        if (s.x < -s.len * 2 - 30 || s.y > h + 30) { st.streaks[i] = spawn(); continue; }
+        const px = Math.round(s.x), py = Math.round(s.y), k = s.big ? 2 : 1;
+        // tail: dimming embers back along the direction of travel
+        for (let j = 1; j <= s.len; j++) {
+          const f = 1 - j / s.len;
+          ctx.fillStyle = rgba(j < s.len * 0.3 ? P.YELLOW : j < s.len * 0.6 ? s.c : P.RED, 0.35 + 0.65 * f);
+          ctx.fillRect(Math.round(px - dx * j * k), Math.round(py - dy * j * k), k, k);   // one pixel per step: a solid tail, not dots
+        }
+        ctx.fillStyle = rgba(P.HOT, 1); ctx.fillRect(px, py, k, k);
+      }
+
+      tile2(ctx, st.layers[2], w, h, parX(cam, D.rockNear) + t * S.rockNear * dx, parY(cam, D.rockNear) + t * S.rockNear * dy);
+
+      // THE FIREBALL: every 9-25s a rock with a burning tail tears across in ~2s
+      if (!st.nextFire) st.nextFire = now + 4000 + Math.random() * 8000;
+      if (!st.fire && now > st.nextFire && !reduceMotion()) {
+        const spd = Math.max(w, h) * (0.5 + Math.random() * 0.3);
+        st.fire = { x: w + 40 + Math.random() * w * 0.3, y: -40 + Math.random() * h * 0.5, vx: dx * spd, vy: dy * spd, born: now };
+      }
+      if (st.fire) {
+        const el = (now - st.fire.born) / 1000;
+        const x = st.fire.x + st.fire.vx * el, y = st.fire.y + st.fire.vy * el;
+        const cw = st.fireCv.width;
+        if (x < -cw - 200 || y > h + cw + 100) { st.fire = null; st.nextFire = now + 9000 + Math.random() * 16000; }
+        else {
+          for (let j = 1; j <= 26; j++) {                        // the burning tail, widening as it fades
+            const f = 1 - j / 26, wdt = 1 + Math.floor(j / 7);
+            ctx.fillStyle = rgba(j < 6 ? P.YELLOW : j < 14 ? P.ORANGE : j < 20 ? P.RED : P.DEEP, 0.2 + 0.75 * f);
+            ctx.fillRect(Math.round(x + cw / 2 - dx * j * 3.2) - (wdt >> 1), Math.round(y + cw / 2 - dy * j * 3.2) - (wdt >> 1), wdt, wdt);
+          }
+          ctx.drawImage(st.fireCv, Math.round(x), Math.round(y));
+        }
+      }
+
+      drawMeteor(ctx, w, h, now);
+      drawBolide(ctx, w, h, now);
+    },
+  };
+
   /* ------------------------------------------------------- shared: SURFACE backdrops ---- */
   /* Everything the station can float ABOVE (ocean, city, and whatever comes next) shares the
      same three problems, so they share the same three helpers: a deck of drifting cloud, a
@@ -1233,8 +1470,8 @@ const SpaceBG = (() => {
 
   /* ---------------------------------------------------------------------- registry ---- */
 
-  const BACKDROPS = { void: VOID_BG, galaxy: GALAXY_BG, nursery: NURSERY_BG, ocean: OCEAN_BG, city: CITY_BG };
-  const ORDER = ["void", "galaxy", "nursery", "ocean", "city"];
+  const BACKDROPS = { void: VOID_BG, galaxy: GALAXY_BG, belt: BELT_BG, nursery: NURSERY_BG, ocean: OCEAN_BG, city: CITY_BG };
+  const ORDER = ["void", "galaxy", "belt", "nursery", "ocean", "city"];
   const DEFAULT_ID = 'void';
 
   const has = id => Object.prototype.hasOwnProperty.call(BACKDROPS, id);
