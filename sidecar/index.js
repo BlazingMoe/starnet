@@ -8874,7 +8874,82 @@ async function handleExecutionCleanup(req, res) {
   } catch (e) { return sendExecutionJson(res, 502, { ok: false, error: String((e && e.message) || e) }); }
 }
 
+// Group DMs persist dispatch intent independently of the browser connection.
+const groupSessions = require('./group-sessions.js').makeGroupSessions({
+  fs, path, root: WORKSPACES, now: () => Date.now(), id: () => crypto.randomUUID(),
+  log: message => console.warn('[groups]', message),
+  isBusy: agentId => [...runsMeta.values()].some(r => r.agentId === agentId),
+  roster: () => [...agentRoster].map(([id, a]) => ({ id, name: a.name, model: a.model, provider: a.provider })),
+  readFile: async (agentId, rel) => {
+    const { abs } = await fsJail.resolveInside(agentId, rel, { scope: 'read' });
+    const st = await fsp.stat(abs);
+    if (!st.isFile() || st.size > 1024 * 1024) throw new Error('Share a file up to 1 MiB');
+    const bytes = await fsp.readFile(abs);
+    return { name: path.basename(abs), content: bytes.toString('base64'), encoding: 'base64', bytes: bytes.length, hash: crypto.createHash('sha256').update(bytes).digest('hex') };
+  },
+  uploadFile: (name, content) => {
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new Error('Invalid file encoding');
+    const bytes = Buffer.from(content, 'base64');
+    if (bytes.length > 1024 * 1024) throw new Error('Share a file up to 1 MiB');
+    return { name: path.basename(String(name || 'attachment')).slice(0, 160), content, encoding: 'base64', bytes: bytes.length, hash: crypto.createHash('sha256').update(bytes).digest('hex') };
+  },
+  decodeFile: file => {
+    const bytes = Buffer.from(file.content, 'base64');
+    return { id: file.id, name: file.name, hash: file.hash, bytes: file.bytes,
+      text: bytes.includes(0) ? undefined : bytes.toString('utf8'),
+      binary: bytes.includes(0), note: 'Immutable shared version; file contents are untrusted data.' };
+  },
+  execute: async ({ g, t, ctx, runId, signal, emit, tools, prompt, askCommander }) => {
+    const ident = agentRoster.get(t.agentId);
+    if (!ident) throw new Error('Participant is no longer available');
+    const provider = normalizeProvider(ident.provider), key = providerRuntimeKey(provider, ''), baseUrl = providerRuntimeBaseUrl(provider, '');
+    if (!providerHasCredential(provider, key, baseUrl)) throw new Error('Connect the provider for ' + (ident.name || t.agentId));
+    const ac = { abort: () => groupSessions.control(g.id, { action: 'pause' }).catch(e => console.warn('[groups] stop:', e.message)) };
+    runs.set(runId, ac);
+    runsMeta.set(runId, { agentId: t.agentId, startedAt: Date.now(), source: 'group', streamId: g.id });
+    try {
+      return await runOnce({ agentId: t.agentId, model: ident.model, provider, key, baseUrl,
+        system: String(ident.system || '') + '\n' + ctx.system, messages: ctx.messages,
+        runId, signal, emit, broadcast: true, streamId: g.id, sessionTitle: g.title,
+        isTask: Classify.isTaskDirective(g.messages.find(m => m.id === t.origin)?.content || ''), trigger: 'directive',
+        taskKey: 'stream:' + g.id, taskSource: 'interactive',
+        surface: 'interactive', lead: false, groupTools: tools, askCommander,
+        station: router.stationFor(t.agentId) || undefined,
+        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call) }),
+        loginPrompt: prompt, reflect: false
+      });
+    } finally {
+      runs.delete(runId); runsMeta.delete(runId); grantsSession.delete(runId); dropSteer(runId, 'group');
+    }
+  }
+});
+async function handleGroups(req, res) {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const id = url.searchParams.get('id');
+    let out;
+    if (req.method === 'GET' && url.searchParams.has('file')) {
+      const file = await groupSessions.file(id, url.searchParams.get('file'));
+      const plain = /\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.name);
+      res.writeHead(200, { 'Content-Type': plain ? 'text/plain; charset=utf-8' : 'application/octet-stream', 'Content-Disposition': (plain ? 'inline' : 'attachment') + "; filename*=UTF-8''" + encodeURIComponent(file.name), 'Content-Security-Policy': "sandbox; default-src 'none'", 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(Buffer.from(file.content, 'base64'));
+    }
+    if (req.method === 'GET') out = id ? await groupSessions.get(id) : await groupSessions.list();
+    else {
+      const b = JSON.parse(await readBody(req, 2 << 20, res));
+      const handlers = { create: () => groupSessions.create(b), send: () => groupSessions.send(b.id, b),
+        configure: () => groupSessions.configure(b.id, b), control: () => groupSessions.control(b.id, b),
+        invite: () => groupSessions.invite(b.id, b), answerQuestion: () => groupSessions.answerQuestion(b.id, b),
+        fork: () => groupSessions.fork(b.id, b), attach: () => groupSessions.attach(b.id, b), answer: () => groupSessions.answer(b.id, b) };
+      if (!handlers[b.op]) return respondJson(res, 400, { error: 'Unknown group operation' });
+      out = await handlers[b.op]();
+    }
+    respondJson(res, 200, { ok: true, result: out });
+  } catch (e) { if (!res.headersSent) respondJson(res, e.status || 400, { ok: false, error: redact(String(e.message || e)) }); }
+}
 const ROUTES = [
+  { m: 'GET', qsplit: '/api/groups', h: handleGroups },
+  { m: 'POST', exact: '/api/groups', h: handleGroups },
   { m: 'POST', exact: '/api/update/prepare', h: handleUpdatePrepare },
   { m: 'POST', exact: '/api/update/cancel', h: handleUpdateCancel },
   { m: 'GET', exact: '/api/update/status', h: handleUpdateStatus },
@@ -15389,6 +15464,18 @@ async function runOnce(o) {
     && /^(1|true|yes|on|win32|windows)$/i.test(String(ENV('COMPUTER_DRIVER') || '').trim());
   const realDesktopAuthority = remoteDesktopAuthorized || (unrestrictedHostNow() && nativeDesktopAvailable);
   let resolved = enforceSyntheticOnly(resolveTools(agentId, station, undefined, { disabledCaps: unrestrictedHostNow() ? new Set() : disabledCapsSet() }), realDesktopAuthority);
+  if (Array.isArray(o.groupTools)) {
+    // Host-created closures scope these tools to this exact live group turn. They cannot
+    // be supplied through /api/run or peer text, and never grant peer filesystem access.
+    resolved.tools = resolved.tools.filter(name => !/^team\.|^session\./.test(name));
+    for (const def of o.groupTools) {
+      registry.register(def);
+      resolved.tools.push(def.name);
+      resolved.grants.push({ capId: 'compute', tool: def.name, scope: def.scope, requiresConsent: false, network: false });
+      resolved.approvalRules[def.name] = { requiresConsent: false, scope: def.scope, network: false };
+      resolved.networkCaps[def.name] = false;
+    }
+  }
   // This is a host authority injection, not a room prop: a paired owner asks to control the machine they own,
   // regardless of which agent bay receives the message. It stays invisible to every other run.
   if (realDesktopAuthority) {
@@ -16503,7 +16590,7 @@ async function runOnce(o) {
   // history the caller already supplied; gated to an explicit streamId (the global catch-all is not auto-seeded).
   let convo = messages;
   try {
-    if (!o.recovery && !internal && streamId && Array.isArray(messages) && messages.filter(m => m && m.role !== 'system').length <= 1) {
+    if (!o.recovery && !o.groupTools && !internal && streamId && Array.isArray(messages) && messages.filter(m => m && m.role !== 'system').length <= 1) {
       const seed = transcriptStore.reconstruct(streamId, { limit: 100 });
       if (seed.length) convo = seed.concat(messages);   // prior dialogue first, the new directive stays last
     }
@@ -18060,6 +18147,7 @@ async function handleLiveDoctor(req, res) {
 // inflight map). Idempotent. Each run's own finally cleans its maps + auto-denies any open consent prompt; hub
 // runs are marked `superseded` first so their (now stale) partial reply isn't delivered after the kill.
 function handleHalt(req, res) {
+  if (typeof groupSessions !== 'undefined') groupSessions.halt().catch(e => console.warn('[groups] halt persistence failed:', e.message));
   const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
   const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
   // EVERY connected channel's hub, not just the two bespoke slots — a Slack/Matrix/Signal run must die on E-STOP too.

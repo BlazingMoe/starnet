@@ -802,6 +802,15 @@ const Chat = (() => {
       return;
     }
     if (t) recordSent(t);
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      const ws = activeWs;
+      if (hasStaged) await settleAttachments();
+      if (activeWs?.id !== ws.id) return;
+      const atts = pendingAtts.filter(entry => entry.status === 'ready' && entry.ref).map(entry => entry.ref);
+      const sent = await GroupChat.sendText(t, { attachments: atts, attachmentAgent: ws.agentId });
+      if (sent && activeWs?.id === ws.id) { takeAttachments(); if (input.value.trim() === t) input.value = ''; closeSlash(); autoGrowInput(); }
+      return;
+    }
     // BUSY: type-ahead queues TEXT; staged files wait in the strip for the next idle send (one run per stream).
     if (isBusy()) { if (t) { input.value = ''; closeSlash(); autoGrowInput(); enqueue(t); } return; }
     // SETTLE UPLOADS: a staged attachment still uploading must not be silently dropped — uploads to the local
@@ -1077,6 +1086,7 @@ const Chat = (() => {
     else if (modelEl) { modelEl.classList.remove('comms-agent-warn'); renderIdBar(); }
   }
   function renderIdBar() {
+    if (typeof GroupChat !== 'undefined') GroupChat.bind(activeWs);
     const sel = el('comms-agent-select'); const modelEl = el('comms-agent-model'); const bar = el('comms-idbar');
     if (!sel) return;
     // an active roster-out-of-sync notice wins the model slot: don't overwrite the honest state with a stale
@@ -1203,10 +1213,20 @@ const Chat = (() => {
 
   // swap the rendered conversation to a workstream (its history). Used on enter/resume and when the
   // Commander clicks another stream in the rail — re-renders without re-wiring the input row.
+  function loadGroupConversation(ws) {
+    GroupChat.bind(ws);
+    clearNudge(); clearChoices();
+    if (typeof Channels !== 'undefined') Channels.setComposeTarget(ws.id);
+    updateControls(); autoGrowInput();
+  }
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
     activeWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      loadGroupConversation(activeWs);
+      return; // Group history/recovery is backend-owned; never auto-resume it through the direct-run path.
+    }
     // SPEAKER IDENTITY: re-resolve `name` (the reply-chip + agent-beat speaker, else stuck at init's hero) from the
     // displayed stream's agent, so switching agents relabels replies. Guard: an unknown id keeps the current name.
     if (activeWs && typeof App !== 'undefined' && App.agentName) { const nm = App.agentName(activeWs.agentId || 'agent'); if (nm) name = nm; }
@@ -1429,7 +1449,10 @@ const Chat = (() => {
     capHistory(ws);
     return true;
   }
-  function isBusy() { return !!(activeWs && typeof Channels !== 'undefined' && Channels.isBusy(activeWs.id)); }
+  function isBusy() {
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.isBusy();
+    return !!(activeWs && typeof Channels !== 'undefined' && Channels.isBusy(activeWs.id));
+  }
   function isActiveWs(ws) { return !!(ws && activeWs && activeWs.id === ws.id); }   // is THIS stream the one on screen right now?
   // CONCURRENT SESSIONS (2026-07-18): the backend now ADMITS concurrent runs of one agent (the workspace is
   // guarded by a run-scoped lease sidecar-side; the world's overlap refcount keeps the desk pose truthful).
@@ -6235,6 +6258,7 @@ const Chat = (() => {
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
   // deliberate stop means "I'm taking over", not "now run my backlog".
   function stopActive() {
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.stop();
     // /loop: Stop ends the interval watcher too, or the next tick fires a run the user just said they didn't
     // want. Checked BEFORE the isBusy() guard on purpose — a loop is usually WAITING between ticks when you
     // reach for Stop, and an idle-but-armed loop must still be stoppable. Worded "you stopped it" rather than
@@ -6306,6 +6330,10 @@ const Chat = (() => {
   function sendOrQueue(text) {
     const value = String(text == null ? '' : text).trim();
     if (!value || !activeWs) return { ok: false, state: 'empty' };
+    if (activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      send(value);
+      return { ok: true, state: 'started', workstreamId: activeWs.id };
+    }
     if (isBusy()) {
       enqueue(value);
       return { ok: true, state: 'queued', workstreamId: activeWs.id };
@@ -7940,6 +7968,7 @@ const Chat = (() => {
   }
 
   async function send(text, opts) {
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.sendText(text, { ...opts, attachmentAgent: activeWs.agentId });
     const retry = !!(opts && opts.retry);   // retry/recovery reuses a durable user turn — don't echo it again
     const recoveryResume = !!(opts && opts.recoveryResume && opts.recovery);
     // ATTACHMENTS: photos/files staged in the composer, snapshotted by the Enter handler into opts.attachments as
@@ -8721,5 +8750,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();

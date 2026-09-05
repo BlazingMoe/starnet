@@ -1,5 +1,13 @@
 # NEXT.md — current priorities & task queue
 
+## CLAIMED — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
+
+Owner approved merging the simple multi-agent COMMS feature. Conversation lane released
+the integration window at trunk `368d6a8b9`; hold trunk stable through this lane's combined
+pre-merge and post-merge gates. Candidate `dc0cf9ecc` preserves conversational question
+drafts and normal-composer answers. Live question -> restart -> answer completed on :9137.
+Preserve existing uncommitted qa/STATUS.md and untracked Rooms handoff bytes.
+
 ## DONE — 2026-09-05 conversational task context (`agent/rec-vision-audit-0905`)
 
 Owner approved concrete experience questions, whole-answer extraction, adaptive follow-ups,
