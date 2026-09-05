@@ -25,6 +25,11 @@ installer and customer outcomes in the existing durable register.
   related commit mentioned in negative prose as fix evidence. A regression failed before
   and passed after ef5585145. Customer/owner records now require explicit source-fix
   attribution; all six uncorrelated reports remain unverifiable rather than likely-fixed.
+- Final validation exposed a second defect: an already-cancelled edit could start a new
+  language server after idle cleanup. A deterministic cold-server reproduction failed
+  before 547dd03d7 and passes afterward. Cancellation is now checked before acquiring a
+  client or spawning its process. The register contains 53 records, including these two
+  audit-found repairs; the six customer investigations remain open.
 
 ## Verified behavior
 
@@ -36,23 +41,21 @@ installer and customer outcomes in the existing durable register.
   readback and duplicate creation passed. Ambiguous saves retained the draft and did not
   assert success or loss. After a sidecar restart, exactly one ONCE routine with the expected
   id remained visible in Active Routines. The browser recorded no uncaught exceptions.
-- Full fast manifest: **713/713 suites passed**, exit 0, on the implementation containing
-  ef5585145. The exact command was `node scripts/timeout.mjs --label test:fast-full
-  --timeout=1800000 -- npm run test:fast:raw`: the canonical full manifest with a longer
-  outer execution allowance after the default ten-minute wrapper timed out.
-- A clean full HTTP gate has **not** passed. Three attempts stopped on timing failures:
-  `e2e.acceptance-nudge` startup (step 40), `questrefresh.e2e` startup (step 27), and
-  `loops-check.e2e` waiting for a running iteration (step 52). The first two passed in the
-  later serial run; the loop-check suite passed its isolated rerun, 33 assertions. These
-  reruns do not turn the earlier full-gate failures into a pass.
-- All **96 HTTP suites have a passing execution across the segmented runs and isolated
-  reruns**: 51 before the loop-check failure, loop-check's isolated pass, the next 23,
-  shell's isolated pass, and the final 20. The 44-suite remaining segment hit a shell abort
-  timing assertion; its isolated rerun passed all 36 assertions. The final 20-suite segment
-  completed with exit 0. This is complete scenario coverage, not a clean uninterrupted gate.
-- Integration remains blocked pending a clean required gate. The existing loop and shell
-  tests and their assertions were not changed. The CI-wiring change also passed the seven
-  lifecycle scenarios and the release documentation, provenance and Chrome-warmup guards.
+- On source 215706749, synchronized with trunk 76b7c042e, standard `npm run test:fast`
+  passed **717/717 suites** and standard `npm run test:http` passed **97/97 suites**.
+  Both completed uninterrupted with exit 0 and unchanged command deadlines. Logs:
+  `.tmp/reliability-fast-final.log` and `.tmp/reliability-http-final-combined.log`.
+- Before that synchronization, clean full HTTP runs passed 96/96 and 97/97 respectively;
+  the former integration blocker is resolved. Earlier startup, loop and shell timing
+  failures remain historical failed attempts, not silently relabeled passes. One further
+  attempt crashed allocating 4 KB of WebAssembly code memory on the resource-constrained
+  host. No loop/shell assertions or fixture deadlines were weakened.
+- Live UI proof was repeated after the platform/UI integrations. The compact starter
+  station requires the proof to fall back from the 17-tile research line to the smaller
+  complete front-desk line. All save/readback/duplicate/restart assertions remain intact.
+  `.tmp/reliability-live-combined.log` records all five scenarios and the matching ONCE id
+  after restart. The LSP repair separately passed 31 real-stdio assertions, preserving
+  idle cleanup and proving no replacement client/process or file mutation on cancellation.
 
 ## Limits and follow-up
 
@@ -76,14 +79,8 @@ Dependencies were installed with `npm ci`. Assertions were not weakened.
 
 ## Integration disposition
 
-Implementation commits are on `agent/bug-pattern-audit-0905`, based on integration commit
-010a6b50f. They are not merged or pushed. The repository merge protocol requires a clean
-gate before integration; related successful reruns are supporting evidence, not a substitute
-for that result. Host memory fell below 100 MB free during the attempts, but this does not
-establish memory pressure as the sole cause of the loop timing failure.
-
-Next integration check: run the unchanged full fast and HTTP gates with adequate host
-resources. If the loop pause/resume stall repeats, capture the running iteration's outstanding
-tool/check and workspace lease before fixture cleanup; do not increase the assertion deadline
-or call it fixed merely because another isolated run passes. Installer and reporter retests
-remain separate follow-ups in the 15 customer records.
+Implementation commits are on `agent/bug-pattern-audit-0905`, synchronized with integration
+commit 76b7c042e. The full gates and live proof have passed. The branch is awaiting release
+of the Hermes/platform integration serialization window, then synchronization and required
+combined verification before its own merge. Nothing from this lane has been pushed or
+released. Installer and reporter retests remain separate follow-ups in the 15 customer records.
