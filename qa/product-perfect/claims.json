@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "84231b6b4c221d08b12c5ba0f0fd581e6bd1230f",
+    "sourceCommit": "40463aefd1704f0075f0826629bc328fcbe76c4a",
     "pathSetSha256": "8da0e090e9a9dc29720c32047efb667cd53f48b6fd1c844ad89ff31bc05fef0d",
     "files": [
       {
@@ -68,8 +68,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 373290,
-        "sha256": "ea337bbc9cf402ea4f504e72c9b6d99a54588f62143b83757eba3c71d6046e58"
+        "bytes": 375690,
+        "sha256": "9ba8f7acb9a39532759e7d295a50e5228e0ab1c00e15459a6fcbca85bd4a9be8"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -113,8 +113,8 @@
       },
       {
         "path": "frontend/app/autosessions.js",
-        "bytes": 21816,
-        "sha256": "ad839492cf5a2c8e5aa418d7a3320c2ae9221315707f5cb2048cd496f8e6e477"
+        "bytes": 22228,
+        "sha256": "051a0d6ae19ae474a9fec390e59739bd7dd5c773cb5cd8aad1490911091b5bbb"
       },
       {
         "path": "frontend/app/backup.js",
@@ -768,8 +768,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 657870,
-        "sha256": "cb08fa95e903ed95dd046f2c64fa6e2a2f804be7c67bc4090e84dc2e5c603bcc"
+        "bytes": 657853,
+        "sha256": "6de6f11587da64dd1ef678180461870ae480703ababbd1e3c913e2a708db9633"
       },
       {
         "path": "frontend/app/study.js",
@@ -908,13 +908,13 @@
       },
       {
         "path": "frontend/app/windows/automation.js",
-        "bytes": 3149,
-        "sha256": "bfa13251a87cf7e47daf25b2fa4c18193c6457b88409090d53d60ab510e19737"
+        "bytes": 5120,
+        "sha256": "1d32857f7aeed6761541f69e70f39face639a51055468582dbd11d3d7f996eb9"
       },
       {
         "path": "frontend/app/windows/connectors.js",
-        "bytes": 117726,
-        "sha256": "edb6cbe994c283e403452874f086a33d93571477a594e638183e543b77a443f8"
+        "bytes": 118558,
+        "sha256": "02017e1397eacef88360f08e6ebbd94b42c0340444c2e920ac2a5c43f25974b9"
       },
       {
         "path": "frontend/app/windows/logbook.js",
@@ -983,8 +983,8 @@
       },
       {
         "path": "frontend/app/workstreams.js",
-        "bytes": 36121,
-        "sha256": "263dce32822a8f8c8c4214aed22b441acded0f022eb21c04bcaf2cf46d7769e7"
+        "bytes": 38457,
+        "sha256": "0c6bffa7346547d8dc2f145b259923bbcbdb6af4c1b037122de06ef45050de24"
       },
       {
         "path": "frontend/app/workview.js",
@@ -1018,8 +1018,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 388104,
-        "sha256": "385e43b3b14bb2e1eb2eec26043f05827067cecab1cbe72b9410185bf3ee83a3"
+        "bytes": 389269,
+        "sha256": "183dc802952e7a3352adabe12176fe9db78fe0ee6e060a78a3585c4b97ab0f38"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1098,8 +1098,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 80215,
-        "sha256": "0077f79a6e47cd4edbecd98545dd8bb2f6d6ac2a674b554eb3226c3410902619"
+        "bytes": 80708,
+        "sha256": "ffafe03cf1f2543efd2636edd539ea1035e06bd5309170f206d7e83891af2044"
       },
       {
         "path": "frontend/js/arcade.js",
@@ -1551,11 +1551,11 @@
     {
       "id": "one-click-mutation-approval",
       "domain": "security",
-      "claim": "File writes and commands always pause for one-click approval.",
+      "claim": "Approval behavior follows effective access: ASK respects standing grants; Full Power has no StarNet approval prompts.",
       "surfaceLocators": [
         {
           "path": "frontend/app/stationui.js",
-          "needle": "pause for one-click approval in COMMS"
+          "needle": "ASK respects the selected reach profile and pauses before risky calls."
         }
       ],
       "authorityChecks": [
@@ -1573,7 +1573,7 @@
       "verdict": "PARTIAL",
       "disposition": "NARROW",
       "ownerWave": "W2",
-      "qualification": "Full-access and unattended modes bypass interactive prompting by design; copy must state that qualification.",
+      "qualification": "The UI now qualifies approval by effective authority and labels unattended grants separately. Full-access and unattended modes bypass interactive prompting by design; comprehensive security lifecycle proof remains pending.",
       "liveProofRequired": true,
       "liveProof": "PENDING",
       "refsChecked": [
