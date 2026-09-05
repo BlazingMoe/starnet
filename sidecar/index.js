@@ -4762,6 +4762,13 @@ function cronContextFor(job, jobs) {
 // G7 pre-spend delivery/config proof. A scheduled model run must not spend when its configured destination is
 // already known to be absent or down. This is synchronous and secret-free; the driver persists one alert per
 // unchanged fingerprint and retries on the schedule without an event storm.
+function cronReturnsToSession(job) {
+  const origin = job && job.origin;
+  if (!(origin && (origin.sessionId || origin.streamId))) return false;
+  const mode = String(job.deliver || 'local').trim();
+  return (mode === 'local' && !!job.attachToSession)
+    || (mode === 'origin' && !origin.target && !(origin.channel && origin.chatId));
+}
 function cronPreflightConfig(job) {
   const mode = String((job && job.deliver) || 'local').trim();
   if (mode === 'local') {
@@ -4772,6 +4779,7 @@ function cronPreflightConfig(job) {
   }
   let targets = [];
   if (mode === 'origin') {
+    if (cronReturnsToSession(job)) return { ok: true };
     if (job && job.origin && job.origin.target) targets = [String(job.origin.target)];
     else if (job && job.origin && job.origin.channel && job.origin.chatId) targets = ['@origin'];
     else return { ok: false, code: 'missing-origin', reason: 'origin delivery has no captured channel target; re-save the routine from the intended chat' };
@@ -4814,7 +4822,7 @@ async function deliverCronResult(job, result) {
     return { ok: false, error: 'all-target delivery needs an approved target snapshot' };
   }
   else if (mode.indexOf('targets:') === 0) targets.push(...mode.slice(8).split(',').map(s => s.trim()).filter(Boolean));
-  else if (mode === 'local' && job.attachToSession && job.origin && (job.origin.sessionId || job.origin.streamId)) {
+  else if (cronReturnsToSession(job)) {
     const out = await stationBridge.request('station.deliver', { sessionId: job.origin.sessionId || job.origin.streamId, sessionTitle: job.origin.sessionTitle || '', text: redact(text), prompt: job.prompt, runId: result.runId, agentId: job.agentId, ts: Date.now() });
     await withCronWrite(jobs => cronStore.markDelivery(jobs, job.id, { ok: !!out.ok, error: out.error, runId: result.runId }, { now: Date.now() }));
     return out;
@@ -15153,6 +15161,11 @@ async function runOnce(o) {
       if (Object.prototype.hasOwnProperty.call(patch, 'name')) next.name = patch.name;
       if (Object.prototype.hasOwnProperty.call(patch, 'model')) next.model = patch.model;
       if (Object.prototype.hasOwnProperty.call(patch, 'provider')) next.provider = parseCronProviderOr400(patch.provider);
+      if (Object.prototype.hasOwnProperty.call(patch, 'deliver')) {
+        if (patch.deliver !== 'local' && patch.deliver !== 'origin') throw new Error('deliver must be local or origin');
+        next.deliver = patch.deliver;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'attachToSession')) next.attachToSession = patch.attachToSession === true;
       if (Object.prototype.hasOwnProperty.call(patch, 'monitorMode')) next.monitorMode = patch.monitorMode === true;
       if (Object.prototype.hasOwnProperty.call(patch, 'repeatTimes')) {
         next.repeat = { times: patch.repeatTimes == null ? null : Math.max(1, parseInt(patch.repeatTimes, 10) || 1) };

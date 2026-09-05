@@ -96,6 +96,7 @@
       return {
         id: r.id, leadId: r.leadId, agentId: r.agentId, runId: r.runId, status: r.status, destination: r.destination || '',
         prompt: r.prompt, context: r.context || '', result: r.result || '', reason: r.reason || '', usd: r.usd || 0,
+        projectRoot: r.projectRoot || '', workdir: r.workdir || '',
         generation: Math.max(1, Math.floor(Number(r.generation) || 1)),
         resultSchema: r.resultSchema || null, structuredResult: r.structuredResult == null ? null : r.structuredResult,
         validation: r.validation || null, repairRunId: r.repairRunId || '',
@@ -198,6 +199,8 @@
         // the lead's handoff block (G6): kept on the durable record so resume rebuilds the same opening
         // message a fresh dispatch composed — absent on pre-context records, which read back as ''.
         context: String(meta.context != null ? meta.context : ((old && old.context) || '')).slice(0, 8000),
+        projectRoot: String(meta.projectRoot != null ? meta.projectRoot : ((old && old.projectRoot) || '')).slice(0, 4096),
+        workdir: String(meta.workdir != null ? meta.workdir : ((old && old.workdir) || '')).slice(0, 4096),
         status: 'running',
         reason: '',
         result: old && old.result ? old.result : '',

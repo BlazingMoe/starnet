@@ -50,6 +50,18 @@ function defaultClassify(name) {
   return OBSERVE_RE.test(leaf) ? 'observe' : 'mutate';
 }
 
+// Execution is still consequential for consent/recovery, but its result is not a
+// durable write receipt: the same command must run again after its inputs change.
+// Keep this separate from the mutation classifier (never relabel execution as a read).
+function isCommandExecution(name) {
+  const n = String(name || '').toLowerCase();
+  if (!/^mcp__.+__.+$/.test(n)) return false;
+  const leaf = n.slice(n.lastIndexOf('__') + 2);
+  if (/^(create|send|append|delete|update|write|publish|remove|submit|transfer)_/.test(leaf)) return false;
+  return /(^|_)(run_command|execute_command|exec_command|shell_exec|terminal_exec|execute_code|run_code)$/.test(leaf)
+    || /^(exec|execute|terminal|shell)$/.test(leaf);
+}
+
 function connectorOf(name) {
   const n = String(name == null ? '' : name);
   const m = /^mcp__(.+)__[^_].*$/.exec(n);
@@ -104,7 +116,7 @@ function makeIdempotencyLedger(deps) {
     return s;
   }
 
-  function isWrite(name) { return classify(name) === 'mutate'; }
+  function isWrite(name) { return !isCommandExecution(name) && classify(name) === 'mutate'; }
 
   function lookup(key, now) {
     const s = state();

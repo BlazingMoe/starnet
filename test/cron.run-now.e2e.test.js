@@ -81,7 +81,7 @@ function boot(port, env, attemptsLeft) {
   });
 }
 
-async function startSseCollector(url) {
+async function startSseCollector(url, onEvent) {
   const ac = new AbortController();
   const events = [];
   const waiters = [];
@@ -111,7 +111,7 @@ async function startSseCollector(url) {
           if (!line || line[0] === ':') continue;
           if (line.indexOf('data:') === 0) {
             const raw = line.slice(5).trim();
-            try { events.push(JSON.parse(raw)); notify(); } catch (_) {}
+            try { const event = JSON.parse(raw); events.push(event); if (onEvent) await onEvent(event); notify(); } catch (_) {}
           }
         }
       }
@@ -155,7 +155,8 @@ async function readNdjson(res) {
     SKYNET_WORKSPACES: ws,
     SKYNET_OPENROUTER_BASE: mock.base,
     SKYNET_OPENROUTER_KEY: 'sk-or-v1-run-now-fake',
-    SKYNET_DEFAULT_MODEL: 'test/model'
+    SKYNET_DEFAULT_MODEL: 'test/model',
+    SKYNET_CRON_TICK_MS: '1000'
   };
   const { child, port } = await boot(8910 + (process.pid % 50), env, 20);
   const B = 'http://' + HOST + ':' + port;
@@ -176,7 +177,12 @@ async function readNdjson(res) {
     const job = (await create.json()).job;
     A.ok(job && job.id, 'routine id returned');
 
-    sse = await startSseCollector(B + '/api/channels/events?token=' + encodeURIComponent(token));
+    sse = await startSseCollector(B + '/api/channels/events?token=' + encodeURIComponent(token), async event => {
+      if (event.name !== 'station.command') return;
+      const p = event.payload;
+      await fetch(B + '/api/station/ack', { method: 'POST', headers,
+        body: JSON.stringify({ id: p.id, ok: true, result: { folded: true } }) });
+    });
     const run = await fetch(B + '/api/cron/run', {
       method: 'POST',
       headers,
@@ -277,6 +283,33 @@ async function readNdjson(res) {
     A.ok(defining, 'that stream still carries the run it is NAMED after');
     A.ok(defining && String(defining.title || '').indexOf('PIPELINE HANDOFF') < 0,
       'and the defining row is the ROUTINE, never a stage handoff — internal plumbing must not become a session title');
+    // Session-only origins are valid scheduled destinations, including persisted origin-mode jobs.
+    // A channel origin that ALSO captures a session must still require the channel, not silently redirect.
+    {
+      const jobs = [];
+      for (const [name, origin] of [['session return', { sessionId: 'proof-session' }],
+        ['unavailable channel', { sessionId: 'proof-session', channel: 'telegram', chatId: 'missing' }]]) {
+        const r = await fetch(B + '/api/cron', { method: 'POST', headers, body: JSON.stringify({
+          name, prompt: name, schedule: 'in 1s', agentId: 'session-proof', model: 'test/model', provider: 'openrouter', deliver: 'origin', origin
+        }) });
+        A.eq(r.status, 200, 'captured origin routine accepted');
+        jobs.push((await r.json()).job);
+      }
+      await fetch(B + '/api/cron/arm', { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
+      let rows = [];
+      for (let i = 0; i < 100; i++) {
+        rows = (await (await fetch(B + '/api/cron', { headers })).json()).jobs;
+        if (rows.find(j => j.id === jobs[0].id)?.lastDeliveryOk === true && rows.find(j => j.id === jobs[1].id)?.blockedConfig) break;
+        await sleep(100);
+      }
+      const delivered = rows.find(j => j.id === jobs[0].id), blocked = rows.find(j => j.id === jobs[1].id);
+      A.eq(delivered.lastDeliveryOk, true, 'scheduled session-only origin ran and received a durable delivery ack');
+      A.ok(!delivered.blockedConfig, 'session-only origin passes preflight');
+      A.ok(/not connected and healthy/.test(blocked.blockedConfig && blocked.blockedConfig.reason), 'remote origin never silently falls back to its session');
+      A.ok(sse.events.some(e => e.name === 'station.command' && e.payload.verb === 'station.deliver' && e.payload.args.sessionId === 'proof-session'), 'delivery targeted the captured session');
+      await fetch(B + '/api/cron/arm', { method: 'POST', headers, body: JSON.stringify({ enabled: false }) });
+      for (const j of jobs) await fetch(B + '/api/cron/remove', { method: 'POST', headers, body: JSON.stringify({ id: j.id }) });
+    }
     /* Disconnecting the Run Now watcher cancels the run. Cancellation has no agent.run.error by design, so
        success must be derived from the terminal reason, not merely the absence of an error event. */
     const resultCount = sse.events.filter(e => e.name === 'cron.result' && e.payload && e.payload.jobId === job.id).length;
