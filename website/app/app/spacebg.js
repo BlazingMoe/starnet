@@ -661,6 +661,213 @@ const SpaceBG = (() => {
 
 
 
+  /* ------------------------------------------------------------- BACKDROP: THE MAW ---- */
+  /* A black hole, face-on. An accretion disc seen from directly above (law 3 — no tilt, no
+     horizon), so it reads as a burning ring of banded gas turning around a hole that gives
+     nothing back.
+
+     WHY THIS ONE, after THE NURSERY. The registry's two space skies are both COLD and DIFFUSE:
+     THE VOID is points on black, THE NURSERY is violet gas with structure. This inverts both
+     signatures at once — WARM (ember red → orange → white-hot) and SOLID (one hard-edged body
+     with a definite silhouette). It is the first backdrop with a subject that has an OUTLINE,
+     and the first whose motion is rotation rather than drift. It is also not "the void with a
+     planet on it" (the 2026-07-24 failure): the starfield here is deliberately sparse and dim
+     so the disc owns the value range, and the disc is the frame's only bright thing.
+
+     Rules this is built on:
+       1. THE SHADOW IS TRUE BLACK. The hole and the space it eats are the darkest thing on
+          screen, darker than the base fill. That is the whole point of the subject.
+       2. THE DISC IS BANDED, NOT SMOOTH. Streaks of turbulent gas quantized with a hash dither,
+          laid ALONG the orbit (stretched in theta, tight in radius) so it reads as something
+          spinning, not a soft gradient donut.
+       3. DIFFERENTIAL ROTATION. Three annuli turn at different rates — inner fastest — as real
+          discs do. The rotation is slow (minutes per turn) so it is felt, not watched.
+       4. ONE SIDE IS BRIGHTER. Doppler beaming: the gas coming toward you glows harder. A static
+          gradient multiplied over the turning bands, so the bright side stays put while the
+          streaks slide through it — which is exactly what makes it read as motion.
+       5. STARS STAY FULL RES, few, and cool, and the disc occludes them. */
+
+  const MAW_BG = {
+    label: 'THE MAW',
+    blurb: 'An accretion disc, face-on. Something in the middle that gives nothing back.',
+    base: '#050302',                       // very dark warm — the shadow must still read darker
+    D: { star: 0.012, body: 0.05 },        // the field barely moves; the hole is a body at distance
+    // turns per second per annulus (inner → outer); a full inner turn every ~3.5 minutes
+    RATE: [1 / 210, 1 / 340, 1 / 520],
+    // disc radii as fractions of the SHADOW radius; annuli overlap by 6% to hide their seams
+    RS: 0.115,                             // shadow radius as a fraction of min(w,h)
+    RINGS: [[1.5, 2.4], [2.3, 3.3], [3.2, 4.3]],
+    ROUT: 4.3,                             // outer rim, in shadow radii
+    LEVELS: 10,
+
+    LIGHT: {
+      RIM: [58, 14, 6],                    // outermost ember, nearly gone
+      EMBER: [172, 52, 12],                // the body of the disc
+      HOT: [232, 118, 28],                 // orange, dense
+      WHITE: [255, 236, 200],              // white-hot inner edge — and the photon ring
+    },
+
+    build(w, h, rnd) {
+      const LT = MAW_BG.LIGHT, LV = MAW_BG.LEVELS;
+      const u = px1();
+
+      /* ---- 1. a SPARSE deep field — the disc owns the value range, the stars only set depth ---- */
+      const starCv = mkCv(w, h), stc = starCv.getContext('2d');
+      const starN = Math.min(2600, Math.round((w * h) / 520));
+      for (let i = 0; i < starN; i++) {
+        const x = (rnd() * w) | 0, y = (rnd() * h) | 0, b = rnd();
+        if (b < 0.80) {
+          stc.fillStyle = 'rgba(190,205,235,' + (0.14 + 0.24 * rnd()).toFixed(3) + ')';
+          stc.fillRect(x, y, u, u);
+        } else if (b < 0.985) {
+          stc.fillStyle = pickTint(rnd()) + (0.45 + 0.35 * rnd()).toFixed(3) + ')';
+          stc.fillRect(x, y, u, u);
+        } else {
+          stc.fillStyle = 'rgba(236,240,255,0.9)';
+          stc.fillRect(x, y, u, u);
+          stc.fillStyle = 'rgba(236,240,255,0.28)';
+          stc.fillRect(x - 2 * u, y, 5 * u, u); stc.fillRect(x, y - 2 * u, u, 5 * u);
+        }
+      }
+
+      /* ---- 2. the disc, one annulus per canvas so each can turn on its own ----
+         Built in POLAR space: the noise is sampled at (theta, r) with theta wrapping (wrapNoise is
+         a torus, so a full turn is seamless by construction) and stretched 9:1 along theta, which
+         lays the turbulence into orbital streaks. Everything is computed per pixel once, here. */
+      const Rs = Math.max(24, Math.round(Math.min(w, h) * MAW_BG.RS));
+      const Rout = Math.ceil(Rs * MAW_BG.ROUT) + 2;
+      const size = Rout * 2 + 2, C = size / 2;
+      const dith = (x, y) => {
+        let k = Math.imul(x + 0x3C6EF372, 0x9E3779B1) ^ Math.imul(y + 0x1B873593, 0x85EBCA77);
+        k = Math.imul(k ^ (k >>> 13), 0xC2B2AE3D);
+        return (((k ^ (k >>> 16)) >>> 0) / 4294967296) - 0.5;
+      };
+      const n1 = wrapNoise(7, rnd), n2 = wrapNoise(19, rnd), n3 = wrapNoise(41, rnd);
+      const gap = wrapNoise(5, rnd);                     // slow angular gaps — the disc is not uniform
+      const rings = MAW_BG.RINGS.map(([a, b]) => {
+        const cv = mkCv(size, size), c = cv.getContext('2d');
+        const img = c.createImageData(size, size), Dd = img.data;
+        const r0 = Rs * a, r1 = Rs * b;
+        const fadeIn = Rs * 0.12, fadeOut = Rs * 0.16;
+        for (let y = 0, p = 0; y < size; y++) {
+          const dy = y + 0.5 - C;
+          for (let x = 0; x < size; x++, p += 4) {
+            const dx = x + 0.5 - C;
+            const r = Math.hypot(dx, dy);
+            if (r < r0 || r > r1) continue;             // alpha stays 0
+            const th = (Math.atan2(dy, dx) / (Math.PI * 2) + 1) % 1;
+            // radial coordinate over the WHOLE disc so the noise is continuous across annuli
+            const rv = Math.max(0, Math.min(1, (r - Rs * 1.5) / (Rs * MAW_BG.ROUT - Rs * 1.5)));
+            const tv = rv * 3.2;                        // 9:1 stretch along theta comes from N=7 vs the radial scale
+            // theta multipliers are INTEGERS — a non-integer would open a seam at the 0/1 turn boundary
+            let d = n1(th, tv) * 0.5 + n2(th * 2, tv * 2.6) * 0.32 + n3(th * 3, tv * 5) * 0.18;
+            const gp = 0.6 + 0.4 * gap(th, rv * 0.6);   // angular gaps thin the disc here and there (applied AFTER the cut)
+            // brightness falls with radius: white-hot at the inner edge, ember at the rim
+            const heat = Math.pow(1 - rv, 1.25);
+            /* STEEP. A gentle ramp here gave a uniform brown wash (measured: the disc's value range sat
+               almost entirely inside 20-60 luma) — the same camo failure THE NURSERY v2 had. Gaps must
+               go to NOTHING and streaks must reach the hot end, or after the CRT pass it is a smear. */
+            let t = Math.max(0, Math.min(1, (d - 0.42) * 4.5)) * gp * (0.42 + 0.58 * heat);
+            t = Math.max(0, Math.min(1, Math.round((t + dith(x, y) / LV) * LV) / LV));
+            let col;
+            if (t < 0.25) col = mix3(LT.RIM, LT.EMBER, t / 0.25);
+            else if (t < 0.75) col = mix3(LT.EMBER, LT.HOT, (t - 0.25) / 0.50);
+            else col = mix3(LT.HOT, LT.WHITE, (t - 0.75) / 0.25);
+            // the annulus feathers at both edges so overlapping rings cross-fade instead of seaming
+            const e = Math.min(1, (r - r0) / fadeIn, (r1 - r) / fadeOut);
+            // NO ALPHA FLOOR (same lesson as the nursery): a gap in the gas is a gap, the under-glow
+            // in the core plate supplies whatever faint warmth a real disc keeps between streaks
+            const alpha = Math.min(1, t * 1.7) * e * (0.65 + 0.35 * heat);
+            Dd[p] = col[0]; Dd[p + 1] = col[1]; Dd[p + 2] = col[2];
+            Dd[p + 3] = Math.round(255 * Math.min(1, alpha));
+          }
+        }
+        c.putImageData(img, 0, 0);
+        return cv;
+      });
+
+      /* ---- 3. the static core: warm halo, photon ring, and the shadow ---- */
+      const coreCv = mkCv(size, size), cc = coreCv.getContext('2d');
+      // a faint smooth under-glow across the whole disc: the warmth between streaks. It sits UNDER
+      // the banded gas (the disc plate is drawn over this core's halo region — see draw), so it
+      // never reads as a gradient donut on its own.
+      let g = cc.createRadialGradient(C, C, Rs * 1.3, C, C, Rout);
+      g.addColorStop(0, rgba(LT.EMBER, 0.40)); g.addColorStop(0.45, rgba(LT.RIM, 0.30)); g.addColorStop(1, rgba(LT.RIM, 0));
+      cc.fillStyle = g; cc.fillRect(0, 0, size, size);
+      // the inner edge glows onto the empty gap between the ring and the disc
+      g = cc.createRadialGradient(C, C, Rs, C, C, Rs * 1.7);
+      g.addColorStop(0, rgba(LT.HOT, 0.55)); g.addColorStop(0.5, rgba(LT.EMBER, 0.22)); g.addColorStop(1, rgba(LT.RIM, 0));
+      cc.fillStyle = g; cc.fillRect(0, 0, size, size);
+      // the photon ring: thin, hard, and the whitest thing in the sky — on its OWN plate, drawn
+      // over the gas, while the glow above goes under it
+      const ringCv = mkCv(size, size), rc = ringCv.getContext('2d');
+      rc.lineWidth = Math.max(1, Math.round(Rs * 0.07));
+      rc.strokeStyle = rgba(LT.WHITE, 0.95);
+      rc.beginPath(); rc.arc(C, C, Rs * 1.04, 0, Math.PI * 2); rc.stroke();
+      rc.lineWidth = Math.max(1, Math.round(Rs * 0.12));
+      rc.strokeStyle = rgba(LT.HOT, 0.45);
+      rc.beginPath(); rc.arc(C, C, Rs * 1.12, 0, Math.PI * 2); rc.stroke();
+      // THE SHADOW — true black, painted last so nothing ever leaks into it (rule 1)
+      rc.fillStyle = '#000';
+      rc.beginPath(); rc.arc(C, C, Rs, 0, Math.PI * 2); rc.fill();
+
+      /* ---- 4. Doppler beaming — a static DARKENING plate composited source-atop, so it only
+              ever touches pixels the rings already own; the streaks turn THROUGH it (rule 4) ---- */
+      const beamCv = mkCv(size, size), bc = beamCv.getContext('2d');
+      g = bc.createLinearGradient(C - Rout, 0, C + Rout, 0);
+      g.addColorStop(0, 'rgba(24,8,3,0)'); g.addColorStop(0.42, 'rgba(24,8,3,0.34)'); g.addColorStop(1, 'rgba(24,8,3,0.84)');
+      bc.fillStyle = g; bc.fillRect(0, 0, size, size);
+
+      // the disc composite is redrawn per frame into one scratch so the beaming multiplies the
+      // rings only, never the stars behind them
+      const discCv = mkCv(size, size);
+
+      return { starCv, rings, coreCv, ringCv, beamCv, discCv, Rs, size, discKey: '' };
+    },
+
+    draw(ctx, w, h, now, cam, st) {
+      const D = MAW_BG.D, t = now / 1000, R = MAW_BG.RATE;
+      tile2(ctx, st.starCv, w, h, parX(cam, D.star) + t * 0.6, parY(cam, D.star) + t * 0.15);
+
+      const size = st.size, C = size / 2;
+      /* the angles are snapped to 1/720 turn so a slow rotation STEPS instead of shimmering — and
+         the composite below is only redone when a step actually lands (a few times a second at
+         most). Three rotated full-plate blits plus two composites is real work for a software
+         rasterizer (~200ms measured headless); on a GPU it is nothing, but a cached plate is right
+         either way: the same frame drawn twice must not cost twice. */
+      const steps = st.rings.map((_, i) => Math.round((t * R[i] % 1) * 720) % 720);
+      const key = steps.join(',');
+      if (st.discKey !== key) {
+        const dc = st.discCv.getContext('2d');
+        dc.setTransform(1, 0, 0, 1, 0, 0);
+        dc.clearRect(0, 0, size, size);
+        dc.imageSmoothingEnabled = false;              // pixel art turns crunchy, never blurry
+        for (let i = 0; i < st.rings.length; i++) {
+          const a = steps[i] / 720 * Math.PI * 2;
+          dc.setTransform(Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), C, C);
+          dc.drawImage(st.rings[i], -C, -C);
+        }
+        dc.setTransform(1, 0, 0, 1, 0, 0);
+        dc.globalCompositeOperation = 'source-atop';  // darken the dim side of whatever gas is there
+        dc.drawImage(st.beamCv, 0, 0);
+        dc.globalCompositeOperation = 'destination-over';   // the smooth under-glow goes BEHIND the gas
+        dc.drawImage(st.coreCv, 0, 0);
+        dc.globalCompositeOperation = 'source-over';
+        dc.drawImage(st.ringCv, 0, 0);               // photon ring + shadow, on top of everything
+        st.discKey = key;
+      }
+
+      // the body sits at the centre of the frame and parallaxes as a thing at a finite distance (law 2)
+      const bx = Math.round(w / 2 + parX(cam, D.body) - C), by = Math.round(h / 2 + parY(cam, D.body) - C);
+      ctx.globalAlpha = 0.94 + 0.06 * Math.sin(t / 5.3);   // the disc breathes, barely
+      ctx.drawImage(st.discCv, bx, by);
+      ctx.globalAlpha = 1;
+
+      drawMeteor(ctx, w, h, now);
+      drawBolide(ctx, w, h, now);
+    },
+  };
+
   /* ------------------------------------------------------- shared: SURFACE backdrops ---- */
   /* Everything the station can float ABOVE (ocean, city, and whatever comes next) shares the
      same three problems, so they share the same three helpers: a deck of drifting cloud, a
@@ -1039,8 +1246,8 @@ const SpaceBG = (() => {
 
   /* ---------------------------------------------------------------------- registry ---- */
 
-  const BACKDROPS = { void: VOID_BG, nursery: NURSERY_BG, ocean: OCEAN_BG, city: CITY_BG };
-  const ORDER = ["void", "nursery", "ocean", "city"];
+  const BACKDROPS = { void: VOID_BG, nursery: NURSERY_BG, maw: MAW_BG, ocean: OCEAN_BG, city: CITY_BG };
+  const ORDER = ["void", "nursery", "maw", "ocean", "city"];
   const DEFAULT_ID = 'void';
 
   const has = id => Object.prototype.hasOwnProperty.call(BACKDROPS, id);
