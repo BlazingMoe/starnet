@@ -107,6 +107,11 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
     A.eq(recoveredStart.items.length, 1, 'the retried LSP client confirms a diagnostic baseline');
     await retrying.closeAll();
 
+    // Make cancellation exercise a cold server, even on a fast host where idle reaping
+    // has not fired while the unrelated retry checks above run.
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    A.eq(manager.status().length, 0, 'an idle language server is reaped');
+    const recordedBeforeCancel = ledgerRows.length;
     const cancelFile = path.join(workspace, 'cancel.fake');
     fs.writeFileSync(cancelFile, 'clean before cancel\n', 'utf8');
     const ac = new AbortController(); ac.abort();
@@ -115,10 +120,10 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
       await tools.editTool.run({ path: 'cancel.fake', find: 'clean', replace: 'BROKEN' }, Object.assign({}, ctx, { signal: ac.signal }));
     } catch (e) { cancelled = !!(e && e.name === 'AbortError'); }
     A.ok(cancelled, 'cancellation during the diagnostic baseline aborts the file tool');
+    A.eq(ledgerRows.length, recordedBeforeCancel, 'an already-cancelled edit never starts a replacement language server');
     A.eq(fs.readFileSync(cancelFile, 'utf8'), 'clean before cancel\n', 'a cancelled baseline never permits a late mutation');
 
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    A.eq(manager.status().length, 0, 'an idle language server is reaped');
+    A.eq(manager.status().length, 0, 'an already-cancelled edit leaves no cached replacement client');
     A.eq(ledgerRows.length, 1, 'the long-lived language-server child is recorded for crash recovery');
     A.ok(ledgerRows[0].kind === 'lsp:fake' && ledgerReleases.includes(ledgerRows[0].pid), 'normal idle exit releases the durable process-ledger row');
   } finally {
