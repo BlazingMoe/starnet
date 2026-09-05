@@ -42,3 +42,53 @@ F.configure({ onLaunch: () => true });
 assert.equal(F.open({ root: '/chosen' }), true);
 assert.equal(called, true); // app and Work configure independently without erasing callbacks
 console.log('first-value: assertions passed');
+
+// Exercise the real form lifecycle at the DOM seam: setup closes/remounts the window.
+(async () => {
+  const priorFetch = global.fetch;
+  global.fetch = async path => ({ ok: true, json: async () => path === '/api/projects'
+    ? { projects: [{ root: '/notes', blessed: true }] } : { sources: [] } });
+  function form() {
+    const nodes = new Map();
+    const node = key => {
+      if (!nodes.has(key)) nodes.set(key, { value: '', checked: key === 'input[value="sample"]',
+        addEventListener(name, fn) { this[name] = fn; }, setAttribute() {} });
+      return nodes.get(key);
+    };
+    return { querySelector: node, querySelectorAll: () => [], set innerHTML(_) {}, node };
+  }
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  try {
+    F.clearDraft();
+    let root = form(), mounted = F.mount(root, { onProjects: () => mounted.destroy() });
+    await tick();
+    root.node('.fv-request').value = 'Summarize my revised notes';
+    root.node('.fv-sample').value = 'Private unsent source';
+    root.node('.fv-projects').onclick();
+    assert.equal(F.draftOptions().sample, 'Private unsent source');
+    const snapshot = F.draftOptions(); snapshot.sample = 'external mutation';
+    assert.equal(F.draftOptions().sample, 'Private unsent source');
+    root = form(); mounted = F.mount(root, {}); await tick();
+    assert.equal(root.node('.fv-request').value, 'Summarize my revised notes');
+    assert.equal(root.node('.fv-sample').value, 'Private unsent source');
+    assert.match(root.node('.fv-status').textContent, /restored/);
+    mounted.destroy();
+    root = form(); mounted = F.mount(root, { findingId: 'different', root: '/notes', intent: 'meeting-actions' }); await tick();
+    assert.equal(root.node('.fv-sample').value, '');
+    assert.equal(root.node('input[value="folder"]').checked, true);
+    mounted.destroy();
+    assert.equal(F.draftOptions().findingId, 'different');
+    root = form(); mounted = F.mount(root, { onLaunch: () => false }); await tick();
+    await root.node('form').onsubmit({ preventDefault() {} });
+    assert.match(root.node('.fv-status').textContent, /did not start/);
+    assert.equal(F.draftOptions().findingId, 'different');
+    mounted.destroy();
+    root = form(); mounted = F.mount(root, { onLaunch: () => true, onOpenWork: () => mounted.destroy() }); await tick();
+    await root.node('form').onsubmit({ preventDefault() {} });
+    assert.equal(F.draftOptions(), null, 'launch cleanup cannot resurrect submitted source');
+    root = form(); mounted = F.mount(root, {}); await tick();
+    assert.equal(root.node('.fv-sample').value, '');
+    mounted.destroy(); F.clearDraft();
+    console.log('first-value: setup return, isolation, failed launch, successful launch cleanup passed');
+  } finally { global.fetch = priorFetch; }
+})().catch(error => { console.error(error); process.exitCode = 1; });
