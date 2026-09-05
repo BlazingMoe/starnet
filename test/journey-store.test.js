@@ -143,6 +143,27 @@ const fresh = fs => makeJourneyStore({ fs: fs || memFs(), path, workspaces: '/ws
   A.eq(afterHistory.read().achievements.length, 300, 'visible achievement history stays bounded');
   A.ok((await afterHistory.recordMilestone({ goalId: 'life', milestoneId: 'first-class', evidence: 'Replay original reported action', source: 'commander' }, 500)).duplicate, 'aged-out milestone cannot award points again');
   A.eq(afterHistory.snapshot().progression.points, lifetimePoints, 'lifetime points and dedupe survive display compaction and restart');
+  const realWorld = fresh();
+  await realWorld.registerGoal({ id: 'practice', text: 'Learn piano', successCondition: 'Play one piece from memory' }, 1);
+  const realQuest = { id: 'practice-q', status: 'done', goalId: 'practice', milestoneId: 'first-lesson',
+    title: 'Attend the first lesson', domain: 'creative', contract: { type: 'attest' },
+    attest: { confirmed: true, evidence: 'I attended my first piano lesson' } };
+  await realWorld.recordQuest(realQuest, null, 2);
+  A.eq(realWorld.snapshot().progression.points, 10, 'a goal-linked Commander-confirmed quest advances Commander progression');
+  A.eq(realWorld.snapshot().mastery, [], 'a self-reported quest without an agent never awards agent mastery');
+  await realWorld.recordQuest(realQuest, null, 3);
+  await realWorld.recordMilestone({ goalId: 'practice', milestoneId: 'first-lesson', milestoneText: 'Attend the first lesson', evidence: 'I attended my first piano lesson', source: 'commander' }, 4);
+  A.eq(realWorld.snapshot().progression.points, 10, 'quest replay and the corresponding milestone share one achievement');
+  await realWorld.recordMilestone({ goalId: 'practice', milestoneId: 'second-lesson', evidence: 'Attended the second lesson', source: 'commander' }, 5);
+  await realWorld.recordQuest(Object.assign({}, realQuest, { id: 'practice-q2', milestoneId: 'second-lesson' }), null, 6);
+  A.eq(realWorld.snapshot().progression.points, 20, 'milestone before quest also shares one achievement');
+  await realWorld.recordQuest({ id: 'mechanical', status: 'done', goalId: 'practice', title: 'Create lesson notes', contract: { type: 'artifact', key: 'notes.txt' } }, null, 7);
+  A.eq(realWorld.snapshot().progression.points, 20, 'mechanical artifact completion alone never earns Commander points');
+  await realWorld.recordQuest(Object.assign({}, realQuest, { id: 'unregistered', goalId: 'missing', milestoneId: null }), null, 8);
+  A.eq(realWorld.snapshot().progression.points, 20, 'Commander quests require a registered goal to earn points');
+  await realWorld.confirmGoal({ id: 'practice', evidence: 'Played the piece from memory' }, 9);
+  await realWorld.recordQuest(Object.assign({}, realQuest, { id: 'after-achievement', milestoneId: null }), null, 10);
+  A.eq(realWorld.snapshot().progression.points, 120, 'quests for already achieved goals do not award additional points');
   const legacy = normalize({ goalsReached: ['old-goal'], outcomes: [] });
   A.eq(legacy.goalsReached, ['old-goal'], 'legacy recorded achievements remain intact');
   A.eq(legacy.commanderPoints, 0, 'legacy history is not retroactively represented as Commander-confirmed points');

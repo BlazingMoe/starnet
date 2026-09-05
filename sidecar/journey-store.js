@@ -97,7 +97,7 @@ function normGoal(g) {
 }
 
 function normAchievement(a) {
-  if (!a || typeof a !== 'object' || !['milestone', 'metric', 'goal'].includes(a.kind)) return null;
+  if (!a || typeof a !== 'object' || !['quest', 'milestone', 'metric', 'goal'].includes(a.kind)) return null;
   const key = clip(a.key, 200), goalId = clip(a.goalId, 64);
   if (!key || !goalId) return null;
   return { key, goalId, kind: a.kind, points: a.kind === 'goal' ? 100 : 10, title: clip(a.title, 140),
@@ -269,6 +269,11 @@ function makeJourneyStore(deps) {
         sourceId: 'quest:' + q.id, kind: 'quest', questId: q.id, goalId: q.goalId,
         milestoneId: q.milestoneId, agentId: aid, domain: q.domain, title: q.title, evidence, verifiedBy: proof, goalDone: false
       }, now);
+      if (result.changed && proof === 'commander-confirmed' && rec.goals.some(g => g.id === clip(q.goalId, 64) && g.status === 'active')) {
+        const milestoneId = clip(q.milestoneId, 80);
+        award(rec, { key: milestoneId ? 'milestone:' + clip(q.goalId, 64) + ':' + milestoneId : 'quest:' + q.id,
+          kind: 'quest', goalId: q.goalId, title: q.title, evidence, verifiedBy: proof }, now);
+      }
       return result.changed ? rec : undefined;
     });
     return { ok: true, duplicate: !result.changed && !result.skipped, skipped: !!result.skipped, outcome: result.outcome, receipt: result.receipt };
