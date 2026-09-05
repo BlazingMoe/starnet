@@ -58,6 +58,7 @@
       id: opts.id || uid(),
       title: opts.title != null ? clamp(opts.title, 80) : null,    // null = the General default stream
       agentId: opts.agentId || 'agent',
+      conversationMode: opts.conversationMode === 'group' ? 'group' : 'direct',
       roomId: opts.roomId != null ? opts.roomId : null,            // dormant builder seam: a room IS a channel, later
       lane: lane,
       // TASK-BOARD TRUTH: 'task' = a deliberate board directive (renders as a card); 'chat' = a plain session
@@ -76,6 +77,7 @@
       projectRoot: opts.projectRoot != null ? String(opts.projectRoot) : null,
       history: Array.isArray(opts.history) ? opts.history.slice() : [],
       runIds: Array.isArray(opts.runIds) ? opts.runIds.slice() : [],
+      connectorHandoff: normalizeConnectorHandoff(opts.connectorHandoff),
       // outcome of the stream's MOST RECENT run: true = it completed (in-band stream finished, even via a
       // stop/cut-short), false = it DIED in flight (chat.js's in-band `error` branch), null = unknown — no
       // run yet, a run currently in flight (appendRun resets it), or a pre-upgrade save. The board's DONE
@@ -102,6 +104,9 @@
       // /goal AUTONOMOUS LOOP state (chat.js owns the shape via GoalLoop.normalize) — carried through verbatim so a
       // standing goal survives a reload/switch exactly like the thread history. Undefined for a stream with no loop.
       goalLoop: (opts.goalLoop && typeof opts.goalLoop === 'object') ? opts.goalLoop : undefined,
+      // Backend job identity, never an inferred title match. Unknown legacy parents stay separate.
+      automation: opts.automation && ['routine', 'workshop'].includes(opts.automation.kind)
+        ? { kind: opts.automation.kind, id: clamp(opts.automation.id || '', 160), name: clamp(opts.automation.name || '', 160) } : null,
       createdAt: opts.createdAt || t,
       lastActiveAt: opts.lastActiveAt || t,
       // when the Commander last had this stream OPEN. unread = lastActiveAt > lastReadAt (truthful:
@@ -109,6 +114,21 @@
       // existed defaults to its lastActiveAt so an upgrade never floods the rail with false unreads.
       lastReadAt: opts.lastReadAt != null ? opts.lastReadAt : (opts.lastActiveAt || t)
     };
+  }
+
+  function normalizeConnectorHandoff(value) {
+    if (!value || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.connectorId || '') || !value.runId || !value.agentId) return null;
+    return { connectorId: clamp(value.connectorId, 80), runId: clamp(value.runId, 120),
+      agentId: clamp(value.agentId, 80), toolName: value.toolName === 'connectors.list' ? '' : clamp(value.toolName || '', 160) };
+  }
+  function setConnectorHandoff(id, value) {
+    const w = find(id); if (!w) return null;
+    w.connectorHandoff = normalizeConnectorHandoff(value);
+    return w.connectorHandoff;
+  }
+  function connectorHandoff(id) {
+    const w = find(id), h = w && w.connectorHandoff;
+    return h && !w.archived && h.agentId === w.agentId && w.runIds[w.runIds.length - 1] === h.runId ? h : null;
   }
 
   // ---------- lifecycle ----------
@@ -190,7 +210,7 @@
     const wantedRoot = scoped && opts.projectRoot != null ? String(opts.projectRoot) : null;
     const sameScope = !scoped || ((cur && cur.projectRoot) || null) === wantedRoot;
     const c = cur && cur.cost || {};
-    const untouched = !!cur && !cur.archived && cur.kind === 'chat' && cur.title == null
+    const untouched = !!cur && cur.conversationMode !== 'group' && !cur.archived && cur.kind === 'chat' && cur.title == null
       && cur.titleAuto !== false && !cur.pinned && cur.roomId == null && !cur.goalLoop
       && (!cur.history || cur.history.length === 0)
       && (!cur.runIds || cur.runIds.length === 0)
@@ -208,7 +228,10 @@
   function adopt(opts) {
     opts = opts || {};
     if (opts.id) {
-      const ex = find(opts.id); if (ex) return ex;
+      const ex = find(opts.id); if (ex) {
+        if (opts.automation) ex.automation = make(opts).automation;
+        return ex;
+      }
       // a DELETED id stays deleted: the boot-time resurrection paths (workshop pending poll, cron
       // backfill) must not re-mint a session the Commander removed. revive:true is the deliberate
       // human re-open (it clears the tombstone so the session behaves normally from then on).
@@ -275,7 +298,7 @@
     const aid = String(agentId == null ? '' : agentId);
     if (!aid) return 0;
     let n = 0;
-    for (const w of ws.slice()) { if (w.id !== generalId && w.agentId === aid && del(w.id)) n++; }
+    for (const w of ws.slice()) { if (w.conversationMode !== 'group' && w.id !== generalId && w.agentId === aid && del(w.id)) n++; }
     return n;
   }
 
@@ -569,8 +592,43 @@
     return created;
   }
 
+  function automationOf(w) {
+    if (w.automation) return w.automation;
+    if (String(w.id).startsWith('cron-')) return { kind: 'routine', id: '', name: 'Scheduled run' };
+    if (String(w.id).startsWith('workshop-')) return { kind: 'workshop', id: w.agentId, name: 'Away builds' };
+    if (w.goalLoop) return { kind: 'loop', id: w.id, name: w.title || 'Goal loop' };
+    return null;
+  }
+
+  // A display projection only: never merges, archives or deletes underlying sessions.
+  function railGroups(rows, options) {
+    const opts = options || {}, expanded = new Set(opts.expanded || []), urgent = new Set(opts.urgent || []);
+    const groups = new Map(), result = [];
+    for (const w of rows) {
+      const auto = automationOf(w), keep = w.id === opts.activeId || w.pinned || w.lastRunOk === false || urgent.has(w.id);
+      if (!auto || !auto.id) {
+        if (!keep && ((opts.view === 'conversations' && auto) || (opts.view === 'automated' && !auto))) continue;
+        result.push({ type: 'session', w }); continue;
+      }
+      const key = JSON.stringify([auto.kind, auto.id, w.agentId]);
+      let group = groups.get(key);
+      if (!group) {
+        group = { type: 'group', key, name: auto.name || w.title || 'Automated work', agentId: w.agentId, rows: [], visible: [] };
+        groups.set(key, group); result.push(group);
+      }
+      group.rows.push(w);
+      if (keep) group.visible.push(w);
+    }
+    groups.forEach(group => {
+      const latest = group.rows.reduce((a, b) => (+b.lastActiveAt || 0) > (+a.lastActiveAt || 0) ? b : a);
+      const included = opts.view !== 'conversations' || group.visible.length > 0;
+      group.visible = included ? group.rows.filter(w => expanded.has(group.key) || (opts.view !== 'conversations' && w === latest) || group.visible.includes(w)) : [];
+    });
+    return result.filter(item => item.type === 'session' || item.visible.length);
+  }
+
   return {
-    init, reset, serialize, all, list, search,
+    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
     create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId,

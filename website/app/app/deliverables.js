@@ -394,7 +394,9 @@
       if (b.dataset.act === 'session') {
         const sid = r.run && r.run.streamId;
         if (!sid) return say('That run did not record a session to open.', true);
-        if (typeof App !== 'undefined' && App && typeof App.openWorkstream === 'function') { try { App.openWorkstream(sid); return; } catch (_) {} }
+        if (typeof App !== 'undefined' && App && typeof App.openWorkstream === 'function') {
+          try { App.openWorkstream(sid); if (typeof StationUI !== 'undefined') StationUI.h.workConversation('deliverables'); return; } catch (_) {}
+        }
         return say('Could not open that session from here.', true);
       }
       if (b.dataset.act === 'discard' && b.dataset.wired === '1') return;   // its own ArmConfirm listener owns it

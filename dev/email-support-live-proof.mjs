@@ -34,8 +34,8 @@ try {
       const st=Build.__test__.station();
       if(!st.props().some(p=>p.t==='intake')) {
         const b=st.bounds(); let made=false;
-        outer: for(let y=b.minTy-2;y<=b.maxTy+2;y++) for(let x=b.minTx-2;x<=b.maxTx+2;x++) {
-          if(st.canPlaceBlueprint('research_line',x,y).ok) { st.stampBlueprint('research_line',x,y); made=true; break outer; }
+        outer: for(const blueprint of ['research_line','front_desk']) for(let y=b.minTy-2;y<=b.maxTy+2;y++) for(let x=b.minTx-2;x<=b.maxTx+2;x++) {
+          if(st.canPlaceBlueprint(blueprint,x,y).ok) { st.stampBlueprint(blueprint,x,y); made=true; break outer; }
         }
         if(!made) throw Error('no room for fixture line');
       }

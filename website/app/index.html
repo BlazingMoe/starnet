@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="css/topbar.css"><!-- topbar instrument cluster: builds on motion.css's premium component vocabulary -->
 <link rel="stylesheet" href="css/widgets.css"><!-- widget rails: pinnable telemetry instruments in the chrome's dead space (widgets.js) -->
 <link rel="stylesheet" href="css/panelchrome.css"><!-- PANEL CHROME premium pass: molded header strips, recessed instrument housings, keycap dock triggers on the four game-screen panels -->
+<link rel="stylesheet" href="css/interface.css">
 
 <link rel="stylesheet" href="css/titlebar.css"><!-- custom window chrome (Windows desktop shell): themed titlebar + MIN/MAX/CLOSE; inert unless body.sn-chrome (titlebar.js) -->
 
@@ -475,9 +476,9 @@
       <!-- INSTRUMENT CLUSTER (topbar.js) — one cockpit gauge group: STATION (level + XP sliver) ·
            the session-status instruments (UPLINK / ONLINE / save) moved up from
            #bottombar .bb-right with their ids intact so their existing writers keep working. -->
-      <div class="tb-stat station tb-inst" id="tb-station" title="The whole station's cumulative level — every agent's honest track record rolled up. A level never unlocks or gates anything; it is proof of real work you rated well.">
-        <span class="tb-lbl">STATION</span>
-        <b class="tb-val" id="gt-station">Lv 1</b>
+      <div class="tb-stat station tb-inst" id="tb-station" title="Your Commander level grows through recorded progress toward your life goals. Open the quest log to see the achievements behind it.">
+        <span class="tb-lbl">COMMANDER</span>
+        <b class="tb-val" id="gt-station">—</b>
         <span class="tb-xp" aria-hidden="true"><i class="tb-xp-fill"></i></span>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
@@ -493,7 +494,13 @@
     <!-- The head carried an "N AGENTS" count that #crew-sum already implied one panel lower
          ("0 WORKING / 2 IDLE" totals the same roster and says more). Dropped 2026-07-27 — one fact, one place. -->
     <h3>▮ CREW<span class="crew-h3-right"><button id="crew-hide" class="crew-hide" type="button" title="Hide the crew rail" aria-label="Hide the crew rail" aria-expanded="true">◂</button></span></h3>
+    <div id="crew-filters" class="crew-filters" role="group" aria-label="Filter crew by activity">
+      <button type="button" data-crew-filter="all" aria-pressed="true">ALL</button>
+      <button type="button" data-crew-filter="active" aria-pressed="false">WORKING</button>
+      <button type="button" data-crew-filter="await" aria-pressed="false">NEEDS YOU</button>
+    </div>
     <ul id="crew"></ul>
+    <div id="crew-filter-empty" class="crew-filter-empty" hidden></div>
     <div id="crew-sum"></div>
     <!-- ROSTER SEAM (leftrail.js): drag the CREW/SESSIONS split. A zero-height flex anchor whose
          ::before covers the gap the eye reads as the seam — the flex flow places it exactly there,
@@ -506,6 +513,7 @@
            The head above stays SESSIONS/PROJECTS + NEW only (Commander directive, 2026-07-08). -->
       <div id="ws-rail-search" class="ws-rail-search">
         <label><span class="sr-only">Search session titles and transcripts</span><input id="ws-search" type="search" placeholder="⌕ search sessions + transcripts" autocomplete="off"></label>
+        <div id="ws-kind-filter" class="ws-kind-filter" role="group" aria-label="Session view" title="Filter the rail. Active runs, failures, pinned sessions and your open conversation stay visible. Search always includes every transcript."><button type="button" data-ws-kind="all" aria-pressed="true">ALL</button><button type="button" data-ws-kind="conversations" aria-pressed="false">CHATS</button><button type="button" data-ws-kind="automated" aria-pressed="false">AUTOMATED</button></div>
         <ul id="ws-search-results" aria-live="polite"></ul>
       </div>
       <ul id="workstreams"></ul>
@@ -541,12 +549,17 @@
          current model. The <select> options + the model text are filled from the LIVE roster (App.agents),
          never hardcoded — the header is honest about who's on the line and what they run on. -->
     <div id="comms-idbar" class="comms-idbar">
+      <div class="comms-portrait" aria-hidden="true"><img id="comms-agent-portrait" alt="" hidden></div>
+      <div class="comms-identity">
+      <span class="comms-overline">ON THE LINE</span>
       <label class="comms-agent-wrap" title="Who you're talking to">
         <span class="comms-agent-sigil" aria-hidden="true">▸</span>
         <select id="comms-agent-select" class="comms-agent-select" aria-label="Select agent on the line"></select>
       </label>
       <span id="comms-agent-model" class="comms-agent-model" title="the model this agent runs on" aria-live="polite"></span>
+      </div>
     </div>
+    <nav id="comms-workpath" class="work-path" aria-label="Return to work" hidden></nav>
     <div id="chat-log" class="scrolly" role="log" aria-live="polite" aria-label="Conversation transcript"></div>
     <!-- TYPE-AHEAD: follow-ups typed while the agent is working queue here as pills, auto-sent in order (chat.js) -->
     <div id="chat-queued" class="chat-queued" aria-live="polite"></div>
@@ -637,8 +650,8 @@
         <!-- WORK menu, one axis per entry (UX confusion audit 2026-07-15): RECIPES = WHAT to run,
              ROUTINES = WHEN it runs, LOOPS = UNTIL it is done, TASKS = WHERE live work sits,
              QUESTS = progress only. -->
-        <button class="bb" data-term="work"><span class="bb-i">◈</span><span class="bb-tx"><b>MY WORK</b><small>suggestions, progress, decisions &amp; results</small></span></button>
-        <button class="bb" data-term="tasks" data-hint="task"><span class="bb-i">☑</span><span class="bb-tx"><b>TASKS</b><small>planned work — queued, active &amp; shipped</small></span></button>
+
+        <button class="bb" data-term="tasks" data-hint="task"><span class="bb-i">☑</span><span class="bb-tx"><b>TASKS</b><small>track planned work, review results &amp; mark complete</small></span></button>
         <button class="bb" data-term="deliverables" data-hint="deliverable"><span class="bb-i">▣</span><span class="bb-tx"><b>DELIVERABLES</b><small>outputs, Workshop builds &amp; cleanup</small></span></button>
         <button class="bb" id="bb-missions" data-hint="recipe"><span class="bb-i">❒</span><span class="bb-tx"><b>RECIPES</b><small>ready-made jobs to launch — they land on TASKS</small></span></button>
         <button class="bb" data-term="automation" data-hint="automation"><span class="bb-i">∞</span><span class="bb-tx"><b>AUTOMATION</b><small>routines &amp; loops — any job on a schedule, or repeated until it’s done</small></span></button>
@@ -700,7 +713,7 @@
 </section>
 
 <link rel="stylesheet" href="demo.css"><!-- WEBSITE EMBED ONLY: half-strength glass for the downscaled iframe -->
-<script src="demo-boot.js?v=20260810-default-station-v3"></script><!-- WEBSITE EMBED ONLY: seeds the captured demo save + DEV seam before any store reads -->
+<script src="demo-boot.js?v=20260905-current-station-v4"></script><!-- WEBSITE EMBED ONLY: seeds the captured demo save + DEV seam before any store reads -->
 <script src="app/bootguard.js"></script><!-- BOOT GUARD: installs the window error/unhandledrejection listeners before anything else can fail silently, then verifies the critical module globals after DOMContentLoaded (fatal banner names the file). Reads no state — the ONE script allowed ahead of legacymigrate -->
 <script src="app/legacymigrate.js"></script><!-- FIRST store-touching script: migrate starnet.* localStorage keys -> starnet.* before any store reads -->
 <script src="js/util.js"></script>
@@ -813,6 +826,8 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/intentoffer.js"></script><!-- pure intent→class/recipe matcher (the COMMS discovery offer): MUST load before chat.js, which calls it on every real directive -->
 <script src="app/modeldock.js"></script>
 <script src="app/modelpicker.js"></script>
+<script src="app/group-chat.js"></script>
+<script src="app/agentportraits.js"></script>
 <script src="app/chat.js"></script>
 <script src="app/voice-stream.js"></script>
 <script src="app/voice.js"></script>
@@ -842,6 +857,7 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/stationbake.js"></script>
 <script src="app/crtlab.js"></script><!-- DEV-only CRT/lighting tuning panel; inert unless ?crtlab is in the URL -->
 
+<script src="app/equipmenthelp.js"></script>
 <script src="app/build.js"></script>
 <script src="app/save.js"></script>
 <script src="app/cloudsavecore.js"></script><!-- pure retry/health brain (unit-tested); MUST load before cloudsave.js -->
@@ -886,6 +902,8 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/dockglow.js"></script><!-- deferred BUILD-dock glow (G1c): soft hint on the BUILD dock while a station quest is open; reuses the kit-out traps; tutorial wins -->
 <script src="app/mintstore.js"></script>
 <script src="app/seedstore.js"></script>
+<script src="app/workflowtakeoverstore.js"></script>
+<script src="app/taskconversation.js"></script>
 <script src="app/autonomystore.js"></script>
 <script src="app/autojobstore.js"></script>
 <script src="app/autopilotstore.js"></script>

@@ -82,7 +82,7 @@
     // The distinction matters for linked stations: the account page can revoke a device while this app
     // still has its old keychain token. Local presence must never keep painting "LINKED" after the cloud
     // has rejected it.
-    const cache = { balanceUsd: null, at: 0, subscription: null, manageUrl: '', authStatus: 'unknown', lastErrorStatus: 0 };
+    const cache = { balanceUsd: null, at: 0, observedBalanceUsd: null, observedAt: 0, subscription: null, manageUrl: '', authStatus: 'unknown', lastErrorStatus: 0 };
 
     /* ---- LOW-BALANCE WARNING ------------------------------------------------------------------
        Without this, a managed run just stops at $0 with no warning — the user's first signal that
@@ -142,10 +142,11 @@
 
     // The ONLY writer of cache.balanceUsd. Every caller goes through here so authority ordering and warning
     // classification cannot drift apart. `warn === false` is reserved for temporary billing holds.
-    function setBalance(v, warn) {
+    function setBalance(v, warn, authoritative = true) {
       const b = (typeof v === 'number' && isFinite(v)) ? v : null;
       cache.balanceUsd = b;
       cache.at = clock.now();
+      if (authoritative) { cache.observedBalanceUsd = b; cache.observedAt = b == null ? 0 : cache.at; }
       if (warn !== false) evaluateWarning(b);
     }
 
@@ -270,7 +271,7 @@
         // Warning evaluation deliberately waits for settlement: this number includes reserved funds.
         // This is available balance after a temporary reservation, not settled account spend. In the default
         // uncapped path `amt` is the whole wallet, so evaluating it would fabricate exhaustion every run.
-        if (cache.balanceUsd != null) setBalance(Math.max(0, cache.balanceUsd - amt), false);
+        if (cache.balanceUsd != null) setBalance(Math.max(0, cache.balanceUsd - amt), false, false);
         postJson('/v1/debit', { account: acct(), usd: amt, meta: meta || {} })
           .then(body => {
             if (!body || body.balanceUsd == null) return;
@@ -290,7 +291,7 @@
         // The owning reservation remains in reservations until billing.finishRun returns. Suppress this
         // intermediate mutation; finishRun evaluates after removing that hold, and the POST response below
         // evaluates the authoritative balance as well.
-        if (cache.balanceUsd != null) setBalance(cache.balanceUsd + amt, false);   // optimistic refund
+        if (cache.balanceUsd != null) setBalance(cache.balanceUsd + amt, false, false);   // optimistic refund
         postJson('/v1/credit', { account: acct(), usd: amt, meta: meta || {} })
           .then(body => {
             if (!body || body.balanceUsd == null) return;
@@ -349,6 +350,7 @@
       snapshot() {
         return {
           configured: true, accountId, balanceUsd: cache.balanceUsd, at: cache.at, purchaseUrl,
+          observedBalanceUsd: cache.observedBalanceUsd, observedAt: cache.observedAt,
           subscription: cache.subscription,                 // null until the backend reports one
           manageUrl: cache.manageUrl || purchaseUrl,        // where "manage subscription" opens in the browser
           authStatus: cache.authStatus,

@@ -13,6 +13,12 @@
     { id: 'custom', name: 'Handle something else', outcome: 'The result you describe, grounded in the source you provide.' }
   ];
   let configured = {};
+  // Unsaved source material stays only in this page's memory, never browser storage.
+  let savedDraft = null, savedOrigin = '';
+  const draftFields = ['findingId', 'intent', 'request', 'sample', 'root', 'source', 'reason', 'pain'];
+  const originOf = opts => JSON.stringify(draftFields.map(k => opts[k] == null ? null : opts[k]));
+  function draftOptions() { return savedDraft ? Object.assign({}, savedDraft) : null; }
+  function clearDraft() { savedDraft = null; savedOrigin = ''; }
   const clean = v => typeof v === 'string' ? v.trim() : '';
   function suggest(texts) {
     const pain = (Array.isArray(texts) ? texts : [texts]).map(clean).filter(Boolean).join('\n');
@@ -53,7 +59,12 @@
   function configure(opts) { configured = Object.assign({}, configured, opts || {}); }
   function open(opts) { return configured.onOpen ? configured.onOpen(opts || {}) : false; }
   function mount(el, opts) {
-    const ctx = Object.assign({}, configured, opts || {});
+    const supplied = opts || {}, origin = originOf(supplied);
+    const canResume = supplied.resume !== false && savedDraft &&
+      (!draftFields.some(k => supplied[k] != null) || origin === savedOrigin || origin === originOf(savedDraft));
+    const ctx = Object.assign({}, configured, canResume ? savedDraft : {}, supplied);
+    if (canResume) Object.assign(ctx, savedDraft); // form edits win over its original launch context
+    let retain = true;
     let pain = ctx.pain;
     if (!pain && typeof DossierStore !== 'undefined' && DossierStore.beliefs) pain = DossierStore.beliefs('pain').map(b => b.text);
     const proposed = suggest(pain || []);
@@ -71,10 +82,20 @@
       '<label class="fv-field fv-sample-field">Notes, messages, or a previous report<textarea class="key-input fv-sample" rows="7" maxlength="16000" placeholder="Paste the real material to work from. Nothing is sent until you click Create draft."></textarea></label>' +
       '<div class="fv-folder-field" hidden><label class="fv-field">Approved source folder<select class="key-input fv-root" aria-label="Approved source folder"><option value="">Choose a folder…</option></select></label><div class="fv-actions"><button type="button" class="bb fv-projects">Manage approved folders</button><button type="button" class="bb fv-refresh">Refresh folders</button></div><p>Selecting a folder here does not grant access. Manage approved folders to add or revoke access.</p></div>' +
       '<p class="fv-preview">The agent will use the selected source, create a draft, and identify missing facts. You review the result before deciding what happens next.</p>' +
-      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button></div></form>';
+      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button><button type="button" class="bb fv-clear">Clear draft</button></div><p class="muted">Your draft stays here while you visit setup. Return through Recipes → Draft from your notes. Reloading the app clears unsent drafts.</p></form>';
     const q = s => el.querySelector(s), status = message => { if (alive) q('.fv-status').textContent = message; };
     q('.fv-request').value = ctx.request || (intent === 'custom' ? proposed.pain : '');
     q('.fv-sample').value = ctx.sample || '';
+    function remember() {
+      if (!alive || !retain) return;
+      savedDraft = Object.fromEntries(draftFields.filter(k => ctx[k] != null).map(k => [k, ctx[k]]));
+      Object.assign(savedDraft, { intent, request: q('.fv-request').value, sample: q('.fv-sample').value,
+        source: q('input[value="folder"]').checked ? 'folder' : 'sample', root: q('.fv-root').value || ctx.root || '' });
+      savedOrigin = canResume ? savedOrigin : origin;
+    }
+    function changed() { retain = true; remember(); }
+    q('form').addEventListener('input', changed);
+    q('form').addEventListener('change', changed);
     function selectIntent(next) {
       intent = next;
       el.querySelectorAll('[data-intent]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.intent === intent)));
@@ -82,7 +103,7 @@
       q('.fv-request').required = intent === 'custom';
     }
     selectIntent(intent);
-    el.querySelectorAll('[data-intent]').forEach(b => b.onclick = () => selectIntent(b.dataset.intent));
+    el.querySelectorAll('[data-intent]').forEach(b => b.onclick = () => { selectIntent(b.dataset.intent); changed(); });
     function sourceMode() {
       const folder = q('input[value="folder"]').checked;
       q('.fv-folder-field').hidden = !folder; q('.fv-sample-field').hidden = folder;
@@ -105,8 +126,19 @@
       return roots;
     }
     q('.fv-refresh').onclick = () => refreshRoots().then(() => status('Approved folders refreshed.')).catch(e => status(e.message));
-    q('.fv-projects').onclick = () => ctx.onProjects ? ctx.onProjects() : status('Open Projects in the session rail to add or revoke an approved folder, then refresh here.');
-    q('.fv-model').onclick = () => ctx.onModelSetup ? ctx.onModelSetup() : status('Open CONNECT to configure your agent’s model, then return here.');
+    q('.fv-projects').onclick = () => { remember(); return ctx.onProjects ? ctx.onProjects() : status('Open Projects in the session rail to add or revoke an approved folder, then refresh here.'); };
+    q('.fv-model').onclick = () => { remember(); return ctx.onModelSetup ? ctx.onModelSetup() : status('Open CONNECT to configure your agent’s model, then return here.'); };
+    q('.fv-clear').onclick = () => {
+      q('.fv-request').value = ''; q('.fv-sample').value = ''; q('.fv-root').value = '';
+      q('input[value="sample"]').checked = true; q('input[value="folder"]').checked = false;
+      ctx.root = ''; delete ctx.findingId; delete ctx.reason; delete ctx.pain;
+      retain = false; sourceMode(); clearDraft();
+      const reason = q('.fv-reason'), painQuote = q('.fv-pain');
+      if (reason) reason.textContent = 'Choose a task and provide the source you want to use.';
+      if (painQuote) painQuote.hidden = true;
+      if (ctx.onClear) ctx.onClear();
+      status('Draft cleared.');
+    };
     q('form').onsubmit = async event => {
       event.preventDefault(); if (loading) return;
       const built = compose({ intent, request: q('.fv-request').value, sample: q('.fv-sample').value, source: q('input[value="folder"]').checked ? 'folder' : 'sample', root: q('.fv-root').value });
@@ -118,17 +150,19 @@
           if (!liveRoots.some(p => p.root === built.root)) throw new Error('That folder is no longer approved. Choose another source.');
         }
         if (!alive) return;
-        if (!ctx.onLaunch) throw new Error('The work launcher is unavailable. Reopen Work and try again.');
+        if (!ctx.onLaunch) throw new Error('The work launcher is unavailable. Reopen Recipes and try again.');
         const launched = await ctx.onLaunch(built.recipe, built.values, { source: built.source, root: built.root });
         if (launched !== true) throw new Error('The task did not start. Check the model connection and whether the agent is busy, then retry.');
-        status('Request sent. Follow the real run and review its result in Work.');
+        retain = false; clearDraft();
+        status('Request sent. Follow the run and review its result in COMMS.');
         if (ctx.onOpenWork) ctx.onOpenWork();
       } catch (e) { status(e.message || 'The task did not start. Your input is still here.'); }
       finally { loading = false; if (alive) q('.fv-run').disabled = false; }
     };
-    if (ctx.root) { q('input[value="sample"]').checked = false; q('input[value="folder"]').checked = true; sourceMode(); }
+    if (ctx.source === 'folder' || (ctx.root && ctx.source !== 'sample')) { q('input[value="sample"]').checked = false; q('input[value="folder"]').checked = true; sourceMode(); }
+    if (canResume) status('Your unsent draft has been restored.');
     refreshRoots().catch(e => { if (ctx.root) status(e.message); });
-    return { destroy() { alive = false; }, refresh: refreshRoots };
+    return { destroy() { remember(); alive = false; }, refresh: refreshRoots };
   }
-  return { TASKS, suggest, approvedProjects, compose, configure, open, mount };
+  return { TASKS, suggest, approvedProjects, compose, configure, open, mount, draftOptions, clearDraft };
 });

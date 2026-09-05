@@ -14,6 +14,7 @@
 const A = require('./_assert.js');
 const fs = require('fs');
 const path = require('path');
+const vm = require('node:vm');
 
 const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const station = read('frontend/app/windows/outbox.js');   // the OUTBOX window extracted from stationui.js (BUILDERS split)
@@ -50,7 +51,23 @@ A.ok(/api\/deliverables/.test(buildFn), 'files come from ONE fetch of the librar
 A.ok(/class="dlv-files"/.test(buildFn), 'files render with the library’s own markup (dlv-files — the two drawers share one look)');
 A.ok(/DLV\.handleOpenClick\(ev, dlvRows, openState/.test(buildFn), 'OPEN rides Deliverables.handleOpenClick (the one desktop-confirm/safe-preview seam)');
 A.ok(/d && d\.files\.length/.test(buildFn), 'a run the index doesn’t know shows NO files section (never invented)');
-A.ok(/openTerm\('deliverables'\)/.test(buildFn), 'the window carries a door into the library (one index, the rest are doors)');
+// The library door now navigates with a return route instead of stacking another window.
+// Invoke the actual empty-Outbox handlers; the invariant is the destination, not an opener's name.
+const navCalls = [], doorClicks = {};
+const emptyBody = {
+  innerHTML: '',
+  querySelector: selector => selector === '#ob-list' ? { innerHTML: '' } : {
+    addEventListener: (event, fn) => { doorClicks[selector] = fn; }
+  }
+};
+// This builder contains quoted regex literals; use its registration boundary rather
+// than fnBody's deliberately limited brace scanner.
+vm.runInNewContext(buildFn + '\nbuildOutbox(body);', {
+  body: emptyBody, ReturnStore: { pendingRows: () => [] }, H: { navigateWork: (...args) => navCalls.push(args) }
+});
+doorClicks['#ob-library'](); doorClicks['#ob-logbook']();
+A.eq(navCalls, [['outbox', 'deliverables'], ['outbox', 'logbook']],
+  'the library and run-history doors preserve their source for return navigation');
 A.ok(/class="consent-btn ob-open">↗ OPEN/.test(buildFn), 'action: ↗ OPEN (test it in the session)');
 A.ok(/class="consent-btn ob-fork">⊕ NEW SESSION/.test(buildFn), 'action: ⊕ NEW SESSION (expand on this)');
 A.ok(/closeOthers\(/.test(buildFn), 'accordion: opening a row closes the others');

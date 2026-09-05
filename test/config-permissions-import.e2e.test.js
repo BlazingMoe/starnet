@@ -32,6 +32,20 @@ const { SidecarFixture } = require('./helpers/sidecar-fixture.js');
     const reset = await fixture.json('POST', '/api/config/reset', { section: 'permissions' });
     A.eq(reset.status, 200, 'permission reset succeeds only after the empty allowlist is durable');
     A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'successful reset clears live authority');
+    const allowFile = path.join(fixture.workspace, 'permissions.allow.json');
+    A.eq(JSON.parse(fs.readFileSync(allowFile + '.bak', 'utf8')).allow, [], 'permission reset sanitizes the recovery copy too');
+    await fixture.stop();
+    fs.writeFileSync(allowFile, '{torn', 'utf8');
+    await fixture.start();
+    A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'corrupt-primary recovery cannot resurrect a reset grant');
+
+    A.eq((await fixture.json('POST', '/api/permissions/grant', { key: 'cabinet:write' })).status, 200, 'grant can be recreated for individual revoke proof');
+    A.eq((await fixture.json('POST', '/api/permissions/revoke', { key: 'cabinet:write' })).status, 200, 'individual permission revoke succeeds');
+    A.eq(JSON.parse(fs.readFileSync(allowFile + '.bak', 'utf8')).allow, [], 'individual revoke sanitizes the recovery copy');
+    await fixture.stop();
+    fs.writeFileSync(allowFile, '{torn-again', 'utf8');
+    await fixture.start();
+    A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'corrupt-primary recovery cannot resurrect an individually revoked grant');
     await fixture.restart();
     A.eq((await fixture.json('GET', '/api/permissions')).body.grants, [], 'successful reset stays revoked after restart');
   } finally {

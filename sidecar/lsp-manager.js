@@ -396,6 +396,7 @@ function makeLspManager(deps) {
     input = input || {};
     const ticket = { items: [], unavailable: [], unsupported: [], signal: input.signal || null };
     for (const file of input.files || []) {
+      if (input.signal && input.signal.aborted) throw Object.assign(new Error('diagnostic check aborted'), { name: 'AbortError' });
       const descriptor = descriptorFor(file.abs);
       if (!descriptor) { ticket.unsupported.push(String(file.rel || file.abs)); continue; }
       const got = getClient(descriptor, file.abs, file.base);

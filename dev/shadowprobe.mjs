@@ -28,6 +28,7 @@ import { sleep, launchChrome, connectCDP, evalJS } from '../scripts/lib/cdp.mjs'
 import { materializeSeedWorkspace, bootSeededSidecar, isUp, waitUp, waitDevReady } from '../scripts/lib/seed.mjs';
 
 const arg = (flag, dflt) => { const i = process.argv.indexOf(flag); return i > -1 ? process.argv[i + 1] : dflt; };
+const POOL_ONLY = process.argv.includes('--pool-only'); // isolate geometry from textured/zoomed live decks
 const PORT = arg('--port', '8939');
 const CDP_PORT = Number(arg('--cdp', '9339'));
 const OUT = arg('--out', join(process.cwd(), '.uishots-shadow'));
@@ -194,6 +195,7 @@ try {
   else if (!(m.offFloor.poolPx > 0)) fails.push('off-floor probe saw no pool even on a normal body — it is not testing anything');
   else if (m.offFloor.poolPxWhenFlagged !== 0) fails.push(`b.noShadow ignored: ${m.offFloor.poolPxWhenFlagged}px of pool under an off-floor body — the dossier portrait would grow a ground bar`);
 
+  if (!POOL_ONLY) {
   const cN = await evalJS(cdp, CONTRAST);
   if (cN && !cN.err) {
     console.log(`\nON THE LIVE DECK (hero ${cN.state} at ${cN.bodyPx}):`);
@@ -225,6 +227,8 @@ try {
     console.log(`\nhero ${loc0.name} (${loc0.state}) parked at world ${loc0.px},${loc0.py} · cam scale ${loc0.scale} · suppression=${offAck}`);
     console.log(`closeups (9x) -> shadow-closeup.png  vs  shadow-closeup-off.png  (in ${OUT})`);
   } else console.log('\nlocate failed: ' + JSON.stringify(loc0));
+
+  }
 
   if (fails.length) { code = 1; console.log('\nFAIL:'); fails.forEach(f => console.log('  - ' + f)); }
   else console.log('\nOK — every pool invariant holds.');

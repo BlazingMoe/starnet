@@ -147,6 +147,13 @@
     return rows;
   }
 
+  // Only host context or a durable host-created worker record supplies project scope.
+  // Tool arguments cannot choose a new filesystem root.
+  function projectOptions(ctx, record) {
+    const source = record && Object.prototype.hasOwnProperty.call(record, 'projectRoot') ? record : (ctx || {});
+    return { projectRoot: source.projectRoot || undefined, workdir: source.workdir || source.projectCwd || undefined };
+  }
+
   function makeOrchestrationTools(deps) {
     deps = deps || {};
     const runOnce = deps.runOnce;
@@ -183,8 +190,9 @@
     }
     function workerSystem(base) {
       const identity = String(base || '') + postureNote();
-      if (!taskContext) return identity;
-      return identity + '\n\n' + taskContext
+      const liveContext = typeof deps.getTaskContext==='function' ? String(deps.getTaskContext() || '') : taskContext;
+      if (!liveContext) return identity;
+      return identity + '\n\n' + liveContext
         + '\n\n[DELEGATED EXECUTION] Treat the task context above as settled input from the Commander. Do not ask the Commander another discovery question. If a truly blocking gap remains, report that gap to the lead agent.';
     }
     /* LEAD CONTEXT HANDOFF (G6 closure). A worker's opening message was ONLY the prompt string: whatever the
@@ -462,6 +470,7 @@
           noteSessionActivity('station.dispatch_start', job, workerRunId);
           try {
             result = await runOnce({
+              ...projectOptions(ctx),
               key: wire.key, provider: wire.provider, baseUrl: wire.baseUrl,
               // Class Loadouts S1: the WORKER runs at its OWN class-applied reasoning effort (roster record), not the
               // lead's — a dispatched specialist honors its loadout. Falls back to the lead's effort when unset.
@@ -512,6 +521,7 @@
             if (perWorker > 0 && remaining <= 0) return null;
             const repairRunId = newId();
             const repair = await runOnce({
+              ...projectOptions(ctx),
               key: wire.key, provider: wire.provider, baseUrl: wire.baseUrl,
               reasoningEffort: (job.ident && job.ident.reasoningEffort) || reasoningEffort,
               model: wire.model, system: workerSystem((job.ident && job.ident.system) || ''),
@@ -573,7 +583,7 @@
           if (!subagents || typeof subagents.start !== 'function') return { content: 'background subagents unavailable (no subagent manager)', summary: 'error' };
           const started = jobs.map(job => {
             if (job.error) return { agentId: job.agentId, reason: 'error', result: job.error };
-            return subagents.start({ leadId, agentId: job.agentId, prompt: job.prompt, context: job.context, runId: newId(), resultSchema: job.resultSchema }, async (h) => {
+            return subagents.start({ ...projectOptions(ctx), leadId, agentId: job.agentId, prompt: job.prompt, context: job.context, runId: newId(), resultSchema: job.resultSchema }, async (h) => {
               const r = await runWorker(job, { runId: h.runId, signal: h.signal, emit: h.emit, steer: h.steer });
               return { status: r.reason === 'done' ? 'done' : 'error', reason: r.reason, result: r.result, usd: r.usd || 0,
                 structuredResult: r.structuredResult, validation: r.validation, repairRunId: r.repairRunId, artifacts: r.artifacts };
@@ -717,6 +727,7 @@
             const contractedPrompt = openingMessage(prompt, task.context, task.resultSchema);
             try {
               result = await runOnce({
+              ...projectOptions(ctx),
                 key, provider, baseUrl, reasoningEffort, model,      // the lead's OWN model - a clone of self
                 system: workerSystem(selfSystem),           // the lead's OWN identity plus settled task context
                                                             // composes its own caps for its (narrowed) toolset
@@ -749,6 +760,7 @@
               if (perWorker > 0 && remaining <= 0) return null;
               const repairRunId = newId();
               const repair = await runOnce({
+              ...projectOptions(ctx),
                 key, provider, baseUrl, reasoningEffort, model, system: workerSystem(selfSystem),
                 messages: [{ role: 'user', content: contractedPrompt }, { role: 'assistant', content: firstText },
                   { role: 'user', content: '[STRUCTURED RESULT REPAIR] The prior result failed host validation:\n- ' + errors.slice(0, 20).join('\n- ') + '\nReturn ONLY strict JSON matching: ' + JSON.stringify(task.resultSchema) }],
@@ -778,7 +790,7 @@
             return { status: r.reason === 'done' ? 'done' : 'error', reason: r.reason, result: r.result, usd: r.usd,
               structuredResult: r.structuredResult, validation: r.validation, repairRunId: r.repairRunId, artifacts: r.artifacts };
           };
-          const view = subagents.start({ leadId, agentId: ephemeralId, prompt: prompt, context: task.context, runId: newId(), resultSchema: task.resultSchema }, runner);
+          const view = subagents.start({ ...projectOptions(ctx), leadId, agentId: ephemeralId, prompt: prompt, context: task.context, runId: newId(), resultSchema: task.resultSchema }, runner);
           return { label, view, done, started: true };
         };
 
@@ -896,6 +908,7 @@
         const contractedPrompt = openingMessage(rec.prompt || '', handoffContext(rec.context), rec.resultSchema);
         try {
           result = await runOnce({
+            ...projectOptions(ctx, rec),
             key: wire.key, provider: wire.provider, baseUrl: wire.baseUrl,
             reasoningEffort: (ident && ident.reasoningEffort) || reasoningEffort,   // Class Loadouts S1: worker's own class effort (see runWorker)
             model: wire.model,
@@ -923,6 +936,7 @@
           if (perWorker > 0 && remaining <= 0) return null;
           const repairRunId = newId();
           const repair = await runOnce({
+            ...projectOptions(ctx, rec),
             key: wire.key, provider: wire.provider, baseUrl: wire.baseUrl,
             reasoningEffort: (ident && ident.reasoningEffort) || reasoningEffort,
             model: wire.model, system: workerSystem((ident && ident.system) || ''),

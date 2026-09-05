@@ -38,7 +38,7 @@ function recorder() {
     strokeRect: noop, clearRect: noop,
     save: noop, restore: noop, beginPath: noop, closePath: noop, moveTo: noop, lineTo: noop,
     arc: noop, ellipse: noop, rect: noop, fill: noop, stroke: noop, clip: noop,
-    translate: noop, scale: noop, rotate: noop, fillText: noop, measureText: () => ({ width: 0 }),
+    translate: noop, scale: noop, rotate: noop, transform: noop, fillText: noop, measureText: () => ({ width: 0 }),
     createLinearGradient: () => ({ addColorStop: noop }),
     drawImage: noop, getImageData: () => ({ data: [] }), putImageData: noop,
   };
@@ -116,6 +116,38 @@ A.ok(checked >= 118, 'walked the whole catalog (' + checked + ' props)');
     if (a.x0 !== b.x0 || a.x1 !== b.x1) offenders.push(spec.id + ' shifted sideways when mounted');
   }
   A.eq(offenders, [], 'mounting lifts a prop by exactly SURFACE_RISE=8px and does not move it sideways');
+}
+
+/* Exercise the browser silhouette path too: repeated instances share geometry,
+   mounted/flat props do not cast a second deck shadow, and drawing resumes on
+   the caller's context after rendering a mask offscreen. */
+{
+  const previousCreate = document.createElement;
+  let allocations = 0;
+  document.createElement = () => {
+    allocations++;
+    const g = recorder();
+    return { width: 0, height: 0, getContext: () => g };
+  };
+  try {
+    const ctx = recorder(), images = [];
+    ctx.transform = () => {};
+    ctx.drawImage = (mask) => images.push(mask);
+    PS.setCtx(ctx);
+    const f = { t: 'desk', x: 3, y: 4, w: 2, h: 1 };
+    PS.drawShadow(f);
+    const firstAllocations = allocations;
+    PS.drawShadow({ ...f, x: 8, id: 'another-desk' });
+    A.ok(images.length === 2 && images.every(mask => mask === images[0]), 'instances reuse one raster containing both projected shadow layers');
+    A.eq(allocations, firstAllocations, 'cached shadow does not allocate another canvas per frame or instance');
+    const count = images.length;
+    PS.drawShadow(f, 'surface');
+    const flat = PS.CATALOG.find(c => c.flat);
+    PS.drawShadow({ t: flat.id, x: 0, y: 0, w: flat.w, h: flat.h });
+    A.eq(images.length, count, 'mounted items and flat decals do not project deck shadows');
+    PS.draw(f, false);
+    A.ok(ctx.rects.length >= MIN_RECTS || images.length > count, 'mask rendering restores the caller context for subsequent painted or cached sprites');
+  } finally { document.createElement = previousCreate; }
 }
 
 A.report('prop-render-smoke');

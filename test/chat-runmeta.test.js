@@ -27,7 +27,7 @@ A.ok(/\bisTask\b/.test(rec[1]), 'the ledger entry captures isTask (so a real tas
 A.ok(/\btitle\b/.test(rec[1]), 'the ledger entry captures the run title (so the right run can be named)');
 A.ok(/\brecipeId\b/.test(rec[1]), 'the ledger entry captures recipeId (the provenance spine: rateWork attributes the verdict to the launching recipe)');
 // the spine rides the wire too: launchRecipe passes recipeId into Chat.send, and harness.js puts it on the /api/run body.
-A.ok(/Chat\.send\(\s*text\s*,\s*\{[^}]*recipeId\s*:\s*recipe\.id/.test(appSrc), 'launchRecipe passes recipeId into Chat.send (spine start)');
+A.ok(/Chat\.send\(\s*text\s*,\s*\{[^}]*recipeId\s*:\s*source\s*&&\s*source\.direct\s*\?\s*undefined\s*:\s*recipe\.id/.test(appSrc), 'template launches pass recipeId; direct tasks carry no template attribution (behavior covered by direct-work-launch.test.js)');
 const harnessSrc = fs.readFileSync(path.join(__dirname, '../frontend/app/harness.js'), 'utf8');
 A.ok(/reqBody\.recipeId\s*=/.test(harnessSrc), 'harness.js forwards recipeId on the /api/run body (spine → durable run row)');
 A.ok(/RUN_META\.set\b/.test(src) && /onRunId/.test(src), 'the record sits on the onRunId path (recorded at run start, before run.end)');

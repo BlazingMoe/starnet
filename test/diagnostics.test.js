@@ -12,6 +12,20 @@ const { redact } = require('../sidecar/context.js');   // the real always-on sec
 
 const diag = makeDiagnostics({ redact });
 
+const paid = diag.assemble({ version: { buildSha: 'a'.repeat(40), buildDirty: false }, paidAccount: {
+  configured: true, fingerprint: '0123456789abcdef', link: 'saved', credential: 'file', auth: 'valid',
+  balanceUsd: 22, observedAt: 1720000000000, capturedAt: 1720000000100, balance: 'funded',
+  accountId: 'PRIVATE ACCOUNT', deviceToken: 'PRIVATE DEVICE TOKEN',
+  transition: { state: 'pairing_saved', at: 1720000000000 }
+} });
+A.ok(paid.text.includes('funded · $22.00'), 'paid receipt includes the measured balance');
+A.ok(paid.text.includes('0123456789abcdef'), 'support sees only a bounded account fingerprint');
+A.ok(!JSON.stringify(paid).includes('PRIVATE'), 'account identity and credential never enter the report');
+const unknownPaid = diag.assemble({ paidAccount: { balanceUsd: '0', credential: 'PRIVATE TOKEN', balance: 'PRIVATE PROMPT' } });
+A.eq(unknownPaid.report.paidAccount.balanceUsd, null, 'a malformed balance is never fabricated zero');
+A.eq(unknownPaid.report.paidAccount.balance, 'unknown', 'unknown balance classifications stay unknown');
+A.ok(!JSON.stringify(unknownPaid).includes('PRIVATE'), 'enum fields cannot smuggle secrets or prompt text');
+
 // ---- a battery of real-shaped secrets that must NEVER appear anywhere in the output ----
 const SECRETS = [
   'sk-or-v1-abcdef0123456789abcdef0123456789',            // OpenRouter key

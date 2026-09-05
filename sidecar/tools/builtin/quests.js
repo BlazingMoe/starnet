@@ -106,7 +106,7 @@
           const id = str(args.id);
           if (!id) return { content: 'Pass the quest id to start (from your STATION QUESTS list).', summary: 'noop' };
           if (!runId) return { content: 'Starting a run quest needs the current run. No live runId was available.', summary: 'noop' };
-          const mine = store.openForAgent(agentId).find(q => q.id === id);
+          const mine = store.openForAgent(agentId, now()).find(q => q.id === id);
           if (!mine) return { content: 'Quest ' + id + ' is not one of your open quests. Only quests listed for you can be started.', summary: 'not yours' };
           if (!mine.contract || mine.contract.type !== 'run') return { content: 'Quest ' + id + ' is not a run quest, so it cannot be bound to this run.', summary: 'wrong contract' };
           const ok = await store.bindRun(id, runId, agentId);
@@ -121,7 +121,7 @@
           if (!id) return { content: 'Pass the quest id to progress (from your STATION QUESTS list).', summary: 'noop' };
           if (!stepKey) return { content: 'Pass the stepKey of the step to tick.', summary: 'noop' };
           // AGENT SCOPING: only a quest OPEN FOR THIS agent (its own or station-wide) can be progressed here.
-          const mine = store.openForAgent(agentId).find(q => q.id === id);
+          const mine = store.openForAgent(agentId, now()).find(q => q.id === id);
           if (!mine) return { content: 'Quest ' + id + ' is not one of your open quests. Only work quests listed for you can be updated.', summary: 'not yours' };
           const ok = await store.tickStep(id, stepKey, args.note, now());
           if (!ok) return { content: 'No open step "' + stepKey + '" on ' + id + ' (it may not exist or already be done).', summary: 'no-op' };
@@ -145,7 +145,7 @@
           // without this gate any agent could file a completion proposal on ANOTHER agent's quest and put a
           // false "reports this quest complete" beat in front of the Commander. A station-wide (agentId:null)
           // quest stays attestable by any agent — shared by the store's design, exactly like progress.
-          const attestable = store.openForAgent(agentId).some(q => q.id === id);
+          const attestable = store.openForAgent(agentId, now()).some(q => q.id === id);
           if (!attestable) return { content: 'Quest ' + id + ' is not one of your open quests. Only quests listed for you can be attested.', summary: 'not yours' };
           const r = await store.attest(id, { agentId: agentId, runId: runId, evidence: evidence }, now());
           if (!r || r.ok === false) return { content: (r && r.error) ? r.error : 'could not attest ' + id, summary: 'rejected' };

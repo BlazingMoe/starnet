@@ -480,5 +480,22 @@ function fakeFetch(seed) {
     A.eq(c.snapshot().balanceUsd, null, 'and has no balance to warn about');
   }
 
+  {
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let now = 1000;
+    const c = makeCredits({ url: 'https://credits.example', accountId: 'acct', clock: { now: () => now },
+      fetch: async (url) => {
+        if (url.includes('/debit')) await held;
+        return { ok: true, json: async () => ({ balanceUsd: 22 }) };
+      } });
+    await c.refresh(); now = 2000;
+    A.eq(c.beginRun({ runId: 'display-hold', capUsd: 22 }).ok, true, 'funded admission reserves the wallet');
+    A.eq(c.snapshot().balanceUsd, 0, 'admission still accounts for the local hold');
+    A.eq(c.snapshot().observedBalanceUsd, 22, 'display retains the actual service observation, never an optimistic zero');
+    A.eq(c.snapshot().observedAt, 1000, 'local holds cannot forge a new observation timestamp');
+    release(); await flush();
+  }
+
   A.report('credits.test');
 })();

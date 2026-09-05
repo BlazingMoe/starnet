@@ -14,6 +14,8 @@
 'use strict';
 
 const World = (() => {
+  let shadowReceiverGeo = null, shadowReceiverPath = null;
+  let propShadowLayer = null;
   let T = 12;
 
   /* ---------- station + bake cache ---------- */
@@ -51,7 +53,7 @@ const World = (() => {
               margin. The cost is ~11% of edge content, never any change to the curvature.
      Both feed the GL path and the CPU LUT path IDENTICALLY — drawCurveGL's probe compares the two and defects
      to CPU on divergence, so they must never drift apart. */
-  const CRT = { scan: 0.43, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.35, grain: 0.24 };
+  const CRT = { scan: 0.38, pitch: 1, fade: 0.25, glow: 0.07, curve: 0.09, vig: 0.30, over: 1.20, dust: 0.5, aberr: 0.2, grain: 0.16, bloom: 0, emit: 0.6, mask: 0, bleed: 0, roll: 0 };   // 2026-09-03 'old TV' pass (Andrew: "90s Bandersnatch vibes"): pitch-2 lines, an RGB phosphor mask, colour bleed, more bow + vignette, a faint rolling sync bar. mask/bleed/roll = drawCRT   // bloom = phosphor bloom strength (drawBloom) · emit = prop light-source strength (drawPropLights)
   let _warpCv = null, _warpCtx = null;   // the barrel-warp snapshot buffer — see drawCurve()
   let _lut = null, _lutKey = '', _outImg = null;   // CPU per-pixel barrel-warp inverse-map LUT + output buffer — see buildLUT()/drawCurveCPU()
   let _gl = null, _glc = null, _glProg = null, _glTex = null, _glKLoc = null, _glAberrLoc = null, _glVigLoc = null, _glOverLoc = null, _glReady = false, _glFailed = false;   // GPU barrel-warp (WebGL) — see initGL()/drawCurveGL()
@@ -634,6 +636,9 @@ const World = (() => {
     if (geoDirty || !geo) rederive();
     if (!geo) return;
     cache = StationBake.bake(geo);
+    for (const d of cache.doorOccluders || []) {
+      if (d.image.addEventListener) d.image.addEventListener('contextlost', () => { bakeDirty = true; });
+    }
     bakeDirty = false;
     recordBakeProbe();
   }
@@ -5657,6 +5662,56 @@ const World = (() => {
 
   let linkStaleDim = false;   // E1: set once per frame — dims the live-telemetry draws when the SSE bridge is down
   let lastTtlSweepAt = 0;     // E2: throttle the paired-state TTL sweep to once per second (never per-frame)
+  // Conservative render-only culling. Keep a generous margin for raised bodies,
+  // labels and projected shadows; state and light-source collection still run.
+  function propOnScreen(p) {
+    const x=p.x*T,y=p.y*T,w=(p.w||1)*T,h=(p.h||1)*T,pad=64;
+    return (x+w+pad)*scale+panX>=0 && (x-pad)*scale+panX<=cv.width &&
+      (y+h+pad)*scale+panY>=0 && (y-pad)*scale+panY<=cv.height;
+  }
+
+  function paintPropShadows(g) {
+    g.save();
+    try {
+      g.setTransform(scale,0,0,scale,panX,panY);g.imageSmoothingEnabled=false;
+      if(typeof Path2D!=='undefined'&&geo&&geo.zoneGrid){
+        if(shadowReceiverGeo!==geo){
+          shadowReceiverGeo=geo;shadowReceiverPath=new Path2D();
+          for(let yy=0;yy<geo.ROWS;yy++)for(let xx=0;xx<geo.COLS;){
+            if(geo.zoneGrid[yy*geo.COLS+xx]==null){xx++;continue;}
+            const start=xx;while(xx<geo.COLS&&geo.zoneGrid[yy*geo.COLS+xx]!=null)xx++;
+            shadowReceiverPath.rect(start*T,yy*T,(xx-start)*T,T);
+          }
+        }
+        g.clip(shadowReceiverPath);
+      }
+      PropSprites.setCtx(g);
+      if(geo&&geo.props)for(const p of geo.props)if(propOnScreen(p))PropSprites.drawShadow(p,station&&station.mountOf?station.mountOf(p):null);
+      if(desk&&!deskPropId)PropSprites.drawShadow({t:'desk',x:desk.tx,y:desk.ty,w:desk.w,h:desk.h},null);
+    } finally {g.restore();PropSprites.setCtx(ctx);}
+  }
+
+  function drawPropShadows() {
+    if(typeof PropSprites==='undefined'||!PropSprites.drawShadow)return;
+    if(!propShadowLayer){
+      const image=document.createElement('canvas'),g=image.getContext('2d');
+      if(!g){paintPropShadows(ctx);return;}
+      propShadowLayer={image,g,stamp:null};
+      image.addEventListener('contextlost',()=>{propShadowLayer=null;},{once:true});
+    }
+    const layer=propShadowLayer;
+    // Screen-resolution cache: no second resampling of the shaped shadows.
+    // Camera movement, edits, rebakes and the synthetic desk invalidate it.
+    const stamp=[scale,panX,panY,cv.width,cv.height,deskPropId,desk&&desk.tx,desk&&desk.ty,desk&&desk.w,desk&&desk.h].join('|');
+    if(layer.stamp!==stamp||layer.geo!==geo||layer.bake!==cache){
+      if(layer.image.width!==cv.width||layer.image.height!==cv.height){layer.image.width=cv.width;layer.image.height=cv.height;}
+      layer.g.clearRect(0,0,cv.width,cv.height);paintPropShadows(layer.g);
+      layer.stamp=stamp;layer.geo=geo;layer.bake=cache;
+    }
+    ctx.save();
+    try{ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(layer.image,0,0);}finally{ctx.restore();}
+  }
+
   function frameBody(now) {
     const dt = Math.min(64, now - last); last = now; fnow = now;
     linkStaleDim = linkDown(now);   // recompute the honest link state before any telemetry is drawn this frame
@@ -5745,7 +5800,7 @@ const World = (() => {
       convey.drawBelts(ctx, now, T, geo.belts, beltLiveSet);
     }
 
-    const items = [], decals = [];   // decals = the flat floor pass, painted under every item (see isFlatProp)
+    const items = [], decals = [], propLights = [];   // decals = the flat floor pass, painted under every item (see isFlatProp) · propLights = this frame's emissive sources
     // placeable props (furniture) — drawn over the bake, y-sorted with agents, under the lightmap
     if (geo && geo.props && geo.props.length && typeof PropSprites !== 'undefined') {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
@@ -5804,7 +5859,8 @@ const World = (() => {
         // OCCUPIED BED: the base pass holds the quilt back so the sleeper can be drawn between the
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
         if (sleeper) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { sleeper: true });
-        items.push({ y: sy, draw: () => PropSprites.draw(dp, work, live) });
+        items.push({ y: sy, draw: () => { if (propOnScreen(dp)) PropSprites.draw(dp, work, live); } });
+        if (PropSprites.lightOf) { const lt = PropSprites.lightOf(dp, work, reduceMotion()); if (lt) propLights.push(lt); }   // this prop is a light SOURCE this frame — painted over the lightmap (drawPropLights)
         // SEAT-FRONT SLIVER: a stool/chair's pad front rim redraws just IN FRONT of its (lifted) sitter,
         // so the body's lap tucks INTO the pad — the couch trick, at single-seat scale. Sorted a hair
         // past the body's own key (sitter.seatPy) and well short of the next tile row.
@@ -5847,6 +5903,10 @@ const World = (() => {
         PropSprites.draw({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, work, live);
       } else F_desk(desk.tx * T, desk.ty * T, desk.w * T, desk.h * T, { x: desk.tx, work, heat: live ? live.heat : 0, prog: live ? live.prog : null });
     } });
+    if (desk && !deskPropId && typeof PropSprites !== 'undefined' && PropSprites.lightOf) {   // the auto-desk's CRT lights the deck while the hero works, like any placed workstation
+      const lt = PropSprites.lightOf({ t: 'desk', x: desk.tx, y: desk.ty, w: desk.w, h: desk.h }, !!(agent && agent.working), reduceMotion());
+      if (lt) propLights.push(lt);
+    }
     if (seat && !deskPropId) items.push({ y: (seat.ty + 1) * T, draw: () => drawSeatChair(seat.tx, seat.ty, seat.cx) });
   // a PLACED hero desk's chair is drawn by the workstation loop above; draw here only for the synthetic auto-desk
     /* a body dormant IN a bed sorts INSIDE its bed — after the frame + pillow, before the quilt — which
@@ -5859,12 +5919,24 @@ const World = (() => {
     };
     if (agent && !agent.unplaced) items.push(bodyItem(agent, rposY()));
     for (const b of crew) items.push(bodyItem(b, (b.seated ? b.seatPy : b.py)));   // the other agents, at their bays (seated → sort by the cushion pos like the hero's rposY, so a couch-lounging crew body tucks just behind the back-facing couch panel, head over the cap)
+    // A raised doorway stands in front of a body until its feet clear the wall.
+    // Use the baked surfaces in the same depth order as props and agents; leaving
+    // them only in baseCv made every body paint through the solid jambs.
+    for (const d of cache.doorOccluders || []) {
+      if ((d.x + d.w) * scale + panX < 0 || d.x * scale + panX > cv.width ||
+          (d.y + d.h) * scale + panY < 0 || d.y * scale + panY > cv.height) continue;
+      items.push({ y: d.sortY, draw: () => ctx.drawImage(d.image, d.x, d.y) });
+    }
     // THE FLOOR PASS — every decal, in doc order, before anything that stands on the deck. This is what
     // lets a body walk across a rug: the rug is already down when the sorted items paint over it.
     if (decals.length && typeof PropSprites !== 'undefined') {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
-      for (const p of decals) PropSprites.draw(p, false);
+      for (const p of decals) if (propOnScreen(p)) PropSprites.draw(p, false);
     }
+    /* THE SHADOW PASS — every standing prop's cast shadow, on the deck (over the rugs), before any item
+       paints. One pass rather than per-item so a shadow can never land on a neighbour's body: the props
+       and bodies are y-sorted and paint OVER this. The synthetic auto-desk casts one too. */
+    drawPropShadows();
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
     if (convey) convey.drawBoxes(ctx, now, T);   // boxes ride on top of the belts
@@ -5873,8 +5945,15 @@ const World = (() => {
     drawQueueJam(now);   // the live backlog as a physical jam of waiting crates at the INTAKE (world-space, under the lightmap)
     drawShippedPallet(now);   // SHIPPED TODAY: completed jobs stack as product crates at the OUTBOX (server-truth count)
 
+    drawOverhead(now);   // the deckhead: pendant fixtures hanging over the room, above everything that walks under them
     ctx.drawImage(cache.lightCv, 0, 0);
-    drawGlows(now);
+    ctx.save();
+    try {
+      clipInteriorLight();
+      drawGlows(now);
+      drawPropLights(now, propLights);   // the props that are light SOURCES put their colour on the deck and on whoever stands near (world-space, additive)
+    } finally { ctx.restore(); }
+    drawNavLights(now);   // small running lights on validated exterior armour mounts
     drawDust(now);   // Slice 3: tiny motes drifting through the light pools (world-space, additive, over the glows)
     drawDeskFlashes(now);   // G0.4/G0.8: red distress strobe over a desk whose run just died (additive, with the glows)
     drawAwakenLight(now);   // the soul kindling: ignition spark + a growing halo + motes (world-space additive, awakening only)
@@ -5917,6 +5996,7 @@ const World = (() => {
     // widget consumer keeps honest numbers — only the floating canvas readout is gone.
     if (linkStaleDim) drawLinkDown(now);   // E1: honest "the live telemetry is not live" marker in the chrome
     // (station growth headline now lives in the top bar's STATION chip — see xpstore.pushTopbar)
+    drawBloom(now); // phosphor bloom: the bright things in the frame haze outward (screen-space, before the warp so it bows with the picture)
     drawCurve(now); // barrel-warp the whole feed IN-CANVAS — the original (dot-matrix-era) curve, no dots
     drawCRT(now);   // scanlines + fade, painted in-canvas at device-px OVER the warped feed (no moiré)
     paintStageHeartbeat();   // the frame's last act: the one opaque pixel a dead stage context cannot fake (see watchStageLoss)
@@ -5956,10 +6036,44 @@ const World = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     const dpr = window.devicePixelRatio || 1;
     const W = cv.width, H = cv.height;
+    /* COLOUR BLEED — the beam does not stop at a pixel edge; every bright edge smears a hair to the right.
+       The frame is drawn over itself shifted one device pixel, additively at a low alpha. One full-frame
+       draw (GPU-trivial), before the lines so they cut it too. CRT.bleed = strength (0 = off). */
+    if (CRT.bleed > 0.001) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, CRT.bleed);
+      ctx.drawImage(cv, Math.max(1, Math.round(dpr)), 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
     if (CRT.scan > 0) {                               // soft neutral scanlines, drawn straight on top of the feed
       ctx.globalCompositeOperation = 'source-over';
       const sc = scanCanvas(CRT.scan, CRT.pitch, dpr);
       ctx.fillStyle = ctx.createPattern(sc, 'repeat'); ctx.fillRect(0, 0, W, H);
+    }
+    /* PHOSPHOR MASK — the aperture grille. A real tube is three phosphor stripes per triad, and the eye reads
+       that fine vertical RGB rhythm as "a screen" even when it cannot resolve it. A 3px-wide tile (R, G, B
+       columns at a low multiply) laid over the whole feed; at 4K it tightens to the device pixel like the
+       scanlines do. CRT.mask scales it (0 = off). */
+    if (CRT.mask > 0.001) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = Math.min(1, CRT.mask);
+      ctx.fillStyle = ctx.createPattern(maskCanvas(dpr), 'repeat'); ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    /* THE ROLL BAR — the faint bright band that drifts down an old set every so often (a vertical-hold
+       hiccup). One soft horizontal gradient, additive, sweeping the frame over ~2.6s then absent for ~14s;
+       phase is derived from the clock so it needs no state. Steady under reduced motion. CRT.roll = strength. */
+    if (CRT.roll > 0.001 && !reduceMotion()) {
+      const PER = 16800, SWEEP = 2600, t = now % PER;
+      if (t < SWEEP) {
+        const y = (t / SWEEP) * (H + 80) - 40, hh = 34 * dpr;
+        const g = ctx.createLinearGradient(0, y - hh, 0, y + hh);
+        const a = (CRT.roll * 0.35).toFixed(3);
+        g.addColorStop(0, 'rgba(255,250,240,0)'); g.addColorStop(0.5, 'rgba(255,250,240,' + a + ')'); g.addColorStop(1, 'rgba(255,250,240,0)');
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = g; ctx.fillRect(0, y - hh, W, hh * 2);
+      }
     }
     if (CRT.fade > 0) {                               // soft faded matte (cool-neutral, no yellow) — CRT.fade
       ctx.globalCompositeOperation = 'lighter';
@@ -5971,7 +6085,7 @@ const World = (() => {
       // ONCE and only its pattern offset changes each frame (a whole-number jitter derived from `now`,
       // quantized to ~15fps so it reads as phosphor noise, not smooth scrolling texture).
       const fi = Math.floor(now / 66);
-      const jx = (fi * 53) % 128, jy = (fi * 97) % 128;
+      const jx = (fi * 53) % GRAIN_S, jy = (fi * 97) % GRAIN_S;
       ctx.globalCompositeOperation = 'overlay';
       ctx.globalAlpha = Math.min(0.25, CRT.grain);
       ctx.translate(jx, jy);
@@ -5982,15 +6096,33 @@ const World = (() => {
     }
     ctx.globalCompositeOperation = 'source-over';
   }
-  // Cached 128px mid-gray noise tile for the film grain — built once, reused forever (only the
-  // draw offset animates). Mid-gray (128) is the 'overlay' neutral, so ±spread is pure texture.
+  /* Cached mid-gray noise tile for the film grain — built once, reused forever (only the draw
+     offset animates). Mid-gray (128) is the 'overlay' neutral, so ±spread is pure texture.
+     2026-09-02: 128 -> 256px tile (the 128 repeat was readable as a tartan on a still frame at
+     zoom 2), and the noise went from UNIFORM ±55 to a TRIANGULAR ±64 (sum of two rands). Film
+     grain clusters around zero with rare strong specks; a flat uniform distribution puts the
+     same energy in every pixel, which on a dark deck reads as sand, not grain — the "digital
+     dirt" in every pre-09-02 crop. Same mean, lower variance per pixel, longer tail. */
+  const GRAIN_S = 256;
+  // the aperture-grille tile: R, G, B columns, each one device px wide, at mid-grey so 'multiply' only tints
+  let _maskCv = null, _maskKey = '';
+  function maskCanvas(dpr) {
+    const u = Math.max(1, Math.round(dpr)), key = 'm' + u;
+    if (_maskCv && _maskKey === key) return _maskCv;
+    const c = document.createElement('canvas'); c.width = 3 * u; c.height = 1;
+    const g = c.getContext('2d');
+    const cols = ['#ff9a9a', '#9aff9a', '#9a9aff'];
+    for (let i = 0; i < 3; i++) { g.fillStyle = cols[i]; g.fillRect(i * u, 0, u, 1); }
+    _maskCv = c; _maskKey = key;
+    return c;
+  }
   function grainPattern() {
     if (_grainPat) return _grainPat;
-    const S = 128;
+    const S = GRAIN_S;
     _grainCv = document.createElement('canvas'); _grainCv.width = S; _grainCv.height = S;
     const gctx = _grainCv.getContext('2d'), id = gctx.createImageData(S, S);
     for (let i = 0; i < S * S; i++) {
-      const v = 128 + Math.round((Math.random() - 0.5) * 110);
+      const v = 128 + Math.round((Math.random() + Math.random() - 1) * 64);
       id.data[i * 4] = v; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v; id.data[i * 4 + 3] = 255;
     }
     gctx.putImageData(id, 0, 0);
@@ -6197,15 +6329,155 @@ const World = (() => {
     ctx.restore();
   }
 
+  function clipInteriorLight() {
+    if (cache && cache.interiorPath) ctx.clip(cache.interiorPath);
+  }
+
   function drawGlows(now) {
     if (!cache || !cache.flickers) return;
     ctx.globalCompositeOperation = 'lighter';
     for (const f of cache.flickers) {
       const a = Math.max(0, CRT.glow * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
       const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
-      g.addColorStop(0, 'rgba(238,218,184,' + a + ')'); g.addColorStop(1, 'rgba(238,218,184,0)');
+      const rgb = f.rgb || '238,218,184';   // the room's fixture temperature (StationBake.lampRgbOf); tungsten 'rgba(238,218,184' is the hab default
+      g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
       ctx.fillStyle = g; ctx.fillRect(f.x - f.r * 0.7, f.y - f.r * 0.7, f.r * 1.4, f.r * 1.4);
     }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- PROP LIGHT SOURCES (world overhaul, 2026-09-03) ----
+     The baked lightmap knows only the ceiling fixtures. A lit screen, a plasma core, a kiln or a desk lamp
+     is a light source too, and PropSprites.lightOf says what each emits this frame (colour, reach, strength,
+     flicker). Painted ADDITIVELY over the lightmap, so the deck under a screen takes its phosphor, a body at a
+     lamp takes its warmth, and the source itself glows — the same 'lighter' pass the lamp shimmer uses.
+     One radial gradient per source, cached by (position, radius, colour): the gradient never changes, only
+     the alpha it is painted at, so a busy station costs one fillRect per source per frame and no allocation.
+     CRT.emit scales the whole pass (0 = off = the pre-overhaul deck). */
+  const _emitGrad = new Map();
+  function drawPropLights(now, lights) {
+    const k = +CRT.emit;
+    if (!lights || !lights.length || !(k > 0.001)) return;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const l of lights) {
+      const key = l.x + ',' + l.y + ',' + l.r + ',' + l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+      let g = _emitGrad.get(key);
+      if (!g) {
+        if (_emitGrad.size > 600) _emitGrad.clear();   // a station is rebuilt, not grown, past this — never let the cache grow unbounded
+        g = ctx.createRadialGradient(l.x, l.y, 1, l.x, l.y, l.r);
+        const rgb = l.c[0] + ',' + l.c[1] + ',' + l.c[2];
+        g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(0.3, 'rgba(' + rgb + ',0.55)');
+        g.addColorStop(0.65, 'rgba(' + rgb + ',0.18)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+        _emitGrad.set(key, g);
+      }
+      ctx.globalAlpha = Math.max(0, Math.min(1, l.a * k));
+      ctx.fillStyle = g; ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* ---- THE DECKHEAD (depth pass, 2026-09-03) ----
+     Nothing ever hung ABOVE the floor: every lamp past a room's north wall was a pool of light with no
+     fixture, and a top-down room with nothing between the camera and the deck reads as a tray. Each hanging
+     fixture the bake laid (lamps with `hang`) gets a pendant: a stem, a shade, and the filament in the
+     room's own lamp colour — drawn OVER props and bodies, since it is above them, and UNDER the lightmap so
+     it takes the room's ambient like everything else (its filament is re-lit by the shimmer). The wall-
+     mounted first row keeps the flood the bake already paints. Deterministic, ~5 fills per fixture. */
+  function drawOverhead(now) {
+    if (!cache || !cache.lamps || !cache.lamps.length) return;
+    for (const l of cache.lamps) {
+      if (!l.hang) continue;
+      const x = Math.round(l.x), y = Math.round(l.y) - 6;   // the shade sits a little north of the pool centre (the fixture is above it)
+      ctx.fillStyle = '#14161c'; ctx.fillRect(x, y - 9, 1, 6);                 // stem
+      ctx.fillStyle = '#23262e'; ctx.fillRect(x - 4, y - 3, 9, 2);              // shade, top course
+      ctx.fillStyle = '#31353f'; ctx.fillRect(x - 5, y - 1, 11, 2);             // shade, flared lip
+      ctx.fillStyle = '#0d0e12'; ctx.fillRect(x - 5, y + 1, 11, 1);             // the dark underside
+      const rgb = l.rgb || '252,224,172';
+      ctx.fillStyle = 'rgba(' + rgb + ',0.95)'; ctx.fillRect(x - 2, y + 1, 5, 1);   // the filament / tube, seen edge-on
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(' + rgb + ',0.22)'; ctx.fillRect(x - 4, y, 9, 3);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  /* Hull beacons use bake-validated mount points on the exterior skirt.
+     Placement and housing are static; only a small lens changes intensity. */
+  function drawNavLights(now) {
+    if (!cache || !cache.navLights || !cache.navLights.length) return;
+    const still = reduceMotion();
+    ctx.save();
+    try {
+      for (const l of cache.navLights) {
+        const x=l.x,y=l.y;
+        ctx.globalCompositeOperation='source-over';
+        ctx.fillStyle='#0b1119';ctx.fillRect(x-2,y-2,5,5);
+        ctx.fillStyle='#26333f';ctx.fillRect(x-1,y-2,3,1);
+        ctx.fillStyle='#101924';ctx.fillRect(x-2,y-1,1,3);
+        const t=still?0.5:((now/(l.red?1400:2200)+l.phase)%1);
+        const on=still?0.55:(t<0.14?1:t<0.34?1-0.7*(t-0.14)/0.2:0.3);
+        const c=l.red?'255,70,60':'255,190,90';
+        ctx.globalCompositeOperation='lighter';
+        ctx.fillStyle='rgba('+c+','+(0.10*on).toFixed(3)+')';ctx.fillRect(x-1,y-1,3,3);
+        ctx.fillStyle='rgba('+c+','+(0.9*on).toFixed(3)+')';ctx.fillRect(x,y,2,2);
+      }
+    } finally {ctx.restore();}
+  }
+
+  /* ---- PHOSPHOR BLOOM (world overhaul, 2026-09-03) ----
+     A CRT's bright pixels bleed into their neighbours; ours stopped dead at the pixel edge, which is the
+     single biggest reason the feed read as "a canvas" rather than "a tube". This is a soft-threshold bloom
+     done entirely with canvas compositing — no readback, no shader, nothing per-pixel on the CPU:
+       1. the frame is drawn DOWN to 1/4 size (smoothing on: that is the first blur tap);
+       2. the small copy is multiplied by itself twice, v → v⁴, which is a soft threshold — a lit deck at
+          0.4 falls to 0.03 and vanishes, a screen at 0.9 keeps 0.66;
+       3. it is blurred by scaling — down to 1/3 and back up with bilinear smoothing, twice. That is a
+          box blur by other means, and it is a plain resample the GPU (and even SwiftShader) does for
+          nothing; canvas `filter: blur()` was measured at +3 ms a frame on the software GL of headless
+          Chrome and WKWebView does not ship it at all;
+       4. it is added back over the frame at CRT.bloom, upscaled with smoothing so it is a haze, not blocks.
+     Runs BEFORE the barrel warp so the bloom bows with the picture and the scanlines then sit over both.
+     THE HAZE IS EXTRACTED EVERY OTHER FRAME and the composite reuses it in between — at 1/5 resolution a
+     one-frame-stale bloom is invisible, and it halves the pass's cost. The only full-frame read is the
+     first downscale. Never reads pixels back (the frame-loop getImageData law). */
+  let _blA = null, _blB = null, _blCtxA = null, _blCtxB = null, _blFrame = 0, _blFresh = false;
+  function drawBloom(now) {
+    const k = +CRT.bloom;
+    if (!cv || !(k > 0.001) || document.body.classList.contains('no-scan')) return;
+    const W = cv.width, H = cv.height;
+    if (W < 16 || H < 16) return;
+    const S = 5, bw = Math.max(3, Math.ceil(W / S)), bh = Math.max(3, Math.ceil(H / S));
+    if (!_blA || _blA.width !== bw || _blA.height !== bh) {
+      _blA = document.createElement('canvas'); _blA.width = bw; _blA.height = bh; _blCtxA = _blA.getContext('2d');
+      _blB = document.createElement('canvas'); _blB.width = bw; _blB.height = bh; _blCtxB = _blB.getContext('2d');
+      if (!_blCtxA || !_blCtxB) { _blA = null; return; }
+      _blFresh = false;
+    }
+    const A = _blCtxA, B = _blCtxB;
+    if (!_blFresh || (_blFrame++ & 1) === 0) {
+      A.setTransform(1, 0, 0, 1, 0, 0); A.globalCompositeOperation = 'source-over'; A.globalAlpha = 1; A.imageSmoothingEnabled = true;
+      A.clearRect(0, 0, bw, bh);
+      A.drawImage(cv, 0, 0, W, H, 0, 0, bw, bh);
+      A.globalCompositeOperation = 'multiply';
+      A.drawImage(_blA, 0, 0); A.drawImage(_blA, 0, 0);   // v → v² → v⁴: the soft threshold
+      A.globalCompositeOperation = 'source-over';
+      B.setTransform(1, 0, 0, 1, 0, 0); B.globalCompositeOperation = 'source-over'; B.globalAlpha = 1; B.imageSmoothingEnabled = true;
+      const qw = Math.max(1, Math.ceil(bw / 3)), qh = Math.max(1, Math.ceil(bh / 3));
+      for (let i = 0; i < 2; i++) {                        // two down/up rounds ≈ a 9px blur at full size
+        B.clearRect(0, 0, qw, qh);
+        B.drawImage(_blA, 0, 0, bw, bh, 0, 0, qw, qh);
+        A.clearRect(0, 0, bw, bh);
+        A.drawImage(_blB, 0, 0, qw, qh, 0, 0, bw, bh);
+      }
+      _blFresh = true;
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, k);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(_blA, 0, 0, bw, bh, 0, 0, W, H);
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
 
@@ -7427,6 +7699,7 @@ const World = (() => {
   function apiBase() { return (typeof window !== 'undefined' && window.__STARNET_API__) ? window.__STARNET_API__ : ''; }
   function apiUrl(path) { return apiBase() + path; }
   let chanES = null, connPollTimer = null, connPollFn = null, connOpenFn = null, bridgePaused = false;
+  let bridgeCursor = '', bridgeRecovering = false;
   let spotifyPollTimer = null, spotifyPollFn = null;   // JUKEBOX dead-vs-live poll (shares the bridge pause/resume lifecycle)
   // LINK-DOWN HONESTY (Lane E1): the live station telemetry (queue gauges, run clocks) is only truthful while
   // the SSE bridge is actually delivering events. Track the last DATA event's wall-clock and the socket's
@@ -7444,6 +7717,7 @@ const World = (() => {
   function linkDown(now) {
     if (bridgePaused) return false;                                   // deliberately disconnected — not a fault
     if (!bridged) return false;                                       // bridge never set up yet (pre-entry)
+    if (bridgeRecovering) return true;                                // bytes alone do not prove recovered state
     const open = !!(chanES && typeof EventSource !== 'undefined' && chanES.readyState === EventSource.OPEN);
     if (!open) return true;                                           // socket missing / connecting / closed → down
     if (lastSseEventAt && (now - lastSseEventAt) > LINK_STALE_MS) return true;   // half-open: bytes stopped flowing
@@ -8729,11 +9003,34 @@ const World = (() => {
         // EventSource can't send the custom auth header, so pass the per-launch token as ?token=… and
         // prefix the sidecar base in the desktop build (where the page origin isn't the loopback http origin).
         const _tok = (typeof window !== 'undefined' && window.__STARNET_API_TOKEN__) ? encodeURIComponent(String(window.__STARNET_API_TOKEN__)) : '';
-        chanES = new EventSource(apiUrl('/api/channels/events') + (_tok ? ('?token=' + _tok) : ''));
+        chanES = new EventSource(apiUrl('/api/channels/events') + '?cursor=' + encodeURIComponent(bridgeCursor) + (_tok ? ('&token=' + _tok) : ''));
       } catch (_) { return; }
-      chanES.onopen = () => { backoff = 1000; lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; fetchSnapshot(); };
-      chanES.onmessage = ev => { lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; try { const m = JSON.parse(ev.data); if (m && m.name) U.bus.emit(m.name, m.payload); } catch (_) {} };
-      chanES.onerror = () => { try { chanES.close(); } catch (_) {} chanES = null; if (bridgePaused) return; if (retryTimer) { try { clearTimeout(retryTimer); } catch (_) {} } retryTimer = setTimeout(() => { retryTimer = null; open(); }, backoff); backoff = Math.min(15000, backoff * 2); };
+      const source = chanES;
+      bridgeRecovering = true;
+      source.onopen = () => { if (chanES !== source) return; backoff = 1000; lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; };
+      source.onmessage = ev => {
+        if (chanES !== source || bridgePaused) return;
+        lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow;
+        try {
+          const m = JSON.parse(ev.data);
+          if (m && m.stream === 'ready') {
+            bridgeCursor = String(m.cursor || '');
+            // Snapshot reconciliation is also needed after a complete replay: it repairs any
+            // pre-existing local drift without pretending an expired history was delivered.
+            fetchSnapshot();
+            return;
+          }
+          if (m && m.name) {
+            const id = String(ev.lastEventId || '');
+            const split = id.lastIndexOf(':'), prior = bridgeCursor.lastIndexOf(':');
+            if (id && split > 0 && prior > 0 && id.slice(0, split) === bridgeCursor.slice(0, prior)
+              && Number(id.slice(split + 1)) <= Number(bridgeCursor.slice(prior + 1))) return;
+            U.bus.emit(m.name, m.payload);
+            if (id) bridgeCursor = id;
+          }
+        } catch (_) {}
+      };
+      source.onerror = () => { if (chanES !== source) return; try { source.close(); } catch (_) {} chanES = null; bridgeRecovering = true; if (bridgePaused) return; if (retryTimer) { try { clearTimeout(retryTimer); } catch (_) {} } retryTimer = setTimeout(() => { retryTimer = null; open(); }, backoff); backoff = Math.min(15000, backoff * 2); };
     };
     connOpenFn = open;
     open();
@@ -8750,10 +9047,11 @@ const World = (() => {
      the auth header for /api/ URLs, matching every other frontend fetch. */
   function fetchSnapshot() {
     if (typeof fetch === 'undefined') return;
+    const source = chanES;
     try {
       fetch(apiUrl('/api/state/snapshot'), { cache: 'no-store' })
         .then(r => { if (!r.ok) return null; return r.json(); })
-        .then(snap => { if (snap) { try { reconcileFromSnapshot(snap); } catch (_) {} } })
+        .then(snap => { if (snap && source === chanES && !bridgePaused) { try { reconcileFromSnapshot(snap); bridgeRecovering = false; } catch (_) {} } })
         .catch(() => {});   // endpoint absent / offline: TTL net covers it
     } catch (_) {}
   }

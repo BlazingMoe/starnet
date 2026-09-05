@@ -406,6 +406,12 @@ const Chat = (() => {
   async function recoverSafeRun(ws, announce) {
     if (!ws || !ws.id || Channels.isBusy(ws.id) || typeof Harness === 'undefined'
       || !Harness.runRecoveries || !Harness.prepareAutomaticRecovery) return 'deferred';
+    try {
+      const r = await fetch('/api/task-briefs?key=' + encodeURIComponent('stream:' + ws.id) + '&limit=1', {cache:'no-store'});
+      if (!r.ok) return 'unavailable';
+      const j = await r.json(), brief = j && j.briefs && j.briefs[0];
+      if (brief && brief.status === 'clarifying' && brief.questions.some(q => !q.answer)) return 'deferred';
+    } catch (_) { return 'unavailable'; }
     let rows;
     try { rows = await Harness.runRecoveries(); } catch (_) { return 'unavailable'; }
     const owned = rows.filter(r => r && r.streamId === ws.id && r.agentId === (ws.agentId || 'agent'))
@@ -796,6 +802,15 @@ const Chat = (() => {
       return;
     }
     if (t) recordSent(t);
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      const ws = activeWs;
+      if (hasStaged) await settleAttachments();
+      if (activeWs?.id !== ws.id) return;
+      const atts = pendingAtts.filter(entry => entry.status === 'ready' && entry.ref).map(entry => entry.ref);
+      const sent = await GroupChat.sendText(t, { attachments: atts, attachmentAgent: ws.agentId });
+      if (sent && activeWs?.id === ws.id) { takeAttachments(); if (input.value.trim() === t) input.value = ''; closeSlash(); autoGrowInput(); }
+      return;
+    }
     // BUSY: type-ahead queues TEXT; staged files wait in the strip for the next idle send (one run per stream).
     if (isBusy()) { if (t) { input.value = ''; closeSlash(); autoGrowInput(); enqueue(t); } return; }
     // SETTLE UPLOADS: a staged attachment still uploading must not be silently dropped — uploads to the local
@@ -1071,6 +1086,7 @@ const Chat = (() => {
     else if (modelEl) { modelEl.classList.remove('comms-agent-warn'); renderIdBar(); }
   }
   function renderIdBar() {
+    if (typeof GroupChat !== 'undefined') GroupChat.bind(activeWs);
     const sel = el('comms-agent-select'); const modelEl = el('comms-agent-model'); const bar = el('comms-idbar');
     if (!sel) return;
     // an active roster-out-of-sync notice wins the model slot: don't overwrite the honest state with a stale
@@ -1093,6 +1109,8 @@ const Chat = (() => {
       if (activeId != null) sel.value = activeId;
     }
     const cur = list.find(a => a.id === activeId) || null;
+    const portrait = el('comms-agent-portrait');
+    if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(portrait, cur);
     // "pin:" prefix so this per-agent PINNED model readout can't be misread as the dock's active-model chip.
     // DEDUPE (2026-07-27): the composer's dock chip already names the active model a few rows below. When an
     // agent's pin resolves to that SAME model, spelling the name twice in one panel adds nothing — collapse to
@@ -1195,10 +1213,20 @@ const Chat = (() => {
 
   // swap the rendered conversation to a workstream (its history). Used on enter/resume and when the
   // Commander clicks another stream in the rail — re-renders without re-wiring the input row.
+  function loadGroupConversation(ws) {
+    GroupChat.bind(ws);
+    clearNudge(); clearChoices();
+    if (typeof Channels !== 'undefined') Channels.setComposeTarget(ws.id);
+    updateControls(); autoGrowInput();
+  }
   function load(ws) {
     const historyPin = ++historyPinSeq;
     historyPinPending = historyPin;
     activeWs = ws || (typeof Workstreams !== 'undefined' ? Workstreams.active() : null);
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      loadGroupConversation(activeWs);
+      return; // Group history/recovery is backend-owned; never auto-resume it through the direct-run path.
+    }
     // SPEAKER IDENTITY: re-resolve `name` (the reply-chip + agent-beat speaker, else stuck at init's hero) from the
     // displayed stream's agent, so switching agents relabels replies. Guard: an unknown id keeps the current name.
     if (activeWs && typeof App !== 'undefined' && App.agentName) { const nm = App.agentName(activeWs.agentId || 'agent'); if (nm) name = nm; }
@@ -1211,6 +1239,11 @@ const Chat = (() => {
     stick = true; hideNewPill();   // a freshly-loaded / switched-to stream starts pinned to its latest line
     renderHistory();
     restoreTaskQuestion(activeWs);   // restart/switch continuity: re-present a real still-unanswered durable brief
+    if (activeWs && !taskQuestionLive() && typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(activeWs.id)) {
+      const h = Workstreams.connectorHandoff(activeWs.id);
+      const door = Friendly.connectorDoor(h);
+      if (door) choices([{ label: '⇄ CONNECT / CONTINUE TASK', value: 'connect' }], () => door.run());
+    }
     replayChannel();   // re-render an in-flight stream we left running: tool lines / partial reply / pending approval
     syncStatus();      // also paints the Stop control + this stream's queued pills (updateControls)
     maybeEmptyState();   // brand-new / empty + idle stream → a one-line hint instead of a blank void
@@ -1249,7 +1282,7 @@ const Chat = (() => {
       if (!activeWs || activeWs.id !== id || isBusy()) return;
       const b = j && Array.isArray(j.briefs) && j.briefs[0];
       const q = b && Array.isArray(b.questions) && b.questions[b.questions.length - 1];
-      if (q && !q.answer && Array.isArray(q.options) && q.options.length >= 2) offerTaskQuestion({ question: q.text, options: q.options, recommended: q.recommended || '', reason: q.reason || '', grounded: (j && j.grounded) || null });
+      if (q && !q.answer && Array.isArray(q.options) && (q.options.length >= 2 || q.mode==='conversation')) offerTaskQuestion({ question: q.text, options: q.options, mode:q.mode, sample:q.sample, context:b.context, recommended: q.recommended || '', reason: q.reason || '', grounded: (j && j.grounded) || null });
     } catch (_) { /* a missing/offline sidecar leaves history readable; the next load retries */ }
   }
 
@@ -1416,7 +1449,10 @@ const Chat = (() => {
     capHistory(ws);
     return true;
   }
-  function isBusy() { return !!(activeWs && typeof Channels !== 'undefined' && Channels.isBusy(activeWs.id)); }
+  function isBusy() {
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.isBusy();
+    return !!(activeWs && typeof Channels !== 'undefined' && Channels.isBusy(activeWs.id));
+  }
   function isActiveWs(ws) { return !!(ws && activeWs && activeWs.id === ws.id); }   // is THIS stream the one on screen right now?
   // CONCURRENT SESSIONS (2026-07-18): the backend now ADMITS concurrent runs of one agent (the workspace is
   // guarded by a run-scoped lease sidecar-side; the world's overlap refcount keeps the desk pose truthful).
@@ -1960,6 +1996,19 @@ const Chat = (() => {
     // expand detail only (kept below) — the chip head is clean.
     const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
+    if (/^browser\./.test(ev.name || '') && ev.runId) {
+      stat.setAttribute('aria-live', 'polite');
+      const checkWait = async () => {
+        if (!chip.isConnected || !chip.classList.contains('pending')) return;
+        try {
+          const j = await Harness.api.get('/api/connectors');
+          if (!chip.isConnected || !chip.classList.contains('pending')) return;
+          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
+        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
+        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
+      };
+      setTimeout(checkWait, 500);
+    }
     const exp = document.createElement('span'); exp.className = 'tc-exp'; exp.setAttribute('aria-hidden', 'true'); exp.textContent = '▸';   // disclosure chevron (rotates when open)
     head.appendChild(glyph); head.appendChild(nm); if (args.textContent) head.appendChild(args); head.appendChild(stat); head.appendChild(exp);
     const detail = document.createElement('div'); detail.className = 'tc-detail';
@@ -2458,6 +2507,17 @@ const Chat = (() => {
     let q = { question: '', options: [], recommended: '', reason: '', multiSelect: false, ordinal: 0, total: 0 };
     try { q = Object.assign(q, JSON.parse(p.argsSummary || '{}')); } catch (_) {}
     const r = row('agent'); r.d.classList.add('tool'); r.d.classList.add('consent');
+    if(q.mode==='conversation' && typeof TaskConversation!=='undefined') {
+      const rid=ws && Channels.runIdOf(ws.id);
+      TaskConversation.mount(r.body,q,async text=>{
+        const result=await Harness.consentAnswer(rid,p.promptId,text,true);
+        if(!result || !result.ok)return false;
+        if(ws)Channels.clearPending(ws.id,Date.now());
+        if(isActiveWs(ws)){renderPresence();syncStatus();}
+        return true;
+      });
+      status('awaiting your context…');autoscroll();return;
+    }
     // A batched ask shows its place ("asks (2 of 3)") so the Commander knows one more tap ends it —
     // three unannounced sequential cards would read as an interrogation with no visible bottom.
     const seq = (Number(q.total) > 1 && Number(q.ordinal) > 0) ? ' (' + q.ordinal + ' of ' + q.total + ')' : '';
@@ -2725,7 +2785,12 @@ const Chat = (() => {
     // mints nothing here (the editor confirm does that). Fail-open — a bottle offer is never load-bearing. Placed
     // AFTER the taste beat so this verdict's other one-beat consumers keep their precedence; BottleStore's own slot
     // guards (busy / a live rate|turn-in control) already stop it from stacking on any beat still on screen.
-    if (typeof BottleStore !== 'undefined' && BottleStore.onVerdict) { try { BottleStore.onVerdict(runId, verdict, agentId || 'agent'); } catch (_) {} }
+    let takeoverReady = false;
+    if (verdict === 'great' && typeof WorkflowTakeoverStore !== 'undefined') {
+      await WorkflowTakeoverStore.refresh();
+      takeoverReady = !!WorkflowTakeoverStore.candidate(agentId || 'agent');
+    }
+    if (!takeoverReady && typeof BottleStore !== 'undefined' && BottleStore.onVerdict) { try { BottleStore.onVerdict(runId, verdict, agentId || 'agent'); } catch (_) {} }
     // P3.1 RE-SUMMON SIGNAL: a 👍 on a real interactive run may earn a one-time "run it again?" beat — SAME direct
     // hand-off, SAME shared gold-inset slot + defer-not-stack discipline as BottleStore. Bottle and re-summon are
     // BOTH 👍-triggered offers competing for the ONE post-run beat, so they must be MUTUALLY EXCLUSIVE per run:
@@ -2740,7 +2805,7 @@ const Chat = (() => {
           const bs = BottleStore._state(); const bi = App.runBottleInfo(runId);
           bottleWillOffer = !!(bi && !BottleStore.isDecided(bs, runId) && BottleStore.shouldOffer(bs, verdict, bi));
         }
-        if (!bottleWillOffer) ResummonStore.onVerdict(runId, verdict, agentId || 'agent');
+        if (!takeoverReady && !bottleWillOffer) ResummonStore.onVerdict(runId, verdict, agentId || 'agent');
       } catch (_) {}
     }
     // OUTCOME LOOP (recipe lane B): if THIS run was launched from a recipe (RUN_META provenance spine), fold the
@@ -2809,6 +2874,8 @@ const Chat = (() => {
       // consequence: the follow-up beat asks what missed and writes the answer into the dossier. Rides every
       // rate path (standalone beat, turn-in card, outbox) because it hangs off settle, not off any one caller.
       setTimeout(() => { try { if (onSettle) onSettle(verdict); } finally { verdictFollowupBeat(agentId, runId, verdict); } }, 700);
+      // Rejoin the same arbiter after the rating fades; do not bank work twice or rerun other offers.
+      if (verdict === 'great') setTimeout(() => { recommendPass({ agentId, runId }, 'takeover'); }, 2200);
     }
     function mk(label, cls, verdict, flash, isDeny) {
       const b = document.createElement('button'); b.className = 'consent-btn' + (cls ? ' ' + cls : ''); b.textContent = label;
@@ -3954,6 +4021,16 @@ const Chat = (() => {
     clearNudge();   // the question CLAIMS the moment: a live gentle nudge leaves whole (prompt + chips) — its chip
                     // row would be wiped by choices() below anyway, and a stuck activeNudge would mute beats forever
     pendingTaskQuestion = Object.assign({}, tq, { streamId: activeWs && activeWs.id });
+    if(tq.mode==='conversation' && typeof TaskConversation!=='undefined') {
+      clearChoices(); // Retire a stale retry action: the next user input answers this saved question.
+      const ws=activeWs, r=row('agent');r.d.classList.add('nudge');
+      TaskConversation.mount(r.body,tq,async text=>{
+        if(!isActiveWs(ws) || isBusy())return false;
+        // send() routes this whole answer back into the same durable brief.
+        send(text);vanish(r.d);return true;
+      });
+      autoscroll();return;
+    }
     // TWO KINDS of suggestion, and they must never be confused. GROUNDED comes from the Commander's own
     // answered history (taskBriefStore.groundedFor: same question, same option, >=2 times, no tie) — provable,
     // so it outranks the model's assertion and states its count. The model's brief_ask recommendation is a
@@ -4167,7 +4244,7 @@ const Chat = (() => {
   // chips — though a marker question may still carry a grounded suggestion, which comes from the Commander's
   // own answered history rather than from the unvalidated question.
   async function presentTaskQuestion(ws, tq) {
-    let recommended = '', reason = '', grounded = null, multiSelect = false, options = null;
+    let recommended = '', reason = '', grounded = null, multiSelect = false, options = null, conversation = {};
     try {
       const r = await fetch('/api/task-briefs?key=' + encodeURIComponent('stream:' + ws.id) + '&status=clarifying&limit=1', { cache: 'no-store' });
       if (r.ok) {
@@ -4179,6 +4256,7 @@ const Chat = (() => {
         const q = qs.find(x => x && !x.answer) || qs[qs.length - 1];
         if (q && !q.answer && q.text === tq.question) {
           recommended = q.recommended || ''; reason = q.reason || '';
+          conversation={mode:q.mode,sample:q.sample,context:b.context};
           multiSelect = q.multiSelect === true;
           grounded = j.grounded || null;   // this response always carried it; the client used to drop it
           // The MARKER line is capped at 3 options (it is the unvalidated last-resort format), so a
@@ -4188,7 +4266,7 @@ const Chat = (() => {
       }
     } catch (_) { /* enrichment only — the question itself never depends on this fetch */ }
     if (!isActiveWs(ws)) return;   // the Commander switched away mid-fetch; restoreTaskQuestion re-presents on return
-    offerTaskQuestion(Object.assign({}, tq, { recommended, reason, grounded, multiSelect }, options ? { options } : {}));
+    offerTaskQuestion(Object.assign({}, tq, { recommended, reason, grounded, multiSelect }, options ? { options } : {},conversation));
   }
 
   // R4 PAYOFF RECEIPT: one provable line at the exact moment an answer/observation lands in the dossier, so
@@ -4953,9 +5031,10 @@ const Chat = (() => {
   // a reusable GENTLE post-run beat (used by the ongoing-suggestion engine, suggeststore.js) — the same quiet
   // register as the curiosity nudge: a .nudge aside, never the lit .reply headline. text = the line; options =
   // [{label,value,skip}]; onPick(item) fires on a choice (the choice row removes itself on pick).
-  function nudge(text, options, onPick) {
+  function nudge(text, options, onPick, opts) {
     if (!log) return null;
     if (taskQuestionLive()) return null;   // a pending task question owns the moment
+    if (activeNudge && activeNudge.keepUntilDecision) return null;
     clearNudge();   // one gentle beat at a time: retire any prior unanswered nudge before this one (no cross-run stacking)
     const r = row('agent'); r.d.classList.add('nudge');
     renderNudgeBody(r.body, text);
@@ -4969,6 +5048,7 @@ const Chat = (() => {
     const beat = beatCards && beatCards.claim({ kind: 'nudge', node: r.d, data: { text: text } });
     if (!beat) { if (choiceRow) { activeChoiceRows.delete(choiceRow); choiceRow.remove(); } vanish(r.d); return null; }
     activeNudge = { row: r.d, choiceRow: choiceRow, dim: null, beat: beat };   // share the curiosity-nudge lifecycle so a turn-in's clearNudge() retires a suggestion beat too (keeps "one beat at a time")
+    activeNudge.keepUntilDecision = !!(opts && opts.keepUntilDecision);
     return { row: r.d, choiceRow: choiceRow };
   }
 
@@ -5831,7 +5911,8 @@ const Chat = (() => {
      needs nothing the run has yet to produce) and once at the SLOW arm ('slow': every channel whose evidence
      the run must first WRITE). Both phases share the one arbiter and fire at most one candidate between them. */
   async function recommendPass(p, phase) {
-    const slow = phase === 'slow';
+    const takeoverOnly = phase === 'takeover';
+    const slow = phase !== 'fast';
     const agentId = (p && p.agentId) || 'agent';
     const isHeroRun = agentId === 'agent';
     const runId = (p && (p.runId || p.id)) || null;
@@ -5843,7 +5924,7 @@ const Chat = (() => {
       /* A BLOCKED MOMENT MUST NOT DROP THE RUN'S TURN-INS. Returning here discarded this run's study and
          thread offers FOREVER (the pre-spine listeners queued them). Enqueue the markers instead — the
          existing FIFO flush paths re-fetch and re-offer them at a later, free moment. */
-      if (slow && isHeroRun && runId) { queueStudy(runId, agentId); queueThread(runId, agentId); }
+      if (slow && !takeoverOnly && isHeroRun && runId) { queueStudy(runId, agentId); queueThread(runId, agentId); }
       return;
     }
     if (typeof Recommend === 'undefined' || !Recommend.pick) return;        // no spine → no proactive beat
@@ -5860,6 +5941,12 @@ const Chat = (() => {
       const rate = rateCandidate(agentId, runId); if (rate) cands.push(rate);
     } else if (askBudgetSpent()) {
       return;   // the session's proactive-ask budget is spent: the station stays quiet for every consent channel
+    } else if (takeoverOnly) {
+      if (!isHeroRun || turninOwnsMoment(runId) || typeof WorkflowTakeoverStore === 'undefined') return;
+      await WorkflowTakeoverStore.refresh();
+      if (stale() || momentBlocked()) return;
+      const takeover = WorkflowTakeoverStore.candidate(agentId);
+      if (takeover) cands.push(takeover);
     } else {
       // ── the TURN-IN half: hero-only, gated by the shared arbiter + the stand-down guards ──
       if (isHeroRun) {
@@ -5877,12 +5964,20 @@ const Chat = (() => {
           // An intent offer is earned by the Commander's just-finished directive, so it is allowed before
           // the accumulated-work floor. Consume the staged text exactly once on the slow post-run arm.
           const staged = meta && meta.intentOfferText; if (meta) meta.intentOfferText = null;
-          if (staged && maybeIntentOffer(staged)) return;
           // WORK-EARNED ASK FLOOR: a real task-run banks toward the session's ask budget, and no gentle
           // unsolicited beat fires until the station has completed Curiosity.MIN_WORK task-runs this session.
           if (typeof CuriosityStore !== 'undefined' && CuriosityStore.noteWork) CuriosityStore.noteWork();
           const earned = !(typeof CuriosityStore !== 'undefined' && CuriosityStore.earned && !CuriosityStore.earned());
-          if (earned) {
+          // Three separate completed requests earn this specific offer even across browser sessions.
+          let takeover = null;
+          if (typeof WorkflowTakeoverStore !== 'undefined') {
+            await WorkflowTakeoverStore.refresh();
+            if (stale() || momentBlocked()) return;
+            takeover = WorkflowTakeoverStore.candidate(agentId);
+          }
+          if (takeover) cands.push(takeover);
+          if (!takeover && staged && maybeIntentOffer(staged)) return;
+          if (earned && !takeover) {
             const s = suggestCandidate(); if (s) cands.push(s);                 // SuggestStore.willSuggest()
             const sd = seedCandidate(); if (sd) cands.push(sd);                 // SeedStore.willPropose()
             if (typeof RoutineNudgeStore !== 'undefined' && RoutineNudgeStore.onRunEnd) { try { RoutineNudgeStore.onRunEnd(); } catch (_) {} }
@@ -6163,6 +6258,7 @@ const Chat = (() => {
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
   // deliberate stop means "I'm taking over", not "now run my backlog".
   function stopActive() {
+    if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.stop();
     // /loop: Stop ends the interval watcher too, or the next tick fires a run the user just said they didn't
     // want. Checked BEFORE the isBusy() guard on purpose — a loop is usually WAITING between ticks when you
     // reach for Stop, and an idle-but-armed loop must still be stoppable. Worded "you stopped it" rather than
@@ -6234,6 +6330,10 @@ const Chat = (() => {
   function sendOrQueue(text) {
     const value = String(text == null ? '' : text).trim();
     if (!value || !activeWs) return { ok: false, state: 'empty' };
+    if (activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+      send(value);
+      return { ok: true, state: 'started', workstreamId: activeWs.id };
+    }
     if (isBusy()) {
       enqueue(value);
       return { ok: true, state: 'queued', workstreamId: activeWs.id };
@@ -6313,14 +6413,55 @@ const Chat = (() => {
     });
   }
   // returns true iff a chip was rendered (the bool aids testing)
-  function offerConnectorDoor(runId) {
-    if (!log || !runId) return false;
+  function offerConnectorDoor(runId, originWs) {
+    if (!runId) return false;
     const ev = CONNECTOR_NEEDED.get(runId); if (!ev) return false;
     CONNECTOR_NEEDED.delete(runId);
+    const ws = originWs || activeWs;
+    if (ws && typeof Workstreams !== 'undefined') {
+      Workstreams.setConnectorHandoff(ws.id, Object.assign({}, ev, { agentId: ws.agentId || 'agent' }));
+      App.persist();
+    }
+    if (!log || !isActiveWs(ws)) return false;
     const door = (typeof Friendly !== 'undefined' && Friendly.connectorDoor) ? Friendly.connectorDoor(ev) : null;
     if (!door) return false;
     choices([{ label: door.label, value: 'connect' }], () => door.run());
     return true;
+  }
+  // An explicit continuation carries existing history, unlike retryLast(), which repeats the user turn.
+  // The connector is re-read on click; no OAuth callback can start work or change the originating agent.
+  const connectorContinuing = new Set();
+  async function continueConnectorTask(streamId) {
+    const ws = Workstreams.get(streamId), h = Workstreams.connectorHandoff(streamId);
+    if (!ws || !h || connectorContinuing.has(streamId) || Channels.isBusy(streamId)) return false;
+    connectorContinuing.add(streamId);
+    try {
+      let j = await Harness.api.get('/api/connectors');
+      let c = (j.connectors || []).find(x => x.id === h.connectorId);
+      if (c && c.enabled && c.state === 'cached' && !c.authRequired) {
+        await Harness.api.post('/api/connectors/refresh', { id: h.connectorId });
+        j = await Harness.api.get('/api/connectors');
+        c = (j.connectors || []).find(x => x.id === h.connectorId);
+      }
+      if (!c || c.state !== 'up' || !c.enabled || c.authRequired) throw new Error('Connect ' + h.connectorId + ' before continuing.');
+      if (h.toolName && !(c.tools || []).includes(h.toolName)) throw new Error('This connection does not offer the operation the task requested. Inspect its tools in ABILITIES.');
+      if (Workstreams.connectorHandoff(streamId) !== h || Channels.isBusy(streamId)) return false;
+      App.openWorkstream(streamId);
+      Workstreams.setConnectorHandoff(streamId, null);
+      App.persist();
+      await send('Continue the task above using the connected ' + h.connectorId + ' service. Check the account and available operations first. Use the existing results and do not repeat completed actions.', { connectorContinuationOf: h.runId });
+      if (ws.runIds[ws.runIds.length - 1] === h.runId) {
+        Workstreams.setConnectorHandoff(streamId, h); App.persist();
+        return false;   // request never started; keep the user's return path
+      }
+      return true;
+    } catch (e) {
+      if (ws.runIds[ws.runIds.length - 1] === h.runId && !Channels.isBusy(streamId) && !Workstreams.connectorHandoff(streamId)) {
+        Workstreams.setConnectorHandoff(streamId, h); App.persist();
+      }
+      if (typeof StationUI !== 'undefined') StationUI.notify(e.message || 'Could not verify the connection. Try again.', 'warn');
+      return false;
+    } finally { connectorContinuing.delete(streamId); }
   }
   function offerTryAgain() {
     choices([{ label: '↻ Try again', value: 'retry' }], () => retryLast());
@@ -7827,6 +7968,7 @@ const Chat = (() => {
   }
 
   async function send(text, opts) {
+    if (activeWs && activeWs.conversationMode === 'group' && typeof GroupChat !== 'undefined') return GroupChat.sendText(text, { ...opts, attachmentAgent: activeWs.agentId });
     const retry = !!(opts && opts.retry);   // retry/recovery reuses a durable user turn — don't echo it again
     const recoveryResume = !!(opts && opts.recoveryResume && opts.recovery);
     // ATTACHMENTS: photos/files staged in the composer, snapshotted by the Enter handler into opts.attachments as
@@ -7857,6 +7999,7 @@ const Chat = (() => {
     const routedTaskReply = pending && typeof TaskIntent !== 'undefined' && TaskIntent.routeReply ? TaskIntent.routeReply(text) : null;
     const taskAction = (opts && opts.taskAction) || (routedTaskReply && routedTaskReply.action) || '';
     if (Channels.isBusy(ws.id)) return;   // one run per stream — but OTHER streams may be running concurrently
+    if (typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(ws.id)) Workstreams.setConnectorHandoff(ws.id, null);
     warmChat();   // D1 WARMTH: sending to the focused stream is real engagement — keep the chat-stare alive
     // FIRST-TURN TITLE UPGRADE: is THIS the stream's first user turn (still on its machine-derived placeholder)?
     // Captured BEFORE we push this message, so after the run lands we can replace the truncated first-sentence
@@ -8032,6 +8175,7 @@ const Chat = (() => {
         taskAction: taskAction || undefined,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
         recovery: recoveryResume ? opts.recovery : undefined,
+        connectorContinuationOf: opts && opts.connectorContinuationOf,
         recipeId: recipeId || undefined,   // provenance spine: the launching recipe rides to the durable run row (undefined for non-recipe runs)
         projectRoot: ws.projectRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
@@ -8186,7 +8330,7 @@ const Chat = (() => {
         }
         // a CLEAN end that hit an unwired connector mid-run: the reply already says "not connected" — the chip is
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
-        if (isActiveWs(ws) && !taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId);
+        if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         // GOLDEN-RUN DRIFT (2026-08-22): a recipe-launched run is compared by the sidecar against that recipe's own
         // good history; a drifted run is a failure class, so it earns the bell ONCE (keyed by the run). The durable
         // row lands a beat after run end, so the read waits; it is advisory and never blocks the turn.
@@ -8606,5 +8750,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, stopActive, status, localLine, broadcast, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();

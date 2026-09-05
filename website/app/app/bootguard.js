@@ -7,9 +7,10 @@
    screenshot.
 
    This module is tiny and dependency-free ON PURPOSE — it must work when everything after it is broken:
-     1. installs capture-phase `error` (runtime errors AND <script> load failures — a resource error does not
-        bubble, so capture on window is the only place that sees a 404'd script) + `unhandledrejection` listeners
-        and keeps bounded counts/tails since page load. Counts only — no secrets are read, ever;
+     1. installs capture-phase `error` (runtime errors AND station-owned <script> load failures — a resource
+        error does not bubble, so capture on window is the only place that sees a 404'd script) +
+        `unhandledrejection` listeners and keeps bounded counts/tails since page load. Counts only — no secrets
+        are read, ever. Hosting layers may inject unrelated scripts; those cannot define station boot health;
      2. after DOMContentLoaded (every classic <script> has run by then) probes the ~dozen module globals without
         which the station is unusable. The probes are LITERAL `typeof X` expressions: these modules are `const`
         IIFEs (global lexical bindings, invisible on window.*), and the desktop CSP forbids eval/new Function;
@@ -59,6 +60,12 @@
     s = String(s || '').replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').replace(/[?#].*$/, '');
     return s.replace(/^\/+/, '') || '(inline)';
   }
+  function isStationScript(s) {
+    // Every authored station module lives below one of these three roots. Public hosts may append their own
+    // analytics/challenge scripts (for example Cloudflare's /beacon.min.js); a blocked optional host script is
+    // not evidence that StarNet failed to boot. Keep the allowlist structural so real app/shared 404s remain loud.
+    return /^(?:app|js|shared)\//.test(shortPath(s));
+  }
   function reasonText(r) {
     if (r == null) return 'unhandled rejection (no reason)';
     if (typeof r === 'object') return String(r.message || r.reason || r.name || (function () { try { return JSON.stringify(r); } catch (_) { return '[object]'; } })());
@@ -71,7 +78,11 @@
       const t = e && e.target;
       if (t && t !== root && t.tagName) {
         // a RESOURCE failure (capture phase). Only <script> is a boot fault — an <img>/<audio> that 404s is cosmetic.
-        if (String(t.tagName).toUpperCase() === 'SCRIPT') { state.scriptFailures++; push(state.scripts, shortPath(t.src || t.getAttribute && t.getAttribute('src'))); }
+        const src = t.src || t.getAttribute && t.getAttribute('src');
+        if (String(t.tagName).toUpperCase() === 'SCRIPT' && isStationScript(src)) {
+          state.scriptFailures++;
+          push(state.scripts, shortPath(src));
+        }
         return;
       }
       state.uncaught++;
@@ -194,6 +205,6 @@
     state: () => state,
     installed, summaryLine, report, check, render, verify,
     PROBES: PROBES.map(p => ({ name: p[0], file: p[1] })),
-    _internals: { onError, onRejection, shortPath, reasonText, PROBES }
+    _internals: { onError, onRejection, shortPath, isStationScript, reasonText, PROBES }
   };
 });

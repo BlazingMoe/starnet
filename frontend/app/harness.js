@@ -677,7 +677,7 @@ const Harness = (() => {
      stream of newline-delimited JSON events — the FROZEN agent.* U.bus events the harness emits.
      Each event is re-emitted on U.bus (for telemetry) and mapped to the caller's callbacks.
      onToken(delta) per text delta · onToolCall/onToolResult per tool step · onUsage per turn. */
-  async function chat({ system, messages, onToken, onTerminalReset, onUsage, onToolCall, onToolResult, onRunId, onDeliverable, onPermission, onSummon, agentId, isTask, recurring, signal, streamId, recipeId, workbench, placed, stationPlaced, internal, evidence, projectRoot, taskAction, postconditions, recovery }) {
+  async function chat({ system, messages, onToken, onTerminalReset, onUsage, onToolCall, onToolResult, onRunId, onDeliverable, onPermission, onSummon, agentId, isTask, recurring, signal, streamId, recipeId, workbench, placed, stationPlaced, internal, evidence, projectRoot, taskAction, postconditions, recovery, connectorContinuationOf }) {
     const model = getModel(), provider = getProv(), key = getKey(provider), reasoningEffort = getReasoningEffort(provider);
     // Codex authenticates by an OAuth token (server-side); the desktop build keeps the key in the
     // sidecar's env (keychain). Neither needs a key sent from here.
@@ -695,6 +695,7 @@ const Harness = (() => {
       }
       if (getBaseUrl(provider)) reqBody.baseUrl = getBaseUrl(provider);
       if (streamId) reqBody.streamId = streamId;   // M-mem.2b: scope this run's memory to the active workstream
+      if (connectorContinuationOf) reqBody.connectorContinuationOf = connectorContinuationOf;
       // reason-only self-talk (retitle / goal-judge / pitch / autopilot): the sidecar keeps the caller's system
       // prompt VERBATIM (no manual/capability/skill/memory dressing) and never stamps the away clock for it.
       if (internal) reqBody.internal = true;
@@ -903,9 +904,12 @@ const Harness = (() => {
   // resumes the SAME paused turn — deliberately a separate route from consent, whose decisions are a closed
   // enum with grant semantics. Fire-and-forget; a stale id is a harmless no-op (the run fell back to the
   // durable end-run question).
-  async function consentAnswer(runId, promptId, answer) {
+  async function consentAnswer(runId, promptId, answer, receipt) {
     if (!runId || !promptId || !answer) return;
-    try { await fetch('/api/consent/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId, answer }) }); } catch (_) {}
+    try {
+      const r=await fetch('/api/consent/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, promptId, answer, receipt:receipt===true }) });
+      if(receipt) return r.ok ? await r.json() : {ok:false};
+    } catch (_) { if(receipt) return {ok:false}; }
   }
 
   // answer a live crew.summon.request: report the new agentId we summoned (or null if we couldn't), which resolves

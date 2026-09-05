@@ -195,3 +195,7 @@ dev/.shots-toast/
 .shellholes/
 .shellinfront/
 .shellseam/
+
+# Isolated group-DM live-test application profile (never production data).
+/dev/.group-profile/
+.worldshots/

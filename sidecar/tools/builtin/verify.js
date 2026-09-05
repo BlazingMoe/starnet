@@ -58,7 +58,8 @@
           ? (typeof environment.backendIdFor === 'function' ? environment.backendIdFor(aid) : environment.backendId)
           : null;
         let cwd = environment ? environment.getCwd(aid) : P.join(ROOT, aid);
-        if (ctx.projectCwd) cwd = resolveShellCwd({ pathMod: P, fs: fs, requested: ctx.projectCwd, current: cwd, jailRoot: environment ? environment.ensureWorkspace(aid) : P.join(ROOT, aid), root: ROOT, isWin: isWin, allowExternal: environmentBackendId === 'local' });
+        const runProjectCwd = String(ctx.projectCwd || ctx.projectRoot || '').trim();
+        if (runProjectCwd) cwd = resolveShellCwd({ pathMod: P, fs: fs, requested: runProjectCwd, current: cwd, jailRoot: environment ? environment.ensureWorkspace(aid) : P.join(ROOT, aid), root: ROOT, isWin: isWin, allowExternal: environmentBackendId === 'local' });
         // Local execution may be inside a nested project after shell.cd. Inspect the
         // exact directory that will execute; only mapped backends need the host root.
         const hostCwd = environment && environmentBackendId !== 'local' && typeof environment.workspaceRoot === 'function'

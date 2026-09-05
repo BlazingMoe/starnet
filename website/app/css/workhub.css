@@ -1,12 +1,19 @@
 .work-hub-win .term-body{height:min(72vh,780px);overflow:auto}
 .wh{padding:16px;color:var(--ph)}
 .wh [hidden]{display:none!important}
+.fv-form [hidden]{display:none!important}
+.fv-sources{border:1px solid var(--ph-dim);padding:10px}
+.mkt-firstvalue .mkt-lanes,.mkt-firstvalue .mkt-lanes-lbl,.mkt-firstvalue .mkt-import,.mkt-firstvalue .mkt-search{display:none}
 .wh-header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}
 .wh-header h2{margin:5px 0;font-size:24px}
 .wh-eyebrow{font-size:12px;letter-spacing:2px;color:var(--gold)}
 .wh-tabs,.wh-actions{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .wh-tabs [aria-pressed=true]{border-color:var(--gold);color:var(--gold)}
 .wh-search{width:100%;box-sizing:border-box}
+.wh-request{width:100%;box-sizing:border-box;resize:vertical}
+.wh-directory{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.wh-destination{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:6px;white-space:normal;padding:12px}
+.wh-destination small{font:inherit;font-size:13px;opacity:.8;line-height:1.4}
 .wh-message:empty{display:none}
 .wh-message,.wh-freshness{padding:8px;border-left:2px solid var(--gold)}
 .wh-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}

@@ -178,10 +178,10 @@ const Tutorial = (() => {
   // workbench lives under WORKSTATIONS, the other three under CAPABILITY — resolveKit carries that, so the loop
   // guides the category switch instead of stranding the Commander.)
   const KIT_SPEC = [
-    { grant: 'FILES',    prop: 'war_intelcab',    label: 'INTEL CAB',   power: 'FILES',      got: 'now i can read and write files — that’s where i keep anything that matters.' },
-    { grant: 'WEB',      prop: 'comms_dish',      label: 'DISH',        power: 'the WEB',    got: 'and now the live web — real search, real pages, not just what i woke up knowing.' },
-    { grant: 'TERMINAL', prop: 'workbench',       label: 'WORKBENCH',   power: 'a TERMINAL', got: 'a real terminal — i can run commands and check what they did, and you approve each one.' },
-    { grant: 'MEMORY',   prop: 'gigs_servercart', label: 'SERVER CART', power: 'MEMORY',     got: 'memory that survives a restart — and my skill library, where i save and reload the procedures i work out, so i don’t wake up blank every time.' }
+    { grant: 'FILES',    prop: 'war_intelcab',    label: 'INTEL CAB',   power: 'FILES',      got: 'files equipment placed. it supports reading and writing files within your allowed folders.' },
+    { grant: 'WEB',      prop: 'comms_dish',      label: 'DISH',        power: 'the WEB',    got: 'web equipment placed. it supports search and browsing; service setup and access settings still apply.' },
+    { grant: 'TERMINAL', prop: 'workbench',       label: 'WORKBENCH',   power: 'a TERMINAL', got: 'terminal equipment placed. it supports commands and checks, subject to your access settings.' },
+    { grant: 'MEMORY',   prop: 'gigs_servercart', label: 'SERVER CART', power: 'MEMORY',     got: 'memory equipment placed. it supports saving and retrieving notes and procedures.' }
   ];
   let KIT = KIT_SPEC.slice();   // resolveKit() rebuilds this with live labels/categories at kit start
 
@@ -217,7 +217,7 @@ const Tutorial = (() => {
       if (res.value === 'value') {
         // A concrete first task owns the handoff: do not overlay the connector pitch or a second coach.
         finishUp(true, true);
-        if (FirstValue.open() === false && hasChat()) Chat.localLine('open WORK to choose a useful first task. the optional tool tour is still in the field manual.');
+        if (FirstValue.open() === false && hasChat()) Chat.localLine('open RECIPES to choose a useful first task. the optional tool tour is still in the field manual.');
         return;
       }
       if (res.skip) return finishUp(true);
@@ -225,11 +225,8 @@ const Tutorial = (() => {
     });
   }
 
-  /* ---- THE ROLEPLAY COLD-OPEN: the agent walks to its own workstation and DISCOVERS it's boxed in ----
-     Truthful by construction: a fresh station really is compute-only (the moat), so "i reach for files and
-     there's nothing" is the literal state — which is exactly what motivates the kit-out. The panel clears so
-     the walk is visible, then reopens at the desk so the realization reads. A failsafe advances even if the
-     walk never lands (sidecar down / no seat), so the tour can never freeze here. */
+  /* Optional equipment tour. The walk illustrates the workstation, not a tool-access check.
+     Profiles and Full Access may already supply tools, so never narrate a fabricated failed attempt. */
   function beatShowAround() {
     if (!active) return;
     if (hasDialogue()) Dialogue.close();                 // clear COMMS so the walk + the agent are fully visible
@@ -248,12 +245,12 @@ const Tutorial = (() => {
     if (!active) return;
     if (hasDialogue()) Dialogue.open({ name: agentName });
     try { World.say('my desk.'); } catch (_) {}
-    await dsay('okay — i made it to my desk. i can think, and i can talk to you. that’s compute, and it’s always mine.', 44, 360);
+    await dsay('this is my workstation. start by telling me what you want done in COMMS. you don’t need to build a conveyor for a normal task.', 44, 360);
     if (!active) return;
-    try { if (World.truthPulse) World.truthPulse(); World.say('…nothing.'); } catch (_) {}
-    await dsay('but watch — i reach for the files… the live web… a terminal… a memory of my own…', 44, 360);
+    try { if (World.truthPulse) World.truthPulse(); World.say('tools for the task.'); } catch (_) {}
+    await dsay('props with ability badges provide tools, like files, web or a terminal. decoration changes how the station looks.', 44, 360);
     if (!active) return;
-    await dsay('nothing. none of it’s wired up yet. i’m a mind in a bare room.', 44, 280);
+    await dsay('you only need the abilities your work uses. ABILITIES shows my current access — your settings may already provide the tools without extra props.', 44, 280);
     if (!active) return;
     beatKitInvite();
   }
@@ -262,9 +259,9 @@ const Tutorial = (() => {
     if (!hasDialogue()) return beatKitIntro();
     Dialogue.open({ name: agentName });
     Dialogue.node({
-      lines: [seg('here’s the one rule of this whole place: what you build, i can do. every piece you place in my room hands me a real power. want me to walk you through kitting me out? a minute, tops.', 44, 0)],
+      lines: [seg('want to try placing equipment? this optional tour demonstrates four abilities. matching badges are alternatives — you don’t need every prop, and you can stop whenever you like.', 44, 0)],
       options: [
-        { label: '▸ Kit me out (recommended)', value: 'go' },
+        { label: '▸ TRY THE EQUIPMENT TOUR', value: 'go' },
         { label: 'I’ll explore on my own', value: 'skip', skip: true }
       ]
     }).then(res => { if (!active) return; if (res.skip) return finishUp(true); beatKitIntro(); });
@@ -369,9 +366,9 @@ const Tutorial = (() => {
   function kitOnPropPlaced(grant) {
     if (!active || !kitMode) return;
     tickBrief('build');
-    if (!grant) { kitFlash('that one’s just set dressing — it grants nothing. i need the gear that wears a power-word.'); return; }
+    if (!grant) { kitFlash('decoration placed. to try an ability in this tour, choose equipment with an ability badge.'); return; }
     if (!kitNeeded.has(grant)) {
-      kitFlash('already running ' + grant + ' — that’s a spare, no harm.');
+      kitFlash('another ' + grant + ' prop placed. matching badges are alternatives, so extra copies add no new tools.');
       if (!nextKit()) kitReadyTimer = setTimeout(() => { kitReadyTimer = null; if (active && kitMode) beatKitReady(); }, 1700);
       return;
     }
@@ -401,14 +398,14 @@ const Tutorial = (() => {
     kitMode = false;
     const placed = KIT.filter(k => kitNeeded && !kitNeeded.has(k.grant)).map(k => k.grant);
     const left = KIT.filter(k => kitNeeded && kitNeeded.has(k.grant)).map(k => k.grant);
-    const have = placed.length ? 'you’ve wired me ' + listWords(placed) + ' so far. ' : 'nothing placed yet — an empty room is an empty agent. ';
-    const dark = left.length ? 'still dark: ' + listWords(left) + '.' : '';
+    const have = placed.length ? 'you’ve placed equipment for ' + listWords(placed) + '. ' : 'no equipment placed in this tour yet. you can still talk to me in COMMS. ';
+    const dark = left.length ? 'remaining tour examples: ' + listWords(left) + '.' : '';
     if (!hasDialogue()) return placed.length ? beatEquippedPartial() : finishUp(true);
     Dialogue.open({ name: agentName });
     Dialogue.node({
-      lines: [seg(have + dark + ' want to finish kitting me out?', 44, 0)],
+      lines: [seg(have + dark + ' continue the optional tour?', 44, 0)],
       options: [
-        { label: '▸ Keep kitting me out', value: 'go' },
+        { label: '▸ CONTINUE THE TOUR', value: 'go' },
         { label: placed.length ? 'That’s enough for now' : 'Skip for now', value: 'skip', skip: true }
       ]
     }).then(res => {
@@ -444,7 +441,7 @@ const Tutorial = (() => {
     if (!hasDialogue()) return beatCommand();
     Dialogue.open({ name: agentName });
     Dialogue.node({
-      lines: [seg('look at that — files, the web, a terminal, and a memory of my own. that’s a whole agent. the room isn’t bare anymore, and neither am i.', 44, 460)],
+      lines: [seg('you’ve tried equipment for files, web, terminal and memory. that’s the placement loop. ABILITIES shows which tools i can use with my current settings. choose what your real tasks need.', 44, 460)],
       options: [
         { label: '▸ Watch me use it on a real job', value: 'demo' },
         { label: 'I’ve got it from here', value: 'done', skip: true }
@@ -454,7 +451,7 @@ const Tutorial = (() => {
   // they stopped with SOME gear placed — a real, partial agent. Acknowledge honestly and bow out (no nag).
   function beatEquippedPartial() {
     if (!active) return;
-    dsay('fair. i’ll work with what you’ve given me — wire the rest in REFIT whenever you like. you’re in control.', 44, 320).then(() => finishUp(false));
+    dsay('you can add equipment in REFIT whenever a task needs it. for now, tell me what you want done in COMMS.', 44, 320).then(() => finishUp(false));
   }
 
   // THE OPTIONAL DEMO — the real fs.write + fs.read loop, now that the agent is genuinely equipped. The panel
@@ -878,15 +875,16 @@ const Tutorial = (() => {
   function onBuildOpen() {
     if (kitMode) return;   // during the guided kit-out, kitTick drives REFIT — don't stack the generic coachmark on top
     showCoach('build', '#refit-tools',
-      'this is REFIT — your floor is a flowchart: work arrives at the INBOX, every BAY is an agent doing one step, and the belts you draw are the order the work flows. keys 1–9 up top: 6 places gear, 7 lays belts, 9 stamps a whole starter line.');
+      'this is REFIT. PROP adds equipment or decoration. ROOMS organize your station. LINES connect agents into repeatable workflows. choose what your work needs — you can already ask for help in COMMS.');
   }
+  function onEquipmentInspect() { if (!kitMode) clearCoach(); }
   /* WORKFLOW COACHES (2026-07-05 belt-teach): each routing prop teaches ITS role in the two-trip story the
      first time it's placed — one line, at the moment of need, in the agent's voice. Each has its own
      seen-key so the whole chain gets taught exactly once, piece by piece, never as a wall of text. */
   const WF_COACH = {
     intake: 'that’s the INBOX — outside work (a DM, a routine) physically arrives here. belt it toward a BAY and you’ll watch the job ride in.',
     bay: 'a BAY is one agent’s personal dock — jobs land there, and every finished result ships out from it. it works with no belts at all; click it to pick whose dock it is.',
-    outbox: 'the OUTBOX is the loading dock — every job we actually FINISH ships a crate here onto the pallet. hit ▸ TEST to watch the whole loop once.',
+    outbox: 'the OUTBOX is the loading dock — every job we actually FINISH ships a crate here onto the pallet. hit ▸ PREVIEW to watch the whole loop once.',
     filter: 'a FILTER sorts UNOWNED work by what it is — code down one lane, research down another. work that already belongs to someone rides straight home past it. click it to set the lanes.',
     splitter: 'a SPLITTER spreads unowned work across its lanes — several agents working the same stream in parallel. it needs at least two out-going lanes.',
     // truthful telemetry (2026-07-26 mechanic removal): a merger is a LANE FUNNEL — it never batches or combines
@@ -901,9 +899,9 @@ const Tutorial = (() => {
     // HONEST (truthful-telemetry): a fresh solo station is COMPUTE-ONLY, so placing a cap-prop genuinely UNLOCKS
     // that power for the hero (heroCaps picks it up) — it did NOT "already come with it". Frame it as a real unlock.
     if (grant === 'COMPUTE') {                   // compute is the always-on freebie; a desk just gives the body a real seat to work at
-      msg = 'that’s a workstation — compute’s already mine (i can always think), so this just gives my body a real desk to walk to and work at. the powers that actually unlock are files, web, terminal, memory.';
+      msg = 'that’s a workstation — compute’s already mine (i can always think), so this just gives my body a real desk to walk to and work at. other equipment supports files, web, commands and memory. add what your work needs.';
     } else if (grant) {                          // cabinet/dish/workbench/server: a REAL unlock on the solo station
-      msg = 'that just switched ' + grant + ' on for me — i can use it now, for real. drop the same gear in a CREW agent’s room later and it’s their key too. place a power, gain a power — that’s the whole game.';
+      msg = 'that placed ' + grant + ' equipment. one matching prop covers that ability in its workspace; you don’t need every variant. select it to see who can use it and whether access is already available.';
     } else {                                     // inert decor
       msg = 'nice. the gear that grants a power wears its name — a workbench gives me a TERMINAL, a dish reaches the WEB, a cabinet opens FILES. the rest is yours to decorate.';
     }
@@ -912,7 +910,7 @@ const Tutorial = (() => {
   function onBeltPlaced() {
     tickBrief('belt');
     showCoach('belt', '#refit-test',
-      'belts show real work moving between us. want to see it without waiting for a message? hit ▸ TEST — i’ll send dummy crates down the line so you can watch them sort.');
+      'belts show real work moving between us. want to see it without waiting for a message? hit ▸ PREVIEW — i’ll send dummy crates down the line so you can watch them sort.');
   }
   function onConnectorPlaced() {
     tickBrief('build'); tickBrief('connector');
@@ -922,7 +920,7 @@ const Tutorial = (() => {
   function onLevelUp() {
     tickBrief('level');
     showCoach('levelup', '#tb-station',
-      'i leveled — that’s real work shipped, not flattery. open my dossier → GROWTH to see how reliable i’ve actually been. it stays honest: “—” until it’s earned enough runs to judge.',
+      'my crew level grew from your feedback. your COMMANDER level here tracks recorded progress toward your goals. open QUEST LOG for your journey, or my dossier → GROWTH for my track record.',
       { overTerms: true });   // a level transition fires exactly once — show it even over an open panel rather than drop it
   }
 
@@ -937,7 +935,7 @@ const Tutorial = (() => {
     { k: 'belt',      label: 'Lay a conveyor belt' },
     { k: 'connector', label: 'Bind a connector portal' },
     { k: 'channel',   label: 'Connect a messaging channel (✉ CHANNELS)' },
-    { k: 'level',     label: 'Reach Level 2' }
+    { k: 'level',     label: 'Grow a crew member to Level 2' }
   ];
   const briefDone = k => !!state.brief[k];
   const briefCount = () => STEPS.reduce((n, s) => n + (briefDone(s.k) ? 1 : 0), 0);
@@ -1072,7 +1070,8 @@ const Tutorial = (() => {
         + fmEntry('SHOW', 'box bob · chevrons · cargo colours', 'pure juice — they make the flow legible, they don’t change what runs.');
     }
     return '<p class="fm-lead">your agent grows off real outcomes — no fake bars.</p>'
-      + fmEntry('REAL', 'LEVEL / XP', 'climbs only on real shipped work; never drops. the top-bar STATION chip is every agent’s level, rolled up.')
+      + fmEntry('YOU', 'COMMANDER LEVEL', 'the top-bar level grows with recorded progress toward your life goals. In QUEST LOG, define success, record your actions and metrics, and confirm the outcome when it happens. Finishing a plan alone never completes a life goal.')
+      + fmEntry('CREW', 'AGENT LEVEL / XP', 'grows from your positive feedback about agent work. Your crew’s track record stays separate from your Commander journey; neither level gates capabilities.')
       + fmEntry('REAL', 'CONFIDENCE', 'a reliability read that moves both ways. shows “—” until it has enough real runs to be honest.')
       + fmEntry(null, 'where to look', 'open a dossier → GROWTH for the bars, the confidence gauge, and the milestone case.');
   }
@@ -1140,7 +1139,7 @@ const Tutorial = (() => {
 
   return {
     firstCommand, replayFirstCommand, spotlight, seen, markSeen, _state: () => state,
-    onBuildOpen, onPropPlaced, onBeltPlaced, onConnectorPlaced, onLevelUp, clearCoach,
+    onBuildOpen, onEquipmentInspect, onPropPlaced, onBeltPlaced, onConnectorPlaced, onLevelUp, clearCoach,
     onEnterGame, fillFieldManual, showBrief, tickBrief, teardown, reset, isCoaching, watchConnectors
   };
 })();

@@ -71,6 +71,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { makeBugRegister, extractAnchors, anchorLawApplies } from './bugs.mjs';
+import { isEscape } from './bug-lifecycle.mjs';
 
 /* ─────────────────────────────── PURE CORE ─────────────────────────────── */
 
@@ -210,6 +211,9 @@ export function makeReconciler(opts) {
     } else if (testFail) {
       verdict = 'still-open';
       evidence.unshift('a named test is red on this tree');
+    } else if (isEscape(bug) && !trimmed(bug.fix)) {
+      verdict = 'unverifiable';
+      needs.push('an explicit source-fix commit for this reported symptom; related repairs, passing baseline tests and removed files do not establish customer causality');
     } else if (ancestorSha) {
       verdict = 'likely-fixed';
       confidence = (regressionPass || (testPass && snipChecked && !snipPresent)) ? 'hard' : 'soft';

@@ -23,7 +23,7 @@ function registerTaskBriefTools(registry, store, state, deps) {
     // Batched asks (up to 3 questions) wait sequentially inside one run() — the ceiling must cover three
     // consent waits (fail-closed timer + one ack extension each), not one.
     timeoutMs: 30 * 60 * 1000,
-    description: 'Ask the Commander your host-validated material question(s), then stop. BUNDLE every material question into ONE call: the most material one in the top-level fields, up to two more in `also` (each on a DIFFERENT dimension) — related unknowns must cost the Commander one interruption, not three. Set multiSelect:true on a question whose options are not mutually exclusive. Use only after inspecting available context. If a call is rejected, CORRECT the arguments and call again — never ask in plain prose; as a last resort end your reply with the TASK_QUESTION: line.',
+    description: 'Ask one concrete question and listen. Prefer mode:conversation for discovery: options are optional shortcuts, sample is an optional small draft to react to. Ask about the last real example, a troublesome step, or an exception. After the answer use brief.update to extract everything it established before choosing another question or proceeding. Legacy mode:choice supports bundled independent decisions. Inspect available context first; correct rejected arguments rather than bypassing the task lifecycle in prose.',
     schema: (() => {
       const qProps = {
         // the enum IS the whitelist (taskbrief-policy DIMENSIONS) — live-caught 2026-07-16: without it the
@@ -31,9 +31,11 @@ function registerTaskBriefTools(registry, store, state, deps) {
         dimension: { type: 'string', enum: Array.from(Policy.DIMENSIONS) },
         question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } },
         recommended: { type: 'string' }, reason: { type: 'string' },
+        mode:{type:'string',enum:['conversation','choice'],description:'conversation: one open-ended question with optional shortcuts. choice: legacy bounded choices.'},
+        sample:{type:'string',description:'Optional short draft/example to react to; not a claim of a created file or completed action.'},
         multiSelect: { type: 'boolean', description: 'true when the options are NOT mutually exclusive and the Commander may pick several (e.g. sources, constraints). The chips then toggle instead of firing.' }
       };
-      return { type: 'object', required: ['dimension', 'question', 'options', 'recommended', 'reason', 'discoverable'], properties: Object.assign({}, qProps, {
+      return { type: 'object', required: ['dimension', 'question', 'reason', 'discoverable'], properties: Object.assign({}, qProps, {
         // live-caught 2026-07-16: with no description the model reads 'discoverable' as an open judgment call
         // and stalls; it is an attestation, not a research report.
         discoverable: { type: 'boolean', description: 'Pass false to attest you checked the available context (conversation, task brief, granted files) and the answer is not there. Only false is accepted. Attested once for the whole call.' },
@@ -91,6 +93,7 @@ function registerTaskBriefTools(registry, store, state, deps) {
           let res = null;
           try {
             res = await askCommander({ question: q.text, options: q.options.slice(), recommended: q.recommended || '', reason: q.reason || '',
+              mode:q.mode, sample:q.sample, context:state.brief.context,
               multiSelect: q.multiSelect === true, ordinal: i + 1, total: asked.length,
               grounded: grounded ? { options: (grounded.options || []).slice(0, 6), count: Number(grounded.count) || 0 } : null });
           } catch (_) { res = null; }
@@ -117,7 +120,8 @@ function registerTaskBriefTools(registry, store, state, deps) {
           }
         }
         if (answers.length === asked.length) {
-          const lines = answers.map(a => 'The Commander answered "' + a.text + '" to: ' + a.q.text);
+          const lines = answers.map(a => 'The Commander answered "' + a.text + '" to: ' + a.q.text + (a.q.mode==='conversation' ? '\nAnswer sourceId: '+a.q.id : ''));
+          if(asked.some(q=>q.mode==='conversation')) return {content:lines.join('\n')+'\nRead the WHOLE answer, including volunteered constraints, sources, exceptions and corrections. Call brief.update with through='+answers[answers.length-1].q.id+' and a complete revised understanding. Then proceed if the next useful action is clear, show a small draft for feedback, or ask ONE newly useful question. Do not mechanically fill every field.',summary:'conversation answered'};
           return { content: lines.join('\n') + '\nContinue the task with ' + (answers.length > 1 ? 'these decisions' : 'this decision') + ' applied — do not re-ask them.', summary: 'answered in turn' };
         }
         // no live answer (walked away, disconnected, or the store refused a stale write): fall through to
@@ -126,8 +130,23 @@ function registerTaskBriefTools(registry, store, state, deps) {
       }
       const open = (state.brief.questions || []).find(x => !x.answer) || asked[0];
       return { content: 'Waiting for the Commander\'s decision.', summary: 'task question ready', control: {
-        final: true, reason: 'done', text: 'TASK_QUESTION: ' + open.text + ' || ' + open.options.join(' | ')
+        final: true, reason: 'done', text: 'TASK_QUESTION: ' + open.text + ' || ' + (open.options.length ? open.options.join(' | ') : '[free text]')
       } };
+    }
+  });
+  registry.register({
+    name:'brief.update',scope:'read',readOnly:true,capability:'taskbrief',
+    description:'Update the task-local working understanding from the whole request and all answers. Replace the snapshot, preserve relevant earlier details, and remove corrected interpretations. Every fact needs a verbatim user quote and sourceId (request or question id). Put assumptions and remaining unknowns separately. This is not long-term memory. Call after each conversational answer before asking again or proceeding.',
+    schema:{type:'object',required:['through','facts','nextStep'],properties:{
+      through:{type:'string'},facts:{type:'array',items:{type:'object',required:['dimension','text','quote','sourceId'],properties:{
+        dimension:{type:'string',enum:Array.from(Policy.DIMENSIONS)},text:{type:'string'},quote:{type:'string'},sourceId:{type:'string'} }}},
+      assumptions:{type:'array',items:{type:'string'}},unknowns:{type:'array',items:{type:'string'}},nextStep:{type:'string'}
+    }},
+    run:async args=>{
+      const saved=await store.updateContext(state.brief.id,args,now());
+      if(!saved) throw new Error('Task context cannot be updated while waiting or after completion.');
+      state.brief=saved;
+      return {content:'Working understanding saved for this task only.\n'+JSON.stringify(saved.context),summary:'task context updated'};
     }
   });
   registry.register({
@@ -140,12 +159,12 @@ function registerTaskBriefTools(registry, store, state, deps) {
     run: async args => {
       const checked = Policy.validateProceed(args); if (!checked.ok) throw new Error(checked.error);
       const saved = await store.proceed(state.brief.id, checked.brief, now());
-      if (!saved) throw new Error('Task Brief cannot proceed from its current state');
+      if (!saved) throw new Error('Task Brief cannot proceed from its current state. After a conversational answer call brief.update to incorporate it first.');
       state.brief = saved;
       return { content: 'Task Brief settled. Consequential tools are unlocked.', summary: 'task brief settled' };
     }
   });
-  return ['brief.ask', 'brief.proceed'];
+  return ['brief.ask', 'brief.proceed', 'brief.update'];
 }
 
 module.exports = { registerTaskBriefTools };

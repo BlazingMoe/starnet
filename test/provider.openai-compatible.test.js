@@ -423,5 +423,22 @@ module.exports = (async () => {
     A.ok(!/abcdefghijklmnop|sk-secretsecret/.test(err && err.message), 'obvious credential-shaped text is redacted');
   }
 
+  {
+    const { makeDiagnostics } = require('../sidecar/diagnostics.js');
+    const { redact } = require('../sidecar/context.js');
+    const fetchImpl = async () => new Response(JSON.stringify({ error: {
+      message: 'Provider rejected the request. '.repeat(40), request_id: 'relay-correlation-123',
+      upstream_request_id: 'upstream-correlation-456', metadata: { raw: 'PRIVATE PROMPT MUST NOT LEAK' }
+    } }), { status: 400 });
+    const p = makeOpenAICompatibleProvider({ fetch: fetchImpl, baseUrl: 'https://managed.test/v1' });
+    let err;
+    try { await collect(p, { model: 'anthropic/claude-sonnet-5', messages: [] }); } catch (e) { err = e; }
+    const receipt = makeDiagnostics({ redact }).assemble({ errors: [{ message: err.message, runId: 'local-run-789' }] });
+    A.ok(receipt.text.includes('relay-correlation-123'), 'relay id survives diagnostic truncation');
+    A.ok(receipt.text.includes('upstream-correlation-456'), 'upstream id survives diagnostic truncation');
+    A.ok(receipt.text.includes('local-run-789'), 'local run remains correlated to this error');
+    A.ok(!receipt.text.includes('PRIVATE PROMPT'), 'raw upstream payload is not copied');
+  }
+
   A.report('provider.openai-compatible.test');
 })();

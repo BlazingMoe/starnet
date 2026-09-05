@@ -391,7 +391,7 @@ A.eq(W.get(noRun.id).lastRunOk, null, 'a never-ran stream round-trips as unknown
 
 /* ---------- deleting a live stream fails closed at the destructive operation ---------- */
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
-const deleteWorkstreamSource = A.fnBody(appSource, 'function deleteWorkstream(id)');
+const deleteWorkstreamSource = A.fnBody(appSource, 'function deleteWorkstream(id, groupDeleted)');
 A.ok(deleteWorkstreamSource && deleteWorkstreamSource.length < 3000, 'deleteWorkstream source is extracted exactly');
 
 function deletionHarness(busy) {

@@ -74,6 +74,18 @@
 
     // code -> { pollSecret, at }. The pollSecret is the secret half of the pairing; it never leaves the sidecar.
     const pending = new Map();
+    // Network completions belong to the link attempt that started them. Explicit unlink or a newer
+    // pairing invalidates them immediately; disk mutations are serialized independently of network I/O.
+    let generation = 0;
+    let lastTransition = null;
+    let recovering = false;
+    function transition(state) { lastTransition = { state, at: now() }; }
+    let mutation = Promise.resolve();
+    function mutate(fn) {
+      const next = mutation.then(fn, fn);
+      mutation = next.catch(error => { note('credits.link.mutation', error); });
+      return next;
+    }
 
     function configured() { return !!cloudUrl; }
 
@@ -102,10 +114,14 @@
     // Ask the cloud for a fresh pairing code. Stashes the pollSecret in memory; returns only the public bits.
     async function start(deviceName) {
       if (!configured()) return { ok: false, error: 'not_configured' };
+      const ticket = ++generation;
+      transition('pairing_started');
+      pending.clear();
       const j = await postJson('/v1/link/start', { deviceName: str(deviceName) || 'StarNet Station' });
+      if (ticket !== generation) return { ok: false, error: 'superseded' };
       const code = str(j.code);
       if (!code) return { ok: false, error: 'no_code' };
-      pending.set(code, { pollSecret: str(j.pollSecret), at: now() });
+      pending.set(code, { pollSecret: str(j.pollSecret), at: now(), generation: ticket });
       for (const [k, v] of pending) { if (!v || (now() - v.at) > 15 * 60 * 1000) pending.delete(k); }   // prune stale
       return { ok: true, code, verifyUrl: str(j.verifyUrl), expiresAt: j.expiresAt || 0 };
     }
@@ -118,7 +134,8 @@
       code = str(code);
       const p = pending.get(code);
       if (!p) return { status: 'unknown' };
-      const j = await postJson('/v1/link/poll', { code, pollSecret: p.pollSecret });
+      const j = p.confirmation || await postJson('/v1/link/poll', { code, pollSecret: p.pollSecret });
+      if (p.generation !== generation || pending.get(code) !== p) return { status: 'superseded' };
       const status = str(j.status) || 'pending';
       if (status === 'confirmed') {
         const deviceToken = str(j.deviceToken).trim();
@@ -130,8 +147,13 @@
           return { status: 'invalid', error: 'invalid_confirmation' };
         }
         const rec = { url: cloudUrl, deviceToken, accountId, linkedAt: now() };
-        await persist(rec);
+        // The cloud hands out the token once. Retain it server-side if local persistence fails so a
+        // retry can finish the same handoff instead of asking the cloud for an already-consumed token.
+        p.confirmation = j;
+        await persist(rec, p.generation);
+        if (p.generation !== generation) return { status: 'superseded' };
         unlinked = false;   // a fresh link overrides an earlier unlink in this process
+        transition('pairing_saved');
         pending.delete(code);
         return { status: 'confirmed', accountId: rec.accountId, record: rec };
       }
@@ -148,18 +170,19 @@
     // the live process keeping what it already proved.
     let sessionToken = '';
 
-    async function persist(rec) {
+    function persist(rec, ticket = generation) { return mutate(async () => {
+      if (ticket !== generation) return null;
       if (!file) throw new Error('no dir');
-      sessionToken = str(rec && rec.deviceToken).trim() || sessionToken;
       await fsp.mkdir(DIR, { recursive: true });
       const tmp = file + '.tmp';
       await fsp.writeFile(tmp, JSON.stringify(rec), { encoding: 'utf8', mode: 0o600 });
       await fsp.rename(tmp, file);
       try { await fsp.chmod(file, 0o600); } catch (_) {}   // best-effort tighten (no-op on Windows)
       // a fresh link overrides an earlier unlink; a missing tombstone is the normal case, not a failure
-      if (tombstone) { try { await fsp.unlink(tombstone); } catch (e) { if (!e || e.code !== 'ENOENT') note('credits.link.tombstone.remove', e); } }
+      if (tombstone) { try { await fsp.unlink(tombstone); } catch (e) { if (!e || e.code !== 'ENOENT') { note('credits.link.tombstone.remove', e); throw e; } } }
+      if (ticket === generation) sessionToken = str(rec && rec.deviceToken).trim() || sessionToken;
       return rec;
-    }
+    }); }
 
     // Unlink within this process must win over a token the desktop injected at spawn: process.env still
     // holds it after the keychain entry is deleted, so without this the station would look linked until
@@ -175,6 +198,7 @@
     function loadSavedSync() {
       if (!file || !fs || unlinked) return null;
       try {
+        if (tombstone && fs.existsSync(tombstone)) return null;
         const raw = fs.readFileSync(file, 'utf8');
         const j = JSON.parse(raw);
         const fileToken = str(j && j.deviceToken).trim();
@@ -214,7 +238,24 @@
       // (POST /v1/link/revoke), or any stale copy — the keychain after a failed shell clear, a backup —
       // keeps spending forever. Best-effort by contract: an offline unlink still unlinks locally.
       const dying = str((loadSavedSync() || {}).deviceToken || sessionToken || envToken).trim();
+      ++generation; pending.clear();
+      transition('unlink_requested');
       unlinked = true; sessionToken = '';   // an unlink forgets the live token too — nothing may outlive the user's choice
+      const result = await mutate(async () => {
+        if (!file) return { ok: true, removed: false };
+        let tombstoneError = null;
+        if (tombstone) {
+          try {
+            await fsp.mkdir(DIR, { recursive: true });
+            await fsp.writeFile(tombstone, JSON.stringify({ unlinkedAt: now() }), { encoding: 'utf8', mode: 0o600 });
+          } catch (e) { tombstoneError = e; note('credits.link.tombstone.write', e); }
+        }
+        let removed = false, unlinkError = null;
+        try { await fsp.unlink(file); removed = true; }
+        catch (e) { if (!e || e.code !== 'ENOENT') unlinkError = e; }
+        const failure = tombstoneError || unlinkError;
+        return failure ? { ok: false, removed, error: failure.message || String(failure) } : { ok: true, removed };
+      });
       if (dying && configured() && doFetch) {
         try {
           const ctl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -226,21 +267,8 @@
           } finally { if (timer) clearTimeout(timer); }
         } catch (e) { note('credits.link.remote-revoke', e); }   // best-effort — the local unlink below is the guaranteed half
       }
-      if (!file) return { ok: true, removed: false };
-      // Tombstone FIRST (durable "the Commander unlinked" marker for the boot self-heal), then the record.
-      let tombstoneError = null;
-      if (tombstone) {
-        try { await fsp.writeFile(tombstone, JSON.stringify({ unlinkedAt: now() }), { encoding: 'utf8', mode: 0o600 }); }
-        catch (e) { tombstoneError = e; note('credits.link.tombstone.write', e); }
-      }
-      let removed = false, unlinkError = null;
-      try { await fsp.unlink(file); removed = true; }
-      catch (e) { if (!e || e.code !== 'ENOENT') unlinkError = e; }
-      // Keep the live unlink latch either way, but never claim durable success unless BOTH protections landed.
-      // A caller can retry: the next successful attempt writes the missing tombstone even when the record is gone.
-      const failure = tombstoneError || unlinkError;
-      if (failure) return { ok: false, removed, error: (failure && failure.message) || String(failure) };
-      return { ok: true, removed };
+      if (unlinked) transition(result.ok ? 'unlinked' : 'unlink_failed');
+      return result;
     }
 
     /* BOOT SELF-HEAL (2026-08-25 stranded-user incident). A reinstall (or workspace reset) deletes
@@ -256,33 +284,61 @@
          · the cloud ACCEPTS the token (a revoked/unknown token 401s and heals nothing).
        Best-effort by contract: any failure returns { healed:false, reason } and the station simply stays
        honestly unlinked, exactly as before this existed. */
-    async function healFromEnv() {
+    async function healFromEnvInner() {
       if (!configured() || !doFetch) return { healed: false, reason: 'not_configured' };
       if (!envToken) return { healed: false, reason: 'no_env_token' };
       if (unlinked) return { healed: false, reason: 'unlinked_this_session' };
       if (loadSavedSync()) return { healed: false, reason: 'already_linked' };
       if (tombstone && fs && fs.existsSync(tombstone)) return { healed: false, reason: 'unlink_tombstone' };
+      const ticket = generation;
       let r;
+      let j;
       const ctl = typeof AbortController === 'function' ? new AbortController() : null;
       const timer = ctl ? setTimeout(() => ctl.abort(), requestTimeoutMs) : null;
       try {
         r = await doFetch(cloudUrl + '/v1/whoami', { headers: { 'Authorization': 'Bearer ' + envToken, 'Accept': 'application/json' }, signal: ctl ? ctl.signal : undefined });
+        if (!r || !r.ok) return { healed: false, reason: r && r.status === 401 ? 'token_revoked' : ('whoami http ' + (r && r.status)) };
+        j = (await r.json()) || {};
       } catch (e) {
         return { healed: false, reason: 'unreachable', error: (e && e.message) || String(e) };
       } finally { if (timer) clearTimeout(timer); }
-      if (!r || !r.ok) return { healed: false, reason: r && r.status === 401 ? 'token_revoked' : ('whoami http ' + (r && r.status)) };
-      let j = {};
-      try { j = (await r.json()) || {}; } catch (_) { j = {}; }
+      if (ticket !== generation) return { healed: false, reason: 'superseded' };
       const accountId = str(j.accountId).trim();
       if (!accountId) return { healed: false, reason: 'no_account_in_reply' };
       const rec = { url: cloudUrl, deviceToken: envToken, accountId, linkedAt: now() };
-      try { await persist(rec); } catch (e) { return { healed: false, reason: 'persist_failed', error: (e && e.message) || String(e) }; }
+      try { await persist(rec, ticket); } catch (e) { return { healed: false, reason: 'persist_failed', error: (e && e.message) || String(e) }; }
+      if (ticket !== generation) return { healed: false, reason: 'superseded' };
       unlinked = false;
+      transition('keychain_recovered');
       return { healed: true, accountId };
     }
 
+    async function healFromEnv() {
+      recovering = true;
+      try { return await healFromEnvInner(); }
+      finally { recovering = false; }
+    }
+
+    // Only observable shape leaves this module. An injected/session token does not prove the OS
+    // keychain still holds it; diagnostics must not turn that inference into a durability claim.
+    function diagnosticState() {
+      const saved = loadSavedSync();
+      let fileToken = false, explicitlyUnlinked = unlinked;
+      try { explicitlyUnlinked = explicitlyUnlinked || !!(tombstone && fs.existsSync(tombstone)); }
+      catch (error) { note('credits.link.diagnostics.tombstone', error); }
+      try { fileToken = !!str(JSON.parse(fs.readFileSync(file, 'utf8')).deviceToken).trim(); }
+      catch (error) { if (!error || error.code !== 'ENOENT') note('credits.link.diagnostics.record', error); }
+      return {
+        state: explicitlyUnlinked ? 'unlinked' : pending.size ? 'pairing' : saved ? 'saved' : recovering ? 'recovering' : 'missing',
+        credential: explicitlyUnlinked ? 'none' : fileToken ? 'file' : envToken ? 'injected' : sessionToken ? 'session' : 'none',
+        pendingCount: pending.size,
+        lastTransition: lastTransition ? { ...lastTransition } : null,
+        linkedAt: saved ? saved.linkedAt || null : null
+      };
+    }
+
     return {
-      configured, cloudUrl: () => cloudUrl, start, poll, persist, loadSavedSync, hasSaved, tokenAtRest, clearSaved, healFromEnv,
+      configured, cloudUrl: () => cloudUrl, start, poll, persist, loadSavedSync, hasSaved, tokenAtRest, clearSaved, healFromEnv, diagnosticState,
       _internals: { file, tombstone, pending }
     };
   }

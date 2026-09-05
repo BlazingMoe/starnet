@@ -757,6 +757,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // quick collapse: a compressed power-off toward the strip (transform/opacity only), then hide.
     w.classList.add('term-minimizing');
     const hide = () => {
+      if (!minimized[key] || w._closing) return; // a quick Back may already have restored this window
       w.classList.remove('term-minimizing');
       w.classList.add('term-min-hidden');
       w.setAttribute('aria-hidden', 'true');
@@ -1191,6 +1192,28 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
     const railItems = {};    // id -> rail/tab button
     const panes = {};        // id -> pane wrapper element
+    // Optional intent groups keep existing section IDs/deep links and search intact.
+    const groups = Array.isArray(opts.groups) ? opts.groups : [];
+    const groupButtons = new Map();
+    if (groups.length) {
+      const nav = mkEl('div', 'con-intents');
+      nav.setAttribute('role', 'group');
+      nav.setAttribute('aria-label', 'Browse ' + key);
+      groups.forEach(group => {
+        const button = mkEl('button', 'con-intent', esc(group.label));
+        button.type = 'button';
+        button.addEventListener('click', () => selectSection(group.sections[0], true));
+        groupButtons.set(group.id, button);
+        nav.appendChild(button);
+      });
+      left.insertBefore(nav, rail);
+    }
+    function showGroup(id) {
+      if (!groups.length) return;
+      const group = groups.find(g => g.sections.includes(id)) || groups[0];
+      groups.forEach(g => groupButtons.get(g.id).setAttribute('aria-pressed', String(g === group)));
+      Object.keys(railItems).forEach(k => { railItems[k].hidden = !group.sections.includes(k); });
+    }
     sections.forEach((sec, i) => {
       const item = mkEl('button', tabsTop ? 'con-rail-item con-toptab' : 'con-rail-item');
       item.type = 'button';
@@ -1246,10 +1269,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
     function selectSection(id, viaClick) {
       if (!panes[id]) return;
+      // A deliberate tab/setup jump leaves search results; otherwise the destination form stays filtered out.
+      if (viaClick && searchInput && searchInput.value) {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+      }
       reveal(id);
       consoleSection[key] = id;
       if (viaClick) saveWindowState();   // remember the section the Commander navigated to, across reloads
       activeId = id;
+      showGroup(id);
       Object.keys(panes).forEach(k => {
         const on = k === id;
         railItems[k].classList.toggle('active', on);
@@ -1268,6 +1297,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // Search is temporary context, not navigation: expose which matching section owns the
     // visible results without overwriting the section the user chose and persisted.
     function setSearchContext(id) {
+      showGroup(id);
       Object.keys(railItems).forEach(k => {
         const on = k === id;
         railItems[k].classList.toggle('active', on);
@@ -1279,7 +1309,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // keyboard nav on the tablist: Up/Down (vertical rail) or Left/Right (horizontal top strip) move + activate;
     // Home/End jump ends. Both arrow pairs are accepted regardless of orientation, so this handler is shared.
     (tabsTop ? topTabs : rail).addEventListener('keydown', ev => {
-      const ids = sections.map(s => s.id);
+      const ids = sections.map(s => s.id).filter(id => !railItems[id].hidden);
       const cur = ids.indexOf(activeId);
       let next = -1;
       if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') next = (cur + 1) % ids.length;
@@ -1321,12 +1351,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           // index the platforms. Locked by test/connectors-ui.test.js.
           const rows = pane.querySelectorAll('.con-sec-body .set-row, .con-sec-body label.set-row, .con-sec-body .prov-card, .con-sec-body .key-row, .con-sec-body .set-about, .con-sec-body .ms-h, .con-sec-body .perk, .con-sec-body .sk-card, .con-sec-body .mc-hint, .con-sec-body .mc-row, .con-sec-body .ts-row, .con-sec-body .cc-card');
           let hits = 0;
+          const headingMatch = sec.label.toLowerCase().includes(q);
           rows.forEach(r => {
             // `data-search` carries ALIASES that are deliberately not on screen (a Google Workspace card says
             // "Gmail, Calendar, Drive…" in its blurb but never "gdrive"/"g suite"). Searching a name the user
             // actually types must not depend on that name happening to appear in marketing copy.
             const hay = ((r.textContent || '') + ' ' + (r.dataset ? (r.dataset.search || '') : '')).toLowerCase();
-            const hit = hay.indexOf(q) >= 0;
+            const hit = headingMatch || hay.indexOf(q) >= 0;
             r.classList.toggle('con-hit', hit);
             r.classList.toggle('con-miss', !hit);
             if (hit) hits++;
@@ -1382,6 +1413,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const key = String(a.name).trim().toUpperCase();
     return present.filter(x => x && String(x.name || '').trim().toUpperCase() === key).length > 1 ? String(a.id || '') : '';
   }
+  let crewFilter = 'all';
+  function crewPortrait(a) {
+    return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
+  }
   function crewRender() {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
@@ -1391,7 +1426,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
       '<div class="crew-name" style="color:' + esc(a.color) + '">' + esc(a.name) +
@@ -1403,8 +1439,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div></li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
-    ul.querySelectorAll('.crew-row').forEach(li =>
-      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); }));
+    ul.querySelectorAll('.crew-row').forEach(li => {
+      if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
+      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); });
+      li.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); li.click(); }
+      });
+    });
     crewTick();
   }
   // a crew member is WORKING iff IT has a live run — read from the real agent.run.start/end events, NOT the
@@ -1418,16 +1459,34 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const act = activity();
     let focusedId = '';
     try { focusedId = (typeof App !== 'undefined' && App.currentAgent && App.currentAgent() || {}).id || ''; } catch (_) {}
-    let working = 0;
+    const awaiting = new Set();
+    try {
+      if (typeof Channels !== 'undefined' && typeof Workstreams !== 'undefined') {
+        for (const id of Channels.pendingIds()) { const ws = Workstreams.get(id); if (ws) awaiting.add(ws.agentId || 'agent'); }
+      }
+    } catch (_) {}
+    let working = 0, visible = 0;
     present.forEach(a => {
       const live = agentLive(a.id);
       if (live) working++;
       const e = $('#cs-' + a.id);
-      if (e) e.textContent = live ? (a.id === focusedId && act === 'talk' ? 'in conversation' : 'working at the terminal') : 'idle — awaiting orders';
+      const needsYou = awaiting.has(a.id);
+      if (e) {
+        const status = needsYou ? 'AWAITING APPROVAL' : live ? (a.id === focusedId && act === 'talk' ? 'IN CONVERSATION' : 'WORKING') : 'IDLE';
+        if (e.textContent !== status) e.textContent = status;
+        const row = e.closest('.crew-row');
+        row.classList.toggle('selected', a.id === focusedId);
+        row.classList.toggle('needs-you', needsYou);
+        const hide = crewFilter === 'active' ? !live : crewFilter === 'await' ? !needsYou : false;
+        if (row.hidden !== hide) row.hidden = hide;
+        if (!row.hidden) visible++;
+      }
       // H: mark the row WORKING so the in-flight shimmer bar shows only while it's actually running.
       if (e && e.parentElement && e.parentElement.parentElement) e.parentElement.parentElement.classList.toggle('working', live);
     });
     const sum = $('#crew-sum');
+    const empty = $('#crew-filter-empty');
+    if (empty) { empty.hidden = visible > 0; empty.textContent = crewFilter === 'await' ? 'No approvals waiting.' : 'No agents working right now.'; }
     if (sum) sum.innerHTML =
       '<span class="pos">▮ ' + working + ' WORKING</span>' +
       '<span class="dim">▯ ' + (present.length - working) + ' IDLE</span>';
@@ -1598,9 +1657,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const prof = executionProfileOf(executionProfileId(a));
     const rows = [
       { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card' },
-      { lbl: 'VOICE',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
-      { lbl: 'APPROVAL',  val: (a && a.approvalMode === 'full') ? 'full access' : 'asks first', dim: false, go: 'ag-approval-card' },
-      { lbl: 'RUNS IN',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
+      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
+      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card' },
+      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
       { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card' }
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
@@ -1827,39 +1886,42 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   function agSkills(agentId) {
-    const skills = skillsFor(agentId);
-    const on = skills.filter(s => s.on).length;
-    // NAV CONDENSE 2: this tab is now the ONE per-agent capabilities home (the standalone SKILLS
-    // window is gone), so it inherits that panel's honest affordances: a locked card names the
-    // missing gear and deep-links into REFIT (data-perk-cap → placeGearForSkill, wired in
-    // buildAgents), and the toolset-off honesty pass dims families switched off in ABILITIES.
-    const capLockedText = (s) => '○ NO ' + (SK_OBJ_NAME[s.cap] || String(s.cap || '').toUpperCase()) + ' AT DESK';
-    // NAV CONDENSE 3: this grid folds into BRIEF (its own tab was 411px of read-only content the Commander had
-    // to go looking for), so the standalone <h4> heading is gone — the count rides the one-line chain below it,
-    // under BRIEF's own "CAN DO" rule. No duplicate title stacked on a title.
-    return '<div class="sk-chain"><b>' + on + ' live</b> &middot; OBJECT AT DESK <span class="sk-chain-arr">→</span> CAPABILITY <span class="sk-chain-arr">→</span> SKILL</div>' +
-      '<div class="perk-grid">' +
-      skills.map((s, i) => {
-        const lockable = !s.on && s.cap;
-        return '<div class="perk ' + (s.on ? 'on' : '') + (lockable ? ' perk-locked' : '') + '"' +
-          (lockable ? ' data-perk-cap="' + esc(s.cap) + '" role="button" tabindex="0" title="Open REFIT to place ' + skArt(SK_OBJ_NAME[s.cap] || s.cap) + esc(SK_OBJ_NAME[s.cap] || String(s.cap).toUpperCase()) + '"' : '') +
-          ' style="--ci:' + i + '">' +
-          '<div class="perk-icon">' + s.icon + '</div>' +
-          '<div class="perk-name">' + s.name + '</div>' +
-          '<div class="perk-desc">' + s.tools + '</div>' +
-          '<div class="perk-stat' + (s.consent ? ' ask' : '') + '">' +
-          (s.on ? (s.consent ? '● ASKS OK' : '● ENABLED') : capLockedText(s)) + '</div>' +
-          (lockable ? '<div class="perk-place">▸ PLACE IN REFIT</div>' : '') + '</div>';
-      }).join('') +
-      '</div>' +
-      /* one note, not two: the facts were previously spread across two stacked paragraphs of identical weight.
-         The consent sentence is NOT editorial — "File writes and commands pause for one-click approval in COMMS"
-         is a locked advertised claim (qa/product-perfect/claims.json → one-click-mutation-approval), and this
-         node is its surface locator. Reword the surrounding prose freely; that clause stays verbatim. */
-      '<p class="sk-note">Capabilities follow the <b>objects at the workstation</b> — the room layout IS the ' +
-      'permission system. <b>File writes</b> and <b>commands</b> pause for one-click approval in COMMS; the ' +
-      'private <b>notebook</b> saves freely. Read-only here: the on/off switches and the station’s skill ' +
-      'library live in <b>⇄ ABILITIES</b> on the bottom bar.</p>';
+    return '<div class="ag-effective" data-access-agent="' + esc(agentId || 'agent') + '" role="status">Checking effective access…</div>';
+  }
+
+  function loadEffectiveAccess(body, a) {
+    const targets = body.querySelectorAll('[data-access-agent]');
+    if (!targets.length || !a) return;
+    const request = body._accessRequest = (body._accessRequest || 0) + 1;
+    let placed = [];
+    try { placed = World.heroCaps(a.id).map(c => c.objectType); } catch (_) {}
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(a.id) + '&placed=' + encodeURIComponent(placed.join(',')))
+      .then(view => {
+        if (!body.isConnected || body._accessRequest !== request) return;
+        if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access unavailable');
+        const authority = view.authority;
+        const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
+        if (summary) summary.textContent = authority.unrestricted ? 'Full Power · no prompts' : 'ASK · standing grants apply';
+        const reach = body.querySelector('#ag-execution-plain');
+        if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
+        const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
+          '<div class="perk-grid">' + view.toolsets.map(t => '<div class="perk' + (t.available ? ' on' : '') + '"><div class="perk-name">' + esc(t.label) + '</div><div class="perk-stat">' +
+            (t.available ? (t.consentGated ? 'AVAILABLE · risky actions may ask' : 'AVAILABLE') : !t.enabled ? 'SWITCHED OFF' : 'NEEDS GEAR OR ACCESS') +
+            '</div><div class="perk-desc">' + esc(t.grantSource || 'No current grant') + '</div></div>').join('') + '</div>' +
+          '<p class="sk-note">' + esc(authority.revoke) + ' Service credentials, task-specific permissions and operating-system limits still apply. Unattended jobs have their own grants.</p>' +
+          '<button class="bb sm" data-access-manage>MANAGE ABILITIES</button> <button class="bb sm" data-access-settings>STATION PERMISSIONS</button> <button class="bb sm" data-access-refresh>REFRESH ACCESS</button>';
+        targets.forEach(target => {
+          target.innerHTML = html;
+          target.querySelector('[data-access-manage]').onclick = () => openTerm('connectors', 'toolsets');
+          target.querySelector('[data-access-settings]').onclick = () => openTerm('settings', 'permissions');
+          target.querySelector('[data-access-refresh]').onclick = () => loadEffectiveAccess(body, a);
+        });
+      }).catch(() => {
+        if (!body.isConnected || body._accessRequest !== request) return;
+        targets.forEach(t => { t.textContent = 'Effective access could not be checked. Reopen this panel after reconnecting.'; });
+        const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
+        if (summary) summary.textContent = 'unavailable';
+      });
   }
 
   function fileCard(a, f) {
@@ -2175,30 +2237,31 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      information the surrounding chrome did not already carry, and it read as a warning label.
      Card ids (ag-*-card) are the anchor targets BRIEF's setup strip jumps to. */
   const CF_GROUPS = [
-    { id: 'cf-grp-knows',  label: 'WHAT IT KNOWS' },
-    { id: 'cf-grp-behaves', label: 'HOW IT BEHAVES' },
-    { id: 'cf-grp-unit',   label: 'THE UNIT' }
+    { id: 'cf-grp-purpose', label: 'PURPOSE' },
+    { id: 'cf-grp-knows', label: 'INSTRUCTIONS' },
+    { id: 'cf-grp-model', label: 'MODEL' },
+    { id: 'cf-grp-personality', label: 'PERSONALITY' },
+    { id: 'cf-grp-behaves', label: 'ACCESS' },
+    { id: 'cf-grp-unit', label: 'APPEARANCE' }
   ];
+  const cfOpen = new Map();
   function agConfig(a) {
-    const grp = (i, note) => '<div class="sec cf-grp" id="' + CF_GROUPS[i].id + '"><span class="sec-l">' + CF_GROUPS[i].label + '</span>' +
-      '<span class="sec-r"></span><span class="sec-nd"></span></div>' +
-      (note ? '<p class="cf-grp-note">' + note + '</p>' : '');
-    // CONFIG is the one pane that is legitimately long (measured 1741px — it is the editor). Grouping tells you
-    // what is down there; this row lets you GO there without a scroll hunt. Wired in wireConfig.
-    const nav = '<div class="cf-nav" role="group" aria-label="Jump to a config group">' +
-      CF_GROUPS.map(g => '<button type="button" class="cf-nav-b" data-cfjump="' + g.id + '">' + g.label + '</button>').join('') +
-      '</div>';
-    return '<div class="cf-root">▣ station://agents/' + esc(agSlug(a)) + '/</div>' + nav +
-      grp(0, 'These four files ARE the system prompt. Edit one and the agent changes on its very next run.') +
-      CONFIG_FILES.map(f => fileCard(a, f)).join('') +
-      grp(1, 'Runtime posture — none of this changes what the agent knows, only how it works.') +
-      personaCard(a) +
-      modelCard(a) +
-      executionProfileCard(a) +
-      approvalCard(a) +
-      workshopCard(a) +
-      grp(2, '') +
-      agCommand(a);   // SKIN swap + DANGER delete — lives at the END of CONFIG, off the BRIEF landing tab
+    const purpose = CONFIG_FILES.find(f => f.key === 'purpose');
+    const content = [
+      purpose ? fileCard(a, purpose) : '',
+      CONFIG_FILES.filter(f => f.key !== 'purpose').map(f => fileCard(a, f)).join(''),
+      modelCard(a), personaCard(a),
+      agSkills(a.id) + executionProfileCard(a) + approvalCard(a), agCommand(a)
+    ];
+    const summaries = [a.purpose || 'What should this agent accomplish?', 'Identity, context and operating rules · edit each source file',
+      a.model || 'Follow station default', (typeof Personas !== 'undefined' && Personas.get(a.personaId)?.name) || 'Station personality',
+      'Effective reach, execution and approval settings',
+      ((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[a.skin]) || {}).name || 'Choose a skin'];
+    return '<p class="cf-grp-note">Choose what to change. Instructions and model changes use SAVE; personality, appearance and access controls apply when selected.</p>' +
+      CF_GROUPS.map((g, i) => {
+        const key = a.id + ':' + g.id;
+        return '<details class="cf-group" id="' + g.id + '" data-cf-group="' + esc(key) + '"' + (cfOpen.get(key) ? ' open' : '') + '><summary><span class="cf-group-title">' + g.label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' + content[i] + '</div></details>';
+      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open>WHILE I’M AWAY → AUTOMATION</button></div>';
   }
 
   // W3 per-agent AWAY-WORKSHOP surface (rebuilt 2026-07-15 UX audit — the queue was invisible, the cadence
@@ -2299,7 +2362,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const chips = EXECUTION_PROFILES.map(x => '<button type="button" class="ov-vchip' + (x.id === current ? ' sel' : '') + '" data-execution-profile="' + x.id + '" data-name="' + esc(x.label) + '" data-reach="' + x.reach + '" title="' + esc(x.plain) + '" aria-pressed="' + (x.id === current ? 'true' : 'false') + '">' + reachMeter(x.reach) + esc(x.label) + '</button>').join('');
     return '<div class="cf-card" id="ag-execution-card">' +
       '<div class="cf-head"><span class="cf-file">▣ execution profile</span></div>' +
-      '<div class="cf-desc">Where this agent runs and what scope it receives. This is separate from approval prompts and never grants real mouse, keyboard, or screen control.</div>' +
+      '<div class="cf-desc">Choose an execution profile. Changing the profile alone never grants real mouse, keyboard, or screen control; that requires Full Power or a live desktop-control grant. The effective-access summary above includes Full Power overrides; service connections and operating-system limits still apply.</div>' +
       '<div class="ov-vchips" id="ag-execution-chips">' + chips + '</div>' +
       '<div class="cf-desc pc-plain" id="ag-execution-plain">' + esc(p.plain) + '</div>' +
       '<div class="mc-hint" id="ag-execution-truth">ROUTES NEXT COMMAND TO <b>' + esc(p.backend.toUpperCase()) + '</b> · FILES: ' + esc(p.files) + ' · TOOLS: ' + esc(p.tools) + ' · DESKTOP: ' + esc(p.desktop) + ' · checking availability…</div>' +
@@ -2361,7 +2424,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     return '<div class="cf-card" id="ag-model-card">' +
       '<div class="cf-head"><span class="cf-file">▣ model</span></div>' +
-      '<div class="cf-desc">What this agent runs on. Pick a model to run this agent on it everywhere — chat, delegated work, scheduled routines — independent of the station default in the COMMS dock. “Follow station default” clears the pin.</div>' +
+      '<div class="cf-desc">What this agent runs on. Pick a model to run this agent on it everywhere — chat, delegated work, scheduled routines — independent of the station default in the COMMS dock. “Follow station default” clears the pin. Choose SAVE MODEL to apply your selection.</div>' +
       picker +
       '<details class="mc-adv"' + ((pinned && !hasPicker) ? ' open' : '') + '><summary>advanced — type a model id</summary>' +
         '<div class="set-row"><label for="ag-model-in">MODEL</label><input id="ag-model-in" class="key-input" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. anthropic/claude-sonnet-4-5" value="' + esc(model) + '"></div>' +
@@ -2369,7 +2432,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</details>' +
       '<div class="mc-hint">' + (pinned ? 'pinned — this agent ignores the station default' : 'following the station default') + '</div>' +
       '<div class="mc-acts">' +
-        '<button class="bb sm" id="ag-model-save">SAVE PIN</button>' +
+        '<button class="bb sm" id="ag-model-save">SAVE MODEL</button>' +
         (pinned ? '<button class="bb xs" id="ag-model-clear" title="run this agent on the station default model again">FOLLOW STATION DEFAULT</button>' : '') +
       '</div>' +
       '<div id="ag-model-msg" class="msg"></div>' +
@@ -2389,8 +2452,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const target = w.querySelector('#' + b.dataset.cfjump), pane = w.querySelector('.con-pane');
       if (!target || !pane) return;
       sfx('click');
+      target.open = true;
       pane.scrollTop = Math.max(0, target.offsetTop - pane.offsetTop - 8);
     }));
+    body.querySelectorAll('[data-cf-group]').forEach(group => {
+      group.addEventListener('toggle', () => { if (group.isConnected) cfOpen.set(group.dataset.cfGroup, group.open); });
+    });
     body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
       agEdit[b.dataset.edit] = true; sfx('click'); rerender('agents');
     }));
@@ -2476,11 +2543,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const epTruth = body.querySelector('#ag-execution-truth');
       const currentId = executionProfileId(a);
       const paintBackendTruth = (row) => {
-        const p = executionProfileOf(executionProfileId(a));
         const routed = String((row && row.profile && row.profile.effectiveBackend) || 'unknown').toUpperCase();
         const availability = String((row && row.environment && row.environment.availability && row.environment.availability.state) || 'unknown').toUpperCase();
-        if (epTruth) epTruth.innerHTML = sandboxChip(row) + 'ROUTES NEXT COMMAND TO <b>' + esc(routed) + '</b> · AVAILABILITY <b>' + esc(availability) + '</b>' +
-          ' · FILES: ' + esc(p.files) + ' · TOOLS: ' + esc(p.tools) + ' · DESKTOP: ' + esc(p.desktop);
+        if (epTruth) epTruth.innerHTML = sandboxChip(row) + 'ROUTES NEXT COMMAND TO <b>' + esc(routed) + '</b> · AVAILABILITY <b>' + esc(availability) + '</b>. Current reach is shown in effective access above.';
       };
       Harness.api.get('/api/execution-profiles').then(j => paintBackendTruth((j && j.agents || []).find(x => x.agentId === (a && a.id)))).catch(() => paintBackendTruth(null));
       let epArmed = null;
@@ -2533,6 +2598,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         sfx('click'); rerender('agents');
       }));
     }
+    body.querySelectorAll('[data-away-open]').forEach(b => { b.onclick = () => { if (window.AutomationWindow) window.AutomationWindow.openAway(a.id); }; });
+  }
+
+  function wireWorkshop(body, a) {
     // W3 AWAY-WORKSHOP toggle: flip a.workshop via App.setWorkshop (updates the flag + pushRoster + persist).
     // Optimistic UI: on failure we revert the checkbox and say so — never assert a grant the harness didn't record.
     const wOn = body.querySelector('#ag-workshop-on');
@@ -2552,6 +2621,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!ok) { setWMsg('could not save that — the station didn’t record it', false); sfx('bad'); wOn.checked = !next; return; }
         setWMsg(next ? 'on — this agent can build in its sandbox while you’re away' : 'off — this agent stays idle while you’re away', true);
         loadWsLive();   // grant flips arm/disarm the shift → the next-shift line changes
+      }).catch(() => {
+        wOn.disabled = false; wOn.checked = !next;
+        setWMsg('could not save that — reconnect and try again', false);
       });
     });
 
@@ -2668,12 +2740,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        and it lands the card at the TOP of the pane rather than merely "into view", because a 1565px column
        scrolled the minimum distance leaves the card you asked for hugging the bottom edge. */
     const jumpToConfig = (anchor) => {
+      if (anchor === 'ag-workshop-card' && window.AutomationWindow) { window.AutomationWindow.openAway(a.id); return; }
       consoleSection['agents'] = 'config'; sfx('click'); rerender('agents');
       if (!anchor || anchor === '1') return;
       requestAnimationFrame(() => {
         const w = open.agents; if (!w) return;
         const card = w.querySelector('#' + anchor), pane = w.querySelector('.con-pane');
         if (!card || !pane) return;
+        const group = card.closest('.cf-group');
+        if (group) { group.open = true; cfOpen.set(group.dataset.cfGroup, true); }
         pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
         card.classList.add('cf-jumped');
         setTimeout(() => { try { card.classList.remove('cf-jumped'); } catch (_) {} }, 1400);
@@ -2896,33 +2971,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // memory live-refresh never wipe CONFIG/MEMORY DOM, so open editors survive.
     wireHead(host);
     wireConfig(host);
+    loadEffectiveAccess(host, a);
     wireMemoryLive();
     loadMemoryCore(a);
     loadPractice(a && a.id ? a.id : 'agent');   // S5: fill the GROWTH tab's B3 meter from the agent's real skillbase
     drawPortrait(host.querySelector('#ag-portrait'), a);
     lanes.forEach(l => { try { if (typeof l.wire === 'function') l.wire(); } catch (_) {} });
-    // SKILLS tab: a locked capability card deep-links into REFIT to place its missing gear (same
-    // honest path the retired SKILLS window carried — moved here with the grid, NAV CONDENSE 2).
-    const agentName = (a && a.name) || (a && a.id) || 'agent';
-    host.querySelectorAll('.perk-locked[data-perk-cap]').forEach(p => {
-      const go = () => { sfx('click'); placeGearForSkill(p.dataset.perkCap, agentName); };
-      p.addEventListener('click', go);
-      p.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
-    });
-    // TOOLSET honesty: a family switched OFF in ABILITIES → TOOLSETS must read as OFF here too, so
-    // the two surfaces can't tell different stories. Best-effort; a fetch miss leaves perks as-is.
-    Harness.api.get('/api/toolsets').then(j => {
-      const disabledObjs = {};
-      (j && j.toolsets || []).forEach(t => { if (!t.enabled && t.object) disabledObjs[t.object] = true; });
-      const skills = skillsFor((a && a.id) || 'agent');
-      const perks = host.querySelectorAll('.perk-grid .perk');
-      skills.forEach((s, i) => {
-        if (s.cap && disabledObjs[s.cap] && perks[i]) {
-          perks[i].classList.remove('on'); perks[i].classList.add('ts-disabled');
-          const stat = perks[i].querySelector('.perk-stat'); if (stat) { stat.textContent = '○ OFF — switch it on in ⇄ ABILITIES'; stat.classList.remove('ask'); }
-        }
-      });
-    }).catch(() => {});
   }
   function drawPortrait(cv, a) {
     if (!cv) return;
@@ -3074,9 +3128,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Pre-installed <b>procedures</b> your agents follow when a task matches ' +
-      '(not the same as ❒ RECIPES — those are launchable jobs; these are how-to guides). Each one ' +
-      'rides on the agent’s capabilities (the TOOLSETS section here; per-agent, the dossier’s SKILLS tab) — it stays <b>locked</b> until ' + esc((a && a.name) || 'the agent') + ' has the ' +
-      'objects it needs. Enabling is station-wide; what actually runs is still gated by the floor.</p>' +
+      '(❒ RECIPES starts jobs; skills describe how to do them). Enabling is station-wide. Required abilities can come from equipment or access settings. Instructions being available does not connect an outside service or authorize every action.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
       '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
@@ -3123,12 +3175,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const host = $('#sk-lib'); if (!host) return;
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
-    fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')))
-      .then(r => r.ok ? r.json() : { skills: [] })
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
+      .then(view => {
+        if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access could not be checked');
+        // Match runOnce's skill context: room objects plus profile/Full Access projection and shared station gear.
+        // This only explains instruction availability; it does not grant any tools or change skill preferences.
+        const shared = typeof World !== 'undefined' && World.stationCaps ? World.stationCaps().map(c => c.objectType) : [];
+        placed = [...new Set(placed.concat(shared, view.toolsets.filter(r => r.object && (r.placed || r.profileGranted || view.authority.unrestricted)).map(r => r.object)))];
+        return fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')));
+      })
+      .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h === host) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
+          const search = h.closest('.term-body')?.querySelector('.con-search-in');
+          if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
       })
@@ -3586,7 +3648,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      TO DO -> IN PROGRESS the instant a real run fires (Workstreams.appendRun); SHIPPED is only ever a
      deliberate human turn-in (the ✓ SHIP button). The General chat home isn't a project, so it shows
      in the rail but never on this board. App owns persistence + the rail; we drive both via sync(). */
-  const COLS = [['todo', 'TO DO'], ['active', 'ACTIVE'], ['shipped', 'SHIPPED']];
+  const COLS = [['todo', 'TO DO'], ['active', 'IN PROGRESS / REVIEW'], ['shipped', 'COMPLETED']];
   const WS = () => (typeof Workstreams === 'object' && Workstreams) ? Workstreams : null;
   function boardStreams() {
     const w = WS(); if (!w) return [];
@@ -3611,16 +3673,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function openStream(id) {
     const w = WS(); if (!w) return;
     const s = w.get(id); if (!s) return;
-    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); return; }
+    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); workConversation('tasks'); return; }
     w.switch(id);
     if (typeof Chat === 'object' && Chat.load) Chat.load(s);
     persistWS(); sync();
+    workConversation('tasks');
   }
   function shipTask(id) {
     const w = WS(); if (!w) return;
     if (!w.setLane(id, 'shipped')) return;
     const s = w.get(id); persistWS(); sync();
-    notify('shipped ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
+    notify('marked complete: ' + ((s && s.title) || 'workstream'), 'gold'); sfx('notify');
   }
   function reopenTask(id) { const w = WS(); if (!w) return; w.setLane(id, 'active'); persistWS(); sync(); }
   function archiveCard(id) { const w = WS(); if (!w) return; w.archive(id, true); persistWS(); sync(); }
@@ -3675,6 +3738,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(id);
     else { w.switch(id); if (typeof Chat === 'object' && Chat.load) Chat.load(s); sync(); }
     const started = s.history.some(m => m.role === 'user');
+    workConversation('tasks');
     if (!started && s.title && typeof Chat === 'object' && Chat.send) Chat.send(s.title);
     // name the stream's OWN bound agent (s.agentId), resolved against the roster — never present[0], which is
     // whoever happens to be first, not who this workstream actually runs as.
@@ -3695,8 +3759,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="es-glyph">▶</span><b>NOTHING IN FLIGHT</b>' +
       '<span>Assign a TO DO task and it moves here while the agent works.</span></div></div>';
     return '<div class="kb-empty-col"><div class="empty-state">' +
-      '<span class="es-glyph">✓</span><b>NOTHING SHIPPED YET</b>' +
-      '<span>Tasks you mark shipped land here as proof of work.</span></div></div>';
+      '<span class="es-glyph">✓</span><b>NO COMPLETED TASKS YET</b>' +
+      '<span>Tasks you review and mark complete appear here.</span></div></div>';
   }
   // TRUTHFUL RUN-STATE: the chip maps to a PROVABLE backend state — RUNNING when a run is actually in flight
   // on this stream (Channels.isBusy), else DONE — REVIEW & SHIP once at least one run has landed (the human's
@@ -3718,7 +3782,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // chat.js's in-band error branch. null (no outcome recorded — legacy save / delegated run) keeps
       // the DONE chip: we only claim FAILED when the failure is provable, never by inference.
       if (s.lastRunOk === false) return '<div class="kb-state failed">✗ RUN FAILED — REVIEW</div>';
-      return '<div class="kb-state done">DONE — REVIEW &amp; SHIP</div>';
+      return '<div class="kb-state done">FINISHED — REVIEW RESULT</div>';
     }
     return '';
   }
@@ -3757,8 +3821,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const acts = s.lane === 'todo'
       ? '<button class="assign" data-act="assign">▶ ASSIGN</button><button data-act="open">↗ OPEN</button>' + tail
       : s.lane === 'active'
-        ? '<button data-act="ship">✓ SHIP</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
-        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button>' + tail;
+        ? '<button data-act="ship" title="Mark this task complete; this does not publish or send anything">✓ MARK COMPLETE</button><button data-act="queue" title="send back to TO DO">↩ QUEUE</button><button data-act="open">↗ OPEN</button>' + tail
+        : '<button data-act="reopen">↺ REOPEN</button><button data-act="open">↗ OPEN</button><button data-act="repeat" title="Review a schedule for this task; nothing runs until you save and enable it">◷ REPEAT…</button>' + tail;
     return '<div class="kb-card' + (s.pinned ? ' pinned' : '') + '" draggable="true" data-id="' + s.id + '" role="button" tabindex="0" aria-label="' + esc(s.title || 'untitled') + ' — open conversation" style="--ci:' + (i || 0) + '">' +
       '<div class="kb-title">' + esc(s.title || 'untitled') + '</div>' +
       '<div class="kb-meta">' + agentChip(s) + '<span class="kb-time" data-t="' + (s.lastActiveAt || s.createdAt) + '">' + clock(s.lastActiveAt || s.createdAt) + '</span>' +
@@ -3798,6 +3862,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const keepScroll = live ? Array.from(body.querySelectorAll('.kb-col')).map(c => c.scrollTop) : null;
     const streams = boardStreams();
     body.innerHTML =
+      '<div class="work-entry"><span class="ui-overline">PLAN → RUN → REVIEW</span><button type="button" class="bb sm" data-work-to="outbox">OUTBOX</button><button type="button" class="bb sm" data-work-to="deliverables">LIBRARY</button></div>' +
       '<div class="kb-add"><input id="kb-in" maxlength="80" placeholder="add a planned task…" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">+ ADD</button></div>' +
       '<div class="kb-cols">' +
@@ -3816,6 +3881,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // entrance motion belongs to USER-initiated opens only — a background data poke must not re-animate.
     // (body persists across rebuilds, so the class must be actively toggled both ways.)
     body.classList.toggle('kb-live-refresh', live);
+    body.querySelectorAll('[data-work-to]').forEach(b => b.addEventListener('click', () => navigateWork('tasks', b.dataset.workTo)));
     const inp = body.querySelector('#kb-in');
     // capture-then-clear BEFORE addTask: its sync() triggers a live rebuild which would otherwise
     // capture (and faithfully restore) the just-submitted text back into the input.
@@ -3826,7 +3892,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelectorAll('.kb-empty-col .es-cta').forEach(b =>
       b.addEventListener('click', () => { sfx('click'); inp.focus(); }));
     const obLink = body.querySelector('#kb-outbox-link');
-    if (obLink) obLink.addEventListener('click', () => { sfx('click'); openTerm('outbox'); });
+    if (obLink) obLink.addEventListener('click', () => { sfx('click'); navigateWork('tasks', 'outbox'); });
     if (live) {
       // restore what the rebuild destroyed. Focus is restored ONLY if it already lived inside the board —
       // a refresh may never steal the keyboard from the chat composer (the original P1 bug).
@@ -3857,6 +3923,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         else if (act === 'pin') togglePin(id);
         else if (act === 'rename') beginCardRename(c, id);
         else if (act === 'arch') archiveCard(id);
+        else if (act === 'repeat') {
+          const stream = boardStreams().find(s => s.id === id);
+          const message = stream && Workstreams.visibleMessages(stream).find(m => m.role === 'user');
+          if (message && typeof AutomationWindow !== 'undefined') AutomationWindow.openDraft({name:stream.title,prompt:message.content,agentId:stream.agentId,workdir:stream.projectRoot});
+          else notify('Open the task and give it instructions before scheduling it.', 'warn');
+        }
       }));
       c.addEventListener('click', () => openStream(id));   // clicking the card body opens its conversation
       // keyboard parity for the role=button card: Enter/Space opens it — but only when the CARD itself is focused,
@@ -3886,7 +3958,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const w = WS(); const s = w && wid ? w.get(wid) : null;
         if (!s || s.lane === lane || !w.setLane(wid, lane)) return;
         sfx('click');
-        if (lane === 'shipped') { notify('shipped ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
+        if (lane === 'shipped') { notify('marked complete: ' + (s.title || 'workstream'), 'gold'); sfx('notify'); }   // same beat as ✓ SHIP
         persistWS(); sync();
       });
     });
@@ -5546,7 +5618,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
           Harness.api.post('/api/config/import', { envelope: env })
             .then(({ ok, j }) => {
               fileIn.value = '';
-              if (!ok) { setMsg((j && j.error) || 'import failed'); sfx('bad'); return; }
+              if (!ok) {
+                const partial = j && Array.isArray(j.applied) && j.applied.length ? ' (already applied: ' + j.applied.join(', ') + ')' : '';
+                setMsg(((j && j.error) || 'import failed') + partial); sfx('bad'); return;
+              }
               // restore the browser-owned slices locally.
               const b = (j && j.browser) || {};
               if (b.settings) { Object.assign(store.settings, b.settings); }
@@ -5558,10 +5633,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
               // never later demote FROM a rung the dial isn't even at (the silent-escalation blocker).
               try { if (typeof TrustStore !== 'undefined' && TrustStore.onManualInitiative && typeof AutonomyStore !== 'undefined' && AutonomyStore.get) TrustStore.onManualInitiative((AutonomyStore.get() || {}).initiative); } catch (_) {}
               const need = (j && j.secretsNeeded) || [];
-              const needTxt = need.length ? ' — re-enter secrets for: ' + need.map(n => n.id || n.kind).join(', ') : '';
-              setMsg('✓ imported ' + ((j.applied || []).length) + ' section' + (((j.applied || []).length) === 1 ? '' : 's') + needTxt, true);
-              sfx('level');
               rerender('settings');   // repaint so the imported budgets/chains/prefs show
+              const needTxt = need.length ? ' — re-enter: ' + need.map(n => {
+                const name = n.id || n.kind;
+                return name + (Array.isArray(n.fields) && n.fields.length ? ' (' + n.fields.join(', ') + ')' : '');
+              }).join('; ') : '';
+              const freshMsg = document.querySelector('#bk-msg');
+              if (freshMsg) {
+                freshMsg.textContent = '✓ imported ' + ((j.applied || []).length) + ' section' + (((j.applied || []).length) === 1 ? '' : 's') + needTxt;
+                freshMsg.className = 'msg ok';
+              }
+              sfx('level');
             }).catch(() => { setMsg('could not reach the sidecar'); sfx('bad'); });
         };
         reader.readAsText(f);
@@ -7677,11 +7759,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<span class="cd-fam"><span class="cd-fk"><span class="cd-ff" style="width:' + pct + '%;"></span></span>' +
       '<span class="cd-fpct">' + (sum.known.length ? pct + '%' : 'calibrating') + '</span></span></div></div>' +
       '<div class="cd-sub">' + sum.known.length + ' of ' + dims.length + ' dimensions known &middot; ' + obsLine + '</div>' +
-      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>local-first</b> — it never leaves this machine. Add, edit, pin, or forget anything below; you own it.</div>');
+      '<div class="mc-note">This dossier is <b>shared by every agent on your station</b> and folds into each one\'s briefing, so a freshly-deployed agent already knows you. It is <b>stored locally</b>. The briefing is sent to each agent’s configured model when it works; relevant summaries may also be used for suggestions. Add, edit, pin, or forget anything below; you own it.</div>');
     body.appendChild(head);
 
     // AGENT BRIEFING — the practical payoff surface: the VERBATIM Commander block every agent receives.
-    body.appendChild(cdBriefing(ds));
+    const briefingDetails = mkEl('details', 'cd-brief-details');
+    briefingDetails.appendChild(mkEl('summary', '', 'Inspect the exact briefing your agents receive'));
+    briefingDetails.appendChild(cdBriefing(ds));
+    body.appendChild(briefingDetails);
 
     // the active "get to know you" trigger — runs the intake interview in COMMS, folding answers into the
     // dossier through the same upsert path the cards use. Gated on a free agent + not-already-running.
@@ -7737,6 +7822,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // because it IS the colony's whole-lifetime track record. Absent store → silently omit (nothing to show).
     const rec = cdStationRecord();
     if (rec) body.appendChild(rec);
+    if (typeof WorkHub !== 'undefined') WorkHub.mountSources(body);
   }
 
   // AGENT BRIEFING — the panel's practical payoff: renders the VERBATIM Commander block that
@@ -7936,7 +8022,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (t === 'run') return 'the bound build runs to completion';
       if (t === 'fact') return 'the station learns this about you';
       if (t === 'artifact') return 'the deliverable lands in the workshop';
-      if (t === 'attest') return 'your agent reports it done with evidence and you confirm';
+      if (t === 'attest') return 'you report the result, or confirm your agent’s evidence';
       return 'its completion contract is met';
     }
     switch (q.kind) {
@@ -7971,6 +8057,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   };
   function questGoDest(q) {
     if (!q || q.status === 'done') return null;
+    if (typeof QuestLedgerStore !== 'undefined' && QuestLedgerStore.paused && QuestLedgerStore.paused(q)) return null;
     if (q.id === 'st:crew') {
       if (typeof App !== 'undefined' && App.openSummonBay) return 'recruit';
       return null;
@@ -8129,7 +8216,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // the one actionable front, offered ONCE — withheld while its bound build is in flight.
     const next = steps.find(s => s.isNext && s.status !== 'done');
     const accept = (next && !next.inFlight)
-      ? '<button class="consent-btn q-arc-accept q-track-accept" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">▶ ACCEPT THIS STEP</button>'
+      ? '<button class="consent-btn q-arc-accept q-track-accept" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">▶ ASK STARNET TO HELP</button>'
+        + '<details class="q-life-report"><summary>I DID THIS STEP</summary><label>What did you do?<textarea class="q-step-evidence" maxlength="1000" placeholder="Describe the action you completed outside StarNet"></textarea></label>'
+        + '<button class="consent-btn q-step-report" data-gid="' + esc(next.arcGoalId) + '" data-mid="' + esc(next.milestoneId) + '">RECORD MY ACTION</button></details>'
       : (next && next.inFlight ? '<span class="sub q-track-running">the build for this step is running — finishing it completes the step.</span>' : '');
     const complete = total > 0 && doneN >= total;
     /* WHAT THE PATH CASHES OUT IN. The station's stage is the count of DISTINCT GOALS REACHED, and a goal
@@ -8147,7 +8236,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const j = (typeof JourneyStore !== 'undefined' && JourneyStore.status) ? JourneyStore.status() : null;
       const evo = j && j.evolution;
       if (evo && evo.next) {
-        payoff = '<div class="sub q-track-payoff">&#9670; finishing this path advances the station to <b>' + esc(evo.next) + '</b>'
+        payoff = '<div class="sub q-track-payoff">&#9670; confirming your goal’s outcome advances the station to <b>' + esc(evo.next) + '</b>'
           + '<span class="dim"> — the station’s expression, never your tools</span></div>';
       }
     } catch (_) { /* no evolution read → no claim */ }
@@ -8155,12 +8244,30 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + '<span class="gx-tag">' + doneN + ' / ' + total + '</span></div>'
       + '<div class="q-track' + (complete ? ' q-track-done' : '') + '">'
       + '<div class="q-track-head"><b class="q-track-goal">' + esc(goal.title) + '</b>'
-      + '<span class="q-track-pct">' + pct + '%</span></div>'
+      + '<span class="q-track-pct">' + pct + '% of plan</span></div>'
       + '<div class="q-bar q-track-bar"><div class="q-bar-fill" style="width:' + pct + '%"></div></div>'
       + '<ol class="q-nodes">' + nodes + '</ol>'
       + payoff
+      + (complete ? '<div class="sub q-plan-complete">All planned steps are complete. Record the actual outcome below, or add a next step if the goal is still ahead.</div>' : '')
       + (accept ? '<div class="q-track-acts">' + accept + '</div>' : '')
+      + goalOutcomeHtml(goal.arcGoalId)
       + '</div>';
+  }
+  function goalOutcomeHtml(goalId) {
+    const g = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    if (!g || g.id !== goalId) return '';
+    const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+    const registered = j && Array.isArray(j.goals) ? j.goals.find(x => x.id === goalId) : null;
+    const condition = registered ? registered.successCondition : (g.successCondition || '');
+    return '<div class="q-life-goal" data-gid="' + esc(goalId) + '">'
+      + '<details class="q-life-condition"' + (condition ? '' : ' open') + '><summary>' + (condition ? 'SUCCESS CONDITION: ' + esc(condition) : 'DEFINE WHAT SUCCESS MEANS') + '</summary>'
+      + '<label>What observable result means you have reached this goal?<textarea class="q-success-condition" maxlength="500" placeholder="For example: I accepted a job offer">' + esc(condition) + '</textarea></label>'
+      + '<button class="consent-btn q-success-save">SAVE SUCCESS CONDITION</button></details>'
+      + (registered ? '<details class="q-life-report"><summary>MY GOAL IS ACHIEVED</summary><div class="sub">Confirm only when this is true: ' + esc(condition) + '</div>'
+        + '<label>What happened?<textarea class="q-goal-evidence" maxlength="1000" placeholder="Describe the result and when it happened"></textarea></label>'
+        + '<button class="consent-btn q-goal-confirm">CONFIRM MY OUTCOME</button><div class="sub dim">Saved as your report. Completing the plan alone never confirms this outcome.</div></details>' : '')
+      + '<details class="q-life-next"><summary>ADD A NEXT STEP</summary><label>Next action<input class="q-next-step" maxlength="140" placeholder="A concrete action that helps this goal"></label>'
+      + '<button class="consent-btn q-step-add">ADD STEP</button></details></div>';
   }
   // the celebration read, guarded once so questTrackHtml stays readable (the store may be absent)
   function QSS_CELEBRATING(id) {
@@ -8260,7 +8367,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const goalHtml = goal && goal.text
       ? '<div class="q-journey-goal"><span class="q-ns-eyebrow">ACTIVE LIFE GOAL</span><div class="q-journey-title">' + esc(goal.text) + '</div>'
         + '<div class="arc-bar q-bar"><div class="q-bar-fill" style="width:' + goalPct + '%"></div></div>'
-        + '<div class="sub">' + done + ' of ' + total + ' verified milestones' + (goal.next ? ' &middot; next: ' + esc(goal.next) : '') + '</div></div>'
+        + '<div class="sub">' + done + ' of ' + total + ' planned steps completed' + (goal.next ? ' &middot; next: ' + esc(goal.next) : ' &middot; outcome still requires confirmation') + '</div></div>'
       : '<div class="sub dim">set a goal arc to connect quests and evidence to your longer journey.</div>';
 
     const metricRows = (Array.isArray(j.metrics) ? j.metrics : []).map(m => {
@@ -8297,8 +8404,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         }).join('') : '<div class="sub dim">when verified mastery changes how an agent plans, the reason will appear here.</div>');
 
     const recent = (Array.isArray(j.outcomes) ? j.outcomes : []).slice(-3).reverse();
+    const progression = j.progression;
+    const achievements = progression && Array.isArray(progression.achievements) ? progression.achievements.slice(-5).reverse() : [];
+    const proofLabel = (kind, authority) => authority === 'commander-confirmed' ? 'You confirmed' : kind === 'metric' ? 'You recorded' : 'StarNet recorded';
+    const growthHtml = progression ? '<div class="q-commander-growth"><div class="q-journey-title">COMMANDER LEVEL ' + progression.level + '</div>'
+      + '<div class="sub">' + progression.points + ' achievement points · ' + progression.pointsToNextLevel + ' to the next level</div>'
+      + '<div class="sub dim">Recorded actions, metric checkpoints, and confirmed goals build your history. Setbacks never erase it.</div>'
+      + achievements.map(a => '<details class="sub q-achievement"><summary>◆ ' + esc(a.title || a.kind || 'Goal progress') + ' <span class="gx-tag">+' + (Number(a.points) || 0) + '</span></summary>'
+        + '<div>' + esc(a.evidence || '') + '</div><div class="dim">' + proofLabel(a.kind, a.verifiedBy) + '</div></details>').join('') + '</div>' : '';
     const outcomeHtml = recent.length ? '<div class="q-proof-list">' + recent.map(o => '<div class="sub"><span class="q-outcome">' + esc(o.kind) + '</span> '
-      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + esc(o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
+      + esc(o.title || o.sourceId) + ' <span class="dim">&middot; ' + proofLabel(o.kind, o.verifiedBy) + '</span></div>').join('') + '</div>' : '';
     const staleHtml = journeyState && journeyState.stale
       ? '<div class="sub warn q-journey-stale">Journey snapshot is unconfirmed — showing the last verified sidecar response while the live read recovers.</div>'
       : '';
@@ -8306,8 +8421,19 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return '<div class="gx-sec"><span class="gx-title">COMMANDER JOURNEY</span> <span class="gx-tag">real goals, durable proof</span></div>'
       + '<div class="q-journey-card"><div class="q-evolution"><div><span class="q-ns-eyebrow">STATION EVOLUTION</span><div class="q-evolution-name">' + esc(evo.name) + '</div></div>'
       + '<span class="gx-tag">' + (Number(evo.goalsReached) || 0) + ' distinct goals reached</span></div>'
-      + staleHtml + goalHtml + metricsHtml + masteryHtml + receiptHtml + outcomeHtml
+      + staleHtml + growthHtml + goalHtml + metricsHtml + masteryHtml + receiptHtml + outcomeHtml
       + '<div class="sub dim q-journey-law">Evolution changes the station\'s expression, never your tools, permissions, or capabilities.</div></div>';
+  }
+
+  function lifeGoalsHtml() {
+    const goals = typeof GoalStore !== 'undefined' && GoalStore.listGoals ? GoalStore.listGoals().filter(g => g.status === 'active') : [];
+    const active = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    return '<details class="q-life-goal q-life-manage"><summary>' + (goals.length ? 'YOUR GOALS · CHOOSE A FOCUS / ADD A GOAL' : 'ADD YOUR LIFE GOAL') + '</summary>'
+      + goals.map(g => '<div class="q-hd"><span class="nm">' + esc(g.text) + '</span>' + (active && active.id === g.id ? '<span class="gx-tag">FOCUS</span>' : '<button class="consent-btn q-goal-focus" data-gid="' + esc(g.id) + '">FOCUS</button>') + '</div>').join('')
+      + '<label>Goal<input class="q-new-goal" maxlength="280" placeholder="Learn to play a song, change careers, build a business…"></label>'
+      + '<label>Success means<textarea class="q-new-success" maxlength="500" placeholder="The observable result you want to reach"></textarea></label>'
+      + '<label>First steps (one per line, up to five)<textarea class="q-new-steps" placeholder="Start with one concrete action. You can extend the plan later."></textarea></label>'
+      + '<button class="consent-btn q-goal-create">SAVE GOAL AND FOCUS</button></details>';
   }
 
   function buildQuests(body) {
@@ -8336,7 +8462,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const rest = qs.filter(q => !isArc(q));
     const milestones = rest.filter(q => q.kind === 'milestone');
     const current = rest.filter(q => q.kind !== 'milestone');
-    const open = current.filter(q => q.status !== 'done'), done = current.filter(q => q.status === 'done');
+    const isPaused = q => QLS && QLS.paused && QLS.paused(q);
+    const focus = typeof GoalStore !== 'undefined' && GoalStore.activeGoal ? GoalStore.activeGoal() : null;
+    const isOtherGoal = q => q.kind === 'ledger' && q.goalId && (!focus || q.goalId !== focus.id);
+    const deferred = current.filter(q => q.status !== 'done' && isPaused(q));
+    const otherGoals = current.filter(q => q.status !== 'done' && !isPaused(q) && isOtherGoal(q));
+    const open = current.filter(q => q.status !== 'done' && !isPaused(q) && !isOtherGoal(q)), done = current.filter(q => q.status === 'done');
     // a station-gap / work / maintenance quest is a fix-it or build SUGGESTION — always dismissible while open
     // (the sandbox law); each routes through its OWN store's denylist, not QuestState (whose dismiss is
     // dossier-only). Only the get-to-know-you (dossier) kind falls through to QuestState's dismissible check.
@@ -8387,7 +8518,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // §C — a GO affordance where a real, openable destination exists (never invents a window): dossier asks →
       // the Commander dossier; work/build → the TASK BOARD; a floor gap → REFIT. Absent target → no button.
       const goDest = questGoDest(q);
-      const goBtn = goDest ? '<button class="q-go" data-dest="' + esc(goDest) + '" data-qid="' + esc(q.id) + '" title="Open where you do this next">' + esc(GO_LABEL[goDest] || 'GO') + '</button>' : '';
+      const goBtn = goDest ? '<button class="q-go" data-dest="' + esc(goDest) + '" data-qid="' + esc(q.id) + '" title="Open where you do this next">' + esc(q.executionMode === 'commander' || q.executionMode === 'together' ? '▶ HELP ME PREPARE' : (GO_LABEL[goDest] || 'GO')) + '</button>' : '';
       // §C — EVERY open row answers "what do I do next": the honest completion condition in words.
       const cw = q.status !== 'done' ? questCompletesWhen(q) : '';
       const cwHtml = cw ? '<div class="sub q-cw">✓ completes when: ' + esc(cw) + '</div>' : '';
@@ -8415,13 +8546,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const kindHtml = kindTag ? '<span class="q-kind q-kind-' + esc(q.kind) + '">' + esc(kindTag) + '</span>' : '';
       const rewardHtml = q.reward ? '<div class="sub q-reward">&#9670; ' + esc(q.reward) + '</div>' : '';
       const actionRow = (goBtn || queueBtn) ? '<div class="q-actions">' + goBtn + queueBtn + '</div>' : '';
+      const lifeActions = q.kind === 'ledger' && q.status !== 'done' ? '<div class="q-life-quest" data-qid="' + esc(q.id) + '">'
+        + '<div class="sub q-owner">' + esc(q.executionMode === 'commander' ? 'YOUR ACTION' : q.executionMode === 'together' ? 'YOU + STARNET' : 'STARNET CAN HELP') + '</div>'
+        + (q.whyNow ? '<div class="sub">Why now: ' + esc(q.whyNow) + '</div>' : '')
+        + (isPaused(q) ? '<div class="sub">' + esc(q.disposition.type === 'later' ? 'Saved for tomorrow' : q.disposition.type === 'too_big' ? 'Needs a smaller step' : 'Blocked') + (q.disposition.reason ? ': ' + esc(q.disposition.reason) : '') + '</div><button class="consent-btn q-quest-disposition" data-action="resume">RESUME</button>'
+          : '<details><summary>CHANGE THIS RECOMMENDATION</summary><label>What needs to change?<input class="q-disposition-reason" maxlength="240" placeholder="For example: waiting for a reply, or only 15 minutes available"></label>'
+            + '<div class="consent-btns"><button class="consent-btn q-quest-disposition" data-action="later">TOMORROW</button><button class="consent-btn q-quest-disposition" data-action="blocked">BLOCKED</button><button class="consent-btn q-quest-disposition" data-action="too_big">TOO BIG</button></div></details>')
+        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea class="q-quest-evidence" maxlength="2000" placeholder="Describe your action and its result"></textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
+        + '</div>' : '';
       return '<div class="gx-tro q-card ' + (q.status === 'done' ? 'on' : 'off') + (glow ? ' q-celebrate' : '') + '" style="--ci:' + (i || 0) + '">'
         + '<div class="q-hd"><span class="gl">' + (q.status === 'done' ? '&#9733;' : '&#9675;') + '</span><span class="nm">' + esc(q.title) + '</span>'
         + kindHtml
         + (dis ? '<button class="q-dismiss" data-qid="' + esc(q.id) + '" title="Dismiss — the station will never raise this again">&#10005;</button>' : '')
         + '</div>'
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
-        + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + '</div>';
+        + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
     const meterHtml = m
       ? '<div class="gx-sec"><span class="gx-title">AGENT GROWTH</span> <span class="gx-tag">Lv ' + m.level + ' &middot; ' + m.pct + '% to next &middot; ' + esc(String(m.confLabel) + ' ' + String(m.band)) + '</span></div>'
@@ -8456,11 +8595,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        separate console. */
     body.innerHTML = '<div class="gx gx-quests">'
       + questTrackHtml(arcs)
+      + lifeGoalsHtml()
       + questRefreshHtml()
       + proposalsHtml
       + '<div class="gx-sec"><span class="gx-title">OPEN</span> <span class="gx-tag">' + open.length + '</span></div>'
-      + '<div class="dim q-lede">every quest pays out in real capability or work &mdash; never points. nothing is locked; the order just shows what tends to come next.</div>'
+      + '<div class="dim q-lede">choose a next action that helps your goal. Your recorded progress builds your Commander history.</div>'
       + '<div class="gx-tros q-grid q-open">' + (open.map(tro).join('') || '<p class="dim">all caught up.</p>') + '</div>'
+      + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
+      + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
       + '<div class="gx-sec"><span class="gx-title">DONE</span> <span class="gx-tag">' + done.length + '</span></div>'
       + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">nothing yet.</p>') + '</div>'
       + milestonesHtml
@@ -8470,6 +8612,43 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // COMMANDER JOURNEY writes are explicit. Empty/invalid numeric fields are rejected in the panel before the
     // request, and every successful response re-renders from the backend's returned proof snapshot.
     const journeyFail = r => notify((r && r.error) || 'journey update was not recorded', 'bad');
+    body.querySelectorAll('.q-goal-focus').forEach(b => b.addEventListener('click', () => { if (GoalStore.focusGoal(b.dataset.gid)) rerender('quests'); }));
+    body.querySelectorAll('.q-goal-create').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-manage'); b.disabled = true;
+      const r = await GoalStore.createGoal(row.querySelector('.q-new-goal').value, row.querySelector('.q-new-success').value,
+        row.querySelector('.q-new-steps').value.split('\n').map(s => s.trim()).filter(Boolean));
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-quest-disposition').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-quest'); b.disabled = true;
+      const r = await QLS.disposition(row.dataset.qid, b.dataset.action, (row.querySelector('.q-disposition-reason') || {}).value || '');
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-quest-report').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-quest'); b.disabled = true;
+      const r = await QLS.report(row.dataset.qid, row.querySelector('.q-quest-evidence').value);
+      if (r && r.ok) { sfx('quest'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-success-save').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-goal'); b.disabled = true;
+      const r = await GoalStore.setSuccessCondition(row.dataset.gid, row.querySelector('.q-success-condition').value);
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-goal-confirm').forEach(b => b.addEventListener('click', async () => {
+      const row = b.closest('.q-life-goal'); b.disabled = true;
+      const r = await GoalStore.confirmOutcome(row.dataset.gid, row.querySelector('.q-goal-evidence').value);
+      if (r && r.ok) { sfx('click'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-step-report').forEach(b => b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await GoalStore.reportMilestone(b.dataset.gid, b.dataset.mid, b.closest('.q-life-report').querySelector('.q-step-evidence').value);
+      if (r && r.ok) { sfx('quest'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+    }));
+    body.querySelectorAll('.q-step-add').forEach(b => b.addEventListener('click', () => {
+      const row = b.closest('.q-life-goal');
+      if (GoalStore.addStep(row.dataset.gid, row.querySelector('.q-next-step').value)) { sfx('click'); rerender('quests'); }
+      else notify('enter a new, concrete next action', 'warn');
+    }));
     const addMetric = body.querySelector('.q-metric-add');
     if (addMetric) addMetric.addEventListener('click', async ev => {
       ev.stopPropagation();
@@ -8704,14 +8883,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // dom + format primitives
     esc, mkEl, sfx, clock, ts, fmtRel,
     // hud + window plumbing
-    notify, toast, mountConsole, rerender, openTerm, openSignIn,
+    notify, toast, mountConsole, rerender, openTerm, openSignIn, navigateWork, workConversation,
     // deep-link a missing capability object into the REAL placement surface (minimize this console,
     // open REFIT, arm its palette on the exact prop). The TOOLSETS pane's inert rows use it, so a row
     // that diagnoses "no dish on station" can also cure it. Shared, never re-implemented: an auto-place
     // that skipped REFIT would be a fake placement, and the honest path already exists.
     placeGearForSkill,
     // shared window fragments (roster switcher for the per-agent windows; dossier memory loader)
-    rosterSwitchHtml, wireRosterSwitch, loadMemoryCore,
+    rosterSwitchHtml, wireRosterSwitch, loadMemoryCore, workshopCard, wireWorkshop,
     // workstream + persistence seams
     WS, persistWS, save, consoleSection,
     // live core state (read-only views — never reassign through these)
@@ -8723,6 +8902,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function init() {
     applySettings();
     syncTermBand();
+    document.querySelectorAll('[data-crew-filter]').forEach(b => b.addEventListener('click', () => {
+      crewFilter = b.dataset.crewFilter;
+      document.querySelectorAll('[data-crew-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      crewTick(); sfx('click');
+    }));
     document.querySelectorAll('.bb[data-term]').forEach(b =>
       b.addEventListener('click', () => {
         const k = b.dataset.term, def = BUILDERS[k];
@@ -8753,6 +8937,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     rewind:   { term: 'agents',     section: 'record', map: { restore: 'record' } }
   };
   function openTerm(key, section) {
+    if (key === 'work') key = 'tasks'; // compatibility for old saved links; the station remains home
     const al = TERM_ALIAS[key];
     if (al) { section = (section && al.map[section]) || al.section; key = al.term; }
     const def = BUILDERS[key]; if (!def) return;
@@ -8761,6 +8946,53 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (section) consoleSection[key] = section;
     if (open[key]) { if (minimized[key]) restoreTerm(key); if (section) rerender(key); return; }   // minimized → restore, not duplicate
     toggleTerm(key, def[0], def[1], def[2]);
+  }
+
+  // Following work should uncover the destination and preserve the source's scroll/draft.
+  // Reuse the window manager's suspension, never destroy a form to follow a link.
+  const WORK_LABELS = { tasks: 'TASK BOARD', outbox: 'OUTBOX', deliverables: 'LIBRARY', agents: 'AGENT RECORD' };
+  let workTrail = [];
+  function navigateWork(from, to, section, back) {
+    const alias = TERM_ALIAS[to];
+    if (alias) { section = (section && alias.map[section]) || alias.section; to = alias.term; }
+    if (!BUILDERS[to]) return;
+    if (!back) {
+      if (!workTrail.length || workTrail[workTrail.length - 1].key !== from) workTrail = [{ key: from, section: consoleSection[from] }];
+      const prior = workTrail.findIndex(x => x.key === to);
+      if (prior >= 0) workTrail = workTrail.slice(0, prior + 1);
+      else workTrail.push({ key: to, section });
+    }
+    if (from !== to) minimizeTerm(from);
+    openTerm(to, section);
+    const w = open[to]; if (!w) return;
+    let nav = w.querySelector('.work-path');
+    if (!nav) {
+      nav = mkEl('nav', 'work-path'); nav.setAttribute('aria-label', 'Work navigation');
+      w.querySelector('.term-head').after(nav);
+    }
+    nav.replaceChildren();
+    nav.hidden = workTrail.length < 2;
+    if (workTrail.length > 1) {
+      const previous = workTrail[workTrail.length - 2];
+      const b = mkEl('button', 'work-back', '‹ ' + (WORK_LABELS[previous.key] || previous.key.toUpperCase()));
+      b.type = 'button'; b.onclick = () => { workTrail.pop(); navigateWork(to, previous.key, previous.section, true); };
+      nav.appendChild(b);
+    }
+    const label = mkEl('span', 'work-location', WORK_LABELS[to] || to.toUpperCase()); nav.appendChild(label);
+    const comms = $('#comms-workpath'); if (comms) comms.hidden = true;
+    w.focus();
+  }
+  function workConversation(from) {
+    if (!open[from]) return;
+    minimizeTerm(from);
+    const nav = $('#comms-workpath'); if (!nav) return;
+    nav.replaceChildren(); nav.hidden = false;
+    const b = mkEl('button', 'work-back', '‹ BACK TO ' + (WORK_LABELS[from] || from.toUpperCase())); b.type = 'button';
+    b.onclick = () => { openTerm(from); nav.hidden = true; };
+    nav.appendChild(b);
+    const dismiss = mkEl('button', 'work-dismiss', '×'); dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Dismiss return shortcut');
+    dismiss.onclick = () => { nav.hidden = true; }; nav.appendChild(dismiss);
+    const input = $('#chat-input'); if (input) input.focus();
   }
 
   // the sidecar's bare-string 'notify' bus event (shared/events.js; rides the SSE bridge → U.bus) → one
@@ -8807,6 +9039,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     present = Array.isArray(agents) ? agents : (agents ? [agents] : []);
     if (sel >= present.length) sel = 0;
     crewRender();
+    // Appearance changes update the roster without changing conversations. Refresh the
+    // selected portrait through Chat's identity-only path; never reload the transcript.
+    if (typeof Chat !== 'undefined' && Chat.refreshIdBar) Chat.refreshIdBar();
     if (open.agents) rerender('agents');
     if (open.automation) rerender('automation');   // the ROUTINES lane's create form shows the roster
     // SETTINGS ▸ PERMISSIONS paints one APPROVAL row per crew member. Repaint just that list (never a

@@ -32,7 +32,12 @@ const posts = [];
 global.fetch = (url, opts) => { posts.push({ url, body: JSON.parse((opts && opts.body) || '{}') }); return Promise.resolve({ ok: true }); };
 const journeyPosts = [];
 let journeyAvailable = false;
-global.JourneyStore = { noteMilestone: async d => { journeyPosts.push(Object.assign({}, d)); return journeyAvailable ? { ok: true } : { ok: false, error: 'offline' }; } };
+let outcomeAvailable = false;
+global.JourneyStore = {
+  registerGoal: async () => ({ ok: true }),
+  confirmGoal: async () => ({ ok: outcomeAvailable }),
+  noteMilestone: async d => { journeyPosts.push(Object.assign({}, d)); return journeyAvailable ? { ok: true } : { ok: false, error: 'offline' }; }
+};
 
 // a fake Harness returning a fixed decomposition (COUNTED — the spend-once cache is asserted on this counter)
 let harnessReply = '1. Set up the runtime\n2. Wire the event bus\n3. Build the first agent loop';
@@ -122,8 +127,15 @@ const { GoalStore } = require('../frontend/app/goalstore.js');
   GoalStore._onRunEnd({ reason: 'done', agentId: 'agent', runId: 'run_b' });
   GoalStore.acceptMilestone(goal.id, goal.milestones[2].id); wqComplete('wq:3');
   GoalStore._onRunEnd({ reason: 'done', agentId: 'agent', runId: 'run_c' });
-  A.eq(GoalStore.activeGoal(), null, 'all milestones done → the goal is done (no active goal left)');
-  A.eq(GoalStore.quests().length, 0, 'a done goal projects no active arc');
+  A.eq(GoalStore.activeGoal().id, goal.id, 'all planned actions complete leaves the life goal active');
+  A.eq(GoalStore.quests()[0].pct, 100, 'the plan can be 100% complete without claiming the outcome');
+  A.eq((await GoalStore.confirmOutcome(goal.id, 'accepted an offer')).ok, false, 'failed backend confirmation stays failed');
+  A.eq(GoalStore.activeGoal().id, goal.id, 'failed confirmation cannot clear the active goal');
+  await GoalStore.setSuccessCondition(goal.id, 'accepted a signed offer');
+  outcomeAvailable = true;
+  await GoalStore.confirmOutcome(goal.id, 'accepted an offer');
+  A.eq(GoalStore.activeGoal(), null, 'explicit acknowledged outcome closes the life goal');
+  A.eq(GoalStore.quests().length, 0, 'a confirmed goal projects no active arc');
 
   /* ============================ 4. FEEDBACK-LOOP HOOKS (§5, additive/fail-open) ============================ */
 
@@ -142,6 +154,8 @@ const { GoalStore } = require('../frontend/app/goalstore.js');
   GoalStore._onRunEnd({ reason: 'done', agentId: 'agent', runId: 'run_e' });
   GoalStore.acceptMilestone(g3.id, g3.milestones[2].id); wqComplete('wq:6');
   GoalStore._onRunEnd({ reason: 'done', agentId: 'agent', runId: 'run_f' });
+  A.eq(suggestBumped, 0, 'finishing the plan does not celebrate a life-goal achievement');
+  await GoalStore.confirmOutcome(g3.id, 'the second feature is live and accepted');
   A.ok(suggestBumped >= 1, 'completing the whole goal bumps the suggestion gate (§5 additive OR)');
   delete global.StudyStore; delete global.SuggestStore;
 
