@@ -23,6 +23,11 @@
   'use strict';
 
   const SCHEMA = 1;
+  const MAX_CONNECTOR_ARGS = 128;
+  const MAX_CONNECTOR_ARG_LENGTH = 4096;
+  const MAX_REDACTED_FIELDS = 512;
+  const MAX_CONNECTOR_MAP_FIELDS = 256;
+  const MAX_CONNECTOR_VALUE_LENGTH = 8192;
 
   // the sections a station backup carries. Order is stable so an exported file diffs cleanly across versions.
   // Each key maps to a live collector (export) + a live applier (import) wired in index.js. `secret:true` marks
@@ -41,6 +46,28 @@
 
   function isObj(x) { return x != null && typeof x === 'object' && !Array.isArray(x); }
   function clampStr(s, max) { return String(s == null ? '' : s).slice(0, max || 4096); }
+  function validConnectorField(field) {
+    if (field === 'token' || field === 'oauth' || field === 'url:auth') return true;
+    let m = /^args:(0|[1-9]\d*)$/.exec(field);
+    if (m) return Number(m[1]) < MAX_CONNECTOR_ARGS;
+    m = /^(env|header):([^\r\n]{1,256})$/.exec(field);
+    return !!m && m[2] !== '__proto__' && m[2] !== 'prototype' && m[2] !== 'constructor';
+  }
+  function validConnectorMapKeys(obj) {
+    if (!isObj(obj)) return false;
+    const keys = Object.keys(obj);
+    return keys.length <= MAX_CONNECTOR_MAP_FIELDS && keys.every(k => k.length > 0 && k.length <= 256 &&
+      k !== '__proto__' && k !== 'prototype' && k !== 'constructor' && !/[\r\n]/.test(k));
+  }
+  function validConnectorMap(obj) {
+    return validConnectorMapKeys(obj) && Object.keys(obj).every(k =>
+      String(obj[k] == null ? '' : obj[k]).length <= MAX_CONNECTOR_VALUE_LENGTH);
+  }
+  function copyConnectorMap(obj) {
+    const out = {};
+    for (const k of Object.keys(obj)) out[k] = String(obj[k] == null ? '' : obj[k]);
+    return out;
+  }
 
   /* ---- REDACTION helpers: strip anything secret-shaped from a value before it enters the envelope. ---- */
   // keys whose VALUES are secrets (case-insensitive substring match). Used to scrub connector headers/env.
@@ -63,6 +90,7 @@
   function redactAllMap(obj, prefix) {
     const redacted = [];
     if (!isObj(obj)) return { value: {}, redacted };
+    if (!validConnectorMapKeys(obj)) throw new RangeError('connector headers or environment exceed supported limits');
     for (const k of Object.keys(obj)) redacted.push((prefix || '') + k);
     return { value: {}, redacted };
   }
@@ -72,7 +100,8 @@
     // and vendor-specific names cannot be classified safely from spelling. Keep only positional re-entry markers.
     // The live importer can restore them from the protected local row when the stdio execution identity is exact;
     // a portable restore stays disabled until the values are re-entered.
-    const src = (Array.isArray(args) ? args : []).slice(0, 32);
+    const src = Array.isArray(args) ? args : [];
+    if (src.length > MAX_CONNECTOR_ARGS) throw new RangeError('connector arguments exceed the supported limit of ' + MAX_CONNECTOR_ARGS);
     const value = src.map(() => '<redacted>');
     const redacted = src.map((_, index) => 'args:' + index);
     return { value, redacted };
@@ -103,10 +132,14 @@
     const redactedFields = hdr.redacted.concat(env.redacted, args.redacted)
       .concat(urlHadAuth ? ['url:auth'] : [])
       .concat(c.hasToken ? ['token'] : [])
-      .concat(c.oauth === true ? ['oauth'] : []);
-    const configured = redactedFields.length > 0;
+      .concat(c.oauth === true ? ['oauth'] : [])
+      .concat(Array.isArray(c.missingFields) ? c.missingFields : []);
+    const uniqueRedactedFields = Array.from(new Set(redactedFields.filter(x => typeof x === 'string')));
+    if (uniqueRedactedFields.length > MAX_REDACTED_FIELDS) throw new RangeError('connector redacted fields exceed the supported limit of ' + MAX_REDACTED_FIELDS);
+    if (uniqueRedactedFields.some(field => !validConnectorField(field))) throw new RangeError('connector contains an invalid redacted field marker');
+    const configured = uniqueRedactedFields.length > 0;
     return {
-      id: clampStr(c.id || c.name || '', 120),
+      id: clampStr(c.id || c.name || '', 40),
       transport: (c.transport === 'stdio') ? 'stdio' : 'http',
       url: url,
       command: clampStr(c.command || '', 512),         // stdio command (executable) — not a secret
@@ -121,7 +154,8 @@
       timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
       // the honest "you'll need to re-enter this" markers — NAMES only, never values.
       configured: configured,
-      redactedFields: redactedFields
+      redactedFields: uniqueRedactedFields,
+      missingFields: Array.isArray(c.missingFields) ? Array.from(new Set(c.missingFields.filter(x => typeof x === 'string'))) : []
     };
   }
 
@@ -205,18 +239,44 @@
       out.permissions = { allow: inSec.permissions.allow.filter(x => typeof x === 'string').slice(0, 256) };
     }
     if (Array.isArray(inSec.connectors)) {
+      for (const c of inSec.connectors) {
+        if (!isObj(c)) return { ok: false, error: 'connector entries must be JSON objects' };
+        if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(c.id || ''))) return { ok: false, error: 'connector id must be 1-40 chars of [A-Za-z0-9_-]' };
+        if (c.transport !== 'http' && c.transport !== 'stdio') return { ok: false, error: 'connector transport must be "http" or "stdio"' };
+        if (c.transport === 'http') {
+          let parsedUrl = null;
+          try { parsedUrl = new URL(String(c.url || '')); } catch (_) { parsedUrl = null; }
+          const urlRedacted = String(c.url || '') === '<redacted>' && [].concat(c.redactedFields || [], c.missingFields || []).indexOf('url:auth') >= 0;
+          if (!urlRedacted && (!parsedUrl || (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:'))) return { ok: false, error: 'connector "' + c.id + '" URL must start with http:// or https://' };
+          if (c.oauth === true && !urlRedacted && (parsedUrl.protocol !== 'https:' || parsedUrl.username || parsedUrl.password)) return { ok: false, error: 'connector "' + c.id + '" OAuth URL must use https:// without embedded credentials' };
+        }
+        if (c.transport === 'stdio' && !String(c.command || '').trim()) return { ok: false, error: 'connector "' + c.id + '" requires a stdio command' };
+        if (Object.prototype.hasOwnProperty.call(c, 'args') && !Array.isArray(c.args)) return { ok: false, error: 'connector "' + c.id + '" args must be an array' };
+        if (Array.isArray(c.args) && c.args.length > MAX_CONNECTOR_ARGS) return { ok: false, error: 'connector "' + c.id + '" has more than ' + MAX_CONNECTOR_ARGS + ' arguments' };
+        if (Array.isArray(c.args) && c.args.some(a => String(a == null ? '' : a).length > MAX_CONNECTOR_ARG_LENGTH)) return { ok: false, error: 'connector "' + c.id + '" has an argument longer than ' + MAX_CONNECTOR_ARG_LENGTH + ' characters' };
+        if (Object.prototype.hasOwnProperty.call(c, 'headers') && !validConnectorMap(c.headers)) return { ok: false, error: 'connector "' + c.id + '" headers are invalid or exceed supported limits' };
+        if (Object.prototype.hasOwnProperty.call(c, 'env') && !validConnectorMap(c.env)) return { ok: false, error: 'connector "' + c.id + '" environment is invalid or exceeds supported limits' };
+        if (Object.prototype.hasOwnProperty.call(c, 'redactedFields') && !Array.isArray(c.redactedFields)) return { ok: false, error: 'connector "' + c.id + '" redacted fields must be an array' };
+        if (Object.prototype.hasOwnProperty.call(c, 'missingFields') && !Array.isArray(c.missingFields)) return { ok: false, error: 'connector "' + c.id + '" missing fields must be an array' };
+        if (Array.isArray(c.redactedFields) && c.redactedFields.length > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many redacted fields' };
+        if (Array.isArray(c.missingFields) && c.missingFields.length > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many missing fields' };
+        if (new Set([].concat(c.redactedFields || [], c.missingFields || [])).size > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many combined redacted fields' };
+        if ([].concat(c.redactedFields || [], c.missingFields || []).some(field => typeof field !== 'string' || !validConnectorField(field))) return { ok: false, error: 'connector "' + c.id + '" has an invalid redacted field marker' };
+      }
+      const connectorIds = inSec.connectors.map(c => c.id);
+      if (new Set(connectorIds).size !== connectorIds.length) return { ok: false, error: 'connector ids must be unique within an import' };
       out.connectors = inSec.connectors.map(c => {
-        if (!isObj(c)) return null;
         const row = {
-          id: clampStr(c.id, 120),
-          transport: c.transport === 'stdio' ? 'stdio' : 'http',
+          id: clampStr(c.id, 40),
+          transport: c.transport,
           url: clampStr(c.url, 1024),
           command: clampStr(c.command, 512),
-          args: Array.isArray(c.args) ? c.args.map(a => clampStr(a, 256)).slice(0, 32) : [],
-          headers: isObj(c.headers) ? c.headers : {},
-          env: isObj(c.env) ? c.env : {},
+          args: Array.isArray(c.args) ? c.args.map(a => clampStr(a, MAX_CONNECTOR_ARG_LENGTH)) : [],
+          headers: isObj(c.headers) ? copyConnectorMap(c.headers) : {},
+          env: isObj(c.env) ? copyConnectorMap(c.env) : {},
           timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
-          redactedFields: Array.isArray(c.redactedFields) ? c.redactedFields.filter(x => typeof x === 'string').slice(0, 128) : []
+          redactedFields: Array.isArray(c.redactedFields) ? c.redactedFields.filter(x => typeof x === 'string').slice(0, MAX_REDACTED_FIELDS) : [],
+          missingFields: Array.isArray(c.missingFields) ? c.missingFields.filter(x => typeof x === 'string').slice(0, MAX_REDACTED_FIELDS) : []
         };
         // These fields were absent from schema-1 exports before 0.10.13. Preserve absence here so the live
         // importer can use an existing row's value, or choose the safe disabled default for a new old-format row.
@@ -241,8 +301,9 @@
   }
 
   return {
-    SCHEMA, SECTIONS,
-    buildExport, parseImport,
+    SCHEMA, SECTIONS, MAX_CONNECTOR_ARGS, MAX_CONNECTOR_ARG_LENGTH, MAX_REDACTED_FIELDS,
+    MAX_CONNECTOR_MAP_FIELDS, MAX_CONNECTOR_VALUE_LENGTH,
+    buildExport, parseImport, validConnectorMap,
     redactConnector, _redactMap: redactMap
   };
 });

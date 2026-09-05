@@ -134,6 +134,9 @@
     }
     function configIssue(c) {
       if (!c || !c.enabled) return '';
+      if (Array.isArray(c.missingFields) && c.missingFields.length) {
+        return 'connector configuration is incomplete; re-enter: ' + c.missingFields.join(', ');
+      }
       try { return String(validateConfig(c) || ''); } catch (_) { return 'connector runtime ownership could not be verified'; }
     }
     function closeResources(client, transport, reason) {
@@ -361,6 +364,9 @@
         timeoutMs: normalizeTimeout(cfg, prev),
         label: String(cfg.label || (prev && prev.label) || id),
         enabled: cfg.enabled !== false,
+        missingFields: Array.isArray(cfg.missingFields)
+          ? Array.from(new Set(cfg.missingFields.filter(x => typeof x === 'string')))
+          : (prev && Array.isArray(prev.missingFields) ? prev.missingFields.slice() : []),
         // oauth connectors pass a tokenProvider() instead of a frozen token (see connect); carried across reconfigure
         // so a benign toggle/re-warm keeps refreshing the bearer.
         tokenProvider: Object.prototype.hasOwnProperty.call(cfg, 'tokenProvider')
@@ -415,6 +421,7 @@
         label: c.label,
         transport: c.transportKind,
         enabled: c.enabled,
+        missingFields: c.missingFields.slice(),
         state: issue ? 'error' : c.state,
         detail: issue || c.detail,
         hasToken: !!(c.token || c.tokenProvider),
