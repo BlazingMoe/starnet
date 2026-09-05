@@ -1,5 +1,20 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 repeated-work takeover (`agent/rec-vision-audit-0905`)
+
+Plan: use durable task briefs joined to completed run evidence to detect the same bounded workflow
+on at least three separate occasions. Exclude retries/corrections, failed/internal runs, conflicting
+targets and existing routines. Offer one evidence-backed takeover through the existing routine beat;
+acceptance opens the existing editable routine draft with the original agent, sources and instructions.
+The user chooses the cadence and confirms creation; no schedule is inferred from counts. Persist
+offer/defer/never decisions, honor paused/forgotten personalization, and suppress scheduled workflows.
+
+Done means: in a seeded live station, repeated completed requests earn a concrete takeover card;
+review opens a prefilled routine draft, confirmation creates exactly one real scheduler job, and
+restart retains the job/decision without another offer. Negative scenarios remain silent. Focused,
+fast and HTTP gates pass before the user-authorized merge. Use existing scheduler execution and
+authority, with no new agent loop or capability unlock. Preserve unrelated trunk work.
+
 
 ## DONE — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
 
