@@ -1224,7 +1224,7 @@ const App = (() => {
     if (ws && Chat.load) Chat.load(ws);   // make the new stream the compose target before sending
     refreshUsage(); renderRail();
     // engagement loop (scout lane 5): count the REAL launch — feeds the FOR-YOU rank + the drafting hint.
-    try { if (typeof ProspectStore !== 'undefined' && ProspectStore.noteLaunch) ProspectStore.noteLaunch(recipe); } catch (_) {}
+    try { if (!(source && source.direct) && typeof ProspectStore !== 'undefined' && ProspectStore.noteLaunch) ProspectStore.noteLaunch(recipe); } catch (_) {}
     // fromRecipe marks this run as recipe-launched so R5 "Bottle a run" never offers to re-bottle a recipe (it
     // already IS one). chat.js records it into RUN_META at onRunId; BottleStore reads it via runBottleInfo below.
     // recipeId is the provenance SPINE: it rides RUN_META → the /api/run body → the durable run row, so the
@@ -1232,7 +1232,7 @@ const App = (() => {
     // SOP recipes: the recipe's typed acceptance rows (tokens filled) ride the run body as `postconditions` — the
     // host evaluates them when the run ends (sidecar/task-postconditions.js); null when the recipe declares none.
     const postconditions = Recipes.postconditionsFor ? Recipes.postconditionsFor(recipe, values || {}) : null;
-    Chat.send(text, { fromRecipe: true, recipeId: recipe.id, postconditions: postconditions || undefined });   // kicks off the run on the fresh stream
+    Chat.send(text, { fromRecipe: !(source && source.direct), recipeId: source && source.direct ? undefined : recipe.id, postconditions: postconditions || undefined });   // kicks off the run on the fresh stream
     persist();
     return true;
   }
