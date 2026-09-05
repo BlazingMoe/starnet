@@ -89,6 +89,15 @@ console.log('first-value: assertions passed');
     root = form(); mounted = F.mount(root, {}); await tick();
     assert.equal(root.node('.fv-sample').value, '');
     mounted.destroy(); F.clearDraft();
+    let cleared = false;
+    root = form(); mounted = F.mount(root, { findingId: 'clear-me', root: '/notes', onClear: () => { cleared = true; } }); await tick();
+    root.node('.fv-clear').onclick();
+    assert.equal(cleared, true);
+    assert.equal(F.draftOptions(), null);
+    root.node('.fv-sample').value = 'Unrelated new source'; root.node('form').input();
+    assert.equal(F.draftOptions().findingId, undefined, 'new input after clear cannot inherit suggestion attribution');
+    root.node('.fv-clear').onclick(); mounted.destroy();
+    assert.equal(F.draftOptions(), null, 'closing a cleared form cannot resurrect it');
     console.log('first-value: setup return, isolation, failed launch, successful launch cleanup passed');
   } finally { global.fetch = priorFetch; }
 })().catch(error => { console.error(error); process.exitCode = 1; });
