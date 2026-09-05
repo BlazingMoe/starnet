@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "51e98c3036221847b2d3bc418a27380cf5cdc94f",
+    "sourceCommit": "2a2429497a91b534900b037a1b502e8f8791d3d7",
     "pathSetSha256": "cac61eeb19fe955a772ca71fd2d0bb81f6ee8050a15ea008514596676eba5e88",
     "files": [
       {
@@ -133,8 +133,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 373684,
-        "sha256": "899ebcf50da1ec2b766b3bc8b954f8da4af868322d3298d718de13e9db9f8584"
+        "bytes": 373622,
+        "sha256": "acc4bd99efca814e6c6b79ff93fac9124539219a37921b153f40f1b29505c517"
       },
       {
         "path": "frontend/app/channels.js",
@@ -763,8 +763,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 650448,
-        "sha256": "0caf5ba719ae1ed8d6145ac3694f1c3beec5d76b119cb3c89c5ee42ac8c334c2"
+        "bytes": 651625,
+        "sha256": "221ca51b0bdd8eb6ae67873133f6ee19e180b207a7f5e0608049599bd911d359"
       },
       {
         "path": "frontend/app/study.js",
@@ -908,8 +908,8 @@
       },
       {
         "path": "frontend/app/windows/connectors.js",
-        "bytes": 115298,
-        "sha256": "cb8d14b0818821cafd54bfe02814c6d42bf3a0672101562d280864b958ba2d56"
+        "bytes": 116720,
+        "sha256": "70d6181bfc3a2732d4c34a6fa07f949bb2cc5eb6b89b5d0b52119cd5068a3b1e"
       },
       {
         "path": "frontend/app/windows/logbook.js",
@@ -938,8 +938,8 @@
       },
       {
         "path": "frontend/app/windows/routines.js",
-        "bytes": 52750,
-        "sha256": "411c0f395e3eed1cc5fbb6d2e0218b38dcf7a41444467db60d1d2332857e89d4"
+        "bytes": 52879,
+        "sha256": "290026d202971eb991cd0a07b8233b119edfdf6af848015269d53d707fd6dc66"
       },
       {
         "path": "frontend/app/windows/trophies.js",
@@ -948,8 +948,8 @@
       },
       {
         "path": "frontend/app/workhub.js",
-        "bytes": 5636,
-        "sha256": "48767d4bc74d5bc2b0dc3ce55a78defe55686aa699baa58ba231956744209172"
+        "bytes": 5674,
+        "sha256": "5ad7d5117dad3ee62f7a2b38c53c471122ab6c6d8ad03c39a0564bb6d25c8fcf"
       },
       {
         "path": "frontend/app/workquests.js",
@@ -1013,8 +1013,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 387510,
-        "sha256": "539ee074d072a3a9d61d5e3920cda4f7efb77cd5606b28e7a043d2b2806932d6"
+        "bytes": 388104,
+        "sha256": "385e43b3b14bb2e1eb2eec26043f05827067cecab1cbe72b9410185bf3ee83a3"
       },
       {
         "path": "frontend/css/asciifx.css",
@@ -1083,8 +1083,8 @@
       },
       {
         "path": "frontend/css/workhub.css",
-        "bytes": 3832,
-        "sha256": "c482a63b7f8f707d0b2d990e44928578754a8b9ad71ec15631ec8041f11599a1"
+        "bytes": 3837,
+        "sha256": "ac1e58355cebace3168f21b4e9dabdcc5a2d3f5cc9b3d0a33874259c7b3e2446"
       },
       {
         "path": "frontend/index.html",
