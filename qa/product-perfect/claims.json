@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "73d462164b2925970761ee79c5a0b840d77f5076",
+    "sourceCommit": "64d31332c7273828b8353e7440050cf9541d7905",
     "pathSetSha256": "80c462eff6e6df1d114d830496c0d65d042c042288d74fd27603f855555db461",
     "files": [
       {
@@ -723,8 +723,8 @@
       },
       {
         "path": "frontend/app/spacebg.js",
-        "bytes": 70850,
-        "sha256": "b10225c88501b6e7b9a9884dbeb66bbc14b390f9276d3b9b05c23c0038ce98c2"
+        "bytes": 83715,
+        "sha256": "ec0607efed323ddba7093d1095ae01dffaaaa4a92fb5014be63fb77c8c5fc76f"
       },
       {
         "path": "frontend/app/specialties.js",
