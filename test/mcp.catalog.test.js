@@ -199,10 +199,10 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
     A.ok(/^https:\/\/accounts\.google\.com\//.test(e.staticOauth.authorizationEndpoint), id + ' authorize endpoint is Google\'s');
     A.eq(e.staticOauth.tokenEndpoint, 'https://oauth2.googleapis.com/token', id + ' token endpoint is Google\'s');
     A.ok(Array.isArray(e.staticOauth.scopes) && e.staticOauth.scopes.length >= 2, id + ' declares real scopes');
-    A.ok(e.staticOauth.scopes.every(s => /^https:\/\/www\.googleapis\.com\/auth\//.test(s)), id + ' scopes are googleapis auth scopes');
+    A.ok(e.staticOauth.scopes.every(s => s === 'openid' || /^https:\/\/www\.googleapis\.com\/auth\//.test(s)), id + ' scopes are Google API and identity scopes');
     // Google never issues a refresh token without these — a connector that dies in an hour is a lie.
     A.eq(e.staticOauth.extraAuthParams.access_type, 'offline', id + ' requests offline access (refresh token)');
-    A.eq(e.staticOauth.extraAuthParams.prompt, 'consent', id + ' forces the consent prompt (refresh token on re-grant)');
+    A.eq(e.staticOauth.extraAuthParams.prompt, 'consent select_account', id + ' asks which account and requests consent');
     A.eq(e.staticOauth.clientSecretRequired, true, id + ' requires the Web application client secret Google issues');
     A.eq(e.staticOauth.developerPreview, true, id + ' is honestly marked as Google Developer Preview');
     A.ok(/^https:\/\/developers\.google\.com\/workspace\//.test(e.staticOauth.setupUrl), id + ' links the official complete setup guide');
@@ -214,7 +214,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
   const g1 = C.get('gmail'); g1.staticOauth.scopes.push('MUTATED'); g1.staticOauth.extraAuthParams.prompt = 'MUTATED';
   const g2 = C.get('gmail');
   A.ok(g2.staticOauth.scopes.indexOf('MUTATED') < 0, 'staticOauth.scopes is defensively cloned');
-  A.eq(g2.staticOauth.extraAuthParams.prompt, 'consent', 'staticOauth.extraAuthParams is defensively cloned');
+  A.eq(g2.staticOauth.extraAuthParams.prompt, 'consent select_account', 'staticOauth.extraAuthParams is defensively cloned');
   // entries WITHOUT staticOauth carry an explicit null (a stable shape the UI can branch on).
   A.eq(C.get('notion').staticOauth, null, 'a DCR oauth entry has staticOauth: null');
 }

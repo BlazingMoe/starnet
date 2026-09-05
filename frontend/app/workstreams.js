@@ -76,6 +76,7 @@
       projectRoot: opts.projectRoot != null ? String(opts.projectRoot) : null,
       history: Array.isArray(opts.history) ? opts.history.slice() : [],
       runIds: Array.isArray(opts.runIds) ? opts.runIds.slice() : [],
+      connectorHandoff: normalizeConnectorHandoff(opts.connectorHandoff),
       // outcome of the stream's MOST RECENT run: true = it completed (in-band stream finished, even via a
       // stop/cut-short), false = it DIED in flight (chat.js's in-band `error` branch), null = unknown — no
       // run yet, a run currently in flight (appendRun resets it), or a pre-upgrade save. The board's DONE
@@ -112,6 +113,21 @@
       // existed defaults to its lastActiveAt so an upgrade never floods the rail with false unreads.
       lastReadAt: opts.lastReadAt != null ? opts.lastReadAt : (opts.lastActiveAt || t)
     };
+  }
+
+  function normalizeConnectorHandoff(value) {
+    if (!value || !/^[a-zA-Z0-9_-]{1,80}$/.test(value.connectorId || '') || !value.runId || !value.agentId) return null;
+    return { connectorId: clamp(value.connectorId, 80), runId: clamp(value.runId, 120),
+      agentId: clamp(value.agentId, 80), toolName: value.toolName === 'connectors.list' ? '' : clamp(value.toolName || '', 160) };
+  }
+  function setConnectorHandoff(id, value) {
+    const w = find(id); if (!w) return null;
+    w.connectorHandoff = normalizeConnectorHandoff(value);
+    return w.connectorHandoff;
+  }
+  function connectorHandoff(id) {
+    const w = find(id), h = w && w.connectorHandoff;
+    return h && !w.archived && h.agentId === w.agentId && w.runIds[w.runIds.length - 1] === h.runId ? h : null;
   }
 
   // ---------- lifecycle ----------
@@ -611,7 +627,7 @@
   }
 
   return {
-    init, reset, serialize, all, list, search, automationOf, railGroups,
+    init, reset, serialize, all, list, search, setConnectorHandoff, connectorHandoff, automationOf, railGroups,
     exportConversation, parseConversationExport, clearConversation,
     previewArchive, archivePreview, canUndo, undoLast,
     create, startSession, adopt, get, active, activeId: getActiveId, generalId: getGeneralId,
