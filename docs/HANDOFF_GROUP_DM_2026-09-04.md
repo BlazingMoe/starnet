@@ -120,3 +120,25 @@ Read docs/HANDOFF_GROUP_DM_2026-09-04.md in the group-dm-plan-0904 worktree.
 Preserve the normal-chat simplicity and accepted StarNet styling. Inspect the live
 preview on port 9137 and address my next feedback with the smallest necessary change.
 Do not bring back group settings or an extra header row.
+
+## UI pass (2026-09-04, later session) — what changed in `frontend/app/group-chat.js`
+
+Andrew: "fix the UI for agent group chats." Smallest visual fixes, no new controls, no settings.
+
+- Identity line: the scrolling `▪ NAME ▪ NAME` list + `N agents` + bare `Paused` became ONE pill in
+  the direct chat's select voice (`▸ NOVA · RESEARCHER · ENGINEER ▾`, names in roster colour,
+  ellipsized, click = ADD AGENTS picker). `paused` shows as a gold status only while paused.
+  `+ Add agents` → `+ ADD` in group mode, `+ ADD AGENTS` in direct mode.
+- Speaker labels: `YOU` → `COMMANDER` (matches direct chat). Agent names take the agent's roster
+  colour and the bubble rail follows it. The per-message `REPLY` button is gone: clicking a
+  speaker's name is the reply affordance (sets `to NAME ✕` above the composer).
+- Shared files: full-width button stack → one `SHARED ▤ file ▤ file` chip row (tool-chip voice);
+  open chip highlights; preview beneath unchanged.
+- Turn states: `Name: running` text → the direct chat's presence voice (`● NAME working`), gold
+  for held/approval/queued, red for failed/interrupted. State words: connecting… / working /
+  needs approval / ready / stopping (truthful: `working` only once the sidecar reports running).
+- Streaming drafts get a blinking caret; partial replies print `partial · work did not complete`.
+
+Live-verified on :9137 (1100×620 and 300px COMMS): no OS-painted controls, no horizontal
+overflow, pill/name-click/@-autocomplete/picker all work, one real @researcher turn showed the
+state row then the reply under RESEARCHER.
