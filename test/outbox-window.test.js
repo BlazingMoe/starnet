@@ -60,7 +60,9 @@ const emptyBody = {
     addEventListener: (event, fn) => { doorClicks[selector] = fn; }
   }
 };
-vm.runInNewContext(A.fnBody(station, 'function buildOutbox(body)') + '\nbuildOutbox(body);', {
+// This builder contains quoted regex literals; use its registration boundary rather
+// than fnBody's deliberately limited brace scanner.
+vm.runInNewContext(buildFn + '\nbuildOutbox(body);', {
   body: emptyBody, ReturnStore: { pendingRows: () => [] }, H: { navigateWork: (...args) => navCalls.push(args) }
 });
 doorClicks['#ob-library'](); doorClicks['#ob-logbook']();
