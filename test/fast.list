@@ -704,6 +704,7 @@ test/process-fault.test.js
 test/tier-model-catalog.test.js
 test/crash-ledger.test.js
 test/workview.test.js
+test/direct-work-launch.test.js
 test/first-value.test.js
 test/effective-toolsets.test.js
 test/discovery-documents.test.js

@@ -158,6 +158,8 @@
     }
     if(pane==='draft') {
       if(typeof FirstValue==='undefined') {content.textContent='The first-work guide is unavailable. Your agent is available in COMMS.';return;}
+      if(!Object.keys(startOpts).length && FirstValue.draftOptions) startOpts=FirstValue.draftOptions() || {};
+      selectedFinding=startOpts.findingId || null;
       firstForm=FirstValue.mount(content,Object.assign({},startOpts,{onLaunch:async(recipe,values,source)=>{
         if (selectedFinding) {
           await post('/api/discovery/decide',{id:selectedFinding,decision:'validate'});
@@ -168,7 +170,7 @@
           post('/api/discovery/decide',{id,decision:'accept'}).then(()=>QuerySpine.refresh('work-discovery')).catch(()=>say('Request sent; suggestion history could not be updated. Refresh before retrying.',true));
         }
         return launched;
-      },onProjects:showProjects,onModelSetup:()=>StationUI.openTerm('settings','providers'),onOpenWork:()=>open('overview')}));
+      },onClear:()=>{selectedFinding=null;startOpts={};},onProjects:showProjects,onModelSetup:()=>StationUI.openTerm('settings','providers'),onOpenWork:()=>open('overview')}));
       return;
     }
     refreshView(true);

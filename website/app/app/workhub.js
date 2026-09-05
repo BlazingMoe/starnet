@@ -9,6 +9,25 @@
   QuerySpine.define('work-sources', {path:'/api/discovery/sources',ttlMs:15000,pollMs:30000,validate:j=>!!(j && j.ok && Array.isArray(j.sources))});
   let pane = 'overview', startOpts = {}, body = null, stops = [], timer = null, firstForm = null, preview = {}, signature = '';
   let current = null, artifactRows = [], selectedFinding = null;
+  let requestDraft = '';
+  const destinations = [
+    ['connectors','catalog','Connect a service','Use your existing apps and accounts.','connect integration platform google email mcp api'],
+    ['automation','routines-create','Repeat work on a schedule','Choose when a task runs and review its results.','automate daily weekly timer routine'],
+    ['automation','loops-start','Work toward a goal','Configure repeated attempts and stopping conditions.','loop until iterative'],
+    ['build','','Build a visual workflow','Arrange steps and connect them with conveyors.','conveyor belt line pipeline refit room station'],
+    ['agents','','Customize your agents','Choose who does the work and inspect their configuration.','team model persona crew'],
+    ['connectors','toolsets','Review agent access','Inspect effective capabilities and permission controls.','permissions tools full access security'],
+    ['messaging','','Talk from another app','Set up a messaging channel to reach your agents.','telegram discord slack chat channel'],
+    ['commander','','Review what StarNet knows','Inspect and correct your work profile.','memory preference learning forget'],
+    ['deliverables','','Find saved results','Open outputs and inspect their details.','file artifact output result'],
+    ['settings','providers','Set up your AI provider','Configure models and provider connections.','key login inference setup'],
+    ['manual','','Understand the station','Look up controls, objects, and mechanics.','help guide tutorial how']
+  ];
+  function directoryHtml(query) {
+    const words=String(query || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const matches=destinations.filter(d=>words.every(w=>d.join(' ').toLowerCase().includes(w)));
+    return matches.length ? matches.map(d=>'<button class="bb wh-destination" data-destination="'+destinations.indexOf(d)+'"><b>'+esc(d[2])+'</b><small>'+esc(d[3])+'</small></button>').join('') : '<p>No matching control. Try a task such as “connect”, “schedule”, or “permissions”, or describe what you want your agent to do.</p>';
+  }
   const data = key => { const s=QuerySpine.state(key); return s.hasData ? s.data : null; };
   const date = at => { const d=new Date(at); return isNaN(d.getTime()) ? 'Not recorded' : d.toLocaleString(); };
   const say = (message, bad) => { const el=body && body.querySelector('.wh-message'); if(el) {el.textContent=message;el.classList.toggle('warn',!!bad);} };
@@ -50,6 +69,7 @@
     return '<article class="wh-card" data-work="'+esc(item.id)+'"><div class="wh-card-top"><b>'+esc(item.title)+'</b><span class="wh-status">'+esc(item.status)+'</span></div>'+
       '<div class="muted">'+esc(App.agentName(item.agentId) || item.agentId || 'Agent')+(item.projectRoot ? ' · '+esc(item.projectRoot) : '')+'</div>'+
       item.artifacts.map(fileHtml).join('')+
+      (item.streamId ? '<div class="wh-actions"><button class="bb sm" data-session="'+esc(item.streamId)+'">'+(item.bucket==='needs-you'?'REVIEW & RESOLVE':item.bucket==='finished'?'READ RESULT':'VIEW PROGRESS')+'</button></div>' : '<button class="bb sm" data-term-link="deliverables">REVIEW OUTPUT</button>')+
       '<details class="wh-detail" data-detail="'+esc(item.id)+'"><summary>Objective, result & controls</summary>'+
       (objective ? '<h4>WHAT YOU ASKED FOR</h4><p class="wh-prose">'+esc(objective.content.startsWith('Task: ')?objective.content.split('\n')[0].slice(6):objective.content.slice(0,3500))+'</p>' : '')+
       (answer ? '<h4>LATEST RESPONSE</h4><p class="wh-prose">'+esc(answer.content.slice(0,5000))+'</p>' : '<p class="muted">No response has been recorded yet.</p>')+
@@ -71,7 +91,7 @@
     return KEYS.filter(k=>QuerySpine.state(k).error).map(k=>names[k]+': live read unavailable; '+(QuerySpine.state(k).hasData?'showing the last confirmed snapshot.':'no state is being inferred.')).join(' ');
   }
   function refreshView(force) {
-    if(!body || pane==='start' || pane==='sources') return;
+    if(!body || pane==='start' || pane==='draft' || pane==='sources' || pane==='guide') return;
     const next=snapshot(), q=body.querySelector('.wh-search'), search=(q && q.value || '').toLowerCase();
     const journey=data('journey'), cron=data('cron');
     const sig=JSON.stringify([next,journey,cron,search,warnings(),pane,KEYS.map(k=>QuerySpine.state(k).hasData)]);
@@ -117,18 +137,29 @@
     host.innerHTML='<section class="wh-group"><h3>FIND WORK IN YOUR DOCUMENTS</h3><p>Choose a folder you already approved. StarNet looks for recent text notes that could become a client update. It shows its evidence before you choose to run anything.</p>'+
       '<p class="muted">This source inspects bounded local text files. It does not send them to a model, run a task, or grant new access. You can pause or remove this source here.</p>'+
       (roots.length?'<label class="wh-field">APPROVED FOLDER<select class="key-input wh-root">'+roots.map(r=>'<option value="'+esc(r)+'"'+(source && source.root===r?' selected':'')+'>'+esc(r)+'</option>').join('')+'</select></label><button class="bb" data-source-save>USE THIS FOLDER</button>':'<p>No approved folders yet. Add a project folder explicitly, or start with a pasted sample.</p>')+
-      '<div class="wh-actions"><button class="bb sm" data-projects>MANAGE PROJECT FOLDERS</button><button class="bb sm" data-pane="start">USE A SAMPLE INSTEAD</button></div>'+
+      '<div class="wh-actions"><button class="bb sm" data-projects>MANAGE PROJECT FOLDERS</button><button class="bb sm" data-pane="draft">USE A SAMPLE INSTEAD</button></div>'+
       (source?'<article class="wh-card"><b>'+esc(source.root)+'</b><p>'+(source.enabled?'Discovery enabled':'Discovery paused')+' · '+esc(source.status || 'Not scanned')+'</p><p class="muted">'+(source.available===false?'Folder unavailable or access revoked. ': '')+'Last scan: '+(source.lastScanAt?esc(date(source.lastScanAt)):'Not recorded')+'</p><div class="wh-actions"><button class="bb sm" data-source-toggle="'+(source.enabled?'pause':'resume')+'">'+(source.enabled?'PAUSE DISCOVERY':'RESUME DISCOVERY')+'</button><button class="bb sm" data-source-remove>REMOVE SOURCE</button><button class="bb sm" data-scan>SCAN NOW</button></div></article>':'')+'</section>';
   }
   function mountPane() {
     if(!body)return;
+    say('');
     if(firstForm && firstForm.destroy) firstForm.destroy();firstForm=null;signature='';
     body.querySelectorAll('[data-pane]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.pane===pane)));
     body.querySelector('.wh-search').hidden=pane!=='overview';
     const content=body.querySelector('.wh-content');
     if(pane==='sources') {mountSources();return;}
     if(pane==='start') {
+      content.innerHTML='<section class="wh-group"><h3>WHAT WOULD YOU LIKE TO DO?</h3><p>Describe the result you want: research something, build an app, organize work, or prepare an automation. You do not need to choose a template first.</p><label class="wh-field">Your task<textarea class="key-input wh-request" rows="5" maxlength="16000" placeholder="For example: help me organize my project and propose the next steps"></textarea></label><p class="muted">Start sends this request to your current agent. It uses that agent’s configured model, tools, and access mode. Service connections may still be needed.</p><div class="wh-actions"><button class="bb" data-start-request>START TASK</button><button class="bb sm" data-pane="draft">DRAFT FROM NOTES OR FILES</button><button class="bb sm" data-pane="guide">FIND A CONTROL</button></div></section>';
+      const input=content.querySelector('.wh-request');input.value=requestDraft;input.addEventListener('input',()=>{requestDraft=input.value;});return;
+    }
+    if(pane==='guide') {
+      content.innerHTML='<section class="wh-group"><h3>WHAT DO YOU WANT TO DO?</h3><label class="wh-field">Find a control<input class="key-input wh-control-search" type="search" placeholder="Connect, schedule, permissions, conveyors…"></label><div class="wh-directory">'+directoryHtml('')+'</div><p class="muted">Recipes are reusable tasks. Routines run on a schedule. Loops repeat toward a goal. Conveyors connect steps into a visual workflow. All remain customizable.</p></section>';
+      content.querySelector('.wh-control-search').addEventListener('input',e=>{content.querySelector('.wh-directory').innerHTML=directoryHtml(e.target.value);});return;
+    }
+    if(pane==='draft') {
       if(typeof FirstValue==='undefined') {content.textContent='The first-work guide is unavailable. Your agent is available in COMMS.';return;}
+      if(!Object.keys(startOpts).length && FirstValue.draftOptions) startOpts=FirstValue.draftOptions() || {};
+      selectedFinding=startOpts.findingId || null;
       firstForm=FirstValue.mount(content,Object.assign({},startOpts,{onLaunch:async(recipe,values,source)=>{
         if (selectedFinding) {
           await post('/api/discovery/decide',{id:selectedFinding,decision:'validate'});
@@ -139,7 +170,7 @@
           post('/api/discovery/decide',{id,decision:'accept'}).then(()=>QuerySpine.refresh('work-discovery')).catch(()=>say('Request sent; suggestion history could not be updated. Refresh before retrying.',true));
         }
         return launched;
-      },onProjects:showProjects,onModelSetup:()=>StationUI.openTerm('settings','providers'),onOpenWork:()=>open('overview')}));
+      },onClear:()=>{selectedFinding=null;startOpts={};},onProjects:showProjects,onModelSetup:()=>StationUI.openTerm('settings','providers'),onOpenWork:()=>open('overview')}));
       return;
     }
     refreshView(true);
@@ -150,6 +181,20 @@
     const b=ev.target.closest('button');if(!b || !body.contains(b))return;
     if(b.dataset.pane) {selectedFinding=null;pane=b.dataset.pane;startOpts={};mountPane();return;}
     if(b.dataset.termLink) {StationUI.openTerm(b.dataset.termLink);return;}
+    if(b.dataset.destination!==undefined) {
+      const d=destinations[Number(b.dataset.destination)];if(!d)return;
+      if(d[0]==='build') {if(typeof Build!=='undefined' && Build.open){StationUI.closeTerm('work');Build.open();}}
+      else StationUI.openTerm(d[0],d[1] || undefined);return;
+    }
+    if(b.hasAttribute('data-start-request')) {
+      const request=requestDraft.trim();if(!request){say('Describe the result you want before starting.',true);body.querySelector('.wh-request').focus();return;}
+      b.disabled=true;
+      try {
+        const launched=App.launchRecipe({name:request.slice(0,80),task:request,params:[]},{},{direct:true});
+        if(!launched){say('The task was not sent. Finish the current run or check your agent setup, then try again. Your request is still here.',true);return;}
+        requestDraft='';pane='overview';mountPane();say('Request sent. Progress and any questions will appear in your work.');
+      } catch(e){say('Could not confirm the task started. Review your work before trying again. Your request is still here.',true);} finally {if(b.isConnected)b.disabled=false;}return;
+    }
     if(b.dataset.session || b.dataset.correct) {
       const id=b.dataset.session || b.dataset.correct;App.openWorkstream(id);StationUI.closeTerm('work');
       if(b.dataset.correct && typeof Chat!=='undefined') Chat.prefill('Please revise this result. Here is what needs to change: ');return;
@@ -162,7 +207,7 @@
     }
     if(b.dataset.finding) {
       const f=(data('work-discovery').staged || []).find(f=>f.id===b.dataset.finding);if(!f)return;
-      open('start',{findingId:f.id,root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title,reason:'Suggested from the evidence in your selected folder'});return;
+      open('draft',{findingId:f.id,root:f.root,intent:f.kind==='client-update'?'client-update':'custom',request:f.kind==='client-update'?'Draft a weekly client update':('Review this finding in '+f.root+': '+f.quote),pain:f.title,reason:'Suggested from the evidence in your selected folder'});return;
     }
     if(b.hasAttribute('data-projects')){showProjects();return;}
     if(!b.dataset.dismiss && !b.hasAttribute('data-source-save') && !b.dataset.sourceToggle && !b.hasAttribute('data-source-remove') && !b.hasAttribute('data-scan') && !b.hasAttribute('data-refresh')) return;
@@ -180,7 +225,7 @@
   function mount(el) {
     cleanup();body=el;selectedFinding=startOpts.findingId || null;
     body.innerHTML='<div class="wh"><div class="wh-header"><div><span class="wh-eyebrow">LESS TO MANAGE. MORE DONE.</span><h2>YOUR WORK, IN ONE PLACE</h2></div><button class="bb" data-pane="start">START SOMETHING USEFUL</button></div>'+
-      '<nav class="wh-tabs" aria-label="Work views"><button class="bb sm" data-pane="overview">MY WORK</button><button class="bb sm" data-pane="sources">FIND WORK</button><button class="bb sm" data-pane="station">MY STATION</button><button class="bb sm" data-refresh>REFRESH</button></nav>'+
+      '<nav class="wh-tabs" aria-label="Work views"><button class="bb sm" data-pane="overview">MY WORK</button><button class="bb sm" data-pane="sources">FIND WORK</button><button class="bb sm" data-pane="station">MY STATION</button><button class="bb sm" data-pane="guide">FIND A CONTROL</button><button class="bb sm" data-refresh>REFRESH</button></nav>'+
       '<label class="wh-search-label"><input class="key-input wh-search" type="search" aria-label="Search your work" placeholder="Find a result, task or suggestion…"></label>'+
       '<p class="wh-message" role="status" aria-live="polite"></p><p class="wh-freshness warn" hidden></p><div class="wh-content"></div>'+
       '<details class="wh-advanced"><summary>ALL CONTROLS</summary><div class="wh-actions">'+[['tasks','TASK BOARD'],['deliverables','OUTPUT LIBRARY'],['automation','AUTOMATION'],['quests','GOALS & QUESTS'],['connectors','ABILITIES']].map(([key,label])=>'<button class="bb sm" data-term-link="'+key+'">'+label+'</button>').join('')+'</div></details></div>';
@@ -190,7 +235,7 @@
   }
   StationUI.registerWindow('work','MY WORK',mount,{console:true,className:'work-hub-win',onClose:cleanup});
   window.WorkHub={open};
-  if(typeof FirstValue!=='undefined') FirstValue.configure({onOpen:opts=>open('start',opts)});
+  if(typeof FirstValue!=='undefined') FirstValue.configure({onOpen:opts=>open('draft',opts)});
   // A persistent station instrument, backed by the existing journey ledger; no new progression state.
   const stage=document.getElementById('stage-wrap');
   if(stage) {
