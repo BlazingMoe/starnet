@@ -165,6 +165,9 @@ function makeMediaService(options) {
   // backend policy (tests and alternate compositions can then reproduce cache decisions exactly).
   const now = typeof o.now === 'function' ? o.now : (() => 0);
   const randomUUID = typeof o.randomUUID === 'function' ? o.randomUUID : crypto.randomUUID;
+  const voiceStreams = require('./voice-stream.js').makeVoiceStreams({
+    localVoice, now, monotonicNow: typeof o.monotonicNow === 'function' ? o.monotonicNow : now, uuid: randomUUID
+  });
   const voiceCacheDir = path.join(o.workspaces, 'voice-cache');
   const sttModels = String(env('STT_MODELS') || 'google/gemini-3.1-flash-lite-preview,google/gemini-2.5-flash')
     .split(',').map(s => s.trim()).filter(Boolean);
@@ -643,7 +646,23 @@ function makeMediaService(options) {
 
   function handleLocalVoiceStatus(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(localVoice.status()));
+    res.end(JSON.stringify({ ...localVoice.status(), streaming: true }));
+  }
+
+  async function handleLocalVoiceStream(req, res) {
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const action = query.get('action');
+    let result;
+    try {
+      if (action === 'open') result = voiceStreams.open();
+      else {
+        const bytes = action === 'audio' ? await readBodyBuffer(req, 64000, res) : undefined;
+        result = await voiceStreams.action(query.get('id'), action, bytes);
+      }
+    } catch (e) { result = { error: String(e.message || e) }; }
+    if (res.destroyed || res.writableEnded) return;
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(result));
   }
 
   async function handleLocalVoiceWarm(req, res) {
@@ -653,19 +672,22 @@ function makeMediaService(options) {
     };
     const current = localVoice.status();
     if (!current.available) return json(501, current);
-    localVoice.warm().catch(error => logger.error('[local-voice] warm failed:', (error && error.message) || error));
+    localVoice.warm({ tts: new URL(req.url, 'http://localhost').searchParams.get('tts') !== '0' }).catch(error => logger.error('[local-voice] warm failed:', (error && error.message) || error));
     json(202, current);
   }
 
   async function handleLocalVoiceTranscribe(req, res) {
+    const ac = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     const json = (code, value) => {
+      if (res.destroyed || res.writableEnded) return;
       res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify(value));
     };
     let pcm;
     try { pcm = await readBodyBuffer(req, 4 * 16000 * 120, res); }
     catch (error) { if (!res.headersSent) json(error && error.tooLarge ? 413 : 400, { error: 'invalid audio payload' }); return; }
-    try { json(200, { ok: true, text: await localVoice.transcribe(pcm) }); }
+    try { json(200, { ok: true, text: await localVoice.transcribe(pcm, { signal: ac.signal }) }); }
     catch (error) { json(error && error.unavailable ? 501 : 503, { ok: false, error: String((error && error.message) || error) }); }
   }
 
@@ -700,6 +722,7 @@ function makeMediaService(options) {
     handleLocalVoiceStatus,
     handleLocalVoiceWarm,
     handleLocalVoiceTranscribe,
+    handleLocalVoiceStream,
     ttsFailOpenPolicy,
     sttFailOpenPolicy,
     _internals: { ttsSynthKeyed, sttTranscribe, maybeEvictVoiceCache, voiceCacheDir }

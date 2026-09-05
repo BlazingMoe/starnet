@@ -18,13 +18,32 @@
   const lanes = [];
   // the seam routines.js / loops.js register through. Kept deliberately tiny: order of registration
   // (script order in index.html) is the section order in the rail — routines first, loops second.
-  window.AutomationWindow = { registerLane(fn) { if (typeof fn === 'function') lanes.push(fn); } };
+  let draft = null;
+  window.AutomationWindow = {
+    registerLane(fn) { if (typeof fn === 'function') lanes.push(fn); },
+    openDraft(value) {
+      draft = Object.assign({}, value || {});
+      StationUI.openTerm('automation', 'routines-create');
+    }
+  };
 
   function buildAutomation(body) {
     const built = lanes.map(fn => fn(body)).filter(b => b && Array.isArray(b.sections));
     const sections = built.reduce((acc, b) => acc.concat(b.sections), []);
     StationUI.h.mountConsole(body, 'automation', sections, { search: false });
     built.forEach(b => { if (typeof b.wire === 'function') b.wire(); });
+    if (draft) {
+      if(String(draft.prompt || '').includes('Pasted source (JSON string):')) {
+        const note=document.createElement('p');note.className='warn';note.textContent='This draft contains a fixed pasted sample. For fresh updates on each run, replace that sample with an approved source folder before adding the routine.';
+        const prompt=body.querySelector('#rt-prompt');if(prompt)prompt.insertAdjacentElement('beforebegin',note);
+      }
+      for (const [selector, key] of [['#rt-name','name'],['#rt-prompt','prompt'],['#rt-workdir','workdir']]) {
+        const el = body.querySelector(selector); if (el) el.value = String(draft[key] || '');
+      }
+      const agentButton = Array.from(body.querySelectorAll('.rt-agent-btn')).find(b => b.dataset.agent === draft.agentId);
+      if (agentButton) agentButton.click();
+      draft = null; // a draft is not a routine; only the existing CREATE click can persist one.
+    }
   }
 
   StationUI.registerWindow('automation', 'AUTOMATION', buildAutomation, { console: true });

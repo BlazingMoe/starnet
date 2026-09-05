@@ -74,8 +74,8 @@ A.eq(hub.size(), 1, 'add() registers a client');
 const reached = hub.broadcast('workitem.placed', { workitemId: 'W1', queueId: 'tg_42' });
 A.eq(reached, 1, 'broadcast reaches the one open client');
 A.eq(a.length, 1, 'the client got exactly one frame');
-A.ok(a[0].startsWith('data: ') && a[0].endsWith('\n\n'), 'the frame is SSE-shaped (data: ... blank line)');
-const decoded = JSON.parse(a[0].slice(6, -2));
+A.ok(a[0].startsWith('id: ') && a[0].endsWith('\n\n'), 'the frame is SSE-shaped with a replay id');
+const decoded = JSON.parse(eventDataOf(a[0]));
 A.ok(decoded.name === 'workitem.placed' && decoded.payload.workitemId === 'W1', 'the frame carries the event name + payload');
 
 // fan-out: a second client also receives subsequent events
@@ -201,7 +201,7 @@ A.eq(runTeeView('agent.reasoning', { agentId: 'a1', runId: 'r1', on: true }), nu
 
   const openAt = world.indexOf('const open = () => {');
   A.ok(openAt > 0, 'world.js owns the channel-bridge open()');
-  const openSeg = world.slice(openAt, openAt + 2600);
+  const openSeg = world.slice(openAt, world.indexOf('connOpenFn = open;', openAt));
   A.ok(/if \(chanES\) return;/.test(openSeg), 'open() refuses to create a SECOND EventSource while one is live');
   A.ok(/clearTimeout\(retryTimer\)/.test(openSeg), 'and it cancels any pending retry, so the timer cannot replace a healthy stream');
   A.ok(/retryTimer = setTimeout\(/.test(openSeg), 'the reconnect retry is a TRACKED timer, not an anonymous one');
@@ -225,14 +225,17 @@ A.eq(runTeeView('agent.reasoning', { agentId: 'a1', runId: 'r1', on: true }), nu
   FakeEventSource.OPEN = 1;
   const makeBridge = new Function('EventSource', 'setTimeout', 'clearTimeout', `
     let bridgePaused = false, chanES = null, retryTimer = null, backoff = 1000;
+    let bridgeCursor = '', bridgeRecovering = false;
+    const emitted = []; let snapshots = 0;
     let lastSseEventAt = 0, fnow = 0;
-    const apiUrl = x => x, fetchSnapshot = () => {};
+    const apiUrl = x => x, fetchSnapshot = () => { snapshots++; };
     const window = { __STARNET_API_TOKEN__: '' };
     const performance = { now: () => 0 };
-    const U = { bus: { emit() {} } };
+    const U = { bus: { emit(name, payload) { emitted.push({name, payload}); } } };
     ${openSource}
     return {
       open,
+      emitted, snapshots: () => snapshots,
       resume() { if (!chanES) open(); },
       source() { return chanES; }
     };
@@ -253,6 +256,17 @@ A.eq(runTeeView('agent.reasoning', { agentId: 'a1', runId: 'r1', on: true }), nu
   staleRetry(); // adversarially invoke the already-cleared callback; open()'s live-source guard is the second belt
   A.eq(sources.length, 2, 'even a stale retry callback cannot create a second live EventSource');
   A.eq(sources.filter(s => !s.closed).length, 1, 're-entry/backoff ends with exactly ONE live EventSource');
+  first.onerror();
+  A.eq(bridge.source(), resumed, 'an obsolete source error cannot close its replacement');
+  first.onmessage({ data: JSON.stringify({ name: 'queue.status', payload: { depth: 99 } }), lastEventId: 'a:1' });
+  A.eq(bridge.emitted.length, 0, 'obsolete source messages cannot mutate the station');
+  const message = { data: JSON.stringify({ name: 'queue.status', payload: { depth: 2 } }), lastEventId: 'a:2' };
+  resumed.onmessage(message); resumed.onmessage(message);
+  A.eq(bridge.emitted.length, 1, 'a replayed duplicate is applied only once');
+  resumed.onmessage({ data: JSON.stringify({ stream: 'ready', cursor: 'a:2', reset: false }), lastEventId: 'a:2' });
+  A.eq(bridge.snapshots(), 1, 'replay completion refreshes authoritative state');
+  resumed.onerror(); bridge.resume();
+  A.ok(bridge.source().url.includes('cursor=a%3A2'), 'a manually recreated EventSource carries the acknowledged cursor');
 
   const spawnAt = world.indexOf('chanQueues.clear(); serverLit.clear();');
   A.ok(spawnAt > 0, 'spawn() owns the new-agent reset block');

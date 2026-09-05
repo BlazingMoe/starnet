@@ -1823,7 +1823,7 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 .live-voice-panel[data-state="transcribing"] .lv-heard { display: -webkit-box; }
 .lv-say { display: none; }
 .lv-say.on { display: none; }
-.live-voice-panel:focus-within .lv-say.on {
+.live-voice-panel .lv-say.on {
   position: relative; z-index: 5; flex: 1 0 100%; margin: 1px 1px 0;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
   color: var(--ph-dim); font-size: 10px; line-height: 1.3; letter-spacing: var(--ls-1);
@@ -1837,11 +1837,23 @@ body.no-curve #stage-wrap::before { background: none; box-shadow: none; }
 }
 .lv-end-control span { flex: 0 0 auto; opacity: .65; }
 
+/* Conversation controls and recognized words stay readable without chasing hover/focus. */
+.live-voice-panel { min-width: 260px; max-width: calc(100vw - 16px); }
+.live-voice-panel .lv-state { display: block; }
+.live-voice-panel .lv-x { opacity: .75; pointer-events: auto; }
+.live-voice-panel .lv-heard { display: -webkit-box; -webkit-line-clamp: 4; }
+.lv-controls { display: flex; gap: 6px; flex: 1 0 100%; position: relative; z-index: 7; }
+.lv-controls .bb { flex: 1; min-height: 28px; font-size: 10px; }
+.lv-controls .bb:disabled { opacity: .35; cursor: default; }
+.lv-details { position: relative; z-index: 7; flex: 1 0 100%; color: var(--ph-dim); font-size: 9px; }
+.lv-details summary { cursor: pointer; padding: 4px 0; }
+.live-voice-panel[data-state="paused"] { --lv-accent: var(--ph-dim); }
+
 /* ---- ROUTE / SPEECH / TASK are diagnostics, not glanceable state, and carrying them at rest is
    what forced a 300px panel. Hidden at rest, wrapped onto one line on hover — HIDDEN, never faked:
    this hover is now the only place a model download reports itself, so the fill stays real. ---- */
 .lv-rail { display: none; }
-.live-voice-panel:focus-within .lv-rail {
+.live-voice-panel .lv-rail {
   position: relative; z-index: 5; flex: 1 0 100%;
   display: flex; flex-flow: row wrap; gap: 1px 9px; margin: 3px 1px 0; padding-top: 4px;
   border-top: 1px solid var(--ph-faint);
@@ -5292,7 +5304,15 @@ select.fbc-sel:focus { border-color: var(--ph); box-shadow: inset 0 2px 5px rgba
 .perm-adv .perm-policy-row .key-input { width: 90px; flex: 0 0 auto; }
 
 /* while searching: every section is shown, non-matching rows fade, empty sections collapse their body */
-.con-searching .con-miss { opacity: .18; }
+.con-searching .con-miss { display: none !important; }
+.con-searching .cc-group:not(:has(.cc-card.con-hit:not([hidden]))) { display:none; }
+.con-searching .cc-service:not(:has(.cc-card.con-hit:not([hidden]))) { display:none; }
+.con-searching .cc-alternatives:not(:has(.cc-card.con-hit:not([hidden]))) { display:none; }
+.con-searching .cc-group > .sec .sec-tag { display:none; }
+.con-searching .sk-state-sec, .con-searching .sk-lib-sum { display:none; }
+.cc-alternatives { margin-top:5px; padding:8px; border:1px solid var(--ph-dim); }
+.cc-alternatives:not(:has(.cc-card:not([hidden]))) { display:none; }
+.cc-alternatives summary { cursor:pointer; }
 .con-searching .con-sec-nomatch { display: none; }
 .con-searching .con-sec + .con-sec { margin-top: 18px; }
 .con-search-empty { margin: 28px 20px; padding: 18px; border: 1px dashed var(--ph-dim); color: var(--ph-bright); text-align: center; letter-spacing: .6px; }
@@ -5660,3 +5680,6 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
   white-space: pre-wrap; word-break: break-word; user-select: text;
 }
 .bgf-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+
+/* Provisional recognition may still change; confirmed words retain normal contrast. */
+.lv-provisional { opacity: .62; }

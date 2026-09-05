@@ -2129,6 +2129,7 @@ const media = makeMediaService({
   redact,
   logger: console,
   now: () => Date.now(),
+  monotonicNow: () => performance.now(),
   randomUUID: () => crypto.randomUUID()
 });
 function providerCredentialError(provider) {
@@ -2930,7 +2931,18 @@ function persistAllowlist(nextAllow, nextMeta) {   // throws on failure -> the b
     metaToWrite = {};
     for (const k of nextAllow) metaToWrite[k] = grantMeta[k] || { grantedAt: nowMs };
   }
-  saveResilient(ALLOWLIST_FILE, { version: 1, allow: nextAllow, meta: metaToWrite });   // fsync-durable + .bak; throws on a real write failure
+  const value = { version: 1, allow: nextAllow, meta: metaToWrite };
+  const nextSet = new Set(nextAllow);
+  const removesAuthority = Array.from(grantsPermanent).some(k => !nextSet.has(k));
+  if (removesAuthority) {
+    const ok = saveCredentialRemovalVerified(ALLOWLIST_FILE, value, raw => !!raw
+      && Array.isArray(raw.allow)
+      && raw.allow.length === nextAllow.length
+      && raw.allow.every(k => nextSet.has(k)), 'permissions');
+    if (!ok) throw new Error('permission removal could not be verified in both recovery copies');
+  } else {
+    saveResilient(ALLOWLIST_FILE, value);   // additive grant: retain the prior good snapshot for torn-write recovery
+  }
   // commit the provenance to the shared in-memory store ONLY after the durable write succeeds (fail-closed):
   // mirror-replace so a revoke's dropped rows and a grant's new stamp both land coherently.
   for (const k of Object.keys(grantMeta)) delete grantMeta[k];
@@ -3689,7 +3701,7 @@ async function refreshOAuthTokensOnce(id, entry) {
 // channel.* / workitem.* / queue.* telemetry: validated + redacted, logged to the sidecar console AND
 // forwarded to open browser EventSources (the station HUD). The bot token / OR key are NEVER placed on a
 // payload — nothing to leak here — and redact() runs before validate() as a second backstop.
-const sse = makeSseHub();
+const sse = makeSseHub({ epoch: crypto.randomUUID() });
 // Full-payload channel logging is opt-in (STARNET_DEBUG_CHANNELS=1): every COMMS/workitem/queue event
 // otherwise printed a whole JSON line to stdout on normal operation. Default = event name only.
 const DEBUG_CHANNEL_LOGS = String(process.env.STARNET_DEBUG_CHANNELS || '') === '1';
@@ -4272,10 +4284,21 @@ async function ensureConnectorOauthToken(id, force) {
     const flight = (async () => {
       const cur = connectorOauth.byId[id];              // freshest view once we own the flight
       if (!cur || !cur.accessToken || !cur.refreshToken || !cur.tokenEndpoint) return { token: (cur && cur.accessToken) || '', refreshError: null };
+      const startedCfg = connectorConfigs.find(c => c && c.id === id);
+      const startedGrant = JSON.stringify(cur);
       try {
         const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
           clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
           resource: cur.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
+        const currentCfg = connectorConfigs.find(c => c && c.id === id);
+        const currentGrant = connectorOauth.byId[id];
+        // A refresh belongs to the exact connector + grant generation that started it. An edit, import, remove,
+        // sign-in, or sign-out during the await wins; the late response must not recreate the superseded secret.
+        if (!startedCfg || !currentCfg || currentCfg.oauth !== true
+            || String(currentCfg.url || '') !== String(startedCfg.url || '')
+            || JSON.stringify(currentGrant || null) !== startedGrant) {
+          return { token: (currentGrant && currentGrant.accessToken) || '', refreshError: null };
+        }
         const next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), id, Object.assign({}, cur, nt));
         if (!persistConnectorState(next.configs, next.oauth)) throw new Error('refreshed token could not be saved');
         adoptConnectorState(next);
@@ -4301,7 +4324,8 @@ async function ensureConnectorOauthToken(id, force) {
 }
 // configure a connector, injecting a fresh OAuth bearer for oauth connectors (kept out of the persisted config).
 async function configureConnectorCfg(cfg, options) {
-  if (cfg && cfg.transport === 'stdio' && cfg.enabled !== false && !(options && options.deferConnect)) {
+  if (cfg && cfg.transport === 'stdio' && cfg.enabled !== false &&
+      !(Array.isArray(cfg.missingFields) && cfg.missingFields.length) && !(options && options.deferConnect)) {
     const aid = String(cfg.agentId || '');
     // Preparing a persistent cell is asynchronous; the stdio transport itself remains synchronous/lazy.
     // Swallow readiness here only so the manager can record an honest connector error ("not ready") in
@@ -4317,7 +4341,7 @@ async function configureConnectorCfg(cfg, options) {
     // re-sign-in from, rather than the connector vanishing from /api/connectors.
     return connectors.configure(cfg.id, Object.assign({}, cfg, { token: '', tokenProvider: (force) => ensureConnectorOauthToken(cfg.id, force === true) }), options);
   }
-  return connectors.configure(cfg.id, cfg, options);
+  return connectors.configure(cfg.id, Object.assign({}, cfg, { tokenProvider: null }), options);
 }
 
 /* ---- TOOLSETS kill-switch store (the reference harness's "toolsets" surface): a per-capId-FAMILY on/off flag
@@ -5604,17 +5628,66 @@ async function handleScoutDecide(req, res) {
    authority: a finding is an offer, and only the Commander's accept turns it into work (propose-and-confirm).
    The personalization PAUSE gates the whole engine — a paused station scans nothing and stages nothing. */
 const DISCOVERY_FILE = path.join(WORKSPACES, 'discovery.state.json');
+const DiscoveryDocuments = require('./discovery-documents.js');
+function isDocumentSourceAuthorized(root) {
+  return blessedRoots().some(approved => { const rel = path.relative(approved, root); return !rel || (!rel.startsWith('..' + path.sep) && rel !== '..' && !path.isAbsolute(rel)); });
+}
+const documentDiscovery = DiscoveryDocuments.makeDocumentDiscovery({ fsp, path, isBlessed: isDocumentSourceAuthorized,
+  canScan: root => personalizationStore.read().enabled && discoveryState.sources.some(s => s.enabled && s.root === root),
+  hash: text => crypto.createHash('sha256').update(text).digest('hex') });
 const DISCOVERY_TICK_MS = Math.max(60 * 1000, Number(process.env.SKYNET_ENV_DISCOVERY_TICK_MS) || 15 * 60 * 1000);
 let discoveryState = (() => { try { const o = loadResilient(DISCOVERY_FILE, 'discovery'); return Discovery.normalize(o && o.state); } catch (_) { return Discovery.normalize(null); } })();
 function persistDiscovery() { try { saveResilient(DISCOVERY_FILE, { v: 1, state: discoveryState }); } catch (e) { console.warn('[discovery] state persist failed:', (e && e.message) || e); } }
 let discoveringNow = false;
+let documentSourceRevision = 0;
+function activeDocumentSource() {
+  return discoveryState.sources.find(s => s.enabled && isDocumentSourceAuthorized(s.root)) || null;
+}
+function pruneDocumentFindings() {
+  const source = activeDocumentSource();
+  const before = discoveryState.staged.length;
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || (source && f.root === source.root));
+  return before !== discoveryState.staged.length;
+}
+async function scanDocumentSource(now, force) {
+  const source = activeDocumentSource();
+  const revision = documentSourceRevision;
+  pruneDocumentFindings();
+  if (!source) return { fired: false, binding: discoveryState.sources.length ? 'source-paused-or-revoked' : 'no-document-source' };
+  if (!force && source.lastScanAt && now - source.lastScanAt < Discovery.ROOT_SCAN_GAP_MS) return { fired: false, binding: 'source-fresh' };
+  const scanned = await documentDiscovery.scan(source, now);
+  // Selection or pause may change while filesystem IO is in flight. Never publish that stale scan.
+  const currentSource = activeDocumentSource();
+  if (revision !== documentSourceRevision || !currentSource || currentSource.root !== source.root || !personalizationStore.read().enabled) return { fired: false, binding: 'source-changed-or-paused' };
+  currentSource.lastScanAt = now;
+  currentSource.status = scanned.ok ? (scanned.findings.length ? 'evidence-found' : scanned.reason) : scanned.reason;
+  // Findings represent the CURRENT selected documents. Deleted/edited evidence must disappear on rescan.
+  const current = new Set(scanned.findings.map(f => f.fingerprint));
+  discoveryState.staged = discoveryState.staged.filter(f => f.kind !== 'client-update' || current.has(f.fingerprint));
+  let staged = 0;
+  for (const finding of scanned.findings) {
+    if (!Discovery.eligible(discoveryState, finding)) continue;
+    discoveryState = Discovery.stage(discoveryState, finding, { now });
+    staged++;
+    await recommendationLedger.record({ id: 'discovery:' + finding.fingerprint.slice(0, 100),
+      surface: 'discovery', kind: finding.kind, title: finding.title, target: finding.root,
+      evidence: finding.evidence.map((e, i) => ({ id: 'document-' + i, type: 'quote', quote: e.path + ':' + e.line + ': ' + e.quote })),
+      readiness: { ready: true, reasons: [] }, projectId: finding.root, modelVersion: 'document-discovery-v1',
+      expiresAt: now + Discovery.FINDING_TTL_MS }, now).catch(swallow('recledger.document-record'));
+  }
+  discoveryState = Discovery.note(discoveryState, { outcome: staged ? 'scanned' : 'none',
+    reason: scanned.reason || (staged ? 'recent document evidence' : 'unchanged or previously decided evidence'),
+    title: 'Weekly client update' }, { now });
+  return { fired: true, staged, status: currentSource.status, files: scanned.files || 0, limited: !!scanned.limited };
+}
 async function runDiscoveryCycle(opts) {
   opts = opts || {};
   const now = Date.now();
   discoveryState = Discovery.sweep(discoveryState, now);   // expiries first, so the shelf read stays truthful
+  const documents = await scanDocumentSource(now, !!opts.force);
   const roots = blessedRoots();
   const d = Discovery.decide(discoveryState, { now: now, roots: roots, force: !!opts.force });
-  if (!d.fire) { persistDiscovery(); return { ok: true, fired: false, binding: d.binding }; }
+  if (!d.fire) { persistDiscovery(); return { ok: true, fired: documents.fired, binding: d.binding, documents }; }
   const declinedIdx = buildDeclinedIndex('agent');
   let staged = 0;
   for (const root of d.roots) {
@@ -5658,7 +5731,7 @@ async function runDiscoveryCycle(opts) {
     }
   }
   persistDiscovery();
-  return { ok: true, fired: true, scanned: d.roots.length, staged: staged };
+  return { ok: true, fired: true, scanned: d.roots.length, staged: staged, documents };
 }
 let discoveryTimer = null;
 function discoveryTick(force) {
@@ -5685,6 +5758,7 @@ function handleDiscoveryGet(req, res) {
   // to mutate in memory only, so expired findings + their ledger notes resurrected on the next restart.
   const _preSweepStaged = discoveryState.staged.length;
   discoveryState = Discovery.sweep(discoveryState, Date.now());
+  pruneDocumentFindings();
   if (discoveryState.staged.length !== _preSweepStaged) persistDiscovery();
   const roots = (() => { try { return blessedRoots(); } catch (_) { return []; } })();
   const d = Discovery.decide(discoveryState, { now: Date.now(), roots: roots });
@@ -5694,28 +5768,75 @@ function handleDiscoveryGet(req, res) {
     enabled: String(process.env.SKYNET_ENV_DISCOVERY || '') !== '0' && personalizationStore.read().enabled,
     personalizationEnabled: personalizationStore.read().enabled,
     rootsBlessed: roots.length,
+    sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
     binding: d.fire ? 'due' : d.binding,
     staged: discoveryState.staged,
     ledger: discoveryState.ledger.slice(-20),
     lastCycleAt: discoveryState.lastCycleAt
   }));
 }
-// POST /api/discovery/decide { id, decision:'accept'|'dismiss' } — the Commander's verdict on a finding.
+// POST /api/discovery/decide { id, decision:'validate'|'accept'|'dismiss' } — freshness check or verdict.
+// validate is read-only: launching work can fail, so only a successful launch should be followed by accept.
 // dismiss denylists the fingerprint forever; accept resolves it (picked up — never re-nag). Unknown id → ok:false.
 async function handleDiscoveryDecide(req, res) {
   let body; try { body = JSON.parse(await readBody(req, 1 << 14)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   const id = String(body.id || '');
-  const decision = body.decision === 'accept' ? 'accept' : (body.decision === 'dismiss' ? 'dismiss' : '');
-  if (!decision) return json(400, { ok: false, error: 'decision must be accept|dismiss' });
+  const decision = ['validate', 'accept', 'dismiss'].includes(body.decision) ? body.decision : '';
+  if (!decision) return json(400, { ok: false, error: 'decision must be validate|accept|dismiss' });
   const item = discoveryState.staged.find(f => f.id === id) || null;
   if (!item) return json(200, { ok: false, error: 'unknown id' });
+  if (decision === 'validate' && (item.at < Date.now() - Discovery.FINDING_TTL_MS || !personalizationStore.read().enabled)) return json(409, { ok: false, error: 'finding expired or discovery paused; scan again' });
+  if (decision === 'validate' && item.kind !== 'client-update' && !isBlessedRoot(item.root)) return json(409, { ok: false, error: 'project permission revoked; approve and scan again' });
+  if (item.kind === 'client-update' && decision !== 'dismiss') {
+    const source = activeDocumentSource();
+    const revision = documentSourceRevision;
+    if (!source || source.root !== item.root || !personalizationStore.read().enabled) return json(409, { ok: false, error: 'source paused or revoked; scan again after enabling it' });
+    const fresh = await documentDiscovery.scan(source, Date.now());
+    if (revision !== documentSourceRevision || !activeDocumentSource() || !personalizationStore.read().enabled || !fresh.ok || !fresh.findings.some(f => f.fingerprint === item.fingerprint) || !discoveryState.staged.some(f => f.id === id)) {
+      if (decision !== 'validate') {
+        discoveryState.staged = discoveryState.staged.filter(f => f.id !== id);
+        persistDiscovery();
+      }
+      return json(409, { ok: false, error: 'source evidence changed; scan again before starting this work' });
+    }
+  }
+  if (decision === 'validate') return json(200, { ok: true, validated: true, item });
   discoveryState = decision === 'accept' ? Discovery.accept(discoveryState, id, { now: Date.now() }) : Discovery.dismiss(discoveryState, id, { now: Date.now() });
   await recommendationLedger.verdict('discovery:' + item.fingerprint.slice(0, 100),
     decision === 'accept' ? 'accepted' : 'declined',
     decision === 'accept' ? 'accepted' : String(body.reason || 'not_relevant'), Date.now()).catch(swallow('recledger.verdict', null));
   persistDiscovery();
   json(200, { ok: true, item: item });
+}
+
+// Explicit opt-in to one bounded source. This never modifies grantsPermanent or execution permissions.
+function handleDiscoverySourcesGet(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ ok: true, sources: discoveryState.sources.map(s => ({ ...s, available: isDocumentSourceAuthorized(s.root) })),
+    approvedRoots: blessedRoots(), policy: DiscoveryDocuments.POLICY }));
+}
+async function handleDiscoverySourcesPost(req, res) {
+  const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  let body;
+  try { body = JSON.parse(await readBody(req, 1 << 14)); } catch (_) { return json(400, { ok: false, error: 'bad json' }); }
+  if (!body || typeof body !== 'object') return json(400, { ok: false, error: 'source settings required' });
+  let sources;
+  if (body.remove === true) sources = [];
+  else if (body.enabled === false && !body.root) sources = discoveryState.sources.map(s => ({ ...s, enabled: false, status: 'paused' }));
+  else {
+    if (body.enabled !== true && body.enabled !== false) return json(400, { ok: false, error: 'enabled must be true or false' });
+    let root;
+    try { root = await documentDiscovery.canonicalRoot(body.root); } catch (e) { return json(400, { ok: false, error: e.message }); }
+    sources = [{ id: 'client-update', kind: 'client-update', root, enabled: body.enabled, lookbackDays: 7, lastScanAt: 0, status: body.enabled ? 'not-scanned' : 'paused' }];
+  }
+  // Save before publishing success; unlike best-effort tick persistence, a settings write must not lie.
+  const next = Discovery.normalize({ ...discoveryState, sources });
+  next.staged = next.staged.filter(f => f.kind !== 'client-update');
+  try { saveResilient(DISCOVERY_FILE, { v: 1, state: next }); } catch (_) { return json(500, { ok: false, error: 'could not persist source settings' }); }
+  discoveryState = next;
+  documentSourceRevision++;
+  return json(200, { ok: true, sources: discoveryState.sources, grantsChanged: false });
 }
 // POST /api/discovery/scan — the Commander's own SCAN NOW: forces one cycle past cooldown/freshness. Still
 // refuses while paused (the pause is authority) and while a cycle is already in flight (honest 'busy').
@@ -5836,6 +5957,9 @@ function nightshiftDecideLearn(agentId, runId, useful) {
   if (!arch) return;   // not a night-shift act (or already reaped) → nothing to learn
   if (learning) {
     recommendationLedger.verdict('nightshift:' + String(runId || ''), useful ? 'completed' : 'declined', useful ? 'completed' : 'bad_quality', Date.now()).catch(swallow('recledger.verdict'));
+    // This is the Commander's explicit KEEP/DISCARD, unlike the preceding machine completion.
+    // Record adoption separately; keeping a file does not invent a satisfaction rating.
+    recommendationLedger.outcome('nightshift:' + String(runId || ''), { adopted: useful === true }, Date.now()).catch(swallow('recledger.outcome'));
   }
   try { recordAutonomy({ ts: Date.now(), source: 'nightshift', kind: 'note', agentId: String(agentId || ''), runId: String(runId || ''), reason: useful ? 'approved' : 'denied', detail: { phase: 'verdict', archetype: arch, useful: !!useful } }); } catch (_) {}
   try { delete nightshiftActs[String(runId || '')]; saveResilient(NIGHTSHIFT_ACTS_FILE, { v: 1, acts: nightshiftActs }); } catch (_) {}   // decided once
@@ -7456,7 +7580,7 @@ async function mintQuestRecommendations(quests, why) {
 async function completeQuestRecommendationIds(ids) {
   for (const id of (Array.isArray(ids) ? ids : [])) {
     recommendationLedger.verdict('quest:' + id, 'completed', 'completed', Date.now()).catch(swallow('recledger.verdict'));
-    recommendationLedger.outcome('quest:' + id, { adopted: true, quality: 1, completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
+    recommendationLedger.outcome('quest:' + id, { completedAt: Date.now() }, Date.now()).catch(swallow('recledger.outcome'));
     // The quest store is the completion authority. Only AFTER it says done do we fold the exact persisted record
     // into the journey ledger; duplicate sweeps are idempotent by quest id.
     try { const q = questStore.get(id); if (q && q.status === 'done') await journeyStore.recordQuest(q, commanderGoals.get(), q.completedAt || Date.now()); } catch (e) { console.warn('[journey] quest fold failed:', (e && e.message) || e); }
@@ -8727,8 +8851,9 @@ const ROUTES = [
   { m: 'GET', exact: '/api/stt/status', h: media.handleSttStatus },
   { m: 'GET', exact: '/api/stt/native/status', h: media.handleNativeSttStatus },
   { m: 'POST', exact: '/api/stt/native', h: media.handleNativeStt },
+  { m: 'POST', qsplit: '/api/local-voice/stream', h: media.handleLocalVoiceStream },
   { m: 'GET', exact: '/api/local-voice/status', h: media.handleLocalVoiceStatus },
-  { m: 'POST', exact: '/api/local-voice/warm', h: media.handleLocalVoiceWarm },
+  { m: 'POST', qsplit: '/api/local-voice/warm', h: media.handleLocalVoiceWarm },
   { m: 'POST', exact: '/api/local-voice/transcribe', h: media.handleLocalVoiceTranscribe },
   { m: 'POST', exact: '/api/run', h: handleRun, errorPolicy: runFailPolicy },
   { m: 'POST', exact: '/api/run-recoveries/resolve', h: handleRunRecoveryResolve },
@@ -8775,6 +8900,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/scout/telemetry', h: handleScoutTelemetry },
   // ENVIRONMENT DISCOVERY: findings from the Commander's own blessed roots (verbatim citations, no model spend)
   { m: 'GET', exact: '/api/discovery', h: handleDiscoveryGet },
+  { m: 'GET', exact: '/api/discovery/sources', h: handleDiscoverySourcesGet },
+  { m: 'POST', exact: '/api/discovery/sources', h: handleDiscoverySourcesPost },
   { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
   { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
@@ -9364,6 +9491,7 @@ function handleChannelEvents(req, res) {
   });
   try { res.write('retry: 3000\n\n'); } catch (_) {}        // EventSource auto-reconnects after 3s if dropped
   sse.add(res);
+  if (!sse.resume(res, req.headers['last-event-id'] || new URL(req.url, 'http://localhost').searchParams.get('cursor'))) return;
   const done = () => { clearInterval(ka); sse.remove(res); };   // evict on disconnect — mirrors /api/run cleanup; idempotent
   // DATA (not an SSE comment): EventSource hides comments from JS, so the old `: ka` kept TCP open
   // while world.js truthfully aged the unobservable link to LINK DOWN. The hub emits an empty JSON
@@ -9475,6 +9603,15 @@ let sampleInFlight = null;   // { streamId, workitemId, startedAt } — ONE samp
    the ONE counter-advancing resolution (one-resolver law) walks only the named line's own doors. */
 let sampleLineScope = null;
 const sampleReplies = [];    // outbound text the line delivered for the CURRENT sample (cleared per dispatch)
+function sampleRunConfigFor(agentId) {
+  // Installed stations own their model/provider on the roster. Environment defaults are only
+  // a compatibility fallback for a headless host that has never received a roster.
+  if (agentRoster.size) {
+    const config = channelRunConfigFor(agentId);
+    return Object.assign({}, config, { configured: config.ok === true });
+  }
+  return devHubSecrets();
+}
 function getSampleHub() {
   if (sampleHub) return sampleHub;
   sampleHub = makeChannelHub({
@@ -9489,7 +9626,9 @@ function getSampleHub() {
        run #2 as on run #1 (and on a station that already carries a stale record from before this fix). */
     bindChats: false,
     send: (chatId, text) => { sampleReplies.push(String(text == null ? '' : text)); if (sampleReplies.length > 20) sampleReplies.shift(); return Promise.resolve({ ok: true }); },
-    secrets: devHubSecrets,   // the ONE headless resolution rule (see handleRuntimeAgent) — a second rule would drift
+    secrets: () => ({}),   // the selected dock owns the configuration, not an ambient provider
+    resolveEntryRunConfig: sampleRunConfigFor,
+    resolveRunConfig: sampleRunConfigFor,
     persona: SAMPLE_PERSONA, classify: Classify.isTaskDirective, redact: redact, emit: chanEmit,
     newId: () => crypto.randomUUID(), now: () => Date.now(),
     // line scope rides the ctx (additive): resolveTarget walks ONLY the named line's doors when set
@@ -9563,7 +9702,7 @@ async function handleRoutingSample(req, res) {
         : { ok: false, error: 'the armed line routes this job to no dock — crew a bay on the line (bind an agent to it) and try again.' });
     }
     const sec = devHubSecrets();
-    if (!sec.model || (!sec.configured && !sec.key)) {
+    if (!agentRoster.size && (!sec.model || (!sec.configured && !sec.key))) {
       return json(409, { ok: false, error: 'no provider/model is configured for headless runs — connect a provider and set a default model first.' });
     }
 
@@ -9956,8 +10095,110 @@ async function handleConfigExport(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   let body; try { body = JSON.parse(await readBody(req, 1 << 20)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
   const snap = collectExportSnapshot(body.sections);
-  const env = configExport.buildExport(snap, { now: Date.now(), app: 'StarNet', only: Array.isArray(body.only) ? body.only : null });
+  let env;
+  try { env = configExport.buildExport(snap, { now: Date.now(), app: 'StarNet', only: Array.isArray(body.only) ? body.only : null }); }
+  catch (e) { return json(409, { ok: false, error: (e && e.message) || 'configuration cannot be exported safely' }); }
   return json(200, env);
+}
+
+function connectorFieldSet(c) {
+  return new Set([].concat(Array.isArray(c && c.redactedFields) ? c.redactedFields : [],
+    Array.isArray(c && c.missingFields) ? c.missingFields : []).filter(x => typeof x === 'string'));
+}
+
+// A protected stdio value may be retained only when every execution-affecting value that is visible in the
+// import is identical to the live row. This deliberately treats args and env as one security boundary: changing
+// the program while inheriting its old environment would hand credentials to a different executable.
+function canRetainStdioValues(live, incoming, fields) {
+  if (!live || live.transport !== 'stdio' || incoming.transport !== 'stdio') return false;
+  if (!['agentId', 'cwd'].every(k => Object.prototype.hasOwnProperty.call(incoming, k))) return false;
+  if (String(incoming.command || '') !== String(live.command || '') ||
+      String(incoming.agentId || '') !== String(live.agentId || '') ||
+      String(incoming.cwd || '') !== String(live.cwd || '')) return false;
+  const liveArgs = Array.isArray(live.args) ? live.args.map(String) : [];
+  const incomingArgs = Array.isArray(incoming.args) ? incoming.args.map(String) : [];
+  if (liveArgs.length !== incomingArgs.length) return false;
+  for (let i = 0; i < incomingArgs.length; i++) {
+    const hidden = fields.has('args:' + i) || incomingArgs[i] === '<redacted>';
+    if (hidden) { if (incomingArgs[i] !== '<redacted>') return false; }
+    else if (incomingArgs[i] !== liveArgs[i]) return false;
+  }
+  const liveEnv = live.env && typeof live.env === 'object' && !Array.isArray(live.env) ? live.env : {};
+  const incomingEnv = incoming.env && typeof incoming.env === 'object' && !Array.isArray(incoming.env) ? incoming.env : {};
+  const represented = new Set(Object.keys(incomingEnv));
+  for (const field of fields) if (field.indexOf('env:') === 0) represented.add(field.slice(4));
+  const liveKeys = Object.keys(liveEnv);
+  if (represented.size !== liveKeys.length || liveKeys.some(k => !represented.has(k))) return false;
+  for (const key of Object.keys(incomingEnv)) if (String(incomingEnv[key]) !== String(liveEnv[key])) return false;
+  return true;
+}
+
+function prepareConnectorImport(rows) {
+  const byId = new Map((connectorConfigs || []).map(c => [c.id, c]));
+  let nextOauth = connectorOauth;
+  const importedIds = [];
+  const secretsNeeded = [];
+  for (const c of rows) {
+    const live = byId.get(c.id);
+    const merged = Object.assign({}, c);
+    const redacted = connectorFieldSet(c);
+    const unresolved = [];
+    const sameService = !!(live && c.transport === live.transport && c.transport === 'http' && sameEndpoint(c.url, live.url));
+    if (!Object.prototype.hasOwnProperty.call(c, 'enabled')) merged.enabled = sameService && live ? live.enabled !== false : false;
+    if (!Object.prototype.hasOwnProperty.call(c, 'oauth')) merged.oauth = sameService && live ? live.oauth === true : false;
+    const sameStdioConfig = canRetainStdioValues(live, c, redacted);
+    if (!Object.prototype.hasOwnProperty.call(c, 'agentId')) merged.agentId = '';
+    if (!Object.prototype.hasOwnProperty.call(c, 'cwd')) merged.cwd = '';
+    if (!Object.prototype.hasOwnProperty.call(c, 'label')) merged.label = live ? String(live.label || c.id) : c.id;
+    if (redacted.has('token')) {
+      if (sameService && live.token) merged.token = live.token;
+      else unresolved.push('token');
+    }
+    merged.headers = Object.assign({}, c.headers || {});
+    for (const field of redacted) if (field.indexOf('header:') === 0) {
+      const key = field.slice(7);
+      if (sameService && live && live.headers && Object.prototype.hasOwnProperty.call(live.headers, key)) merged.headers[key] = live.headers[key];
+      else if (!Object.prototype.hasOwnProperty.call(merged.headers, key)) unresolved.push(field);
+    }
+    if (c.transport === 'stdio') {
+      const rebuiltArgs = (c.args || []).map((value, index) => {
+        const field = 'args:' + index;
+        if (redacted.has(field) || value === '<redacted>') {
+          if (sameStdioConfig && live && Array.isArray(live.args) && index < live.args.length) return live.args[index];
+          unresolved.push(field); return null;
+        }
+        return value;
+      });
+      for (const field of redacted) if (field.indexOf('args:') === 0) {
+        const index = Number(field.slice(5));
+        if (!Number.isInteger(index) || index < 0 || index >= rebuiltArgs.length) unresolved.push(field);
+      }
+      merged.args = rebuiltArgs.some(x => x == null) ? [] : rebuiltArgs;
+      merged.env = Object.assign({}, c.env || {});
+      for (const field of redacted) if (field.indexOf('env:') === 0) {
+        const key = field.slice(4);
+        if (sameStdioConfig && live && live.env && Object.prototype.hasOwnProperty.call(live.env, key)) merged.env[key] = live.env[key];
+        else if (!Object.prototype.hasOwnProperty.call(merged.env, key)) unresolved.push(field);
+      }
+    }
+    if (redacted.has('url:auth')) unresolved.push('url:auth');
+    const keepOauthGrant = !!(sameService && merged.oauth === true && connectorOauth.byId[c.id]);
+    if (!keepOauthGrant) nextOauth = connectorStateMod.withOauthEntry(connectorStateMod.envelope([...byId.values()], nextOauth), c.id, null).oauth;
+    if (redacted.has('oauth') && !keepOauthGrant) unresolved.push('oauth');
+    const uniqueUnresolved = Array.from(new Set(unresolved));
+    merged.missingFields = uniqueUnresolved;
+    if (uniqueUnresolved.length) {
+      merged.enabled = false;
+      secretsNeeded.push({ kind: 'connector', id: c.id, fields: uniqueUnresolved });
+    }
+    if (merged.transport === 'stdio' && merged.enabled !== false) {
+      const issue = mcpStdioIsolationError(merged);
+      if (issue) return { ok: false, error: 'connector "' + c.id + '": ' + issue };
+    }
+    byId.set(c.id, merged);
+    importedIds.push(c.id);
+  }
+  return { ok: true, nextState: connectorStateMod.envelope([...byId.values()], nextOauth), importedIds, secretsNeeded };
 }
 
 /* POST /api/config/import { envelope, only?: [names] } -> validate + APPLY to the server-side stores, live.
@@ -9973,7 +10214,14 @@ async function handleConfigImport(req, res) {
   const only = Array.isArray(body.only) && body.only.length ? new Set(body.only) : null;
   const want = (name) => (!only || only.has(name)) && Object.prototype.hasOwnProperty.call(parsed.sections, name);
   const applied = [];
+  const effectiveSecretsNeeded = (parsed.secretsNeeded || []).filter(x => x && x.kind !== 'connector');
   const sec = parsed.sections;
+  let connectorPlan = null;
+  if (want('connectors') && Array.isArray(sec.connectors)) {
+    connectorPlan = prepareConnectorImport(sec.connectors);
+    if (!connectorPlan.ok) return json(400, { ok: false, error: connectorPlan.error, applied: [] });
+    effectiveSecretsNeeded.push(...connectorPlan.secretsNeeded);
+  }
 
   if (want('budget')) {
     const v = budgetCaps.cleanOverrides(sec.budget || {});
@@ -10011,21 +10259,20 @@ async function handleConfigImport(req, res) {
     applied.push('permissions');
   }
   if (want('connectors') && Array.isArray(sec.connectors)) {
-    // upsert each imported connector by id (secrets stripped → they land unconfigured; user re-enters). Preserve
-    // any live secret for an id that already exists so a re-import doesn't wipe a working connector's token.
-    const byId = new Map((connectorConfigs || []).map(c => [c.id, c]));
-    for (const c of sec.connectors) {
-      const live = byId.get(c.id);
-      const merged = Object.assign({}, c);
-      if (live && live.token) merged.token = live.token;             // keep an existing secret
-      if (live && live.headers) merged.headers = Object.assign({}, c.headers, redactSecretKeep(live.headers, c.headers));
-      byId.set(c.id, merged);
-    }
-    const priorConfigs = connectorConfigs;
-    connectorConfigs = [...byId.values()];
-    if (!saveConnectorConfigs()) {
-      connectorConfigs = priorConfigs;
+    // Upsert each imported connector by id. Redaction markers are instructions, never executable config: they
+    // resolve from the protected local row only when the service/execution identity is exact. Otherwise the row
+    // is saved disabled and the response names every value that must be re-entered.
+    const nextState = connectorPlan.nextState;
+    if (!persistConnectorState(nextState.configs, nextState.oauth)) {
       return json(500, { ok: false, applied, error: 'connector import could not be verified on disk; existing connectors were left unchanged' });
+    }
+    adoptConnectorState(nextState);
+    // Import is live configuration: replace each affected manager row so /api/connectors immediately agrees with
+    // the durable store. A failed handshake remains an honest connector status; it does not roll back the import.
+    for (const id of connectorPlan.importedIds) {
+      try { await connectors.remove(id); } catch (e) { failNote('config.import.connector.remove', e); }
+      const cfg = connectorConfigs.find(x => x && x.id === id);
+      if (cfg) { try { await configureConnectorCfg(cfg); } catch (e) { failNote('config.import.connector.configure', e); } }
     }
     applied.push('connectors');
   }
@@ -10036,15 +10283,7 @@ async function handleConfigImport(req, res) {
   if (want('autonomy') && sec.autonomy) browser.autonomy = sec.autonomy;
   if (want('notifyPrefs') && sec.notifyPrefs) browser.notifyPrefs = sec.notifyPrefs;
 
-  return json(200, { ok: true, applied, secretsNeeded: parsed.secretsNeeded || [], notes: parsed.notes || [], browser });
-}
-
-// tiny helper: keep a live header value only for keys the imported config left blank (i.e. the redacted ones),
-// so re-importing a redacted export doesn't clobber a header the user already re-entered live.
-function redactSecretKeep(liveHeaders, importedHeaders) {
-  const out = {}; const imp = importedHeaders || {};
-  for (const k of Object.keys(liveHeaders || {})) { if (!(k in imp)) out[k] = liveHeaders[k]; }
-  return out;
+  return json(200, { ok: true, applied, secretsNeeded: effectiveSecretsNeeded, notes: parsed.notes || [], browser });
 }
 
 /* POST /api/config/reset { section } -> reset ONE server-side section to its environment/empty default, live.
@@ -10060,9 +10299,11 @@ async function handleConfigReset(req, res) {
     case 'roster': agentRoster.clear(); saveAgentRoster(); break;
     case 'dossier': commanderDossier.set(''); break;
     case 'permissions': {
+      // Revoke authority on disk first. If the durable replacement fails, the live grant must remain visible and
+      // active; reporting success and clearing RAM would let it silently resurrect on restart.
+      try { persistAllowlist([], {}); }
+      catch (_) { return json(500, { ok: false, section, error: 'permission reset could not be persisted; existing grants were left unchanged' }); }
       grantsPermanent.clear();
-      for (const k of Object.keys(grantMeta)) delete grantMeta[k];
-      try { persistAllowlist(grantsPermanent, {}); } catch (_) {}
       break;
     }
     case 'connectors': {
@@ -10263,26 +10504,20 @@ async function handleSetChannelToken(req, res) {
    station-wide placement source SKILLS uses; we never guess). POST /api/toolsets/:id { enabled } flips the
    persisted kill-switch and applies LIVE (the next resolveTools call reflects it). `compute` is refused. ---- */
 function handleToolsetsList(req, res) {
-  let placedTypes = [];
-  try {
-    const u = new URL(req.url, 'http://127.0.0.1');
-    placedTypes = placedTypesFrom(u.searchParams.get('placed') || '');
-  } catch (_) {}
-  const placedSet = {}; for (const t of placedTypes) placedSet[t] = true;
-  const rows = toolsetRows(CAP_REGISTRY).map(r => ({
-    id: r.id,
-    label: r.label,
-    glyph: r.glyph,
-    desc: r.desc,
-    object: r.object,                         // the objectType that must be placed to grant this family
-    tools: r.tools,
-    toolCount: r.tools.length,
-    enabled: toolsetDisabled[r.id] !== false, // default ON; only false when explicitly persisted OFF
-    placed: !!(r.object && placedSet[r.object]),
-    consentGated: r.consentGated              // does any tool in the family ask first?
-  }));
+  const u = new URL(req.url, 'http://127.0.0.1');
+  const agentId = u.searchParams.get('agent') || '';
+  if (agentId && !agentRoster.has(agentId)) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'unknown agent' }));
+  }
+  const view = require('./capability/effective-toolsets.js').effectiveToolsets({
+    registry: CAP_REGISTRY, agentId, agent: agentRoster.get(agentId),
+    placed: placedTypesFrom(u.searchParams.get('placed') || ''), disabled: toolsetDisabled,
+    fullAccess: FULL_ACCESS, masterBypass: masterBypassOn(),
+    backendId: executionEnvironment.backendIdFor(agentId)
+  });
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ toolsets: rows }));
+  res.end(JSON.stringify(view));
 }
 async function handleToolsetToggle(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -10429,6 +10664,11 @@ async function handleConnectorUpsert(req, res) {
   if (transport === 'http' && !url) return json(400, { error: 'a server URL is required' });
   if (transport === 'stdio' && !command) return json(400, { error: 'a stdio command is required' });
   const agentId = String(body.agentId || (transport === 'stdio' ? (prev.agentId || '') : '')).trim();
+  const cwd = transport === 'stdio' ? String(Object.prototype.hasOwnProperty.call(body, 'cwd') ? body.cwd : (prev.cwd || '')).trim() : '';
+  const sameService = !!(prev && prev.id && transport === prev.transport && (
+    (transport === 'http' && sameEndpoint(url, prev.url)) ||
+    (transport === 'stdio' && command === String(prev.command || '') && agentId === String(prev.agentId || '') && cwd === String(prev.cwd || ''))
+  ));
   if (transport === 'stdio') {
     const enabling = body.enabled !== false;
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(agentId) || (enabling && !agentRoster.has(agentId))) {
@@ -10455,25 +10695,30 @@ async function handleConnectorUpsert(req, res) {
       return json(400, { ok: false, saved: false, connected: false, code: 'OAUTH_HTTPS_REQUIRED', error: 'custom OAuth connectors require an https:// server URL without embedded credentials' });
     }
   }
-  let args = Array.isArray(prev.args) ? prev.args.slice() : [];
+  let args = sameService && Array.isArray(prev.args) ? prev.args.slice() : [];
   if ('args' in body) {
     if (!Array.isArray(body.args)) return json(400, { error: 'stdio args must be an array' });
+    if (body.args.length > configExport.MAX_CONNECTOR_ARGS) return json(400, { error: 'stdio args cannot exceed ' + configExport.MAX_CONNECTOR_ARGS + ' entries' });
+    if (body.args.some(a => String(a == null ? '' : a).length > configExport.MAX_CONNECTOR_ARG_LENGTH)) return json(400, { error: 'each stdio argument must be at most ' + configExport.MAX_CONNECTOR_ARG_LENGTH + ' characters' });
     args = body.args.map(a => String(a == null ? '' : a));
   }
-  let env = (prev.env && typeof prev.env === 'object') ? Object.assign({}, prev.env) : {};
+  const argsMatchPrevious = sameService && Array.isArray(prev.args) && args.length === prev.args.length && args.every((a, i) => String(a) === String(prev.args[i]));
+  let env = argsMatchPrevious && prev.env && typeof prev.env === 'object' ? Object.assign({}, prev.env) : {};
   if ('env' in body) {
     if (!body.env || typeof body.env !== 'object' || Array.isArray(body.env)) return json(400, { error: 'stdio env must be an object' });
+    if (!configExport.validConnectorMap(body.env)) return json(400, { error: 'stdio env is invalid or exceeds supported limits' });
     env = {};
     for (const k of Object.keys(body.env)) env[k] = String(body.env[k] == null ? '' : body.env[k]);
   }
   // ADDITIVE: optional custom HTTP headers (object of strings) + an optional per-connector timeout (ms).
-  let headers = (prev.headers && typeof prev.headers === 'object') ? Object.assign({}, prev.headers) : {};
+  let headers = sameService && prev.headers && typeof prev.headers === 'object' ? Object.assign({}, prev.headers) : {};
   if ('headers' in body) {
     if (!body.headers || typeof body.headers !== 'object' || Array.isArray(body.headers)) return json(400, { error: 'http headers must be an object' });
+    if (!configExport.validConnectorMap(body.headers)) return json(400, { error: 'http headers are invalid or exceed supported limits' });
     headers = {};
     for (const k of Object.keys(body.headers)) headers[String(k)] = String(body.headers[k] == null ? '' : body.headers[k]);
   }
-  let token = transport === 'http' && !oauth ? (('token' in body && body.token !== '') ? String(body.token) : (prev.token || '')) : '';
+  let token = transport === 'http' && !oauth ? (('token' in body && body.token !== '') ? String(body.token) : (sameService ? (prev.token || '') : '')) : '';
   if (oauth) {
     for (const k of Object.keys(headers)) if (String(k).toLowerCase() === 'authorization') delete headers[k];
   }
@@ -10501,26 +10746,50 @@ async function handleConnectorUpsert(req, res) {
     token: token,   // a blank token keeps the saved one for HTTP only; catalog-specific header keys move above
     command: transport === 'stdio' ? command : '',
     args: transport === 'stdio' ? args : [],
-    cwd: transport === 'stdio' ? String(body.cwd || prev.cwd || '') : '',
+    cwd: cwd,
     env: transport === 'stdio' ? env : {},
     agentId: transport === 'stdio' ? agentId : '',
     headers: transport === 'http' ? headers : {},
     label: String(body.label || prev.label || id),
     enabled: body.enabled !== false
   };
+  // Imported redaction requirements survive restarts and ordinary edits. Clear a field only when this request
+  // supplies its replacement for the same service; an Enable toggle alone can never make an incomplete row run.
+  const missing = new Set(sameService && Array.isArray(prev.missingFields) ? prev.missingFields : []);
+  for (const field of Array.from(missing)) {
+    if (field.indexOf('args:') === 0 && Array.isArray(body.args)) {
+      const i = Number(field.slice(5));
+      if (Number.isInteger(i) && i >= 0 && i < body.args.length && String(body.args[i]) !== '' && String(body.args[i]) !== '<redacted>') missing.delete(field);
+    } else if (field.indexOf('env:') === 0 && body.env && typeof body.env === 'object' && !Array.isArray(body.env)) {
+      const key = field.slice(4);
+      if (Object.prototype.hasOwnProperty.call(body.env, key) && String(body.env[key]) !== '' && String(body.env[key]) !== '<redacted>') missing.delete(field);
+    } else if (field.indexOf('header:') === 0 && body.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)) {
+      const key = field.slice(7);
+      if (Object.prototype.hasOwnProperty.call(body.headers, key) && String(body.headers[key]) !== '' && String(body.headers[key]) !== '<redacted>') missing.delete(field);
+    } else if (field === 'token' && Object.prototype.hasOwnProperty.call(body, 'token') && String(body.token || '') !== '' && String(body.token) !== '<redacted>') {
+      missing.delete(field);
+    } else if (field === 'url:auth' && Object.prototype.hasOwnProperty.call(body, 'url') && parsedHttpUrl && !parsedHttpUrl.username && !parsedHttpUrl.password) {
+      missing.delete(field);
+    } else if (field === 'oauth' && oauth && connectorOauth.byId[id]) {
+      missing.delete(field);
+    }
+  }
+  cfg.missingFields = Array.from(missing);
+  if (cfg.missingFields.length) cfg.enabled = false;
   if (timeoutMs) cfg.timeoutMs = timeoutMs;
   // An omitted marker preserves OAuth across benign toggle/edit requests; an explicit false switches back to
   // ordinary HTTP and transactionally deletes the now-dormant grant. OAuth tokens never coexist in cfg.token.
   if (oauth) cfg.oauth = true;
   let nextState = connectorStateMod.upsertConfig(connectorStateMod.envelope(connectorConfigs, connectorOauth), cfg);
-  if (!oauth) nextState = connectorStateMod.withOauthEntry(nextState, id, null);
+  if (!oauth || !sameService) nextState = connectorStateMod.withOauthEntry(nextState, id, null);
   if (!persistConnectorState(nextState.configs, nextState.oauth)) {
     return json(500, { ok: false, saved: false, connected: false, error: 'connector configuration could not be saved' });
   }
   adoptConnectorState(nextState);
   let result; try { result = await configureConnectorCfg(cfg); } catch (e) { result = { ok: false, state: 'error', error: (e && e.message) || 'configure failed' }; }
   const status = connectors.status(id);
-  if (result.ok) return json(200, Object.assign({ saved: true, connected: status.state === 'up', status: status }, result));
+  if (result.ok) return json(200, Object.assign({ saved: true, connected: status.state === 'up', status: status,
+    incomplete: cfg.missingFields.length > 0, missingFields: cfg.missingFields }, result));
   // The configuration write succeeded; only the live handshake failed. Return a successful request envelope
   // carrying both truths so the UI can say "saved, but not connected" and still render/edit the durable row.
   const detail = String(result.error || (status && status.detail) || 'connection failed');
@@ -10730,8 +10999,11 @@ async function handleConnectorOauthCallback(req, res) {
     // is consistent with disk (unsigned) rather than a phantom-connected connector that vanishes on restart.
     // Preserve custom headers + timeout (and any catalog config refinements) across the callback. Only the auth
     // fields are authoritative here: OAuth always uses the protected token store, never cfg.token.
+    const remainingMissing = Array.isArray(currentCfg && currentCfg.missingFields)
+      ? currentCfg.missingFields.filter(field => field !== 'oauth') : [];
     const cfg = Object.assign({}, currentCfg || {}, { id: pending.id, transport: 'http', url: pending.serverUrl,
-      token: '', label: (currentCfg && currentCfg.label) || pending.label, enabled: true, oauth: true });
+      token: '', label: (currentCfg && currentCfg.label) || pending.label, enabled: remainingMissing.length === 0,
+      oauth: true, missingFields: remainingMissing });
     let next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), pending.id, oauthEntry);
     next = connectorStateMod.upsertConfig(next, cfg);
     if (!persistConnectorState(next.configs, next.oauth)) {
@@ -10739,6 +11011,7 @@ async function handleConnectorOauthCallback(req, res) {
     }
     adoptConnectorState(next);
     const result = await configureConnectorCfg(cfg);
+    if (remainingMissing.length) return page('Sign-in saved', pending.label + ' authorized, but the connector still needs: ' + remainingMissing.join(', ') + '.', false);
     if (result && result.ok && result.state === 'up') return page(pending.label + ' connected', pending.label + ' is connected — ' + (result.toolCount || 0) + ' tool(s) now available to your agents.', true);
     return page('Almost there', pending.label + ' authorized, but the connection did not come up: ' + ((result && result.error) || 'unknown error') + '. Try Reload from the connectors panel.', false);
   } catch (e) {
@@ -12233,7 +12506,10 @@ async function handleQuestsRefreshNorthStar(req, res) {
   persistQuestRefresh();
   let minted = 0;
   if (had && decision === 'confirm' && staged.length) minted = await mintQuestRecommendations(staged, 'confirmed-direction');
-  await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+  if (had) {
+    const decided = await recommendationLedger.verdictTarget('northstar', 'pending', decision === 'confirm' ? 'completed' : 'declined', decision === 'confirm' ? 'completed' : 'wrong_thing', Date.now()).catch(swallow('recledger.verdict', null));
+    if (decided) await recommendationLedger.outcome(decided.id, { adopted: decision === 'confirm' }, Date.now()).catch(swallow('recledger.outcome'));
+  }
   const s = QuestRefresh.normalize(questRefreshState);
   json(200, { ok: true, applied: had, decision: decision, minted: minted, northStar: QuestRefresh.effectiveNorthStar(s), northStarProposed: !!s.proposedNorthStar });
 }
@@ -19604,7 +19880,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
   await notebookStore.update('notebook:' + agentId, (stored) => {
     const list = Array.isArray(stored) ? stored : [];
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
-    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin });
+    rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     list.push(rec);
     return list;
@@ -19710,7 +19986,7 @@ async function handleMemoryTurnin(req, res) {
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
   const content = (verdict === 'edit' ? String(body.content != null ? body.content : prop.content) : prop.content).trim();
   const w = await writeMemoryRecord(agentId, prop, {
-    content, runId, trustDelta: fb.delta, origin: prop.origin,   // the surface that PROPOSED it, not the one approving it
+    content, runId, trustDelta: fb.delta, origin: prop.origin, userConfirmed: true,   // the surface that PROPOSED it, not the one approving it
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });

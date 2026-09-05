@@ -152,6 +152,9 @@ const S = require('../frontend/app/study.js');
   // ACCEPT an ADD -> DossierStore.upsert(source:'study' + observedAt)
   const addProp = { id: 'study_1', dim: 'style', kind: 'add', text: 'prefers terse answers', source: 'study', sourceRunId: 'run_9' };
   A.eq(StudyStore.accept(addProp, null), true, 'accept(add) returns true');
+  const adoption = resolveCalls.find(c => c.url === '/api/recommendations' && c.body.outcome);
+  A.eq(adoption && adoption.body.outcome.adopted, true, 'explicit study Keep records adoption');
+  A.eq(adoption && adoption.body.outcome.quality, undefined, 'study Keep does not fabricate satisfaction');
   A.eq(upserts.length, 1, 'accept(add) upserts one belief');
   A.eq(upserts[0].b.source, 'study', 'the kept belief carries source:study');
   A.eq(upserts[0].b.observedAt, 1000, 'the kept belief carries observedAt (study provenance)');

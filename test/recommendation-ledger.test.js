@@ -14,7 +14,7 @@ A.eq(n.entries[2].reason, 'wrong_thing', 'preserves a typed verdict reason');
 A.eq(n.entries[2].transitions.map(t => t.state), ['shown', 'declined'], 'legacy final-state rows backfill an honest bounded lifecycle');
 const m = R.replay(raw);
 A.eq(m.counts.shown, 4, 'replay counts shown recommendations');
-A.eq(m.counts.accepted, 2, 'completed work also counts as accepted');
+A.eq(m.counts.accepted, 1, 'only an explicit accepted transition counts as user acceptance');
 A.eq(m.counts.completed, 1, 'completion is measured separately');
 A.eq(m.counts.declined, 1, 'declines remain distinct from deferrals');
 A.eq(m.counts.deferred, 1, 'wrong-time deferrals do not poison relevance');
@@ -24,6 +24,11 @@ A.ok(m.repeatRate > 0, 'semantic fingerprint replay detects a repeated idea shap
 A.ok(m.evidenceCoverage === 0.75, 'evidence coverage is auditable');
 A.eq(R.normalizeEntry({ id: 'x', title: 'x', state: 'constructor' }).state, 'shown', 'prototype keys never bypass state validation');
 
+const badCompleted = R.replay({ entries: [{ id: 'bad', title: 'Unwanted completed work', kind: 'research', state: 'completed', outcome: { adopted: false, quality: -0.1 } }] });
+A.ok(badCompleted.kinds.research.weight < 0, 'even weak negative quality cannot be outweighed by completed state');
+const neutralCompleted = R.replay({ entries: [{ id: 'neutral', title: 'Completed only', kind: 'research', state: 'completed' }] });
+A.eq(neutralCompleted.kinds.research.weight, 0, 'completion without user outcome is neutral for preferences');
+A.eq(neutralCompleted.counts.accepted, 0, 'autonomous completion does not invent user acceptance');
 const cycles = { entries: [] };
 for (let i = 0; i < 7; i++) cycles.entries.push({ id: 'r' + i, surface: 'suggest', kind: 'research', title: 'Research topic ' + i, state: i < 5 ? 'completed' : 'accepted' });
 for (let i = 0; i < 3; i++) cycles.entries.push({ id: 'w' + i, surface: 'suggest', kind: 'writing', title: 'Writing topic ' + i, state: 'declined', reason: 'wrong_thing' });

@@ -7699,6 +7699,7 @@ const World = (() => {
   function apiBase() { return (typeof window !== 'undefined' && window.__STARNET_API__) ? window.__STARNET_API__ : ''; }
   function apiUrl(path) { return apiBase() + path; }
   let chanES = null, connPollTimer = null, connPollFn = null, connOpenFn = null, bridgePaused = false;
+  let bridgeCursor = '', bridgeRecovering = false;
   let spotifyPollTimer = null, spotifyPollFn = null;   // JUKEBOX dead-vs-live poll (shares the bridge pause/resume lifecycle)
   // LINK-DOWN HONESTY (Lane E1): the live station telemetry (queue gauges, run clocks) is only truthful while
   // the SSE bridge is actually delivering events. Track the last DATA event's wall-clock and the socket's
@@ -7716,6 +7717,7 @@ const World = (() => {
   function linkDown(now) {
     if (bridgePaused) return false;                                   // deliberately disconnected — not a fault
     if (!bridged) return false;                                       // bridge never set up yet (pre-entry)
+    if (bridgeRecovering) return true;                                // bytes alone do not prove recovered state
     const open = !!(chanES && typeof EventSource !== 'undefined' && chanES.readyState === EventSource.OPEN);
     if (!open) return true;                                           // socket missing / connecting / closed → down
     if (lastSseEventAt && (now - lastSseEventAt) > LINK_STALE_MS) return true;   // half-open: bytes stopped flowing
@@ -9001,11 +9003,34 @@ const World = (() => {
         // EventSource can't send the custom auth header, so pass the per-launch token as ?token=… and
         // prefix the sidecar base in the desktop build (where the page origin isn't the loopback http origin).
         const _tok = (typeof window !== 'undefined' && window.__STARNET_API_TOKEN__) ? encodeURIComponent(String(window.__STARNET_API_TOKEN__)) : '';
-        chanES = new EventSource(apiUrl('/api/channels/events') + (_tok ? ('?token=' + _tok) : ''));
+        chanES = new EventSource(apiUrl('/api/channels/events') + '?cursor=' + encodeURIComponent(bridgeCursor) + (_tok ? ('&token=' + _tok) : ''));
       } catch (_) { return; }
-      chanES.onopen = () => { backoff = 1000; lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; fetchSnapshot(); };
-      chanES.onmessage = ev => { lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; try { const m = JSON.parse(ev.data); if (m && m.name) U.bus.emit(m.name, m.payload); } catch (_) {} };
-      chanES.onerror = () => { try { chanES.close(); } catch (_) {} chanES = null; if (bridgePaused) return; if (retryTimer) { try { clearTimeout(retryTimer); } catch (_) {} } retryTimer = setTimeout(() => { retryTimer = null; open(); }, backoff); backoff = Math.min(15000, backoff * 2); };
+      const source = chanES;
+      bridgeRecovering = true;
+      source.onopen = () => { if (chanES !== source) return; backoff = 1000; lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow; };
+      source.onmessage = ev => {
+        if (chanES !== source || bridgePaused) return;
+        lastSseEventAt = (typeof performance !== 'undefined') ? performance.now() : fnow;
+        try {
+          const m = JSON.parse(ev.data);
+          if (m && m.stream === 'ready') {
+            bridgeCursor = String(m.cursor || '');
+            // Snapshot reconciliation is also needed after a complete replay: it repairs any
+            // pre-existing local drift without pretending an expired history was delivered.
+            fetchSnapshot();
+            return;
+          }
+          if (m && m.name) {
+            const id = String(ev.lastEventId || '');
+            const split = id.lastIndexOf(':'), prior = bridgeCursor.lastIndexOf(':');
+            if (id && split > 0 && prior > 0 && id.slice(0, split) === bridgeCursor.slice(0, prior)
+              && Number(id.slice(split + 1)) <= Number(bridgeCursor.slice(prior + 1))) return;
+            U.bus.emit(m.name, m.payload);
+            if (id) bridgeCursor = id;
+          }
+        } catch (_) {}
+      };
+      source.onerror = () => { if (chanES !== source) return; try { source.close(); } catch (_) {} chanES = null; bridgeRecovering = true; if (bridgePaused) return; if (retryTimer) { try { clearTimeout(retryTimer); } catch (_) {} } retryTimer = setTimeout(() => { retryTimer = null; open(); }, backoff); backoff = Math.min(15000, backoff * 2); };
     };
     connOpenFn = open;
     open();
@@ -9022,10 +9047,11 @@ const World = (() => {
      the auth header for /api/ URLs, matching every other frontend fetch. */
   function fetchSnapshot() {
     if (typeof fetch === 'undefined') return;
+    const source = chanES;
     try {
       fetch(apiUrl('/api/state/snapshot'), { cache: 'no-store' })
         .then(r => { if (!r.ok) return null; return r.json(); })
-        .then(snap => { if (snap) { try { reconcileFromSnapshot(snap); } catch (_) {} } })
+        .then(snap => { if (snap && source === chanES && !bridgePaused) { try { reconcileFromSnapshot(snap); bridgeRecovering = false; } catch (_) {} } })
         .catch(() => {});   // endpoint absent / offline: TTL net covers it
     } catch (_) {}
   }

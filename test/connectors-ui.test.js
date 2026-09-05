@@ -85,6 +85,18 @@ function fakeStack(tools) {
     A.ok(threw, 'array headers are rejected');
   }
 
+  // durable missing-field requirements are a runtime gate even if a caller or hand-edited file sets enabled=true.
+  {
+    const { seen, makeTransport, makeClient } = fakeStack([]);
+    const m = makeConnectorManager({ makeTransport, makeClient, makeToolDef: () => ({}) });
+    const r = await m.configure('incomplete', { transport: 'stdio', command: 'node', enabled: true,
+      missingFields: ['args:0', 'env:ACCESS'] });
+    A.eq(r.ok, false, 'an enabled incomplete connector is refused by the runtime');
+    A.ok(/args:0/.test(r.error) && /env:ACCESS/.test(r.error), 'runtime refusal names the durable missing fields');
+    A.eq(seen.transport, null, 'runtime does not create a transport for incomplete configuration');
+    A.eq(m.status('incomplete').missingFields, ['args:0', 'env:ACCESS'], 'safe status exposes only the missing field names');
+  }
+
   // oauth connectors pass a tokenProvider() (not a frozen token) so EVERY (re)connect/Reload fetches a FRESH bearer
   // — the fix for the token dying ~1h into a session. The resolved token never leaks into the summary.
   {
@@ -99,6 +111,9 @@ function fakeStack(tools) {
     A.ok(JSON.stringify(s).indexOf('fresh-1') === -1, 'the resolved oauth token never leaves the summary');
     await m.refresh('oa');
     A.eq(seen.transport.token, 'fresh-2', 'Reload/refresh re-invokes the tokenProvider (fresh bearer, not a frozen stale one)');
+    await m.configure('oa', { transport: 'http', url: 'https://mcp.example/x', token: 'manual', tokenProvider: null, enabled: false });
+    A.eq(m.status('oa').oauth, false, 'an explicit null tokenProvider switches the runtime out of OAuth mode');
+    A.eq(m.status('oa').hasToken, true, 'the replacement manual token remains configured after leaving OAuth mode');
   }
 
   // ---------- 2. SOURCE GUARD: the frontend panel ----------
@@ -222,7 +237,14 @@ function fakeStack(tools) {
   A.ok(/Array\.isArray\(e\.presets\)/.test(webStation) && /PRESETS ·/.test(webStation),
     'web build carries the same preset rendering');
   // truthful telemetry: ADDED state comes from the backend `installed` flag, and live state is re-read after add
-  A.ok(/e\.installed/.test(station) && /✓ ADDED/.test(station), 'an already-installed connector shows ADDED (from backend state, not guessed)');
+  const renderCatalog = require('node:vm').runInNewContext('(' + station.slice(station.indexOf('function ccCard('), station.indexOf('    function ccGroupHTML')) + ')', {
+    CC_CHIP: { none: ['', 'no setup', 'green'] }, esc: x => String(x == null ? '' : x), ccSeal: () => '', location: { port: '8787' }
+  });
+  const savedCard = renderCatalog({ id: 'fixture', name: 'Fixture', installed: true, blurb: 'test' }, 0);
+  A.ok(savedCard.includes('data-cc-act="manage"') && !savedCard.includes('disabled'), 'saved service has an actionable management button');
+  A.ok(savedCard.includes('Setup saved.') && !savedCard.includes('✓ connected'), 'saved configuration does not assert live connectivity');
+  const newCard = renderCatalog({ id: 'fixture', name: 'Fixture', installed: false, blurb: 'test' }, 0);
+  A.ok(newCard.includes('data-cc-act="add"') && !newCard.includes('MANAGE SERVICE'), 'new service still offers its actual setup action');
   A.ok(/state === 'up'/.test(station), 'the connect result badge reflects the real manager state, not an assumption');
   // on-theme styling for the new cards
   A.ok(/\.cc-card/.test(css) && /\.cc-grid/.test(css) && /\.cc-chip/.test(css), 'catalog card styles present');
@@ -265,8 +287,8 @@ function fakeStack(tools) {
     'KEYS labels custom-header credentials truthfully instead of calling every credential a token');
   A.ok(/k\.unattendedSupported !== false/.test(station) && /k\.enabled && unattendedSupported \? '' : ' disabled'/.test(station),
     'KEYS disables the unattended control for watched-only integrations');
-  A.ok(/p\.unattendedSupported === false \? 'oauth' : 'apikey'/.test(station),
-    'watched-only platform rows enter the unified catalog under OAuth rather than API-key automation');
+  A.ok(/p\.unattendedSupported === false \? 'manual' : 'apikey'/.test(station),
+    'watched-only platform rows are explicitly manual setup, not automatic sign-in or API-key automation');
   A.ok(/Harness\.api\.get\('\/api\/servicekeys\/catalog'\)/.test(station) && /platformApi:\s*true/.test(station),
     'CATALOG consumes the keyed-platform directory while keeping those rows explicitly distinct from MCP connectors');
   A.ok(/data-cc-act="platform"/.test(station) && /function ccPrefillPlatform/.test(station),
@@ -282,6 +304,16 @@ function fakeStack(tools) {
     'the ABILITIES front door routes POD discovery through CATALOG before the KEYS setup path');
   A.eq(routes.filter(r => r.to === 'catalog').length, 1,
     'service and platform discovery share one catalog route');
+  A.ok(/to: 'catalog', title: 'Connect a service you use'/.test(station) && /entry\.platformApi \? 'keys' : 'mcp'/.test(station),
+    'one service front door preserves the correct platform-key and connector management paths');
+
+  const availabilitySource = A.fnBody(station, 'function tsAvailability(');
+  const availability = vm.runInNewContext('(' + availabilitySource + ')');
+  A.eq(availability({available:true, enabled:false, switchEffective:false}), 'AVAILABLE', 'Full Access overrides a saved disabled switch');
+  A.eq(availability({available:true, enabled:true, placed:false, profileGranted:true, switchEffective:true}), 'AVAILABLE', 'execution profile grants do not require a prop');
+  A.eq(availability({available:false, enabled:false, placed:false, switchEffective:true}), 'DISABLED', 'effective disabled switch takes priority over missing equipment');
+  A.eq(availability({available:false, enabled:true, placed:false, profileGranted:false, switchEffective:true}), 'NEEDS PROP', 'ASK mode without any grant identifies missing equipment');
+  A.eq(availability({available:false, enabled:true, placed:true, switchEffective:false}), 'UNAVAILABLE', 'missing host grant never implies availability');
 
   A.report('connectors-ui');
 })().catch(e => { console.log('FAIL: threw ' + (e && e.stack || e)); process.exit(1); });
