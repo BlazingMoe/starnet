@@ -60,8 +60,8 @@ const QuestLedgerStore = (() => {
       completedBy: (r && r.completedBy) || null,
       domain: (r && r.domain) || null,
       goalId: (r && r.goalId) || null,
-      milestoneId: (r && r.milestoneId) || null
-      ,executionMode: (r && r.executionMode) || (c.type === 'attest' ? 'commander' : 'agent'),
+      milestoneId: (r && r.milestoneId) || null,
+      executionMode: (r && r.executionMode) || (c.type === 'attest' ? 'commander' : 'agent'),
       whyNow: String((r && r.whyNow) || ''),
       disposition: r && r.disposition || null
     };

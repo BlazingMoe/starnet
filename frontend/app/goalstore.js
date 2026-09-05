@@ -482,7 +482,20 @@ const GoalStore = (() => {
 
   // re-read on the quest-log heartbeat: retire drift + reconcile completed work before the fold (like the sibling
   // sync()s buildQuests calls). Cheap + idempotent.
-  function sync() { if (!ready()) return; syncDrift(); reconcile(''); queueJourneySync(); }
+  function sync() {
+    if (!ready()) return;
+    // Recover a successful outcome whose HTTP response or final local save was lost.
+    const journey = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+    let changed = false;
+    for (const known of (journey && journey.goals || [])) {
+      const g = state.goals.find(g => g.id === known.id);
+      if (!g || g.status !== 'active') continue;
+      if (known.successCondition && g.successCondition !== known.successCondition) { g.successCondition = known.successCondition; changed = true; }
+      if (known.status === 'achieved') { g.status = 'done'; g.outcomeEvidence = known.evidence; changed = true; }
+    }
+    if (changed) { save(); pushToSidecar(); }
+    syncDrift(); reconcile(''); queueJourneySync();
+  }
 
   /* ---------- the projection consumed by QuestStore.view ---------- */
   // questLive rides in so an in-flight bound milestone renders IN PROGRESS (no Accept) while a stalled/dismissed/
