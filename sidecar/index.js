@@ -937,7 +937,7 @@ function resolveCreditsConfig() {
   return { url: '', apiKey: '', accountId: '', purchaseUrl: '' };
 }
 function buildCredits(cfg) {
-  return makeCredits({
+  const adapter = makeCredits({
     url: cfg.url, apiKey: cfg.apiKey, accountId: cfg.accountId, purchaseUrl: cfg.purchaseUrl,
     fetch: globalThis.fetch, clock: { now: () => Date.now() },
     onError: (stage, err) => console.warn('[credits] ' + stage + ' failed:', (err && err.message) || err),
@@ -951,8 +951,9 @@ function buildCredits(cfg) {
     lowBalanceUsd: () => Math.max(CREDITS_LOW_USD, Number((effectiveCaps && effectiveCaps.perRun) || 0)),
     // Late-bound on purpose: cronEmit is declared further down. Balance changes only ever happen after boot
     // (refresh() resolves on a later tick), so by first call it exists — the typeof guard covers the rest.
-    emit: (name, payload) => { try { if (typeof cronEmit === 'function') cronEmit(name, payload); } catch (_) {} }
+    emit: (name, payload) => { try { if (adapter === credits && typeof cronEmit === 'function') cronEmit(name, payload); } catch (_) {} }
   });
+  return adapter;
 }
 // `credits` is a LIVE, replaceable binding: linking a device (or unlinking) rebuilds it in place with no restart,
 // mirroring how handleSetKey mutates provider runtime config. Every call site uses `credits.<method>()`, so a
@@ -1169,13 +1170,13 @@ const DIAG_ERR_FILE = path.join(WORKSPACES, 'diag.errors.json');
 try {
   const saved = JSON.parse(fs.readFileSync(DIAG_ERR_FILE, 'utf8'));
   if (Array.isArray(saved)) for (const e of saved.slice(-DIAG_ERR_MAX)) {
-    if (e && e.message) DIAG_ERR_RING.push({ ts: num(e.ts) || 0, message: String(e.message) });
+    if (e && e.message) DIAG_ERR_RING.push({ ts: num(e.ts) || 0, message: String(e.message), runId: /^[a-zA-Z0-9_-]{1,80}$/.test(e.runId || '') ? e.runId : '' });
   }
 } catch (_) {}   // no file yet / unreadable -> empty ring (first boot)
-function recordDiagError(message, ts) {
+function recordDiagError(message, ts, runId) {
   const msg = String(message == null ? '' : message).trim();
   if (!msg) return;
-  DIAG_ERR_RING.push({ ts: num(ts) || Date.now(), message: redact(msg) });   // redact on WRITE (context.js always-on scrubber)
+  DIAG_ERR_RING.push({ ts: num(ts) || Date.now(), message: redact(msg), runId: /^[a-zA-Z0-9_-]{1,80}$/.test(runId || '') ? runId : '' });   // redact on WRITE (context.js always-on scrubber)
   while (DIAG_ERR_RING.length > DIAG_ERR_MAX) DIAG_ERR_RING.shift();
   try { fs.writeFileSync(DIAG_ERR_FILE, JSON.stringify(DIAG_ERR_RING)); } catch (_) {}   // survives restarts; tiny + rare
 }
@@ -1201,7 +1202,7 @@ function proxySnapshot() {
 // wrap any run emit fn so an `agent.run.error` also lands in the diagnostics ring (one sink for every run path).
 function wrapEmitDiag(emitFn) {
   return function (name, payload) {
-    try { if (name === 'agent.run.error' && payload && payload.message) recordDiagError(payload.message, payload.ts); } catch (_) {}
+    try { if (name === 'agent.run.error' && payload && payload.message) recordDiagError(payload.message, payload.ts, payload.runId); } catch (_) {}
     return emitFn(name, payload);
   };
 }
@@ -9932,9 +9933,17 @@ async function handleCredits(req, res) {
   const summaryOnly = /(?:\?|&)history=0(?:&|$)/.test(String(req && req.url || ''));
   // History is display-only. Start it beside the authoritative balance read so a slow activity endpoint cannot
   // double the STORE wait; the creator/WAKE summary path skips it entirely.
-  const historyPromise = summaryOnly ? Promise.resolve({ entries: [] }) : credits.history(null, 20).catch(() => ({ entries: [] }));
-  await credits.refresh().catch(swallow('credits.refresh'));   // adapter owns the active bearer+account identity
-  const snap = credits.snapshot();
+  const adapter = credits;
+  const historyPromise = summaryOnly ? Promise.resolve({ entries: [] }) : adapter.history(null, 20).catch(() => ({ entries: [] }));
+  await adapter.refresh().catch(swallow('credits.refresh'));   // adapter owns the active bearer+account identity
+  const hist = await historyPromise;
+  // A status read may span unlink/relink while waiting for balance or activity. Never return the
+  // old account's cached zero/history, nor combine it with the new adapter's identity.
+  if (adapter !== credits) return creditsJson(res, 200, {
+    configured: credits.configured(), linked: false, linkSaved: !CREDITS_URL && creditsLink.hasSaved(),
+    linkStatus: 'unavailable', balanceUsd: null, reachable: false, history: [], reason: 'account_changed'
+  });
+  const snap = adapter.snapshot();
   const linkSaved = !CREDITS_URL && creditsLink.hasSaved();
   // The account page can revoke a station without touching this machine. In that case the old local file /
   // keychain token still exists, but the cloud's 401/403 is the authority: it is NOT a live link and must not
@@ -9949,7 +9958,6 @@ async function handleCredits(req, res) {
       reason: 'link_revoked'
     });
   }
-  const hist = await historyPromise;
   const linkStatus = linkSaved
     ? (snap.authStatus === 'valid' ? 'linked' : 'unavailable')
     : (CREDITS_URL ? 'env' : 'none');
@@ -9957,7 +9965,11 @@ async function handleCredits(req, res) {
   res.end(JSON.stringify({
     configured: true,
     accountId: snap.accountId,               // display id only (the API key is never surfaced)
-    balanceUsd: snap.balanceUsd,             // null when the backend hasn't answered yet (UI shows "—")
+    // Admission holds are local estimates, never an account balance to display as zero.
+    balanceUsd: snap.observedBalanceUsd,
+    balanceObservedAt: snap.observedAt || null,
+    balanceStatus: snap.authStatus === 'valid' && typeof snap.observedBalanceUsd === 'number'
+      ? (snap.observedBalanceUsd > 0 ? 'funded' : 'zero') : 'unavailable',
     purchaseUrl: snap.purchaseUrl,           // external link the STORE opens; this app renders no payment form
     perRun: effectiveCaps.perRun,            // the reservation size a run will hold
     // The plan, exactly as the backend reports it: {tier, status, grantUsd, currentPeriodEnd, graceUntil} or
@@ -9977,7 +9989,7 @@ async function handleCredits(req, res) {
     keychainAvailable: DESKTOP_SHELL,
     history: Array.isArray(hist.entries) ? hist.entries : [],
     historyIncluded: !summaryOnly,
-    reachable: !hist.error
+    reachable: snap.authStatus === 'valid' && !hist.error
   }));
 }
 
@@ -10018,6 +10030,12 @@ async function handleCreditsLinkPoll(req, res) {
     const r = await creditsLink.poll(code);
     if (r && r.status === 'confirmed') {
       const balanceUsd = await rebuildCredits();   // build from the JUST-persisted token/account + verify its balance
+      const currentLink = creditsLink.loadSavedSync();
+      // Balance verification can outlive an unlink or a second successful pairing. A stale
+      // handler must never clear that newer link while diagnosing its own account mismatch.
+      if (!currentLink || currentLink.deviceToken !== r.record.deviceToken || currentLink.accountId !== r.accountId) {
+        return creditsJson(res, 200, { linked: false, status: 'superseded' });
+      }
       const snap = credits.snapshot();
       const linkedAccount = String((snap && snap.accountId) || '');
       // The confirmed account, active adapter account, and balance request must be one identity. Never tell the
@@ -17963,6 +17981,21 @@ function collectDiagnosticsInput(opts) {
       provider: provider,
       model: model,
       keyPresent: keyPresent,
+      paidAccount: (() => {
+        const snap = credits.snapshot(), link = creditsLink.diagnosticState();
+        const capturedAt = Date.now();
+        const known = typeof snap.observedBalanceUsd === 'number' && Number.isFinite(snap.observedBalanceUsd);
+        return {
+          configured: snap.configured,
+          fingerprint: snap.accountId ? crypto.createHash('sha256').update('starnet-support-account:' + snap.accountId).digest('hex').slice(0, 16) : null,
+          link: CREDITS_URL ? 'env' : link.state, credential: CREDITS_URL ? 'env' : link.credential,
+          auth: snap.authStatus, balanceUsd: known ? snap.observedBalanceUsd : null,
+          observedAt: snap.observedAt || null, capturedAt,
+          balance: !known ? 'unavailable' : snap.authStatus !== 'valid' || !snap.observedAt || capturedAt - snap.observedAt > 30000
+            ? 'stale' : snap.observedBalanceUsd > 0 ? 'funded' : 'zero',
+          transition: link.lastTransition
+        };
+      })(),
       agentCount: agentRoster.size,
       uptimeMs: Date.now() - PROCESS_START,
       workspacePresent: workspacePresent,

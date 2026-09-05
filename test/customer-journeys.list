@@ -19,6 +19,9 @@ test/cron.run-now.e2e.test.js
 test/cron.session-transcript.e2e.test.js
 test/routing.persist.e2e.test.js
 test/station-recovery.e2e.test.js
+test/paid-link-lifecycle.e2e.test.js
+test/credits-link.test.js
+test/credits.test.js
 # Catalog/status/recovery surfaces and connector expiry/session races.
 test/tier-model-catalog.test.js
 test/model-provider-reconcile.test.js

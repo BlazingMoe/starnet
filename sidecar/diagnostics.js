@@ -92,6 +92,27 @@
         provider: clean(s.provider, 60) || 'unknown',
         model: clean(s.model, 120) || 'unknown',          // SLUG only — the caller never passes a key here; redacted anyway
         keyPresent: bool(s.keyPresent),
+        buildSha: /^[a-f0-9]{40}$/.test(ver.buildSha || '') ? ver.buildSha : null,
+        buildDirty: typeof ver.buildDirty === 'boolean' ? ver.buildDirty : null,
+        paidAccount: (() => {
+          const p = s.paidAccount;
+          if (!p || typeof p !== 'object') return null;
+          const choice = (value, allowed) => allowed.includes(value) ? value : 'unknown';
+          const n = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
+          return {
+            configured: bool(p.configured),
+            fingerprint: /^[a-f0-9]{16}$/.test(p.fingerprint || '') ? p.fingerprint : null,
+            link: choice(p.link, ['unlinked', 'pairing', 'saved', 'recovering', 'missing', 'env']),
+            credential: choice(p.credential, ['file', 'injected', 'session', 'none', 'env']),
+            auth: choice(p.auth, ['absent', 'unknown', 'valid', 'invalid', 'unavailable']),
+            balanceUsd: n(p.balanceUsd), observedAt: n(p.observedAt), capturedAt: n(p.capturedAt),
+            balance: choice(p.balance, ['funded', 'zero', 'stale', 'unavailable', 'unknown', 'reconciling']),
+            transition: p.transition ? {
+              state: choice(p.transition.state, ['pairing_started', 'pairing_saved', 'unlink_requested', 'unlink_failed', 'unlinked', 'keychain_recovered']),
+              at: n(p.transition.at)
+            } : null
+          };
+        })(),
         /* PROXY VISIBILITY (2026-07-29). A user's report showed a healthy engine and five bare `fetch failed`
            entries; the sidecar could not reach the provider and we had no way to see why from the report alone.
            A configured proxy is the highest-value invisible cause, because it fails ASYMMETRICALLY and that
@@ -134,6 +155,7 @@
         })),
         errors: (Array.isArray(s.errors) ? s.errors : []).slice(-MAX_ERRORS).map(e => ({
           ts: num(e && e.ts) || null,
+          runId: clean(e && e.runId, 80) || null,
           message: redactStr(e && e.message)   // SECOND redaction backstop over the caller's already-redacted tail
         })).filter(e => e.message),
         /* PROCESS FAULT (2026-09-03). An uncaught exception this process caught: health is DEGRADED (/api/health
@@ -214,6 +236,15 @@
       } else {
         lines.push('Last run:      none yet');
       }
+      lines.push('Source commit: ' + (r.buildSha || 'unknown') + (r.buildDirty === true ? ' (dirty)' : ''));
+      if (r.paidAccount) {
+        const p = r.paidAccount;
+        lines.push('Paid account:  ' + (p.fingerprint || 'unknown') + ' · link ' + p.link + ' · auth ' + p.auth);
+        lines.push('Token source:  ' + p.credential + ' (presence only; OS durability not rechecked)');
+        lines.push('Balance:       ' + p.balance + (p.balanceUsd == null ? '' : ' · $' + p.balanceUsd.toFixed(2))
+          + ' · observed ' + (iso(p.observedAt) || 'unknown') + ' · captured ' + (iso(p.capturedAt) || 'unknown'));
+        if (p.transition) lines.push('Link change:   ' + p.transition.state + ' @ ' + (iso(p.transition.at) || 'unknown'));
+      }
       /* Quota, as last OBSERVED — the counters ride on ordinary successful responses, so this is real state
          and not a guess. "not observed yet" is printed in full rather than left blank: a blank quota section
          in a bug report reads as "quota was fine", which is a claim the harness cannot make. */
@@ -246,7 +277,7 @@
       }
       lines.push('Recent errors:');
       if (r.errors.length) {
-        for (const e of r.errors) lines.push('  · ' + (e.ts ? iso(e.ts) + ' ' : '') + e.message);
+        for (const e of r.errors) lines.push('  · ' + (e.ts ? iso(e.ts) + ' ' : '') + (e.runId ? 'run ' + e.runId + ' · ' : '') + e.message);
       } else {
         lines.push('  (none recorded)');   // the error tail persists across restarts (diag.errors.json) — "this session" would undersell it
       }

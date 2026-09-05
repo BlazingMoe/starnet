@@ -404,6 +404,48 @@ function fakeCloud(opts) {
     }
   }
 
+  // A consumed confirmation must survive a transient disk failure until the same poll is retried.
+  {
+    const retryDir = path.join(tmp, 'persist-retry');
+    const cloud = fakeCloud();
+    let failWrite = true;
+    const io = Object.assign({}, fsp, { writeFile: async (...args) => {
+      if (failWrite) throw new Error('fixture disk unavailable');
+      return fsp.writeFile(...args);
+    } });
+    const link = makeCreditsLink({ cloudUrl: 'https://cloud.example', fetch: cloud.fetch, fsp: io, fs, pathMod: path, dir: retryDir });
+    await link.start(); cloud.confirm();
+    let failed = false;
+    try { await link.poll(cloud.state.code); } catch (_) { failed = true; }
+    A.eq(failed, true, 'failed persistence is reported');
+    A.eq(link.hasSaved(), false, 'a failed write cannot claim a durable link');
+    failWrite = false;
+    A.eq((await link.poll(cloud.state.code)).status, 'confirmed', 'retry saves the one-shot confirmation');
+    A.eq(cloud.calls.filter(c => c.url.includes('/link/poll')).length, 1, 'retry does not consume the cloud handoff twice');
+    A.eq(link.loadSavedSync().deviceToken, 'snd_devtoken_abc', 'the exact confirmed credential survives');
+  }
+
+  // Interrupted unlink: tombstone landed but credits.json survived a failed delete/process exit.
+  {
+    const interruptedDir = path.join(tmp, 'interrupted-unlink');
+    fs.mkdirSync(interruptedDir, { recursive: true });
+    fs.writeFileSync(path.join(interruptedDir, 'credits.json'), JSON.stringify({ url: 'https://cloud.example', accountId: 'acct_old', deviceToken: 'snd_old' }));
+    fs.writeFileSync(path.join(interruptedDir, 'credits.unlinked.json'), JSON.stringify({ unlinkedAt: 1 }));
+    const link = makeCreditsLink({ cloudUrl: 'https://cloud.example', fsp, fs, pathMod: path, dir: interruptedDir, envToken: 'snd_old' });
+    A.eq(link.hasSaved(), false, 'durable unlink wins over a leftover file on reboot');
+  }
+
+  // A whoami response that sends headers then stalls must not strand boot recovery forever.
+  {
+    const link = makeCreditsLink({ cloudUrl: 'https://cloud.example', fsp, fs, pathMod: path,
+      dir: path.join(tmp, 'heal-body-timeout'), envToken: 'snd_fixture', requestTimeoutMs: 20,
+      fetch: async (_url, init) => ({ ok: true, json: () => new Promise((_, reject) => {
+        init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); }, { once: true });
+      }) }) });
+    A.eq((await link.healFromEnv()).reason, 'unreachable', 'timeout covers response body consumption');
+    A.eq(link.hasSaved(), false, 'timed-out identity never creates a link');
+  }
+
   await flush();
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) {}
   A.report('credits-link.test');
