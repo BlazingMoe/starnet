@@ -47,6 +47,9 @@ async function waitFor(fn) { for (let n=0;n<150;n++) { if(await fn()) return; aw
   await assert.rejects(api.answerQuestion(b.id,{questionId:q.id,text:'A'}),/no longer/);
   // Explicit @all is user-selected work: every selected participant responds once.
   execute=async o=>finish(o.t.agentId);
+  await api.send(b.id,{key:'after-cancel',text:'Hello again'}); await api.idle(b.id);
+  assert.match(seen.at(-1).ctx.messages[0].content, /canceled questions no longer need an answer/);
+  assert.match(seen.at(-1).ctx.messages[0].content, /\"state\":\"canceled\"/);
   await api.send(a.id,{key:'all',text:'@all reply'});await api.idle(a.id);
   const all=(await api.get(a.id)).turns.slice(-3);
   assert.deepEqual(all.map(t=>t.agentId),['agent','peer','other']);assert.ok(all.every(t=>t.state==='completed'));
