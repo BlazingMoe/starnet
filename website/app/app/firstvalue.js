@@ -82,7 +82,7 @@
       '<label class="fv-field fv-sample-field">Notes, messages, or a previous report<textarea class="key-input fv-sample" rows="7" maxlength="16000" placeholder="Paste the real material to work from. Nothing is sent until you click Create draft."></textarea></label>' +
       '<div class="fv-folder-field" hidden><label class="fv-field">Approved source folder<select class="key-input fv-root" aria-label="Approved source folder"><option value="">Choose a folder…</option></select></label><div class="fv-actions"><button type="button" class="bb fv-projects">Manage approved folders</button><button type="button" class="bb fv-refresh">Refresh folders</button></div><p>Selecting a folder here does not grant access. Manage approved folders to add or revoke access.</p></div>' +
       '<p class="fv-preview">The agent will use the selected source, create a draft, and identify missing facts. You review the result before deciding what happens next.</p>' +
-      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button><button type="button" class="bb fv-clear">Clear draft</button></div><p class="muted">Your draft stays here while you visit setup. Reopen Start something useful to return. Reloading the app clears unsent drafts.</p></form>';
+      '<p class="fv-status" role="status" aria-live="polite"></p><div class="fv-actions"><button type="submit" class="bb fv-run">Create draft</button><button type="button" class="bb fv-model">Model & connection</button><button type="button" class="bb fv-clear">Clear draft</button></div><p class="muted">Your draft stays here while you visit setup. Reopen Start something useful, then Draft from notes or files to return. Reloading the app clears unsent drafts.</p></form>';
     const q = s => el.querySelector(s), status = message => { if (alive) q('.fv-status').textContent = message; };
     q('.fv-request').value = ctx.request || (intent === 'custom' ? proposed.pain : '');
     q('.fv-sample').value = ctx.sample || '';
@@ -93,8 +93,9 @@
         source: q('input[value="folder"]').checked ? 'folder' : 'sample', root: q('.fv-root').value || ctx.root || '' });
       savedOrigin = canResume ? savedOrigin : origin;
     }
-    q('form').addEventListener('input', remember);
-    q('form').addEventListener('change', remember);
+    function changed() { retain = true; remember(); }
+    q('form').addEventListener('input', changed);
+    q('form').addEventListener('change', changed);
     function selectIntent(next) {
       intent = next;
       el.querySelectorAll('[data-intent]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.intent === intent)));
@@ -102,7 +103,7 @@
       q('.fv-request').required = intent === 'custom';
     }
     selectIntent(intent);
-    el.querySelectorAll('[data-intent]').forEach(b => b.onclick = () => { selectIntent(b.dataset.intent); remember(); });
+    el.querySelectorAll('[data-intent]').forEach(b => b.onclick = () => { selectIntent(b.dataset.intent); changed(); });
     function sourceMode() {
       const folder = q('input[value="folder"]').checked;
       q('.fv-folder-field').hidden = !folder; q('.fv-sample-field').hidden = folder;
@@ -130,7 +131,12 @@
     q('.fv-clear').onclick = () => {
       q('.fv-request').value = ''; q('.fv-sample').value = ''; q('.fv-root').value = '';
       q('input[value="sample"]').checked = true; q('input[value="folder"]').checked = false;
-      ctx.root = ''; sourceMode(); clearDraft();
+      ctx.root = ''; delete ctx.findingId; delete ctx.reason; delete ctx.pain;
+      retain = false; sourceMode(); clearDraft();
+      const reason = q('.fv-reason'), painQuote = q('.fv-pain');
+      if (reason) reason.textContent = 'Choose a task and provide the source you want to use.';
+      if (painQuote) painQuote.hidden = true;
+      if (ctx.onClear) ctx.onClear();
       status('Draft cleared.');
     };
     q('form').onsubmit = async event => {
