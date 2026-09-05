@@ -15,6 +15,7 @@
   // parks here until ccRefresh has rendered the cards (the window builds async).
   let ccJumpPending = null;
   function ccFlash(target) {
+    for (let p = target.parentElement; p; p = p.parentElement) { if (p.tagName === 'DETAILS') p.open = true; }
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.classList.remove('cc-jump'); void target.offsetWidth;
     target.classList.add('cc-jump');
@@ -187,8 +188,8 @@
         // TRUTHFUL TELEMETRY: the key alone is not enough. The shell it is handed to only exists when a WORKBENCH
         // prop is placed (capability/office.js grants it nowhere by default), and workspace-process tools are not
         // projected onto unattended surfaces at all (inputpolicy.js), so a saved key is inert until both hold.
-        '<div class="mc-hint">To actually use it, the agent needs a <b>workbench</b> placed in its bay — that is what gives it a terminal. ' +
-          'Keys are usable in watched sessions; scheduled and messaged runs cannot run shell commands.</div>' +
+        '<div class="mc-hint">These API keys are used through the terminal. Check the selected agent in TOOLSETS: access may come from a workbench, an execution profile or Full Access. ' +
+          'Scheduled work also follows its saved unattended access settings. Saving a key does not verify that the service accepts it.</div>' +
         '<div class="mc-acts"><button class="bb sm" id="ky-add">+ SAVE KEY</button></div>' +
       '</div>' +
       '<div id="ky-msg" class="msg" role="status" aria-live="polite"></div>';
@@ -258,7 +259,7 @@
       { glyph: '⧉', to: 'mcp', title: 'Advanced: add a custom connection',
         blurb: 'You already have an MCP endpoint and want to point the station at it.' },
       { glyph: '▤', to: 'toolsets', title: 'Switch a built-in on or off',
-        blurb: 'Web, files, terminal, memory — the powers that come from props on your station.' },
+        blurb: 'Web, files, terminal, memory — inspect the selected agent’s tools and where its access comes from.' },
       // cross-window, and deliberately so: naming the wrong window is worse than naming none.
       { glyph: '✉', term: 'messaging', title: 'Message your agent from Telegram or Slack',
         blurb: 'Connect a chat account so you can give your agent work from there. Opens CHANNELS.' },
@@ -911,6 +912,7 @@
     const ccListEl = body.querySelector('#cc-list');
     const ccMsgEl = body.querySelector('#cc-msg');
     let ccCache = [];   // flat catalog entries, so a click reads the authoritative id/url/name (never re-typed)
+    let ccAlternatives = new Map();
     const ccEntry = id => ccCache.find(x => (x.catalogId || x.id) === id);
     const ccPending = new Set();   // connector ids with an in-flight OAuth sign-in (guards duplicate popups/pollers)
     const ccTimers = new Map();    // id -> live poll interval, so a CANCEL / panel-close can clear it (EL-11 #13)
@@ -1019,7 +1021,10 @@
       if (!g.connectors || !g.connectors.length) return '';
       return '<div class="cc-group"><div class="sec"><span class="sec-l">' + esc(g.category) + '</span>' +
           '<span class="sec-tag">' + g.connectors.length + '</span><span class="sec-r"></span><span class="sec-nd"></span></div>' +
-        '<div class="cc-grid">' + g.connectors.map((e, i) => ccCard(e, i)).join('') + '</div></div>';
+        '<div class="cc-grid">' + g.connectors.map((e, i) => {
+          const alternate = ccAlternatives.get(e.catalogId || e.id);
+          return alternate ? '<div class="cc-service">' + ccCard(e, i) + '<details class="cc-alternatives"><summary>Advanced: ' + esc(e.name) + ' API connection</summary>' + ccCard(alternate, i) + '</details></div>' : ccCard(e, i);
+        }).join('') + '</div></div>';
     }
     async function ccRefresh() {
       try {
@@ -1042,12 +1047,23 @@
         // Platform categories lead: a Commander asking for Printify should not have to scroll past the entire
         // MCP directory. Exact-name categories merge so Developer Tools does not render twice.
         const groups = [];
+        ccAlternatives = new Map();
+        const connections = ((j && j.groups) || []).flatMap(g => g.connectors || []);
+        const serviceName = value => String(value || '').trim().toLowerCase();
+        for (const group of platformGroups) {
+          group.connectors = group.connectors.filter(platform => {
+            const primary = connections.find(c => serviceName(c.name) === serviceName(platform.name));
+            if (!primary) return true;
+            ccAlternatives.set(primary.catalogId || primary.id, platform);
+            return false;
+          });
+        }
         for (const g of platformGroups.concat((j && j.groups) || [])) {
           let out = groups.find(x => x.category === g.category);
           if (!out) { out = { category: g.category, connectors: [] }; groups.push(out); }
           out.connectors.push.apply(out.connectors, g.connectors || []);
         }
-        ccCache = groups.flatMap(g => g.connectors);
+        ccCache = groups.flatMap(g => g.connectors).concat([...ccAlternatives.values()]);
         ccListEl.innerHTML = groups.map(ccGroupHTML).join('') || '<div class="mc-detail">catalog is empty.</div>';
         ccApplyFilter();   // a refresh re-renders every card, so re-assert the active tier filter
         const search = body.querySelector('.con-search-in');
@@ -1076,8 +1092,11 @@
             : ccFilter === 'installed' ? c.dataset.installed === '1'
             : c.dataset.auth === ccFilter;
           c.hidden = !hit;
-          if (hit) vis++;
         });
+        // Count services, including one whose saved setup uses the alternate API path.
+        for (const service of g.querySelector('.cc-grid').children) {
+          if (service.matches('.cc-card') ? !service.hidden : service.querySelector('.cc-card:not([hidden])')) vis++;
+        }
         g.hidden = vis === 0;
         const tag = g.querySelector('.sec-tag');
         if (tag) tag.textContent = String(vis);

@@ -78,7 +78,7 @@
       '<div id="rt-out" class="msg rt-out" hidden></div>';
     const secCreate =
       '<div class="brief-block"><div class="brief-k">RUN THIS TASK ON A SCHEDULE</div>' +
-        '<div class="brief-v">Choose the task, agent and time. Results appear in Active Routines. It uses the selected agent’s model and access; any extra approvals for unattended work are below.</div></div>' +
+        '<div class="brief-v">Choose the task, agent and time. Results appear in Active Routines. It uses the selected agent’s model and access. Without an existing grant or Full Access, terminal and connected tools are off unless you grant them below; placing a WORKBENCH on the floor does not grant them unattended access.</div></div>' +
       '<div id="rt-create-state" class="set-about" role="status">Checking whether scheduling is enabled…</div>' +
       '<div class="mc-form">' +
         '<input id="rt-name" class="key-input" placeholder="name — e.g. Morning AI brief" maxlength="80" autocomplete="off">' +

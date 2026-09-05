@@ -2983,7 +2983,7 @@ const Build = (() => {
         selectTool('prop');
         propQuery = grantLabelOf({id:s.id}); propTier = 'functional'; propCat = s.cat; propType = s.id;
         renderPalette(); setHint();
-        flashTip(null, s.tip, true);
+        flashTip(null, s.label + ' selected', true);
         sfx('click');
       };
     });

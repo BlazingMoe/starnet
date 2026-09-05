@@ -10,6 +10,7 @@
     return j;
   }
   function openDraft(options) {
+    StationUI.closeTerm('commander');
     Marketplace.open({tab:'recipes',firstValue:options || {},onLaunch:App.launchRecipe});
     return true;
   }

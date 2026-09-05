@@ -1246,6 +1246,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
     function selectSection(id, viaClick) {
       if (!panes[id]) return;
+      // A deliberate tab/setup jump leaves search results; otherwise the destination form stays filtered out.
+      if (viaClick && searchInput && searchInput.value) {
+        searchInput.value = '';
+        searchInput.dispatchEvent(new Event('input', { bubbles:true }));
+      }
       reveal(id);
       consoleSection[key] = id;
       if (viaClick) saveWindowState();   // remember the section the Commander navigated to, across reloads
@@ -3075,9 +3080,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       // "recipes" here collided with the ❒ RECIPES dock feature (audit finding 2) — these are PROCEDURES: how-to
       // guides an agent follows mid-task, not launchable jobs.
       '<p class="sk-note sk-lib-intro">Pre-installed <b>procedures</b> your agents follow when a task matches ' +
-      '(not the same as ❒ RECIPES — those are launchable jobs; these are how-to guides). Each one ' +
-      'rides on the agent’s capabilities (the TOOLSETS section here; per-agent, the dossier’s SKILLS tab) — it stays <b>locked</b> until ' + esc((a && a.name) || 'the agent') + ' has the ' +
-      'objects it needs. Enabling is station-wide; what actually runs is still gated by the floor.</p>' +
+      '(❒ RECIPES starts jobs; skills describe how to do them). Enabling is station-wide. Required abilities can come from equipment or access settings. Instructions being available does not connect an outside service or authorize every action.</p>' +
       '<div id="sk-lib" class="sk-lib"><div class="sk-loading"><span class="loading pulse">loading the skill library…</span></div></div>';
     const secAgent =
       '<p class="sk-note sk-lib-intro">Reusable procedures this agent created or learned. These appear as a compact index in future runs; the agent loads the full body only when a task matches.</p>' +
@@ -3124,12 +3127,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const host = $('#sk-lib'); if (!host) return;
     let placed = [];
     try { placed = (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(agentId).map(c => c.objectType) : []; } catch (e) {}
-    fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')))
-      .then(r => r.ok ? r.json() : { skills: [] })
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(agentId) + '&placed=' + encodeURIComponent(placed.join(',')))
+      .then(view => {
+        if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access could not be checked');
+        // Match runOnce's skill context: room objects plus profile/Full Access projection and shared station gear.
+        // This only explains instruction availability; it does not grant any tools or change skill preferences.
+        const shared = typeof World !== 'undefined' && World.stationCaps ? World.stationCaps().map(c => c.objectType) : [];
+        placed = [...new Set(placed.concat(shared, view.toolsets.filter(r => r.object && (r.placed || r.profileGranted || view.authority.unrestricted)).map(r => r.object)))];
+        return fetch('/api/skills?placed=' + encodeURIComponent(placed.join(',')));
+      })
+      .then(r => { if (!r.ok) throw Error('Skill library unavailable'); return r.json(); })
       .then(d => {
         const h = $('#sk-lib');
-        if (h) {
+        if (h === host) {
           renderSkillLibrary(h, (d && d.skills) || [], agentId, placed);
+          const search = h.closest('.term-body')?.querySelector('.con-search-in');
+          if (search && search.value.trim()) search.dispatchEvent(new Event('input', { bubbles:true }));
           requestAnimationFrame(() => fitTermInViewport(open.connectors));
         }
       })
