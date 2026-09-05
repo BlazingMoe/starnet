@@ -44,7 +44,24 @@ Initial fast gate found absent npm dependencies in the fresh worktree. `npm ci -
 --no-fund` installed the locked dependencies. Initial HTTP gate failed the unrelated
 `threads.e2e` no-manifest scenario during build load; isolated retry passed 21 assertions.
 Windows compilation first failed with rustc/LLVM out-of-memory; retry uses one compiler job.
-Final gates/build outcomes are recorded below after completion.
+The next fast run exposed the generated website mirror's diagnostics drift; `npm run
+sync:website` updated that one generated file (zero removals), and its focused gate passed.
+The next HTTP run hit `nightshift-focus.e2e`'s legacy restart port collision; isolated rerun
+passed all 62 assertions. Neither failed full run is counted as green.
+
+Customer campaign: **29/29 suites GREEN**, exit 0. Windows release-profile build succeeded
+with `CARGO_BUILD_JOBS=1` and `npm run tauri -- build --no-bundle` (6m12s).
+Artifact: `src-tauri/target/release/skynet-desktop.exe`, 16,177,664 bytes, unsigned.
+SHA256: `105fb8f098d501950e2f77cdef3dce206bae7c90e19610cf44430b2bdaa01c1a`.
+Build stamp: `46b0badf8b5cf2342fd79b0f0cb3b03d30de67df`, dirty=0,
+tree `e63eb7b3d44b54f05a91e9dd23797a129a751dbf`, reproducible-source.
+Later changes are documentation and the generated website copy only; this is a compiled
+candidate, **not** a bundled installer, signing, installed launch or customer verification.
+The two task-owned dev stations were stopped; their scratch evidence was retained.
+
+`qa:ready` returned **NOT READY**: six open customer P1s plus missing Guardian, journey-corps,
+Beginner and installed-exe smoke stamps in this fresh worktree. No status was promoted.
+Final fast/HTTP and integration outcomes follow after completion.
 
 ## Outstanding customer evidence
 
