@@ -8836,6 +8836,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       w.querySelector('.term-head').after(nav);
     }
     nav.replaceChildren();
+    nav.hidden = workTrail.length < 2;
     if (workTrail.length > 1) {
       const previous = workTrail[workTrail.length - 2];
       const b = mkEl('button', 'work-back', '‹ ' + (WORK_LABELS[previous.key] || previous.key.toUpperCase()));
@@ -8903,6 +8904,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     present = Array.isArray(agents) ? agents : (agents ? [agents] : []);
     if (sel >= present.length) sel = 0;
     crewRender();
+    // Appearance changes update the roster without changing conversations. Refresh the
+    // selected portrait through Chat's identity-only path; never reload the transcript.
+    if (typeof Chat !== 'undefined' && Chat.refreshIdBar) Chat.refreshIdBar();
     if (open.agents) rerender('agents');
     if (open.automation) rerender('automation');   // the ROUTINES lane's create form shows the roster
     // SETTINGS ▸ PERMISSIONS paints one APPROVAL row per crew member. Repaint just that list (never a

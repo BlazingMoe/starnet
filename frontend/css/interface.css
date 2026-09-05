@@ -172,7 +172,9 @@ body {
 .term .kb-card { margin-block: 8px; padding: 12px; }
 .term .ob-topnote { font-size: 15px; line-height: 1.45; padding-block: 8px; }
 .term .ob-doors { flex-wrap: wrap; }
-.term .bb.sm, .term .bb.xs, .refit-dock .bb {
+.term .bb.sm:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])),
+.term .bb.xs:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])),
+.refit-dock .bb:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])) {
   border-color: var(--ui-edge); background: var(--ui-face), var(--panel2);
   box-shadow: inset 0 1px 0 var(--ui-highlight), 0 2px 0 rgba(0,0,0,.7);
 }

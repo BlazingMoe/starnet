@@ -176,7 +176,7 @@ September 5 cockpit UI pass (the six approved UI recommendations):
   selected/focus states through theme tokens. Narrow layouts reserve enough space for COMMS.
 
 `node dev/interface-probe.mjs` exercises the custom seeded app without submitting any tasks or model
-calls. Its 20 live checks cover portrait bounds, truthful idle/approval filters, toolset state,
+calls. Its 21 live checks cover portrait bounds and live skin refresh without transcript replay, truthful idle/approval filters, toolset state,
 config expansion/editing, preserved drafts and return navigation, selected prop orientation, and
 composer fit at 1049/700/475px. Screenshots and results are in `.worldshots/interface/`.
 Station art, lighting, chair shape, movement and doorway depth were not modified by this UI pass.

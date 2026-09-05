@@ -25,6 +25,11 @@ try {
   for (let i = 0; i < 120; i++) { if (await evalJS(cdp, `document.querySelectorAll('#crew .crew-row').length>0 && !document.querySelector('#comms-agent-portrait').hidden`)) break; await sleep(500); }
   await evalJS(cdp, `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('GOT IT') && b.offsetParent)?.click()`);
   await check('All 26 crew portraits are loaded and cropped', `Array.from(document.querySelectorAll('.crew-portrait img')).length===26 && Array.from(document.querySelectorAll('.crew-portrait img')).every(i=>i.complete && i.naturalHeight>0 && i.naturalHeight<92)`);
+  const identity = await evalJS(cdp, `(() => {const a=App.currentAgent();return {id:a.id,skin:a.skin,next:Object.keys(DATA.SKINS).find(k=>k!==a.skin),transcript:document.querySelector('#chat-log').innerHTML}})()`);
+  await evalJS(cdp, `App.currentAgent().skin=${JSON.stringify(identity.next)}; StationUI.setRoster(App.agents())`);
+  await sleep(300);
+  await check('Changing appearance refreshes COMMS without replaying the conversation', `document.querySelector('#comms-agent-portrait').dataset.portraitSet===DATA.SKINS[${JSON.stringify(identity.next)}].set && document.querySelector('#chat-log').innerHTML===${JSON.stringify(identity.transcript)}`);
+  await evalJS(cdp, `App.currentAgent().skin=${JSON.stringify(identity.skin)}; StationUI.setRoster(App.agents())`);
   await check('Composer has useful writing depth', `document.querySelector('#chat-input').getBoundingClientRect().height>=60`);
   await shot('01-comms-crew');
   await evalJS(cdp, `document.querySelector('[data-crew-filter="active"]').click()`);
