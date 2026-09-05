@@ -83,7 +83,7 @@
     let mutation = Promise.resolve();
     function mutate(fn) {
       const next = mutation.then(fn, fn);
-      mutation = next.catch(() => {});
+      mutation = next.catch(error => { note('credits.link.mutation', error); });
       return next;
     }
 
@@ -324,8 +324,10 @@
     function diagnosticState() {
       const saved = loadSavedSync();
       let fileToken = false, explicitlyUnlinked = unlinked;
-      try { explicitlyUnlinked = explicitlyUnlinked || !!(tombstone && fs.existsSync(tombstone)); } catch (_) {}
-      try { fileToken = !!str(JSON.parse(fs.readFileSync(file, 'utf8')).deviceToken).trim(); } catch (_) {}
+      try { explicitlyUnlinked = explicitlyUnlinked || !!(tombstone && fs.existsSync(tombstone)); }
+      catch (error) { note('credits.link.diagnostics.tombstone', error); }
+      try { fileToken = !!str(JSON.parse(fs.readFileSync(file, 'utf8')).deviceToken).trim(); }
+      catch (error) { if (!error || error.code !== 'ENOENT') note('credits.link.diagnostics.record', error); }
       return {
         state: explicitlyUnlinked ? 'unlinked' : pending.size ? 'pairing' : saved ? 'saved' : recovering ? 'recovering' : 'missing',
         credential: explicitlyUnlinked ? 'none' : fileToken ? 'file' : envToken ? 'injected' : sessionToken ? 'session' : 'none',
