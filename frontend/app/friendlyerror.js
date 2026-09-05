@@ -451,7 +451,7 @@
   function connectorChipLabel(ev) {
     const id = ev && ev.connectorId ? String(ev.connectorId).trim() : '';
     if (!id) return '';
-    return '⇄ CONNECT ' + id.replace(/[-_]+/g, ' ').toUpperCase() + ' — 2 clicks';
+    return '⇄ CONNECT ' + id.replace(/[-_]+/g, ' ').toUpperCase();
   }
   // prefill the ABILITIES console search with the connector name so the catalog card is the thing on screen.
   // The catalog loads async (ccRefresh), so the filter is re-asserted until a card exists (bounded ~3s); the

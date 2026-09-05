@@ -309,6 +309,34 @@
     routerEl.innerHTML = secRouter;
     const routerNode = routerEl.firstChild;
     if (host && routerNode) host.insertBefore(routerNode, host.firstChild);
+    const handoffEl = document.createElement('div');
+    handoffEl.className = 'mc-hint'; handoffEl.setAttribute('aria-live', 'polite');
+    if (host) host.insertBefore(handoffEl, host.firstChild);
+    function renderHandoffs(connectors) {
+      handoffEl.replaceChildren();
+      if (typeof Workstreams === 'undefined' || !Workstreams.connectorHandoff) return;
+      for (const ws of Workstreams.list()) {
+        const h = Workstreams.connectorHandoff(ws.id); if (!h) continue;
+        const c = connectors.find(x => x.id === h.connectorId);
+        const ready = c && c.enabled && c.state === 'up' && !c.authRequired;
+        const supported = ready && (!h.toolName || (c.tools || []).includes(h.toolName));
+        const line = document.createElement('div');
+        const caption = document.createElement('span');
+        caption.textContent = (ws.title || 'Task') + ' · ' + h.connectorId + ' — '
+          + (supported ? 'connection ready. ' : ready ? 'requested operation is unavailable. ' : 'waiting for connection. ');
+        line.appendChild(caption);
+        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'bb xs';
+        btn.textContent = supported ? 'CONTINUE TASK' : 'RETURN TO TASK';
+        btn.onclick = async () => {
+          if (!supported) { App.openWorkstream(ws.id); return; }
+          btn.disabled = true;
+          await Chat.continueConnectorTask(ws.id);
+          if (btn.isConnected) btn.disabled = false;
+          refresh();
+        };
+        line.appendChild(btn); handoffEl.appendChild(line);
+      }
+    }
     // Delegated on the whole console body, not just the strip: `data-ab-to` is the jump CONTRACT for this
     // window, and the empty states reuse it (KEYS' "no keyed platform yet" offers OPEN CATALOG). Binding
     // to the strip alone would have left those buttons inert — a new dead end shipped beside a cured one.
@@ -736,7 +764,9 @@
           '<span class="set-row mc-enable"><input type="checkbox" data-act="toggle"' + (c.enabled ? ' checked' : '') + ' aria-label="Enable connector ' + esc(c.id) + '"></span>' +
           '<b>' + esc(c.label || c.id) + '</b> <span class="dim">' + esc(c.id) + '</span>' +
           '<span class="mc-state" style="color:' + b[0] + '">' + b[1] + (c.toolCount ? ' · ' + c.toolCount + ' tool' + (c.toolCount === 1 ? '' : 's') : '') + '</span></div>' +
-        '<div class="mc-url dim">' + where + timeout + '</div>' + (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
+        '<div class="mc-url dim">' + where + timeout + '</div>' +
+        '<div class="mc-hint">' + (c.account && c.account.email ? 'Account at last sign-in: ' + esc(c.account.email) : 'Account identity: not verified by StarNet.') + ' Browser logins are separate from this connection.</div>' +
+        (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
         '<div class="mc-acts">' +
           // an OAuth connector's stored grant can die provider-side (token revoked, DCR client deleted) — a state
           // RELOAD can't cure (it reconnects with the same dead grant) and EDIT can't reach (its form is the
@@ -756,6 +786,7 @@
       try {
         const j = await Harness.api.get('/api/connectors');
         const list = (j && j.connectors) || []; lastList = list;
+        renderHandoffs(list);
         if (list.length) { listEl.innerHTML = list.map(row).join(''); }
         else {
           listEl.innerHTML = '<div class="empty-state"><span class="es-glyph">⧉</span>' +
@@ -993,9 +1024,10 @@
       const redirectUri = 'http://127.0.0.1:' + (location.port || '8787') + '/api/connectors/oauth/callback';
       const clientField = (e.authType === 'oauth' && e.staticOauth && e.needsClient)
         ? '<div class="cc-key cc-oclient" style="display:none">' +
-            '<div class="mc-hint">One-time setup, shared by every Google card.</div>' +
+            '<div class="mc-hint">Advanced setup, shared by every Google card. Google Workspace MCP is a developer preview; access must be enabled before sign-in can work.</div>' +
             '<ol class="cc-steps">' +
-              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a> and create an OAuth <b>Web application</b> client.</li>' +
+              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a>, enroll in the preview, and enable the service’s MCP API in your Google Cloud project.</li>' +
+              '<li>Configure the consent screen and create an OAuth <b>Web application</b> client. In testing mode, add your Google account as a test user.</li>' +
               '<li>Add this redirect URI: <span class="cc-uri"><code>' + esc(redirectUri) + '</code><button type="button" class="cc-copy" data-cc-copy="' + esc(redirectUri) + '">COPY</button></span></li>' +
               '<li>Paste the client ID and secret below.</li>' +
             '</ol>' +
@@ -1220,7 +1252,7 @@
           if (c && c.state === 'up') { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); sfx('click'); notify('Connector "' + label + '" connected', 'good'); out.classList.add('ok'); out.textContent = '✓ ' + label + ' signed in — ' + (c.toolCount || 0) + ' tool(s)'; ccRefresh(); refresh(); try { if (win && !win.closed) win.close(); } catch (_) {} return; }
           if (c && c.state === 'error' && (!c.oauth || c.oauthAuthorized)) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); sfx('bad'); out.textContent = '✕ ' + label + ' — ' + (c.detail || 'connection failed'); ccRefresh(); refresh(); return; }
         } catch (_) {}
-        if (tries > 150) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); ccResetSignBtn(id); }   // ~5-minute cap so a stalled/abandoned sign-in stops polling
+        if (tries > 150) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); ccResetSignBtn(id); out.classList.remove('ok'); out.textContent = 'Sign-in timed out. Sign in again, then return to your task.'; }   // ~5-minute cap
       }, 2000);
       ccTimers.set(id, timer);
     }

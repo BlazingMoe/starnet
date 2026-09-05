@@ -150,7 +150,7 @@ function fakeDriver() {
     try { await S.attach(9222); A.ok(false, 'should reject'); }
     catch (e) {
       A.ok(/--remote-debugging-port=9222/.test(e.message), 'it names the exact flag, with the port filled in');
-      A.ok(/quit Chrome completely/i.test(e.message), 'and the gotcha that the flag is ignored by a running Chrome');
+      A.ok(/separate --user-data-dir/i.test(e.message), 'the current Chrome separate-profile requirement is explained');
     }
   }
 
