@@ -363,7 +363,9 @@
         enabled: cfg.enabled !== false,
         // oauth connectors pass a tokenProvider() instead of a frozen token (see connect); carried across reconfigure
         // so a benign toggle/re-warm keeps refreshing the bearer.
-        tokenProvider: (typeof cfg.tokenProvider === 'function') ? cfg.tokenProvider : (prev ? prev.tokenProvider : null),
+        tokenProvider: Object.prototype.hasOwnProperty.call(cfg, 'tokenProvider')
+          ? (typeof cfg.tokenProvider === 'function' ? cfg.tokenProvider : null)
+          : (prev ? prev.tokenProvider : null),
         state: 'down', detail: '', tools: [], client: null, transport: null, connecting: null, ts: clock.now(),
         reconnectAttempt: 0, reconnectTimer: null, _epoch: 0,
         cacheFingerprint: transportKind === 'stdio' ? String(fingerprintConfig({

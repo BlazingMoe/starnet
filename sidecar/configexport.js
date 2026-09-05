@@ -67,36 +67,14 @@
     return { value: {}, redacted };
   }
 
-  const SECRET_ARG_RE = /(?:token|key|secret|password|passwd|auth|bearer|credential|cookie|session)/i;
   function redactArgs(args) {
-    const value = [], redacted = [];
-    let redactNext = false;
-    for (const raw of (Array.isArray(args) ? args : []).slice(0, 32)) {
-      const arg = clampStr(raw, 256);
-      const index = value.length;
-      if (redactNext) { value.push('<redacted>'); redacted.push('args:' + index); redactNext = false; continue; }
-      const eq = arg.match(/^(--?[^=]+)=(.*)$/);
-      if (eq && SECRET_ARG_RE.test(eq[1])) { value.push(eq[1] + '=<redacted>'); redacted.push('args:' + index); continue; }
-      if (/^--?/.test(arg) && SECRET_ARG_RE.test(arg)) { value.push(arg); redactNext = true; continue; }
-      if (/^https?:\/\//i.test(arg)) {
-        try {
-          const u = new URL(arg); let changed = !!(u.username || u.password);
-          u.username = ''; u.password = '';
-          for (const k of Array.from(u.searchParams.keys())) {
-            if (SECRET_ARG_RE.test(k)) { u.searchParams.set(k, '<redacted>'); changed = true; }
-          }
-          u.hash = '';
-          value.push(u.href);
-          if (changed) redacted.push('args:' + index);
-          continue;
-        } catch (_) {
-          // A value claiming to be a URL but failing parsing is not safe to export verbatim: it can still contain
-          // credential text in a malformed query/userinfo fragment.
-          value.push('<redacted>'); redacted.push('args:' + index); continue;
-        }
-      }
-      value.push(arg);
-    }
+    // CLI values are an open-ended secret surface: `-H 'Authorization: ...'`, JSON blobs, positional API keys,
+    // and vendor-specific names cannot be classified safely from spelling. Keep only positional re-entry markers.
+    // The live importer can restore them from the protected local row when the stdio execution identity is exact;
+    // a portable restore stays disabled until the values are re-entered.
+    const src = (Array.isArray(args) ? args : []).slice(0, 32);
+    const value = src.map(() => '<redacted>');
+    const redacted = src.map((_, index) => 'args:' + index);
     return { value, redacted };
   }
 
@@ -112,8 +90,9 @@
     if (url) {
       try {
         const u = new URL(url);
-        if (u.username || u.password || u.searchParams.toString()) urlHadAuth = true;
+        if (u.username || u.password || u.searchParams.toString() || u.hash) urlHadAuth = true;
         u.username = ''; u.password = ''; u.search = '';
+        u.hash = '';
         url = u.toString();
       } catch (_) {
         // An invalid URL cannot be separated safely into public routing data and private auth material.
