@@ -15,7 +15,14 @@
 .refit-dock-caption { display: none; }
 #refit-kit-toggle { margin-left: auto; padding: 4px 7px; min-height: 22px; font-size: 10px; letter-spacing: .5px; }
 .refit-mode-section { padding: 8px; background: var(--ui-face); }
-#refit-tools { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
+#refit-tools { display: flex; flex-direction: column; gap: 10px; }
+.refit-toolset { min-width: 0; }
+.refit-toolset-label { color: var(--ph-dim); font-size: 9px; letter-spacing: 1.2px; padding: 0 2px 5px; }
+.refit-toolset-buttons { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; }
+.refit-toolset-buttons.is-edit { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.refit-toolset-buttons.is-edit .refit-tool { flex-direction: column; gap: 3px; padding: 5px 2px; font-size: 10px; }
+.refit-toolset-buttons.is-edit .refit-toolname { text-align: center; }
+.refit-toolset-buttons.is-edit .refit-key { display: none; }
 .refit-dock .refit-tool { min-width: 0; min-height: 29px; padding: 5px 7px; font-size: 12px; letter-spacing: .3px; gap: 7px; }
 .refit-toolname { flex: 1; text-align: left; letter-spacing: .3px; }
 .refit-toolicon { width: 13px; height: 13px; flex-shrink: 0; }
@@ -27,10 +34,14 @@
 .refit-hint { flex: 0 0 auto; min-height: 0; padding: 9px 10px; display: flex; flex-direction: column; gap: 5px; background: var(--ui-face); }
 .refit-hint-verb { font-size: 12px; line-height: 1.25; }
 .refit-hint-keys { font-size: 10px; opacity: .65; }
+.refit-overlay[data-tool="prop"] .refit-hint:not(.is-feedback) { display: none; }
 .refit-dock.is-collapsed { bottom: auto; }
 .refit-dock.is-collapsed :is(.refit-option-section,.refit-mode-section,.refit-hint) { display: none; }
 .refit-selectnote { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 14px; font-size: 13px; letter-spacing: .3px; }
 .refit-selectnote b { font-size: 23px; font-weight: 400; color: var(--ph-bright); }
+.refit-quicksteps { margin: 8px 0 0; padding: 0 0 0 20px; display: grid; gap: 10px; line-height: 1.35; }
+.refit-quicksteps li::marker { color: var(--ph-bright); }
+.refit-quicksteps b { font-size: inherit; }
 .refit-starts { display: grid; grid-template-columns: 1fr; width: 100%; gap: 8px; }
 .refit-start { position: relative; display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 12px; min-height: 88px; background: var(--ui-face), var(--panel2); border: 1px solid var(--ui-edge); border-radius: 3px; color: var(--ph-dim); cursor: pointer; font: 13px 'VT323',monospace; }
 .refit-start b { color: var(--ph-bright); font-weight: 400; font-size: 18px; padding-right: 16px; }
@@ -43,8 +54,15 @@
 .refit-propsearch { flex: 0 0 auto; }
 .refit-propsearch .refit-searchfield { font-size: 13px; letter-spacing: .2px; min-height: 30px; margin: 0; padding: 6px 8px; box-shadow: var(--ui-well); }
 .refit-shelves { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
-.refit-propcats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); flex: 0 0 auto; gap: 3px; padding: 0 0 7px; margin: 0; border-bottom: 1px solid var(--ui-edge); }
-.refit-propcats .refit-propcat { display: flex; justify-content: space-between; align-items: center; gap: 3px; min-height: 23px; white-space: normal; text-align: left; font-size: 11px; letter-spacing: 0; padding: 4px 5px; opacity: 1; border-color: transparent; background: transparent; box-shadow: none; }
+.refit-category-menu { position: relative; flex: 0 0 auto; min-width: 0; }
+.refit-category-menu > summary { display: flex; align-items: center; gap: 8px; padding: 8px; cursor: pointer; list-style: none; border: 1px solid var(--ui-edge); border-radius: 3px; background: var(--ui-face); }
+.refit-category-menu > summary::-webkit-details-marker { display: none; }
+.refit-category-label { font-size: 9px; color: var(--ph-dim); letter-spacing: .6px; }
+.refit-category-current { font-size: 12px; font-weight: 400; color: var(--ph-bright); }
+.refit-category-arrow { margin-left: auto; }
+.refit-category-menu[open] > summary { border-color: var(--ph); }
+.refit-propcats { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px; padding: 7px; margin: 0; border: 1px solid var(--ph-dim); border-radius: 3px; background: var(--bg); box-shadow: 0 6px 20px #000; overflow-y: auto; max-height: min(280px,calc(45vh * var(--sn-unzoom,1))); }
+.refit-propcats .refit-propcat { display: flex; justify-content: space-between; align-items: center; gap: 4px; min-height: 30px; white-space: normal; text-align: left; font-size: 12px; letter-spacing: 0; padding: 6px; opacity: 1; border-color: transparent; background: transparent; box-shadow: none; }
 .refit-propcat small { opacity: .5; font-size: 9px; }
 .refit-propcats .refit-propcat.active { color: var(--ph-bright); border-color: var(--ui-edge); background: var(--ph-faint); box-shadow: inset 0 -1px var(--ph); }
 #refit-propgrid-host { overflow-y: auto; min-height: 0; flex: 1; padding-right: 5px; box-sizing: border-box; scrollbar-width: thin; }
@@ -65,9 +83,12 @@
 .refit-preview-info .refit-preview-grant { display: none; font-size: 10px; letter-spacing: .3px; }
 .refit-preview-info .ui-overline { font-size: 9px; letter-spacing: .7px; color: var(--ok); }
 .refit-preview-actions .bb.xs { font-size: 10px; padding: 3px 5px; min-height: 22px; }
-.refit-propworkspace:not(.show-details) :is(.refit-preview-actions,.refit-place-action,.refit-preview-info .ui-overline) { display: none; }
+.refit-propworkspace:not(.show-details) .refit-preview-info .ui-overline { display: none; }
+.refit-placement-actions { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; }
+.refit-placement-actions .bb { font-size: 11px; padding: 7px; }
 .refit-place-action { grid-column: 1 / -1; justify-content: center; padding: 6px; font-size: 12px; letter-spacing: .8px; }
-.refit-placement-note { display: none; grid-column: 1 / -1; font-size: 11px; color: var(--ph-dim); line-height: 1.35; }
+.refit-placement-actions .refit-place-action { grid-column: auto; }
+.refit-placement-note { display: block; grid-column: 1 / -1; font-size: 10px; color: var(--ph-dim); line-height: 1.35; }
 .refit-propinspector .refit-equipment-info { display: none; padding: 10px 0 0; margin: 10px 0 0; border: 0; border-top: 1px solid var(--ui-edge); background: none; color: var(--ph-dim); font-size: 12px; line-height: 1.4; }
 .refit-purpose { margin: 0 0 8px; }
 .refit-propinspector .refit-input { font-size: 12px; max-width: 100%; }
@@ -79,18 +100,16 @@
 .refit-propworkspace.show-details .refit-details-back { display: flex; }
 .refit-propworkspace.show-details .refit-selected-prop { grid-template-columns: 84px minmax(0,1fr); }
 .refit-propworkspace.show-details .refit-preview-art canvas { width: 82px; height: 76px; }
-.refit-dock :is(button,input,select):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+.refit-dock :is(button,input,select,summary):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
 .refit-finline { max-height: calc(100vh * var(--sn-unzoom,1) - 150px); overflow-y: auto; }
 @container (max-width: 270px) {
   .refit-propcat small, .refit-tool .refit-key { display: none; }
-  .refit-propcats .refit-propcat { font-size: 10px; padding: 4px 2px; }
+  .refit-propcats .refit-propcat { font-size: 11px; }
   .refit-hint-keys { display: none; }
 }
 @media (max-width: 1100px) { .refit-dock { top: 88px; } }
 @media (max-height: 740px) {
   .refit-dock .refit-tool { min-height: 25px; padding-top: 3px; padding-bottom: 3px; }
-  .refit-propinspector { max-height: 120px; overflow-y: auto; }
-  .refit-propworkspace.show-details .refit-propinspector { max-height: none; }
 }
 @media (max-height: 650px) {
   .refit-dock { overflow-y: auto; scrollbar-width: thin; }

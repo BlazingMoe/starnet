@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {launchChrome,findChrome,connectCDP,evalJS,sleep,capture} from '../scripts/lib/cdp.mjs';
-const out='.worldshots/build-kit-left';mkdirSync(out,{recursive:true});let proc,cdp;
+const out='.worldshots/build-kit-clarity';mkdirSync(out,{recursive:true});let proc,cdp;
 const report={checks:[],exceptions:[]};
 async function check(name,src){const result=await evalJS(cdp,src);assert.ok(result,name+': '+JSON.stringify(result));report.checks.push(name);}
 async function shot(name){await evalJS(cdp,`document.activeElement?.blur();if(typeof Hint!=='undefined')Hint.hide()`);await sleep(250);await capture(cdp,out,name);}
@@ -15,10 +15,18 @@ try{
   await cdp.send('Page.navigate',{url:'http://127.0.0.1:9177/'});
   for(let i=0;i<100;i++){if(await evalJS(cdp,`typeof Build!=='undefined'&&Build.__test__&&Build.__test__.station()`))break;await sleep(300);}
   await evalJS(cdp,`window.__buildFixture=WorldModel.create(Build.__test__.station().serialize());Build.init({getStation:()=>window.__buildFixture,persist:()=>{},world:World,agents:()=>App.agents()});Build.open();document.querySelector('#refit-guide-go')?.click();document.querySelector('.fl-x')?.click()`);await sleep(500);
-  await check('Starts in safe Select mode with four direct construction kits',`Build.__test__.tool()==='select'&&document.querySelectorAll('.refit-start').length===4`);await shot('01-start');
+  await check('Starts safely with a short guide and two clear starting points',`Build.__test__.tool()==='select'&&document.querySelectorAll('.refit-start').length===2&&document.querySelectorAll('.refit-quicksteps li').length===3`);await shot('01-start');
   await evalJS(cdp,`document.querySelector('[data-start-tool="prop"]').click()`);
-  await check('All prop categories and ten tools are directly available',`document.querySelectorAll('.refit-propcat').length===Object.keys(PropSprites.CATS).length+1&&document.querySelectorAll('.refit-tool').length===10`);await shot('02-catalog');
+  await check('All prop categories are in the picker and ten tools stay visible',`document.querySelectorAll('.refit-propcat').length===Object.keys(PropSprites.CATS).length+1&&document.querySelectorAll('.refit-tool').length===10`);await shot('02-catalog');
   await check('Workflow checklist does not cover prop browsing',`!document.querySelector('.refit-finline')||getComputedStyle(document.querySelector('.refit-finline')).display==='none'`);
+  await check('Tools have visible Build, Edit and Workflow groups',`document.querySelectorAll('.refit-toolset').length===3&&Array.from(document.querySelectorAll('.refit-tool')).every(b=>b.getBoundingClientRect().height>20)`);
+  await check('Place, Cancel and supported orientation controls are visible without opening About',`['[data-preview-place]','[data-preview-cancel]','[data-preview-flip]'].every(s=>document.querySelector(s).getBoundingClientRect().height>20)`);
+  await evalJS(cdp,`document.querySelector('#refit-category-trigger').click()`);
+  await check('Category picker opens a readable list inside the left panel',`document.querySelector('.refit-category-menu').open&&Array.from(document.querySelectorAll('.refit-propcat')).every(b=>b.getBoundingClientRect().height>=25)`);await shot('02-category-picker');
+  await evalJS(cdp,`document.querySelector('#refit-category-trigger').focus();window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`);
+  await check('Escape closes only the category picker',`!document.querySelector('.refit-category-menu').open&&Build.__test__.tool()==='prop'`);
+  await evalJS(cdp,`document.querySelector('#refit-category-trigger').click();document.querySelector('[data-cat="capability"]').click()`);
+  await check('Choosing a category closes the picker and labels the shelf',`!document.querySelector('.refit-category-menu').open&&document.querySelector('.refit-category-current').textContent===PropSprites.CAT_LABEL.capability&&Array.from(document.querySelectorAll('.refit-proptile')).every(b=>PropSprites.spec(b.dataset.prop).cat==='capability')`);
   await evalJS(cdp,`(()=>{const input=document.querySelector('#refit-propsearch-input');input.focus();input.value='web';input.dispatchEvent(new Event('input'))})()`);
   await check('Global ability search keeps input focus and labels its scope',`document.activeElement.id==='refit-propsearch-input'&&document.querySelectorAll('.refit-proptile').length>0&&document.querySelector('.refit-searchnote').textContent.includes('ALL CATEGORIES')&&!document.querySelector('.refit-propcat.active')`);
   await evalJS(cdp,`document.querySelector('.refit-proptile').click()`);await shot('03-search');
@@ -46,11 +54,20 @@ try{
     if(width===750||width===390){await shot('responsive-'+width);if(width===390){await evalJS(cdp,`document.querySelector('.refit-details-toggle').click()`);await check('Item details can be reached on '+width+'px',`document.querySelector('.refit-propinspector').getBoundingClientRect().height>40&&document.querySelector('[data-preview-place]').getBoundingClientRect().height>20`);await shot('details-'+width);await evalJS(cdp,`document.querySelector('.refit-details-back').click()`);}}
   }
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await sleep(300);
-  await evalJS(cdp,`document.querySelector('[data-cat="all"]').click();document.querySelector('[data-prop="crate"]').click();window.__propBefore=Build.__test__.station().serialize().props.length;document.querySelector('.refit-details-toggle').click();document.querySelector('[data-preview-place]').click();document.querySelector('#refit-fit').click()`);await sleep(300);
-  await check('Place action clears canvas space without placing anything',`document.querySelector('.refit-dock').classList.contains('is-collapsed')&&Build.__test__.tool()==='prop'&&Build.__test__.station().serialize().props.length===window.__propBefore`);
+  await evalJS(cdp,`document.querySelector('[data-cat="all"]').click();document.querySelector('[data-prop="crate"]').click();window.__propBefore=Build.__test__.station().serialize().props.length;document.querySelector('#refit-fit').click();document.querySelector('[data-preview-place]').click()`);await sleep(300);
+  await check('Place focuses the deck without hiding the sidebar or stamping anything',`!document.querySelector('.refit-dock').classList.contains('is-collapsed')&&document.activeElement.classList.contains('refit-canvas')&&Build.__test__.tool()==='prop'&&Build.__test__.station().serialize().props.length===window.__propBefore`);
   const point=await evalJS(cdp,`(()=>{const st=Build.__test__.station(),b=st.bounds(),s=PropSprites.spec('crate');for(let y=b.minTy;y<=b.maxTy;y++)for(let x=b.minTx;x<=b.maxTx;x++){if(!st.canPlaceProp('crate',x,y,s.w,s.h).ok)continue;const e=Build.__test__._tileEvent([x,y]);if(document.elementFromPoint(e.clientX,e.clientY)?.classList.contains('refit-canvas'))return {x:e.clientX,y:e.clientY}}return null})()`);
-  assert.ok(point,'A clear deck tile is reachable above the collapsed tray');
+  assert.ok(point,'A clear deck tile is reachable beside the left panel');
+  await evalJS(cdp,`document.querySelector('#refit-category-trigger').click()`);
+  await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
+  await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
+  await check('Clicking outside the category picker dismisses it without placing a prop',`!document.querySelector('.refit-category-menu').open&&Build.__test__.station().serialize().props.length===window.__propBefore`);
+  await evalJS(cdp,`window.__oldCanPlace=window.__buildFixture.canPlaceProp;window.__hoverChecks=0;window.__buildFixture.canPlaceProp=function(...args){window.__hoverChecks++;return window.__oldCanPlace.apply(this,args)}`);
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...point});
+  await sleep(350);
+  await check('Hover previews the prop footprint before committing and avoids repeated validation',`(()=>{const g=Build.__test__.ghostRects(),s=PropSprites.spec('crate');return g?.length===1&&g[0].x2-g[0].x1+1===s.w&&g[0].y2-g[0].y1+1===s.h&&window.__hoverChecks<=1&&Build.__test__.station().serialize().props.length===window.__propBefore})()`);
+  await shot('03-placement-preview');
+  await evalJS(cdp,`window.__buildFixture.canPlaceProp=window.__oldCanPlace`);
   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});await sleep(400);
   await check('A real deck click places the selected crate on the isolated station',`Build.__test__.station().serialize().props.length===window.__propBefore+1&&Build.__test__.station().serialize().props.at(-1).t==='crate'`);
@@ -59,7 +76,9 @@ try{
   await evalJS(cdp,`document.querySelector('#refit-redo').click()`);await sleep(200);
   await check('Redo restores the placement',`Build.__test__.station().serialize().props.length===window.__propBefore+1`);
   await evalJS(cdp,`document.querySelector('#refit-undo').click()`);
-  await evalJS(cdp,`document.querySelector('#refit-kit-toggle').click();document.querySelector('[data-tool="paint"]').click()`);await shot('04-surfaces');
+  await evalJS(cdp,`document.querySelector('[data-preview-cancel]').click()`);
+  await check('Cancel returns to Select without closing build mode or editing the station',`Build.isOpen()&&Build.__test__.tool()==='select'&&Build.__test__.station().serialize().props.length===window.__propBefore`);
+  await evalJS(cdp,`document.querySelector('[data-tool="paint"]').click()`);await shot('04-surfaces');
   await check('Surface materials stay reachable',`document.querySelectorAll('.refit-mattile').length>5&&document.querySelector('#refit-palette').clientHeight>60`);
   await evalJS(cdp,`document.activeElement?.blur();window.dispatchEvent(new KeyboardEvent('keydown',{key:'/',bubbles:true}))`);
   await check('Slash opens the prop search and focuses it',`Build.__test__.tool()==='prop'&&document.activeElement.id==='refit-propsearch-input'`);

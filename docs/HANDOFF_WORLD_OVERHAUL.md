@@ -255,3 +255,24 @@ The live probe now checks the left edge and width at six viewport sizes, plus pl
 undo/redo, enlarged text, item details, and workflow-card separation. Its 25 checks pass;
 current captures and receipts are under `.worldshots/build-kit-left/`. The full-width bottom
 tray and its independent right-hand inspector are superseded by this correction.
+
+## September 5 build-sidebar clarity pass
+
+The left console now separates Build & Decorate, Edit Your Station, and Workflows into three
+permanently visible groups. COPY and LAYOUTS replace the less explicit DUPE and LINES labels.
+A single CATEGORY picker replaces the crowded chip grid, retaining every real category/count;
+search still spans the complete catalog. The Select landing has a short three-step guide and
+two direct starting points. The tutorial guides users through the category picker when needed.
+
+The selected prop always exposes supported Turn/Flip controls, PLACE PROP and CANCEL. About
+this prop stays in the same sidebar. Place focuses the deck without hiding the panel; Cancel
+returns to Select. Escape closes the category picker or About view before deselecting. Clicking
+the deck to dismiss the picker does not also stamp a prop. Props preview their validated
+footprint before clicking, with validation cached by station revision, prop, facing and tile.
+
+`node dev/build-kit-probe.mjs --gpu` passed 33 live checks on a disposable in-memory station,
+including pointer placement, undo/redo, picker dismissal, hover validation caching, six screen
+sizes and 145% text zoom. No runtime exceptions were recorded. The 144-item shelf measured
+60 FPS, 16.7 ms p95 frame intervals and 7.1 ms mean build-render callback time on the local
+RTX 5060 Ti. These are local observations, not guarantees for other hardware. Evidence and
+captures are in `.worldshots/build-kit-clarity/`; the user's custom save is untouched.

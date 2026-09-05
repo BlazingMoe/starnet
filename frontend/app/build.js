@@ -33,10 +33,10 @@ const Build = (() => {
     { id: 'reclaim', key: '5', label: 'DELETE', verb: 'click anything to delete it', hint: 'click a room, prop, or belt to delete it · drag across a belt to clear the whole run (UNDO restores it)', cursor: 'not-allowed' },
     { id: 'prop', key: '6', label: 'PROPS', verb: 'click the deck to place it', hint: 'browse equipment and decoration, then click the deck to place your selection', cursor: 'crosshair' },
     { id: 'belt', key: '7', label: 'BELT', verb: 'click one machine, then another', hint: 'CLICK one machine, then another — the belt lays itself · (or drag to lay tiles by hand)', cursor: 'crosshair' },
-    { id: 'dupe', key: '8', label: 'DUPE', verb: 'click a thing to copy it', hint: 'click a room or prop to copy it · then every click stamps a copy — mirror your build fast', cursor: 'copy' },
-    { id: 'line', key: '9', label: 'LINES', verb: 'pick a line, then click the deck', hint: 'pick a STARTER LINE below, then click the deck — a whole working layout stamps at once, yours to edit', cursor: 'copy' },
+    { id: 'dupe', key: '8', label: 'COPY', verb: 'click a room or prop to copy it', hint: 'click a room or prop to copy it · then every click stamps a copy — mirror your build fast', cursor: 'copy' },
+    { id: 'line', key: '9', label: 'LAYOUTS', verb: 'pick a layout, then click the deck', hint: 'pick a STARTER LINE below, then click the deck — a whole working layout stamps at once, yours to edit', cursor: 'copy' },
   ];
-  // Every tool stays visible. The Select landing offers four starting points without
+  // Every tool stays visible. The Select landing offers two starting points without
   // arming a placement tool. Shortcut numbers remain compatible with the guide/tutorial.
 
   /* ---------- PIXEL TOOL ICONS ----------
@@ -371,7 +371,19 @@ const Build = (() => {
     // Every tool stays visible. Collapsed details hid the entire prop tool on
     // narrow screens when the old responsive layout removed their summaries.
     tools.setAttribute('role', 'toolbar'); tools.setAttribute('aria-label', 'Build tools');
-    ['select','prop','room','hall','paint','belt','line','move','dupe','reclaim'].forEach(id => tools.appendChild(toolBtn(byId(id))));
+    for (const [name,ids] of [['BUILD & DECORATE',['room','hall','prop','paint']],['EDIT YOUR STATION',['select','move','dupe','reclaim']],['WORKFLOWS',['belt','line']]]) {
+      const group = document.createElement('section'); group.className = 'refit-toolset'; group.setAttribute('aria-label',name);
+      const caption = document.createElement('div'); caption.className = 'refit-toolset-label'; caption.textContent = name;
+      const buttons = document.createElement('div'); buttons.className = 'refit-toolset-buttons' + (ids[0] === 'select' ? ' is-edit' : '');
+      ids.forEach(id => buttons.appendChild(toolBtn(byId(id)))); group.append(caption,buttons); tools.appendChild(group);
+    }
+    // Dismissing the category picker on the deck must not stamp a prop underneath it.
+    root.addEventListener('pointerdown', ev => {
+      const menu = root.querySelector('.refit-category-menu[open]');
+      if (!menu || menu.contains(ev.target)) return;
+      menu.open = false;
+      if (ev.target === cv) { ev.preventDefault(); ev.stopPropagation(); }
+    }, true);
     root.querySelector('#refit-kit-toggle').onclick = () => toggleKit();
     renderPalette();
     repaintIcons();
@@ -511,6 +523,11 @@ const Build = (() => {
       b.classList.toggle('active', active); b.setAttribute('aria-pressed', String(active));
     });
     const clr = root.querySelector('.refit-searchclear');
+    const menu = root.querySelector('.refit-category-menu');
+    if (menu) {
+      if (on) menu.open = false;
+      menu.querySelector('.refit-category-current').textContent = on ? 'ALL CATEGORIES · SEARCH' : propCat === 'all' ? 'ALL PROPS' : catLabelOf(propCat);
+    }
     if (clr) clr.style.display = propQuery ? '' : 'none';
 
     propThumbs.length = 0;   // the gallery is the only thumb source; free the outgoing tiles' canvases
@@ -585,10 +602,11 @@ const Build = (() => {
       paletteLabel = 'INSPECT';
       const note = document.createElement('div');
       note.className = 'refit-selectnote';
-      note.innerHTML = '<span class="ui-overline">YOUR STATION, YOUR DESIGN</span><b>What would you like to build?</b><span>Choose a kit below, or click something in the station to inspect it.</span>';
+      note.innerHTML = '<span class="ui-overline">SELECT MODE · NO PLACEMENT ARMED</span><b>Build your station</b><span>Click a room or prop to inspect it, or choose a tool above.</span>' +
+        '<ol class="refit-quicksteps"><li><b>Choose</b> a room, prop or finish.</li><li><b>Place</b> on the station. Drag to size rooms.</li><li><b>Adjust</b> with Move, Copy or Undo.</li></ol>';
       pal.appendChild(note);
       const starts = document.createElement('div'); starts.className = 'refit-starts';
-      for (const [id,name,why] of [['prop','Equipment & props','Workstations, tools, furniture and details'],['room','Rooms & hallways','Expand the floor and connect your spaces'],['paint','Materials & finishes','Choose floors, walls and exterior shells'],['line','Workflow layouts','Place a starter line, then assign your agents']]) {
+      for (const [id,name,why] of [['prop','Browse props','Equipment, furniture and decoration'],['room','Add a room','Choose a room type, then click or drag']]) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'refit-start'; b.dataset.startTool = id;
         b.innerHTML = '<span class="refit-start-key">' + esc(TOOLS.find(t => t.id === id).key) + '</span><b>' + esc(name) + '</b><span>' + esc(why) + '</span><em>OPEN KIT →</em>';
         b.onclick = () => selectTool(id); starts.appendChild(b);
@@ -643,10 +661,14 @@ const Build = (() => {
       const workspace = document.createElement('div'); workspace.className = 'refit-propworkspace';
       const browser = document.createElement('div'); browser.className = 'refit-propbrowser';
       const search = propSearchRow();
-      const details = document.createElement('button'); details.type = 'button'; details.className = 'bb sm refit-details-toggle'; details.textContent = 'ITEM DETAILS →';
+      const details = document.createElement('button'); details.type = 'button'; details.className = 'bb sm refit-details-toggle'; details.textContent = 'ABOUT THIS PROP →';
       details.onclick = () => { workspace.classList.add('show-details'); workspace.querySelector('.refit-details-back').focus(); };
       browser.appendChild(search);
       const shelves = document.createElement('div'); shelves.className = 'refit-shelves';
+      const categoryMenu = document.createElement('details'); categoryMenu.className = 'refit-category-menu';
+      const categoryTrigger = document.createElement('summary'); categoryTrigger.id = 'refit-category-trigger';
+      categoryTrigger.innerHTML = '<span class="refit-category-label">CATEGORY</span><b class="refit-category-current"></b><span class="refit-category-arrow" aria-hidden="true">▾</span>';
+      categoryMenu.appendChild(categoryTrigger);
       const catRow = document.createElement('nav'); catRow.className = 'refit-propcats';
       catRow.setAttribute('aria-label', 'Prop categories');
       ['all', ...TIER_ORDER.flatMap(catsForTier)].forEach(g => {
@@ -660,7 +682,7 @@ const Build = (() => {
         b.onclick = () => { propQuery = ''; propCat = g; hidePropCard(); renderPalette(); setHint(); sfx('click'); };
         catRow.appendChild(b);
       });
-      shelves.appendChild(catRow);
+      categoryMenu.appendChild(catRow); shelves.appendChild(categoryMenu);
       const gridHost = document.createElement('div'); gridHost.id = 'refit-propgrid-host';
       shelves.appendChild(gridHost); browser.appendChild(shelves); workspace.appendChild(browser);
       const inspector = document.createElement('aside'); inspector.className = 'refit-propinspector'; inspector.setAttribute('aria-label', 'Selected equipment details');
@@ -996,7 +1018,8 @@ const Build = (() => {
       '<div class="refit-preview-actions">' +
       (canTurn(c.id) ? '<button class="bb xs" type="button" data-preview-turn>↻ TURN · R</button>' : '') +
       (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>' +
-      '<button class="bb refit-primary refit-place-action" type="button" data-preview-place>PLACE ON DECK →</button><span class="refit-placement-note">Click a clear tile to place. Green fits; red is blocked. Esc cancels.</span>';
+      '<div class="refit-placement-actions"><button class="bb refit-primary refit-place-action" type="button" data-preview-place>PLACE PROP →</button><button class="bb" type="button" data-preview-cancel>CANCEL</button></div>' +
+      '<span class="refit-placement-note">Click a clear tile to place · Esc cancels</span>';
     const nativeW = box.w * 12 + 24, nativeH = box.h * 12 + 24;
     const off = document.createElement('canvas'); off.width = nativeW; off.height = nativeH;
     const o = off.getContext('2d'); o.translate(12, 12); o.imageSmoothingEnabled = false;
@@ -1010,9 +1033,11 @@ const Build = (() => {
     if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); setHint(); sfx('click'); };
     if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); setHint(); sfx('click'); };
     host.querySelector('[data-preview-place]').onclick = () => {
-      toggleKit(true); setHint(); hidePropCard();
+      setHint(); hidePropCard();
+      root.querySelector('.refit-propworkspace')?.classList.remove('show-details');
       const deck = root.querySelector('.refit-canvas'); deck.tabIndex = 0; deck.focus({ preventScroll: true });
     };
+    host.querySelector('[data-preview-cancel]').onclick = () => { deselectTool(); root.querySelector('[data-tool="select"]').focus(); };
   }
   // draw every visible preview tile for time `now` (animated). Renders native → fit-blits with nearest-neighbour.
   function paintThumbs(now, all) {
@@ -1447,6 +1472,7 @@ const Build = (() => {
   const CAMERA_KEYS = 'wheel zoom · space-drag pan · ESC deselect';
   function setHint(msg) {
     if (!hintEl) return;
+    hintEl.classList.toggle('is-feedback', !!msg);
     const t = TOOLS.find(x => x.id === tool);
     // SURFACE means three different gestures depending on which surface is targeted — say which
     let verb = (t && t.verb) || (t && t.hint) || '';
@@ -4004,6 +4030,7 @@ const Build = (() => {
        LINES and yanked the camera out from under the card, and Ctrl+Z undid the very stamp that created
        the bay being edited. Only ESC crosses a card — and it closes THAT card (below), never the floor. */
     if (modal && ev.key !== 'Escape') return;
+    if (ev.key === ' ' && a && (a.tagName === 'BUTTON' || a.tagName === 'SUMMARY')) return;
     if (ev.key === ' ') { ev.preventDefault(); spaceHeld = true; setCursor(); return; }
     if (ev.key === 'Escape') {
       // close the TOPMOST card through ITS OWN close path (which saves what that card saves — an unsaved
@@ -4011,6 +4038,10 @@ const Build = (() => {
       // card's own registered path is what does it: `.refit-guide` is shared by eight cards, so matching
       // on it here is what used to mark the guide seen from a step editor and throw the brief away.
       if (modal) { cardClose(modal); return; }
+      const categoryMenu = root.querySelector('.refit-category-menu[open]');
+      if (categoryMenu) { categoryMenu.open = false; categoryMenu.querySelector('summary').focus(); return; }
+      const details = root.querySelector('.refit-propworkspace.show-details');
+      if (details) { details.classList.remove('show-details'); details.querySelector('.refit-details-toggle').focus(); return; }
       if (drag) { releaseDrag(); hideTip(); setCursor(); return; }       // cancel an in-progress edit first
       if (connectFrom) { connectFrom = null; hideTip(); return; }        // then a half-made connection
       if (dupe) { dupe = null; hideTip(); setHint(); return; }           // then the armed copy
@@ -4181,12 +4212,25 @@ const Build = (() => {
     return { dx: dx + (s.x1 - moved.x1), dy: dy + (s.y1 - moved.y1) };
   }
 
+  let propHoverMemo = null;
   function ghostInfo() {
     if (!drag) {
       // DUPE armed: the copy ghosts under the cursor with no drag — every click stamps
       if (tool === 'dupe' && dupe && hoverTile) return dupeGhost(hoverTile.tx, hoverTile.ty);
       // LINES armed: the whole blueprint ghosts under the cursor — click stamps, red stays red
       if (tool === 'line' && hoverTile) return lineGhost(hoverTile.tx, hoverTile.ty);
+      // Show a prop's occupied footprint before the click. Validation is stable while the
+      // pointer, orientation and station stay put; avoid a model walk on every paint frame.
+      if (tool === 'prop' && hoverTile) {
+        const { tx, ty } = hoverTile, facing = propFacing(propType);
+        const key = [geoVer, propType, facing, tx, ty].join('|');
+        if (!propHoverMemo || propHoverMemo.key !== key) {
+          const s = propBox(propType, facing);
+          const rect = { x1: tx, y1: ty, x2: tx + s.w - 1, y2: ty + s.h - 1 };
+          propHoverMemo = { key, ghost: { rects: [rect], v: station.canPlaceProp(propType, tx, ty, s.w, s.h), kind: 'prop', stamp: true } };
+        }
+        return propHoverMemo.ghost;
+      }
       // ROOM / HALLWAY armed: the footprint a CLICK would stamp, previewed under the cursor and
       // validated live — so "what happens if I press here" is answered before you press. A drag
       // from the same tile takes over the moment you move (drag.mode 'draw' below).
@@ -5205,7 +5249,7 @@ const Build = (() => {
     if (!g.belt && !g.move && g.kind !== 'line' && w * h > 1) lines[0] = dims + '   ' + (w * h) + ' TILES';
     if (!ok) lines.push(((g.v && g.v.msg) || 'blocked').toUpperCase());
     // the hover preview teaches BOTH gestures: this size on a click, any size on a drag
-    else if (g.stamp) lines.push('CLICK TO PLACE · DRAG TO SIZE');
+    else if (g.stamp) lines.push(g.kind === 'prop' ? 'CLICK TO PLACE' : 'CLICK TO PLACE · DRAG TO SIZE');
     ghostBadge(t, lines, ok, r0);
     // NOTE: deliberately does NOT hideTip() — flashTip's transient confirmations ("room placed")
     // fire while a ghost is still on screen, and hiding here every frame would eat them instantly.
