@@ -66,3 +66,10 @@ After remaining merges, run Guardian and Beginner Run against the immutable fina
 build/install that candidate, and rerun installed smoke plus affected customer paths. A lane-green
 receipt cannot replace `npm run qa:ready`; the six open P1 reports still block that verdict.
 No production account, cloud deployment, support message, or public release was changed.
+
+## Integration receipt
+
+Merged into `feat/harness-backend` as `62770b1a9` from `94bff3a5f`, with an identical tracked
+tree to the verified lane. Post-merge `npm run test:fast`: **721/721**, exit 0. Existing QA status
+and Rooms handoff edits were preserved. Raw logs and screenshots were archived under
+`.bugloops/release-blockers-0905-merge/` in the integration checkout before worktree cleanup.
