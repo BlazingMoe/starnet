@@ -24,10 +24,17 @@ real configured provider. Group `ws_mtopse4vb5gs` with NOVA, RESEARCHER, ENGINEE
 
 ## Gates
 
-Focused group edge and actual-runOnce HTTP tests passed. Combined pre-merge fast:
-721/721 steps green. Full HTTP and post-merge receipts will be recorded at completion.
+Focused group edge and actual-runOnce HTTP tests passed. Combined pre-merge gates:
+721/721 fast and 99/99 HTTP steps green, exit 0. Merged to `feat/harness-backend` as
+`6002f57f529dcf5e0c257ae4649966efc64de8fd`. Uninterrupted post-merge gates on that
+snapshot also passed 721/721 fast and 99/99 HTTP, exit 0.
 Full manifests run sequentially with an explicit 1,200-second outer deadline; no filters
 or skipped tests. Logs: `dev/group-premerge-fast.log`, `dev/group-premerge-http.log`.
+Post-merge logs: `dev/group-postmerge-fast.log`, `dev/group-postmerge-http.log` in
+the retained group worktree. Existing QA status and Rooms handoff bytes were verified
+unchanged after merge; only this lane's QA digest is appended afterward. Integration
+window released. Preview remains on :9137 with identical production source to the merge;
+the worktree is intentionally retained for user testing. Latest launcher PID 42812.
 
 Scope is feature integration. This is not an installed-app or station-wide release
 certification. No publish or deployment is authorized by these receipts.
