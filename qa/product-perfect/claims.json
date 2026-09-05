@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "7b3bafe6649ca7198017b7f6a4074231910dbe14",
-    "pathSetSha256": "8da0e090e9a9dc29720c32047efb667cd53f48b6fd1c844ad89ff31bc05fef0d",
+    "sourceCommit": "b588b41780377f3801a9bc222b2c902b4447262e",
+    "pathSetSha256": "a67f24fa66e28156a8502f8952917be96c8bc6b819c6c9eac9ba5f6888174137",
     "files": [
       {
         "path": "INSTALL.md",
@@ -908,8 +908,8 @@
       },
       {
         "path": "frontend/app/windows/automation.js",
-        "bytes": 5120,
-        "sha256": "1d32857f7aeed6761541f69e70f39face639a51055468582dbd11d3d7f996eb9"
+        "bytes": 6214,
+        "sha256": "1e9664124d208a52c19e832f7f45504878c5dd1f30695313a905905f47dc7786"
       },
       {
         "path": "frontend/app/windows/connectors.js",
@@ -1103,8 +1103,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 80708,
-        "sha256": "ffafe03cf1f2543efd2636edd539ea1035e06bd5309170f206d7e83891af2044"
+        "bytes": 80761,
+        "sha256": "39e26d20e1938c16857e370b5196300bf549f8075cddb83e5c97fe11d7f4d6b4"
       },
       {
         "path": "frontend/js/arcade.js",
