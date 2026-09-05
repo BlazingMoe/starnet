@@ -319,14 +319,15 @@
         const h = Workstreams.connectorHandoff(ws.id); if (!h) continue;
         const c = connectors.find(x => x.id === h.connectorId);
         const ready = c && c.enabled && c.state === 'up' && !c.authRequired;
-        const supported = ready && (!h.toolName || (c.tools || []).includes(h.toolName));
+        const dormant = c && c.enabled && c.state === 'cached' && !c.authRequired;
+        const supported = dormant || (ready && (!h.toolName || (c.tools || []).includes(h.toolName)));
         const line = document.createElement('div');
         const caption = document.createElement('span');
         caption.textContent = (ws.title || 'Task') + ' · ' + h.connectorId + ' — '
-          + (supported ? 'connection ready. ' : ready ? 'requested operation is unavailable. ' : 'waiting for connection. ');
+          + (dormant ? 'saved connection will be checked. ' : supported ? 'connection ready. ' : ready ? 'requested operation is unavailable. ' : 'waiting for connection. ');
         line.appendChild(caption);
         const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'bb xs';
-        btn.textContent = supported ? 'CONTINUE TASK' : 'RETURN TO TASK';
+        btn.textContent = dormant ? 'CHECK & CONTINUE TASK' : supported ? 'CONTINUE TASK' : 'RETURN TO TASK';
         btn.onclick = async () => {
           if (!supported) { App.openWorkstream(ws.id); return; }
           btn.disabled = true;

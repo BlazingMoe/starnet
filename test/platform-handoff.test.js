@@ -5,6 +5,8 @@ const { continuationScope } = require('../sidecar/connector-continuation.js');
 const { makeBrowserTools } = require('../sidecar/tools/builtin/browser.js');
 const { readGoogleAccount, publicAccount } = require('../sidecar/mcp/account.js');
 const connectorState = require('../sidecar/connectorstate.js');
+const fs = require('node:fs');
+const vm = require('node:vm');
 
 (async () => {
   W.init();
@@ -60,5 +62,26 @@ const connectorState = require('../sidecar/connectorstate.js');
   assert.equal(await readGoogleAccount({ ...identityArgs, fetchImpl: async () => new Response('{"sub":"id","email":"fake@example.com","email_verified":false}') }), null);
   assert.equal(await readGoogleAccount({ ...identityArgs, timeoutMs: 5, fetchImpl: async () => ({ ok: true, text: () => new Promise(() => {}) }) }), null, 'body stalls are bounded');
   assert.equal(await readGoogleAccount({ ...identityArgs, fetchImpl: async () => new Response('x'.repeat(9000)) }), null, 'oversized identity is rejected');
+  // Execute the production continuation handler with a sleeping connector and concurrent user clicks.
+  W.init();
+  const cw = W.create('Idle connector task', { agentId: 'nova' }); W.appendRun(cw.id, 'idle-source');
+  const handoff = { connectorId: 'gmail', agentId: 'nova', runId: 'idle-source', toolName: 'list_messages' };
+  W.setConnectorHandoff(cw.id, handoff);
+  const src = fs.readFileSync(require.resolve('../frontend/app/chat.js'), 'utf8');
+  const handler = src.slice(src.indexOf('  async function continueConnectorTask('), src.indexOf('  function offerTryAgain('));
+  let refreshed = 0, dispatched = 0, connectionState = 'cached', rejected = false;
+  const context = { Workstreams: W, Channels: { isBusy: () => false }, connectorContinuing: new Set(),
+    App: { openWorkstream() {}, persist() {} }, StationUI: { notify() {} },
+    Harness: { api: { get: async () => ({ connectors: [{ id: 'gmail', enabled: true, state: connectionState, authRequired: rejected, tools: ['list_messages'] }] }),
+      post: async (url, body) => { assert.equal(url, '/api/connectors/refresh'); assert.equal(body.id, 'gmail'); refreshed++; connectionState = 'up'; } } },
+    send: async (text, opts) => { assert.equal(opts.connectorContinuationOf, 'idle-source'); dispatched++; W.appendRun(cw.id, 'continued'); } };
+  const expression = 'continueConnectorTask(' + JSON.stringify(cw.id) + ')';
+  const results = await vm.runInNewContext(handler + '; Promise.all([' + expression + ',' + expression + '])', context);
+  assert.equal(results[0], true); assert.equal(results[1], false);
+  assert.equal(refreshed, 1, 'cached connection wakes once'); assert.equal(dispatched, 1, 'double click dispatches once');
+  W.get(cw.id).runIds = ['idle-source']; W.setConnectorHandoff(cw.id, handoff); rejected = true;
+  assert.equal(await vm.runInNewContext(handler + ';' + expression, context), false);
+  assert.equal(dispatched, 1, 'revoked connection cannot continue');
+  assert.ok(W.connectorHandoff(cw.id), 'failed recheck retains the task');
   console.log('platform-handoff.test: passed (restart, task/agent binding, write scope, contention, cancellation, timeout)');
 })().catch(e => { console.error(e); process.exitCode = 1; });

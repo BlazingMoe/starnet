@@ -6356,8 +6356,13 @@ const Chat = (() => {
     if (!ws || !h || connectorContinuing.has(streamId) || Channels.isBusy(streamId)) return false;
     connectorContinuing.add(streamId);
     try {
-      const j = await Harness.api.get('/api/connectors');
-      const c = (j.connectors || []).find(x => x.id === h.connectorId);
+      let j = await Harness.api.get('/api/connectors');
+      let c = (j.connectors || []).find(x => x.id === h.connectorId);
+      if (c && c.enabled && c.state === 'cached' && !c.authRequired) {
+        await Harness.api.post('/api/connectors/refresh', { id: h.connectorId });
+        j = await Harness.api.get('/api/connectors');
+        c = (j.connectors || []).find(x => x.id === h.connectorId);
+      }
       if (!c || c.state !== 'up' || !c.enabled || c.authRequired) throw new Error('Connect ' + h.connectorId + ' before continuing.');
       if (h.toolName && !(c.tools || []).includes(h.toolName)) throw new Error('This connection does not offer the operation the task requested. Inspect its tools in ABILITIES.');
       if (Workstreams.connectorHandoff(streamId) !== h || Channels.isBusy(streamId)) return false;
