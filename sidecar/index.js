@@ -577,6 +577,7 @@ const RUNTIME_KNOBS_FILE = path.join(WORKSPACES, 'runtime.knobs.json');
    fall back to their ephemeral per-run profile (browsing works, just signed out). */
 const BROWSER_PROFILE_DIR = path.join(WORKSPACES, '.browser-profile');
 let browserProfileHolder = null;   // runId of the run whose browser currently owns the durable profile
+const browserProfileWaiters = new Set();
 function browserProfileLeaseFor(runId) {
   return {
     dir: BROWSER_PROFILE_DIR,
@@ -10644,12 +10645,12 @@ async function handleToolsetToggle(req, res) {
    protected sibling file, and NEVER echoed back (list/status carry `hasToken` only, never the value). ---- */
 function connectedConnectorSnapshot() {
   return connectors.list().map(c => c && c.oauth
-    ? Object.assign({}, c, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken) })
+    ? Object.assign({}, c, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken), account: require('./mcp/account.js').publicAccount(connectorOauth.byId[c.id]) })
     : c);
 }
 function handleConnectorsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot() }));
+  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot(), browserSession: { busy: !!browserProfileHolder, waitingRunIds: Array.from(browserProfileWaiters) } }));
 }
 /* ---- /api/servicekeys: the KEYS tab's custom platform keys. The value is accepted on POST, persisted to the
    protected sibling file, applied to process.env, and NEVER echoed back (the list carries a masked last4). ---- */
@@ -11099,6 +11100,8 @@ async function handleConnectorOauthCallback(req, res) {
       scope: tok.scope, tokenType: tok.tokenType, clientId: pending.clientId, clientSecret: pending.clientSecret,
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, tokenEndpoint: pending.tokenEndpoint,
       authorizationServer: pending.authorizationServer, resource: pending.resource, at: Date.now() };
+    oauthEntry.account = await require('./mcp/account.js').readGoogleAccount({ authorizationServer: pending.authorizationServer,
+      tokenEndpoint: pending.tokenEndpoint, accessToken: tok.accessToken, fetchImpl: connectorOauthFetch, now: Date.now() });
     // FAIL THE SIGN-IN LOUDLY if the exchanged tokens can't be proven on disk (read-back + retry). A silent persist
     // failure would leave the connector unsigned + the DCR clientId orphaned on the NEXT boot while the popup lied
     // "connected" — never assert durable state the harness can't prove. Roll the in-memory entry back so this session
@@ -14315,6 +14318,14 @@ async function handleRun(req, res) {
   const reasoningEffort = resolveReasoningEffort(runProvider, body && (body.reasoningEffort || body.reasoning_effort || (body.reasoning && body.reasoning.effort)));
   const preloadSkills = Array.isArray(body && body.preloadSkills) ? body.preloadSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8) : [];
   const streamId = (body && body.streamId && /^[A-Za-z0-9_-]{1,64}$/.test(String(body.streamId))) ? String(body.streamId) : null;   // M-mem.2b: the active workstream (bounded; bad → global)
+  let connectorContinuationScope = null;
+  try {
+    connectorContinuationScope = require('./connector-continuation.js').continuationScope(
+      body && body.connectorContinuationOf ? runStore.all() : [], body && body.connectorContinuationOf, agentId, streamId);
+  } catch (e) {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: e.message }));
+  }
   const recipeId = (body && body.recipeId && /^[A-Za-z0-9_-]{1,60}$/.test(String(body.recipeId))) ? String(body.recipeId) : null;   // provenance spine (lane A): the launching recipe (bounded; bad → none, never a crash)
   // PROJECT-SCOPED SESSION (ref-parity): an anchored session sends its projectRoot; the folder context line
   // is injected ONLY when that root is STILL a standing blessed path grant (isBlessedRoot — the same live check
@@ -14509,6 +14520,8 @@ async function handleRun(req, res) {
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
+      idempotencyScope: connectorContinuationScope,
+      parentRunId: connectorContinuationScope ? body.connectorContinuationOf : undefined,
       askCommander,            // in-turn clarify: brief.ask blocks + resumes the SAME turn on this watched surface
 
       streamId,        // M-mem.2b: scope this run's working memory + recall boost to the active workstream
@@ -14983,7 +14996,7 @@ async function runOnce(o) {
   // serviceKeys dep is a THUNK, not the array: `serviceKeys` is reassigned on every KEYS edit, so capturing the
   // value here would freeze the tool on the list as it stood when the run started.
   makeConnectorTools({
-    connectors: connectors,
+    connectors: { list: connectedConnectorSnapshot },
     serviceKeys: () => serviceKeys,
     connectorCatalog: connectorCatalog,
     keysCatalog: serviceKeysCatalog
@@ -15045,6 +15058,7 @@ async function runOnce(o) {
     // loginPrompt, so browser.login refuses honestly there. The prompt rides the SAME fail-closed
     // permission.prompt consent channel as file writes (auto-deny on timeout/disconnect).
     persistentProfile: browserProfileLeaseFor(runId),
+    onProfileWait: waiting => { if (waiting) browserProfileWaiters.add(runId); else browserProfileWaiters.delete(runId); },
     attendedLogin: (surface === 'interactive' && typeof o.loginPrompt === 'function') ? { prompt: o.loginPrompt } : null,
     requireOwnedServer: true,
     ownsLocalUrl: async ({ url, serverId, agentId: owner }) => {

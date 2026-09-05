@@ -403,7 +403,7 @@ async function readNdjson(res) {
     A.eq(googleAuth.searchParams.get('client_id'), googleClientId, 'Google authorization uses the saved client id');
     A.eq(googleAuth.searchParams.get('redirect_uri'), B + '/api/connectors/oauth/callback', 'Google authorization uses the exact live sidecar callback');
     A.eq(googleAuth.searchParams.get('access_type'), 'offline', 'Google authorization requests durable offline access');
-    A.eq(googleAuth.searchParams.get('prompt'), 'consent', 'Google authorization requests a refresh-token-bearing consent');
+    A.eq(googleAuth.searchParams.get('prompt'), 'consent select_account', 'Google authorization requests refresh-token consent and explicit account selection');
     A.ok(/gmail\.readonly/.test(googleAuth.searchParams.get('scope') || '') && /gmail\.compose/.test(googleAuth.searchParams.get('scope') || ''), 'Google authorization requests the Gmail read + draft scopes');
     A.ok(!googleAuth.searchParams.has('resource'), 'Google authorization omits the RFC 8707 resource parameter its endpoint does not use');
     A.ok(googleAuth.searchParams.get('state') && googleAuth.searchParams.get('code_challenge_method') === 'S256', 'Google authorization carries CSRF state and PKCE S256');

@@ -1308,8 +1308,8 @@ function fakeDriver() {
       const seam2 = mkSeam();
       const held = mkLease(); held.ok = false;
       const B3 = makeBrowserTools({ makeDriver: seam2.makeDriver, forceHeadless: true, profileDir: '/ephemeral', persistentProfile: held.profile });
-      await B3.session.navigate('https://example.com');
-      A.eq(seam2.made[0].profileDir, '/ephemeral', 'a held lease falls back to the ephemeral per-run profile');
+        await rejects(B3.session.navigate('https://example.com'), /in use by another agent run/, 'a held lease cannot silently replace saved logins');
+        A.eq(seam2.made.length, 0, 'contention does not launch an unsigned browser');
     }
 
     // 11. browser.login carries a long tool timeout (it wraps two human-paced consent waits).

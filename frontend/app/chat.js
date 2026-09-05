@@ -1233,6 +1233,11 @@ const Chat = (() => {
     stick = true; hideNewPill();   // a freshly-loaded / switched-to stream starts pinned to its latest line
     renderHistory();
     restoreTaskQuestion(activeWs);   // restart/switch continuity: re-present a real still-unanswered durable brief
+    if (activeWs && !taskQuestionLive() && typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(activeWs.id)) {
+      const h = Workstreams.connectorHandoff(activeWs.id);
+      const door = Friendly.connectorDoor(h);
+      if (door) choices([{ label: '⇄ CONNECT / CONTINUE TASK', value: 'connect' }], () => door.run());
+    }
     replayChannel();   // re-render an in-flight stream we left running: tool lines / partial reply / pending approval
     syncStatus();      // also paints the Stop control + this stream's queued pills (updateControls)
     maybeEmptyState();   // brand-new / empty + idle stream → a one-line hint instead of a blank void
@@ -1985,6 +1990,19 @@ const Chat = (() => {
     // expand detail only (kept below) — the chip head is clean.
     const args = document.createElement('span'); args.className = 'tc-args'; args.textContent = flav ? '' : argDigest(ev.argsSummary);
     const stat = document.createElement('span'); stat.className = 'tc-stat'; stat.textContent = '';   // filled by resolveChip
+    if (/^browser\./.test(ev.name || '') && ev.runId) {
+      stat.setAttribute('aria-live', 'polite');
+      const checkWait = async () => {
+        if (!chip.isConnected || !chip.classList.contains('pending')) return;
+        try {
+          const j = await Harness.api.get('/api/connectors');
+          if (!chip.isConnected || !chip.classList.contains('pending')) return;
+          stat.textContent = (j.browserSession?.waitingRunIds || []).includes(ev.runId) ? 'Waiting for browser session…' : '';
+        } catch (_) { if (chip.classList.contains('pending')) stat.textContent = ''; }
+        if (chip.isConnected && chip.classList.contains('pending')) setTimeout(checkWait, 1000);
+      };
+      setTimeout(checkWait, 500);
+    }
     const exp = document.createElement('span'); exp.className = 'tc-exp'; exp.setAttribute('aria-hidden', 'true'); exp.textContent = '▸';   // disclosure chevron (rotates when open)
     head.appendChild(glyph); head.appendChild(nm); if (args.textContent) head.appendChild(args); head.appendChild(stat); head.appendChild(exp);
     const detail = document.createElement('div'); detail.className = 'tc-detail';
@@ -6367,14 +6385,55 @@ const Chat = (() => {
     });
   }
   // returns true iff a chip was rendered (the bool aids testing)
-  function offerConnectorDoor(runId) {
-    if (!log || !runId) return false;
+  function offerConnectorDoor(runId, originWs) {
+    if (!runId) return false;
     const ev = CONNECTOR_NEEDED.get(runId); if (!ev) return false;
     CONNECTOR_NEEDED.delete(runId);
+    const ws = originWs || activeWs;
+    if (ws && typeof Workstreams !== 'undefined') {
+      Workstreams.setConnectorHandoff(ws.id, Object.assign({}, ev, { agentId: ws.agentId || 'agent' }));
+      App.persist();
+    }
+    if (!log || !isActiveWs(ws)) return false;
     const door = (typeof Friendly !== 'undefined' && Friendly.connectorDoor) ? Friendly.connectorDoor(ev) : null;
     if (!door) return false;
     choices([{ label: door.label, value: 'connect' }], () => door.run());
     return true;
+  }
+  // An explicit continuation carries existing history, unlike retryLast(), which repeats the user turn.
+  // The connector is re-read on click; no OAuth callback can start work or change the originating agent.
+  const connectorContinuing = new Set();
+  async function continueConnectorTask(streamId) {
+    const ws = Workstreams.get(streamId), h = Workstreams.connectorHandoff(streamId);
+    if (!ws || !h || connectorContinuing.has(streamId) || Channels.isBusy(streamId)) return false;
+    connectorContinuing.add(streamId);
+    try {
+      let j = await Harness.api.get('/api/connectors');
+      let c = (j.connectors || []).find(x => x.id === h.connectorId);
+      if (c && c.enabled && c.state === 'cached' && !c.authRequired) {
+        await Harness.api.post('/api/connectors/refresh', { id: h.connectorId });
+        j = await Harness.api.get('/api/connectors');
+        c = (j.connectors || []).find(x => x.id === h.connectorId);
+      }
+      if (!c || c.state !== 'up' || !c.enabled || c.authRequired) throw new Error('Connect ' + h.connectorId + ' before continuing.');
+      if (h.toolName && !(c.tools || []).includes(h.toolName)) throw new Error('This connection does not offer the operation the task requested. Inspect its tools in ABILITIES.');
+      if (Workstreams.connectorHandoff(streamId) !== h || Channels.isBusy(streamId)) return false;
+      App.openWorkstream(streamId);
+      Workstreams.setConnectorHandoff(streamId, null);
+      App.persist();
+      await send('Continue the task above using the connected ' + h.connectorId + ' service. Check the account and available operations first. Use the existing results and do not repeat completed actions.', { connectorContinuationOf: h.runId });
+      if (ws.runIds[ws.runIds.length - 1] === h.runId) {
+        Workstreams.setConnectorHandoff(streamId, h); App.persist();
+        return false;   // request never started; keep the user's return path
+      }
+      return true;
+    } catch (e) {
+      if (ws.runIds[ws.runIds.length - 1] === h.runId && !Channels.isBusy(streamId) && !Workstreams.connectorHandoff(streamId)) {
+        Workstreams.setConnectorHandoff(streamId, h); App.persist();
+      }
+      if (typeof StationUI !== 'undefined') StationUI.notify(e.message || 'Could not verify the connection. Try again.', 'warn');
+      return false;
+    } finally { connectorContinuing.delete(streamId); }
   }
   function offerTryAgain() {
     choices([{ label: '↻ Try again', value: 'retry' }], () => retryLast());
@@ -7912,6 +7971,7 @@ const Chat = (() => {
     const routedTaskReply = pending && typeof TaskIntent !== 'undefined' && TaskIntent.routeReply ? TaskIntent.routeReply(text) : null;
     const taskAction = (opts && opts.taskAction) || (routedTaskReply && routedTaskReply.action) || '';
     if (Channels.isBusy(ws.id)) return;   // one run per stream — but OTHER streams may be running concurrently
+    if (typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(ws.id)) Workstreams.setConnectorHandoff(ws.id, null);
     warmChat();   // D1 WARMTH: sending to the focused stream is real engagement — keep the chat-stare alive
     // FIRST-TURN TITLE UPGRADE: is THIS the stream's first user turn (still on its machine-derived placeholder)?
     // Captured BEFORE we push this message, so after the run lands we can replace the truncated first-sentence
@@ -8087,6 +8147,7 @@ const Chat = (() => {
         taskAction: taskAction || undefined,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
         recovery: recoveryResume ? opts.recovery : undefined,
+        connectorContinuationOf: opts && opts.connectorContinuationOf,
         recipeId: recipeId || undefined,   // provenance spine: the launching recipe rides to the durable run row (undefined for non-recipe runs)
         projectRoot: ws.projectRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
@@ -8241,7 +8302,7 @@ const Chat = (() => {
         }
         // a CLEAN end that hit an unwired connector mid-run: the reply already says "not connected" — the chip is
         // the door. Only on a clean end: a stopped run owns the slot with its retry/budget chip above.
-        if (isActiveWs(ws) && !taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId);
+        if (!taskQuestion && (!endReason || endReason === 'done')) offerConnectorDoor(thisRunId, ws);
         // GOLDEN-RUN DRIFT (2026-08-22): a recipe-launched run is compared by the sidecar against that recipe's own
         // good history; a drifted run is a failure class, so it earns the bell ONCE (keyed by the run). The durable
         // row lands a beat after run end, so the read waits; it is advisory and never blocks the turn.
@@ -8661,5 +8722,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();
