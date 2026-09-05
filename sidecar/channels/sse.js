@@ -78,7 +78,14 @@ const SSE_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 // Pure + exported so the exact browser-visible wire contract stays unit-testable.
 function formatKeepalive() { return 'data: {}\n\n'; }
 
-function makeSseHub() {
+function makeSseHub(options) {
+  const o = options || {};
+  const epoch = String(o.epoch || 'local').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 80);
+  const maxEvents = Math.max(1, Math.min(2048, Number(o.maxEvents) || 1024));
+  const maxBytes = Math.max(256, Math.min(4 * 1024 * 1024, Number(o.maxBytes) || 2 * 1024 * 1024));
+  let sequence = 0, bytes = 0;
+  const history = [];
+  const cursor = () => epoch + ':' + sequence;
   const clients = new Set();
 
   // SSE wire frame: one event per `data:` line, terminated by a blank line.
@@ -87,6 +94,29 @@ function makeSseHub() {
   function add(res) { clients.add(res); return () => clients.delete(res); }
   function remove(res) { return clients.delete(res); }
   function size() { return clients.size; }
+
+  function write(res, frame) {
+    try {
+      const ok = res.write(frame);
+      if (ok === false && Number(res.writableLength) > SSE_MAX_BUFFER_BYTES) { evict(res); return false; }
+      return true;
+    } catch (_) { evict(res); return false; }
+  }
+
+  // Called synchronously after add: replay and live broadcasts cannot interleave. Control frames
+  // are transport metadata, never product events. A restart/expired cursor requires a snapshot.
+  function resume(res, lastId) {
+    const raw = String(lastId || '');
+    const prefix = epoch + ':';
+    const tail = raw.startsWith(prefix) ? raw.slice(prefix.length) : '';
+    const n = /^\d+$/.test(tail) ? Number(tail) : -1;
+    const oldest = history.length ? history[0].sequence : sequence + 1;
+    const valid = Number.isSafeInteger(n) && n >= oldest - 1 && n <= sequence;
+    if (valid) for (const row of history) {
+      if (row.sequence > n && row.frame && !write(res, row.frame)) return false;
+    }
+    return write(res, 'id: ' + cursor() + '\ndata: ' + JSON.stringify({ stream: 'ready', cursor: cursor(), reset: !valid }) + '\n\n');
+  }
 
   // Hard-evict a backpressured/dead client: drop it from the set, then best-effort end+destroy the socket so the
   // buffered bytes are released (a plain delete would leave Node still holding the write buffer alive).
@@ -98,8 +128,13 @@ function makeSseHub() {
 
   // returns how many clients the event actually reached (dead/backpressured clients are dropped, not counted).
   function broadcast(name, payload) {
-    if (!clients.size) return 0;
-    const line = format(name, payload);
+    const line = 'id: ' + epoch + ':' + (++sequence) + '\n' + format(name, payload);
+    // Commands may already have timed out or executed. Reconnect restores observations,
+    // never retries a renderer mutation. Keep a sequence tombstone so cursors remain valid.
+    const replayable = name !== 'station.command';
+    const length = replayable ? Buffer.byteLength(line, 'utf8') : 0;
+    history.push({ sequence, frame: replayable ? line : null, bytes: length }); bytes += length;
+    while (history.length && (history.length > maxEvents || bytes > maxBytes)) bytes -= history.shift().bytes;
     let n = 0;
     for (const res of clients) {
       let ok;
@@ -126,7 +161,7 @@ function makeSseHub() {
     return true;
   }
 
-  return { add, remove, size, broadcast, keepalive, format, _internals: { SSE_MAX_BUFFER_BYTES } };
+  return { add, remove, size, broadcast, keepalive, format, resume, cursor, _internals: { SSE_MAX_BUFFER_BYTES } };
 }
 
 module.exports = { makeSseHub, runTeeView, formatKeepalive };

@@ -3701,7 +3701,7 @@ async function refreshOAuthTokensOnce(id, entry) {
 // channel.* / workitem.* / queue.* telemetry: validated + redacted, logged to the sidecar console AND
 // forwarded to open browser EventSources (the station HUD). The bot token / OR key are NEVER placed on a
 // payload — nothing to leak here — and redact() runs before validate() as a second backstop.
-const sse = makeSseHub();
+const sse = makeSseHub({ epoch: crypto.randomUUID() });
 // Full-payload channel logging is opt-in (STARNET_DEBUG_CHANNELS=1): every COMMS/workitem/queue event
 // otherwise printed a whole JSON line to stdout on normal operation. Default = event name only.
 const DEBUG_CHANNEL_LOGS = String(process.env.STARNET_DEBUG_CHANNELS || '') === '1';
@@ -9490,6 +9490,7 @@ function handleChannelEvents(req, res) {
   });
   try { res.write('retry: 3000\n\n'); } catch (_) {}        // EventSource auto-reconnects after 3s if dropped
   sse.add(res);
+  if (!sse.resume(res, req.headers['last-event-id'] || new URL(req.url, 'http://localhost').searchParams.get('cursor'))) return;
   const done = () => { clearInterval(ka); sse.remove(res); };   // evict on disconnect — mirrors /api/run cleanup; idempotent
   // DATA (not an SSE comment): EventSource hides comments from JS, so the old `: ka` kept TCP open
   // while world.js truthfully aged the unobservable link to LINK DOWN. The hub emits an empty JSON
