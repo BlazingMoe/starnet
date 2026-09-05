@@ -1,4 +1,4 @@
-# HANDOFF — agent group chats (state as of 2026-09-04, evening)
+# HANDOFF — agent group chats (state as of 2026-09-05)
 
 Read this, then `docs/HANDOFF_GROUP_DM_2026-09-04.md` (build + UI-pass detail) and, for the
 bigger design, `C:\Users\andro\Desktop\gen\docs\HANDOFF_ROOMS_2026-09-04.md` (untracked on trunk).
@@ -7,8 +7,8 @@ bigger design, `C:\Users\andro\Desktop\gen\docs\HANDOFF_ROOMS_2026-09-04.md` (un
 
 | Thing | Location | State |
 |---|---|---|
-| Built group chat | branch `agent/group-dm-plan-0904`, worktree `C:\Users\andro\gen-trees\group-dm-plan-0904` | HEAD `18cf4c67a`, clean, `npm run test:fast` 702 GREEN (`dev/group-ui-fast.log`) |
-| UI pass | `8931f86d3` + relock `18cf4c67a` | live-verified on :9137 |
+| Built group chat | branch `agent/group-dm-plan-0904`, worktree `C:\Users\andro\gen-trees\group-dm-plan-0904` | HEAD `65036d0af`, clean, `npm run test:fast` 702 GREEN (`dev/group-names-fast.log`) |
+| UI passes | `8931f86d3` transcript polish · `d6c818c30` picker rebuild + top-bar revert · `4b2da7cb4` names row, each followed by a claims relock | all live-verified on :9137; Andrew saw the picker + names row |
 | Trunk | `feat/harness-backend` @ `15eaad159` | does NOT contain any of this |
 | Rooms design (bigger model) | artifact + `docs/HANDOFF_ROOMS_2026-09-04.md` | design only, nothing built |
 
@@ -33,6 +33,33 @@ test" has NOVA, RESEARCHER, ENGINEER and the proof transcript.
 2. Agent-to-agent is a single sequential handoff. No hop cap, no `@all`, no parallel turns, no
    per-room $ cap, no origin-id loop guard. That is Rooms P2 in the Rooms handoff.
 3. Unaddressed messages go to the lead (`leadId`), which is the first/previous agent.
+
+## Andrew's verdicts on 09-04/05 (binding)
+
+- "I hate the UI for the add agents" -> REBUILT as two plain lists (IN THIS CHAT / ADD TO THIS
+  CHAT), LEAD badge, delta footer, SAVE disabled until changed, START GROUP CHAT from a direct chat.
+- "I actually liked the top bar before you changed it" -> the identity PILL was REVERTED. The
+  `▪ NAME ▪ NAME · N agents · + Add agents` row is the keeper. Do not re-pill it.
+- "not a huge fan of the scroll wheel" -> names row is ONE ellipsized line, no scrollbar; hover =
+  station tip with all names, click = picker.
+
+## Grok Bot comparison (Andrew asked 09-05) — inspiration queue, cheapest first
+
+Grok Bot (xAI, beta 2026-08-11): named persistent bots, DMs + group chats of 2-6, @mention pulls a
+bot in mid-conversation, bots coordinate on their own and "pass ownership", user pulled in only for
+judgment calls, per-bot status idle/thinking/working/waiting/blocked/done, bots nudge stalled handoffs.
+StarNet matches the shape; the gap is FREE agent-to-agent coordination with ownership (= Rooms P2).
+
+1. OWNERSHIP IN THE HEADER — `· engineer has it` after the names; the turn queue already knows.
+   A handoff renders as an ownership transfer line.
+2. @ A CREW MEMBER NOT IN THE CHAT — autocomplete offers them with `+ ADD` (one keystroke pull-in).
+3. SIX-PER-GROUP SOFT CAP — picker hint "works best with up to 6", never a block.
+4. JUDGMENT CALLS AS A CHOICE CARD — route an agent's question through the Task Brief `brief.ask`
+   path so the Commander gets a one-tap choice in the group.
+5. STALLED HANDOFF NUDGE — handoff unanswered past a threshold => lead gets one nudge turn
+   (Hermes stall monitor: 450s idle / 1200s in-tool).
+6. STATUS WORDS `blocked` (waiting on Commander) and `done` (chain finished) in the state row.
+Items 1-3 are an afternoon each on this branch. 4-6 ride Rooms P2.
 
 ## Andrew's locked UI law for this feature
 
