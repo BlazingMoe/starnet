@@ -249,6 +249,7 @@ const RecommendationEval = require('./recommendation-eval.js');
 const { makeRecommendationLedger } = Recommendation; // one cross-surface recommendation/verdict lifecycle + shared utility ranker
 const { makePersonalizationStore } = require('./personalization-store.js'); // one durable pause/forget authority for every derived recommender
 const { makeTaskBriefStore } = require('./taskbrief-store.js'); // durable original request + visible task decisions
+const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
@@ -1799,6 +1800,11 @@ const taskBriefStore = makeTaskBriefStore({
   onRecover: (key, file) => console.warn('[taskbrief] recovered ' + file + ' from .bak last-known-good after a torn/corrupt main.'),
   onCorrupt: (key, file) => quarantineCorrupt(file, 'taskbrief'),
   warn: (...args) => console.warn.apply(console, args)
+});
+const workflowTakeoverStore = WorkflowTakeover.makeWorkflowTakeoverStore({
+  fs, path, workspaces: WORKSPACES, writeDurable: writeFileDurable,
+  onRecover: (key, file) => console.warn('[workflow-takeover] recovered ' + file),
+  onCorrupt: (key, file) => quarantineCorrupt(file, 'workflow-takeover')
 });
 // No sidecar workshop opener exists: API possession is never a user gesture.
 // honest run-liveness for the workshop zombie-claim reclaim: a runId is live iff its controller is still in the
@@ -5878,6 +5884,29 @@ function handleRecommendationsEval(req, res) {
     json(200, { ok: true, evaluation: RecommendationEval.evaluate(rows, Object.assign({ now: Date.now() }, surface ? { surface } : {})) });
   } catch (e) { json(200, { ok: false, error: (e && e.message) || 'recommendation eval failed' }); }
 }
+function workflowTakeoverCandidates(ignoreOffers) {
+  const state = workflowTakeoverStore.read();
+  const saved = saveStore.load('agent') || null;
+  const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
+  return WorkflowTakeover.candidates({ briefs: taskBriefStore.list({ limit: 500 }), runs: runStore.all(), jobs: cronJobs,
+    ratings: growthRatings.list({ limit: 500, epoch }),
+    state: ignoreOffers ? Object.assign({}, state, { decisions: state.decisions.filter(d => d.never) }) : state,
+    enabled: personalizationStore.read().enabled, now: Date.now(), redact });
+}
+async function handleWorkflowTakeovers(req, res) {
+  const json = (code, body) => respondJson(res, code, body);
+  try {
+    if (req.method === 'GET') return json(200, { ok: true, candidates: workflowTakeoverCandidates(false) });
+    const body = JSON.parse(await readBody(req, 4096, res));
+    if (!body || !['shown', 'defer', 'never', 'review'].includes(body.action)) return json(400, { ok: false, error: 'invalid workflow decision' });
+    const c = workflowTakeoverCandidates(body.action !== 'shown').find(c => c.id === body.id);
+    if (!c) return json(409, { ok: false, error: 'This workflow is no longer available. Refresh before setting it up.' });
+    await workflowTakeoverStore.decide(c.id, body.action, Date.now());
+    return json(200, { ok: true, candidate: body.action === 'review' ? c : undefined });
+  } catch (e) {
+    if (!res.headersSent) json(400, { ok: false, error: 'Could not read or save the workflow offer.' });
+  }
+}
 function handleRecommendationsGet(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   try {
@@ -5942,6 +5971,7 @@ async function handlePersonalization(req, res) {
     nightshiftLearn = {}; try { saveResilient(NIGHTSHIFT_LEARN_FILE, { v: 1, learn: {} }); } catch (_) {}
     studyDeclinedByAgent.clear(); persistStudyState();
     await recommendationLedger.clear();
+    await workflowTakeoverStore.forget(Date.now());
     const s = await personalizationStore.markForgotten(Date.now());
     return json(200, { ok: true, enabled: s.enabled, revision: s.revision, inventory: personalizationInventory(),
       preserved: ['commander dossier', 'explicit goals', 'open threads', 'projects', 'task history'] });
@@ -8913,6 +8943,7 @@ const ROUTES = [
   { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
   { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
+  { m: ['GET', 'POST'], qsplit: '/api/workflow-takeovers', h: handleWorkflowTakeovers },
   { m: 'GET', qsplit: '/api/recommendations', h: handleRecommendationsGet },
   { m: 'POST', exact: '/api/recommendations', h: handleRecommendationsPost },
   { m: ['GET', 'POST', 'DELETE'], exact: '/api/personalization', h: handlePersonalization },
@@ -11440,6 +11471,13 @@ function handleCronCreate(req, res) {
 async function createCronJobFromSpec(body) {
   body = body || {};
   const out = (status, obj) => ({ status: status, body: obj });
+  const takeoverId = body.meta && body.meta.workflowTakeoverId;
+  if (takeoverId) {
+    const existing = cronJobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
+    if (existing) return out(200, { ok: true, duplicate: true, job: existing });
+    if (!workflowTakeoverCandidates(true).some(c => c.id === takeoverId))
+      return out(409, { error: 'This workflow offer is no longer current. Review the task before scheduling it.' });
+  }
   // TZ HONESTY (additive, G4.1 parity with /api/cron/preview): honor an optional IANA `body.tz` so a wall-clock
   // schedule ("0 9 * * *") fires on the caller's LOCAL 9:00 instead of the host-default (UTC-or-SKYNET_CRON_TZ).
   // A tz-less body resolves under the host default exactly as before (no signature break, no behavior change for
@@ -11483,9 +11521,13 @@ async function createCronJobFromSpec(body) {
   if (gate.dup) return out(200, { ok: true, duplicate: true, job: gate.dup, message: mintLedger.ANTI_RETRY });
   if (gate.reason === 'declined') return out(200, { ok: false, declined: true, message: mintLedger.ANTI_RETRY });
   const id = crypto.randomUUID();
+  let takeoverDuplicate = null;
   try {
     // G4.3: re-read-modify-write UNDER the cron lock so a concurrent advance/CRUD save is not clobbered.
-    await withCronWrite(jobs => cronStore.createJob(jobs, {
+    await withCronWrite(jobs => {
+      takeoverDuplicate = takeoverId && jobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
+      if (takeoverDuplicate) return jobs;
+      return cronStore.createJob(jobs, {
       id: id, name: body.name, prompt: body.prompt, schedule: schedule,
       agentId: agentId, model: body.model, provider: provider, deliver: body.deliver,
       enabled: body.enabled, repeat: body.repeat,
@@ -11510,8 +11552,10 @@ async function createCronJobFromSpec(body) {
       // R3: pass through the caller-supplied provenance bag ({ recipeId } from MAKE ROUTINE). cron-store normMeta
       // keeps only a plain object; absent → null. Additive — no existing caller sends it and old jobs load fine.
       meta: body.meta
-    }, { id: id, now: Date.now(), defaultTz: CRON_HOST_TZ }));
+    }, { id: id, now: Date.now(), defaultTz: CRON_HOST_TZ });
+    });
   } catch (e) { return out(500, { error: 'could not save the routine: ' + ((e && e.message) || e) }); }
+  if (takeoverDuplicate) return out(200, { ok: true, duplicate: true, job: takeoverDuplicate });
   recordMint(agentId, { name: body.name, kind: 'routine' });   // W6: log the creation in the agent's ledger
   return out(200, { ok: true, job: cronStore.getJob(cronJobs, id) });
 }

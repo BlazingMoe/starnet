@@ -14,6 +14,30 @@
    - Composite vars that reference vars live on `body` — none are declared here.
    - No new motion vocabulary: --t-* / --ease-* tokens only, one reduced-motion block at the end. */
 
+/* Cockpit structure sits below the world and active controls in brightness. */
+#topbar, #left, #chat-panel, #bottombar {
+  box-shadow: 0 0 0 1px rgba(var(--ph-rgb), .48),
+    0 0 0 3px rgba(0,0,0,.9), 0 10px 26px rgba(0,0,0,.65),
+    inset 0 1px 0 rgba(var(--ph-bright-rgb), .08);
+}
+#left h3, #chat-panel h3, #left h3 #crew-hide { color: var(--ph-bright); }
+#left:focus-within, #chat-panel:focus-within {
+  outline: 1px solid rgba(var(--ph-rgb), .72); outline-offset: 1px;
+}
+.ws-title, .refit-propcat { letter-spacing: .4px; }
+.crew-status { font-size: 14px; opacity: .88; line-height: 1.25; }
+.crew-room { font-size: 12px; letter-spacing: .4px; }
+.refit-matname { font-size: 12px; line-height: 1.2; }
+.refit-propcat { font-size: 13px; }
+.refit-selectnote, .refit-searchnote { font-size: 14px; letter-spacing: .4px; line-height: 1.4; }
+#crew-sum { font-size: 13px; }
+#chat-panel .comms-idbar { letter-spacing: .5px; }
+@media (max-width: 1100px) {
+  .ws-head { padding-inline: 5px; gap: 4px; }
+  .ws-head .ws-tab { padding-inline: 3px; letter-spacing: 0; }
+  .ws-head #ws-new { padding-inline: 4px; letter-spacing: 0; }
+}
+
 /* ============================================================
    1 · ETCHED CORNER MARKS — thin registration ticks in each
    panel's glass corners, echoing the CAM HUD's ┌ ┐ brackets so
@@ -23,7 +47,7 @@
    ============================================================ */
 #topbar::after, #left::after, #chat-panel::after, #bottombar::after {
   content: ''; position: absolute; inset: 5px; pointer-events: none; z-index: 5;
-  opacity: .5;
+  opacity: .3;
   background:
     linear-gradient(var(--ph-dim), var(--ph-dim)) left    top    / 9px 1px,
     linear-gradient(var(--ph-dim), var(--ph-dim)) left    top    / 1px 9px,
@@ -47,9 +71,9 @@
   background:
     repeating-linear-gradient(0deg, rgba(0,0,0,.09) 0 1px, transparent 1px 3px),
     linear-gradient(180deg,
-      color-mix(in srgb, var(--ph-bright) 10%, var(--ph)) 0%,
-      var(--ph) 52%,
-      color-mix(in srgb, #000 12%, var(--ph)) 100%);
+      rgba(var(--ph-rgb), .22) 0%,
+      rgba(var(--ph-rgb), .10) 52%,
+      rgba(var(--ph-rgb), .04) 100%);
   box-shadow:
     inset 0 1px 0 rgba(var(--ph-bright-rgb), .18),
     inset 0 -1px 0 rgba(0,0,0,.25),

@@ -28,14 +28,14 @@
     const RS = (typeof ReturnStore !== 'undefined') ? ReturnStore : null;
     const rows = (RS && RS.pendingRows) ? RS.pendingRows() : [];
     body.innerHTML =
-      '<div class="win-note" style="margin-bottom:8px">Work that finished while you were away. Click a task to see the full result.</div>' +
+      '<div class="win-note ob-topnote" style="margin-bottom:8px">Work that finished while you were away. Click a task to see the full result.</div>' +
       '<div id="ob-list" class="ob-list"></div>' +
-      '<div class="row" style="margin-top:10px;gap:8px"><button class="bb sm" id="ob-library">▸ THE LIBRARY — everything your agents made</button><button class="bb sm" id="ob-logbook">▸ FULL RUN HISTORY — LOGBOOK</button></div>';
+      '<div class="row ob-doors" style="margin-top:10px;gap:8px"><button class="bb sm" id="ob-library">▸ LIBRARY — finished files</button><button class="bb sm" id="ob-logbook">▸ AGENT RECORD — run history</button></div>';
     const list = body.querySelector('#ob-list');
     const lb = body.querySelector('#ob-logbook');
-    if (lb) lb.addEventListener('click', () => openTerm('logbook'));
+    if (lb) lb.addEventListener('click', () => H.navigateWork('outbox', 'logbook'));
     const lib = body.querySelector('#ob-library');
-    if (lib) lib.addEventListener('click', () => openTerm('deliverables'));
+    if (lib) lib.addEventListener('click', () => H.navigateWork('outbox', 'deliverables'));
     function renderEmpty() {
       list.innerHTML = '<div class="fb-empty">NO UNCOLLECTED WORK.<br><span>When a run finishes while you’re away, its crate stacks on the OUTBOX and the full result is readable here.</span></div>';
     }
@@ -170,6 +170,7 @@
         const ok = (RS && RS.openWork) ? await RS.openWork(rw) : false;
         b.disabled = false;
         if (!ok) notify('transcript unreachable for that run', 'warn');
+        else H.workConversation('outbox');
       });
       // ⊕ NEW SESSION — dedicate a fresh chat (same agent) to expanding on this work; the composer
       // is prefilled naming the task so the follow-up ask writes itself. No fabricated turns.
@@ -181,6 +182,7 @@
         persistWS();
         if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(ws.id);
         if (typeof Chat !== 'undefined' && Chat.prefill) Chat.prefill('About the finished “' + title + '” run — ');
+        H.workConversation('outbox');
         sfx('click');
       });
       const rateHost = row.querySelector('.ob-rate');

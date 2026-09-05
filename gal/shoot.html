@@ -66,7 +66,7 @@ function finish() {
   /* ---- lightmap-ish pool, so nothing is judged in flat full light ---- */
   const lm = g.createRadialGradient(base.width / 2, PAD_T * TILE, TILE, base.width / 2, PAD_T * TILE, base.width * 0.7);
   lm.addColorStop(0, 'rgba(255,244,220,0.10)'); lm.addColorStop(1, 'rgba(0,0,0,0.34)');
-  g.fillStyle = lm; g.fillRect(0, 0, base.width, base.height);
+  if (Q.get('nolight') !== '1') { g.fillStyle = lm; g.fillRect(0, 0, base.width, base.height); }
 
   /* ---- footprint guides: the tile box each prop is ALLOWED to occupy ---- */
   if (Q.get('guides') === '1') {
@@ -82,10 +82,10 @@ function finish() {
 
   /* ---- present: camera scale 2, then magnify. ?crop=1 trims the empty deck away so a tall zoom
          still fits in a reviewable image — the props keep their real scale, nothing is resampled. ---- */
-  const CROP = Q.get('crop') === '1';
+  const CROP = Q.get('crop') === '1'; const SCALE = +(Q.get('scale')||0);
   const sy = CROP ? (PAD_T - 3) * TILE : 0, sh = CROP ? 8 * TILE : base.height;
   const c = document.getElementById('c');
-  c.width = base.width * CAM * ZOOM / 2; c.height = sh * CAM * ZOOM / 2;
+  c.width = SCALE ? base.width*SCALE : base.width * CAM * ZOOM / 2; c.height = SCALE ? sh*SCALE : sh * CAM * ZOOM / 2;
   const o = c.getContext('2d'); o.imageSmoothingEnabled = false;
   o.drawImage(base, 0, sy, base.width, sh, 0, 0, c.width, c.height);
 

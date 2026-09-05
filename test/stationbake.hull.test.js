@@ -106,7 +106,12 @@ const painted = sample('station', null, 6, 40)
 const nearest = c => Math.min(...painted.map(p => dist(p, c)));
 
 // the pre-axis shell, tone by tone — seam / rim+arc / bolt, then the six-stop skirt ramp
-for (const c of ['#231f17', '#28241b', '#302b21', '#0b0a07', '#100e09', '#16130d', '#1f1b12', '#2a251a', '#3f3a2c']) {
+// ...at the shell's EXPOSURE (2026-09-03): the whole exterior is scaled darker by one constant, so the
+// shipped ladder is expected at that exposure — the same tones, less light on them.
+const X = StationBake.HULL_EXPOSURE || 1;
+const exposed = hex => '#' + chan(hex).map(v => Math.max(0, Math.min(255, Math.round(v * X))).toString(16).padStart(2, '0')).join('');
+for (const c0 of ['#231f17', '#28241b', '#302b21', '#0b0a07', '#100e09', '#16130d', '#1f1b12', '#2a251a', '#3f3a2c']) {
+  const c = exposed(c0);
   A.ok(nearest(c) <= 5, 'the default shell still LOOKS like the shipped one at ' + c + ' (off by ' + nearest(c) + ')');
 }
 // ...and it is genuinely a skin: the same ladder in another colour, which the constants could not be
@@ -114,7 +119,7 @@ A.ok(sig(sample('station', null, 6, 40)) !== sig(sample('station', '#2b3340', 6,
   'a station shell painted COBALT differs from the untouched shell');
 const white = sample('station', WorldModel.FLOOR_STYLES.white.base, 6, 40).map(o => o[5])
   .filter(c => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c));
-A.ok(Math.max(...white.map(c => { const [r, g, b] = chan(c); return 0.299 * r + 0.587 * g + 0.114 * b; })) > 100,
+A.ok(Math.max(...white.map(c => { const [r, g, b] = chan(c); return 0.299 * r + 0.587 * g + 0.114 * b; })) > 100 * X,
   'STATION in WHITE really is a white hull — the pre-axis shell could only ever be one grey');
 
 /* ---------- NOTHING OUTSIDE A ROOM IS PAINTED FROM A MODULE CONSTANT ----------
@@ -152,7 +157,7 @@ for (const sid of ordinary) {
 }
 for (const sid of ['white', 'bone']) {
   const peak = brightestOf('stucco', WorldModel.FLOOR_STYLES[sid].base);
-  A.ok(peak > 110, sid.toUpperCase() + ' actually renders bright on a shell — peak ' + Math.round(peak));
+  A.ok(peak > 110 * X, sid.toUpperCase() + ' actually renders bright on a shell — peak ' + Math.round(peak));
 }
 // ...and a white shell must still read as WHITE, not as a tint: near-neutral all the way up
 {

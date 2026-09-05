@@ -757,6 +757,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // quick collapse: a compressed power-off toward the strip (transform/opacity only), then hide.
     w.classList.add('term-minimizing');
     const hide = () => {
+      if (!minimized[key] || w._closing) return; // a quick Back may already have restored this window
       w.classList.remove('term-minimizing');
       w.classList.add('term-min-hidden');
       w.setAttribute('aria-hidden', 'true');
@@ -1191,6 +1192,28 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
 
     const railItems = {};    // id -> rail/tab button
     const panes = {};        // id -> pane wrapper element
+    // Optional intent groups keep existing section IDs/deep links and search intact.
+    const groups = Array.isArray(opts.groups) ? opts.groups : [];
+    const groupButtons = new Map();
+    if (groups.length) {
+      const nav = mkEl('div', 'con-intents');
+      nav.setAttribute('role', 'group');
+      nav.setAttribute('aria-label', 'Browse ' + key);
+      groups.forEach(group => {
+        const button = mkEl('button', 'con-intent', esc(group.label));
+        button.type = 'button';
+        button.addEventListener('click', () => selectSection(group.sections[0], true));
+        groupButtons.set(group.id, button);
+        nav.appendChild(button);
+      });
+      left.insertBefore(nav, rail);
+    }
+    function showGroup(id) {
+      if (!groups.length) return;
+      const group = groups.find(g => g.sections.includes(id)) || groups[0];
+      groups.forEach(g => groupButtons.get(g.id).setAttribute('aria-pressed', String(g === group)));
+      Object.keys(railItems).forEach(k => { railItems[k].hidden = !group.sections.includes(k); });
+    }
     sections.forEach((sec, i) => {
       const item = mkEl('button', tabsTop ? 'con-rail-item con-toptab' : 'con-rail-item');
       item.type = 'button';
@@ -1255,6 +1278,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       consoleSection[key] = id;
       if (viaClick) saveWindowState();   // remember the section the Commander navigated to, across reloads
       activeId = id;
+      showGroup(id);
       Object.keys(panes).forEach(k => {
         const on = k === id;
         railItems[k].classList.toggle('active', on);
@@ -1273,6 +1297,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // Search is temporary context, not navigation: expose which matching section owns the
     // visible results without overwriting the section the user chose and persisted.
     function setSearchContext(id) {
+      showGroup(id);
       Object.keys(railItems).forEach(k => {
         const on = k === id;
         railItems[k].classList.toggle('active', on);
@@ -1284,7 +1309,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // keyboard nav on the tablist: Up/Down (vertical rail) or Left/Right (horizontal top strip) move + activate;
     // Home/End jump ends. Both arrow pairs are accepted regardless of orientation, so this handler is shared.
     (tabsTop ? topTabs : rail).addEventListener('keydown', ev => {
-      const ids = sections.map(s => s.id);
+      const ids = sections.map(s => s.id).filter(id => !railItems[id].hidden);
       const cur = ids.indexOf(activeId);
       let next = -1;
       if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') next = (cur + 1) % ids.length;
@@ -1388,6 +1413,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const key = String(a.name).trim().toUpperCase();
     return present.filter(x => x && String(x.name || '').trim().toUpperCase() === key).length > 1 ? String(a.id || '') : '';
   }
+  let crewFilter = 'all';
+  function crewPortrait(a) {
+    return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
+  }
   function crewRender() {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
@@ -1397,7 +1426,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
       '<div class="crew-name" style="color:' + esc(a.color) + '">' + esc(a.name) +
@@ -1409,8 +1439,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div></li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
-    ul.querySelectorAll('.crew-row').forEach(li =>
-      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); }));
+    ul.querySelectorAll('.crew-row').forEach(li => {
+      if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
+      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); });
+      li.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); li.click(); }
+      });
+    });
     crewTick();
   }
   // a crew member is WORKING iff IT has a live run — read from the real agent.run.start/end events, NOT the
@@ -1424,16 +1459,34 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const act = activity();
     let focusedId = '';
     try { focusedId = (typeof App !== 'undefined' && App.currentAgent && App.currentAgent() || {}).id || ''; } catch (_) {}
-    let working = 0;
+    const awaiting = new Set();
+    try {
+      if (typeof Channels !== 'undefined' && typeof Workstreams !== 'undefined') {
+        for (const id of Channels.pendingIds()) { const ws = Workstreams.get(id); if (ws) awaiting.add(ws.agentId || 'agent'); }
+      }
+    } catch (_) {}
+    let working = 0, visible = 0;
     present.forEach(a => {
       const live = agentLive(a.id);
       if (live) working++;
       const e = $('#cs-' + a.id);
-      if (e) e.textContent = live ? (a.id === focusedId && act === 'talk' ? 'in conversation' : 'working at the terminal') : 'idle — awaiting orders';
+      const needsYou = awaiting.has(a.id);
+      if (e) {
+        const status = needsYou ? 'AWAITING APPROVAL' : live ? (a.id === focusedId && act === 'talk' ? 'IN CONVERSATION' : 'WORKING') : 'IDLE';
+        if (e.textContent !== status) e.textContent = status;
+        const row = e.closest('.crew-row');
+        row.classList.toggle('selected', a.id === focusedId);
+        row.classList.toggle('needs-you', needsYou);
+        const hide = crewFilter === 'active' ? !live : crewFilter === 'await' ? !needsYou : false;
+        if (row.hidden !== hide) row.hidden = hide;
+        if (!row.hidden) visible++;
+      }
       // H: mark the row WORKING so the in-flight shimmer bar shows only while it's actually running.
       if (e && e.parentElement && e.parentElement.parentElement) e.parentElement.parentElement.classList.toggle('working', live);
     });
     const sum = $('#crew-sum');
+    const empty = $('#crew-filter-empty');
+    if (empty) { empty.hidden = visible > 0; empty.textContent = crewFilter === 'await' ? 'No approvals waiting.' : 'No agents working right now.'; }
     if (sum) sum.innerHTML =
       '<span class="pos">▮ ' + working + ' WORKING</span>' +
       '<span class="dim">▯ ' + (present.length - working) + ' IDLE</span>';
@@ -1604,9 +1657,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const prof = executionProfileOf(executionProfileId(a));
     const rows = [
       { lbl: 'MODEL',     val: pin || 'station default', dim: !pin,                 go: 'ag-model-card' },
-      { lbl: 'VOICE',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
-      { lbl: 'APPROVAL',  val: (a && a.approvalMode === 'full') ? 'full access' : 'asks first', dim: false, go: 'ag-approval-card' },
-      { lbl: 'RUNS IN',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
+      { lbl: 'PERSONALITY',     val: persona || '—',           dim: !persona,             go: 'ag-persona-card' },
+      { lbl: 'ACCESS',    val: 'checking effective access…', dim: false, go: 'ag-approval-card' },
+      { lbl: 'PROFILE',   val: prof.label.toLowerCase(),  dim: false,               go: 'ag-execution-card' },
       { lbl: 'AWAY WORK', val: (a && a.workshop) ? 'on'  : 'off', dim: !(a && a.workshop), go: 'ag-workshop-card' }
     ];
     return '<div class="ag-setup" role="group" aria-label="How this agent is set up">' +
@@ -1833,39 +1886,42 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   function agSkills(agentId) {
-    const skills = skillsFor(agentId);
-    const on = skills.filter(s => s.on).length;
-    // NAV CONDENSE 2: this tab is now the ONE per-agent capabilities home (the standalone SKILLS
-    // window is gone), so it inherits that panel's honest affordances: a locked card names the
-    // missing gear and deep-links into REFIT (data-perk-cap → placeGearForSkill, wired in
-    // buildAgents), and the toolset-off honesty pass dims families switched off in ABILITIES.
-    const capLockedText = (s) => '○ NO ' + (SK_OBJ_NAME[s.cap] || String(s.cap || '').toUpperCase()) + ' AT DESK';
-    // NAV CONDENSE 3: this grid folds into BRIEF (its own tab was 411px of read-only content the Commander had
-    // to go looking for), so the standalone <h4> heading is gone — the count rides the one-line chain below it,
-    // under BRIEF's own "CAN DO" rule. No duplicate title stacked on a title.
-    return '<div class="sk-chain"><b>' + on + ' live</b> &middot; OBJECT AT DESK <span class="sk-chain-arr">→</span> CAPABILITY <span class="sk-chain-arr">→</span> SKILL</div>' +
-      '<div class="perk-grid">' +
-      skills.map((s, i) => {
-        const lockable = !s.on && s.cap;
-        return '<div class="perk ' + (s.on ? 'on' : '') + (lockable ? ' perk-locked' : '') + '"' +
-          (lockable ? ' data-perk-cap="' + esc(s.cap) + '" role="button" tabindex="0" title="Open REFIT to place ' + skArt(SK_OBJ_NAME[s.cap] || s.cap) + esc(SK_OBJ_NAME[s.cap] || String(s.cap).toUpperCase()) + '"' : '') +
-          ' style="--ci:' + i + '">' +
-          '<div class="perk-icon">' + s.icon + '</div>' +
-          '<div class="perk-name">' + s.name + '</div>' +
-          '<div class="perk-desc">' + s.tools + '</div>' +
-          '<div class="perk-stat' + (s.consent ? ' ask' : '') + '">' +
-          (s.on ? (s.consent ? '● ASKS OK' : '● ENABLED') : capLockedText(s)) + '</div>' +
-          (lockable ? '<div class="perk-place">▸ PLACE IN REFIT</div>' : '') + '</div>';
-      }).join('') +
-      '</div>' +
-      /* one note, not two: the facts were previously spread across two stacked paragraphs of identical weight.
-         The consent sentence is NOT editorial — "File writes and commands pause for one-click approval in COMMS"
-         is a locked advertised claim (qa/product-perfect/claims.json → one-click-mutation-approval), and this
-         node is its surface locator. Reword the surrounding prose freely; that clause stays verbatim. */
-      '<p class="sk-note">Capabilities follow the <b>objects at the workstation</b> — the room layout IS the ' +
-      'permission system. <b>File writes</b> and <b>commands</b> pause for one-click approval in COMMS; the ' +
-      'private <b>notebook</b> saves freely. Read-only here: the on/off switches and the station’s skill ' +
-      'library live in <b>⇄ ABILITIES</b> on the bottom bar.</p>';
+    return '<div class="ag-effective" data-access-agent="' + esc(agentId || 'agent') + '" role="status">Checking effective access…</div>';
+  }
+
+  function loadEffectiveAccess(body, a) {
+    const targets = body.querySelectorAll('[data-access-agent]');
+    if (!targets.length || !a) return;
+    const request = body._accessRequest = (body._accessRequest || 0) + 1;
+    let placed = [];
+    try { placed = World.heroCaps(a.id).map(c => c.objectType); } catch (_) {}
+    Harness.api.get('/api/toolsets?agent=' + encodeURIComponent(a.id) + '&placed=' + encodeURIComponent(placed.join(',')))
+      .then(view => {
+        if (!body.isConnected || body._accessRequest !== request) return;
+        if (!view || !view.authority || !Array.isArray(view.toolsets)) throw Error('Access unavailable');
+        const authority = view.authority;
+        const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
+        if (summary) summary.textContent = authority.unrestricted ? 'Full Power · no prompts' : 'ASK · standing grants apply';
+        const reach = body.querySelector('#ag-execution-plain');
+        if (reach) reach.textContent = authority.filesystemLabel + (authority.unrestricted ? '. Full Power overrides the saved profile below.' : '. The selected profile and standing grants apply.');
+        const html = '<p><b>' + esc(authority.approvalLabel) + '</b><br>' + esc(authority.filesystemLabel) + ' · ' + esc(authority.profileLabel) + '</p>' +
+          '<div class="perk-grid">' + view.toolsets.map(t => '<div class="perk' + (t.available ? ' on' : '') + '"><div class="perk-name">' + esc(t.label) + '</div><div class="perk-stat">' +
+            (t.available ? (t.consentGated ? 'AVAILABLE · risky actions may ask' : 'AVAILABLE') : !t.enabled ? 'SWITCHED OFF' : 'NEEDS GEAR OR ACCESS') +
+            '</div><div class="perk-desc">' + esc(t.grantSource || 'No current grant') + '</div></div>').join('') + '</div>' +
+          '<p class="sk-note">' + esc(authority.revoke) + ' Service credentials, task-specific permissions and operating-system limits still apply. Unattended jobs have their own grants.</p>' +
+          '<button class="bb sm" data-access-manage>MANAGE ABILITIES</button> <button class="bb sm" data-access-settings>STATION PERMISSIONS</button> <button class="bb sm" data-access-refresh>REFRESH ACCESS</button>';
+        targets.forEach(target => {
+          target.innerHTML = html;
+          target.querySelector('[data-access-manage]').onclick = () => openTerm('connectors', 'toolsets');
+          target.querySelector('[data-access-settings]').onclick = () => openTerm('settings', 'permissions');
+          target.querySelector('[data-access-refresh]').onclick = () => loadEffectiveAccess(body, a);
+        });
+      }).catch(() => {
+        if (!body.isConnected || body._accessRequest !== request) return;
+        targets.forEach(t => { t.textContent = 'Effective access could not be checked. Reopen this panel after reconnecting.'; });
+        const summary = body.querySelector('[data-goconfig="ag-approval-card"] .ag-setup-val');
+        if (summary) summary.textContent = 'unavailable';
+      });
   }
 
   function fileCard(a, f) {
@@ -2181,30 +2237,31 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
      information the surrounding chrome did not already carry, and it read as a warning label.
      Card ids (ag-*-card) are the anchor targets BRIEF's setup strip jumps to. */
   const CF_GROUPS = [
-    { id: 'cf-grp-knows',  label: 'WHAT IT KNOWS' },
-    { id: 'cf-grp-behaves', label: 'HOW IT BEHAVES' },
-    { id: 'cf-grp-unit',   label: 'THE UNIT' }
+    { id: 'cf-grp-purpose', label: 'PURPOSE' },
+    { id: 'cf-grp-knows', label: 'INSTRUCTIONS' },
+    { id: 'cf-grp-model', label: 'MODEL' },
+    { id: 'cf-grp-personality', label: 'PERSONALITY' },
+    { id: 'cf-grp-behaves', label: 'ACCESS' },
+    { id: 'cf-grp-unit', label: 'APPEARANCE' }
   ];
+  const cfOpen = new Map();
   function agConfig(a) {
-    const grp = (i, note) => '<div class="sec cf-grp" id="' + CF_GROUPS[i].id + '"><span class="sec-l">' + CF_GROUPS[i].label + '</span>' +
-      '<span class="sec-r"></span><span class="sec-nd"></span></div>' +
-      (note ? '<p class="cf-grp-note">' + note + '</p>' : '');
-    // CONFIG is the one pane that is legitimately long (measured 1741px — it is the editor). Grouping tells you
-    // what is down there; this row lets you GO there without a scroll hunt. Wired in wireConfig.
-    const nav = '<div class="cf-nav" role="group" aria-label="Jump to a config group">' +
-      CF_GROUPS.map(g => '<button type="button" class="cf-nav-b" data-cfjump="' + g.id + '">' + g.label + '</button>').join('') +
-      '</div>';
-    return '<div class="cf-root">▣ station://agents/' + esc(agSlug(a)) + '/</div>' + nav +
-      grp(0, 'These four files ARE the system prompt. Edit one and the agent changes on its very next run.') +
-      CONFIG_FILES.map(f => fileCard(a, f)).join('') +
-      grp(1, 'Runtime posture — none of this changes what the agent knows, only how it works.') +
-      personaCard(a) +
-      modelCard(a) +
-      executionProfileCard(a) +
-      approvalCard(a) +
-      workshopCard(a) +
-      grp(2, '') +
-      agCommand(a);   // SKIN swap + DANGER delete — lives at the END of CONFIG, off the BRIEF landing tab
+    const purpose = CONFIG_FILES.find(f => f.key === 'purpose');
+    const content = [
+      purpose ? fileCard(a, purpose) : '',
+      CONFIG_FILES.filter(f => f.key !== 'purpose').map(f => fileCard(a, f)).join(''),
+      modelCard(a), personaCard(a),
+      agSkills(a.id) + executionProfileCard(a) + approvalCard(a), agCommand(a)
+    ];
+    const summaries = [a.purpose || 'What should this agent accomplish?', 'Identity, context and operating rules · edit each source file',
+      a.model || 'Follow station default', (typeof Personas !== 'undefined' && Personas.get(a.personaId)?.name) || 'Station personality',
+      'Effective reach, execution and approval settings',
+      ((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[a.skin]) || {}).name || 'Choose a skin'];
+    return '<p class="cf-grp-note">Choose what to change. Instructions and model changes use SAVE; personality, appearance and access controls apply when selected.</p>' +
+      CF_GROUPS.map((g, i) => {
+        const key = a.id + ':' + g.id;
+        return '<details class="cf-group" id="' + g.id + '" data-cf-group="' + esc(key) + '"' + (cfOpen.get(key) ? ' open' : '') + '><summary><span class="cf-group-title">' + g.label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' + content[i] + '</div></details>';
+      }).join('') + '<div class="cf-card" id="ag-away-link"><button class="bb sm" data-away-open>WHILE I’M AWAY → AUTOMATION</button></div>';
   }
 
   // W3 per-agent AWAY-WORKSHOP surface (rebuilt 2026-07-15 UX audit — the queue was invisible, the cadence
@@ -2305,7 +2362,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const chips = EXECUTION_PROFILES.map(x => '<button type="button" class="ov-vchip' + (x.id === current ? ' sel' : '') + '" data-execution-profile="' + x.id + '" data-name="' + esc(x.label) + '" data-reach="' + x.reach + '" title="' + esc(x.plain) + '" aria-pressed="' + (x.id === current ? 'true' : 'false') + '">' + reachMeter(x.reach) + esc(x.label) + '</button>').join('');
     return '<div class="cf-card" id="ag-execution-card">' +
       '<div class="cf-head"><span class="cf-file">▣ execution profile</span></div>' +
-      '<div class="cf-desc">Where this agent runs and what scope it receives. This is separate from approval prompts and never grants real mouse, keyboard, or screen control.</div>' +
+      '<div class="cf-desc">Choose an execution profile. Changing the profile alone never grants real mouse, keyboard, or screen control; that requires Full Power or a live desktop-control grant. The effective-access summary above includes Full Power overrides; service connections and operating-system limits still apply.</div>' +
       '<div class="ov-vchips" id="ag-execution-chips">' + chips + '</div>' +
       '<div class="cf-desc pc-plain" id="ag-execution-plain">' + esc(p.plain) + '</div>' +
       '<div class="mc-hint" id="ag-execution-truth">ROUTES NEXT COMMAND TO <b>' + esc(p.backend.toUpperCase()) + '</b> · FILES: ' + esc(p.files) + ' · TOOLS: ' + esc(p.tools) + ' · DESKTOP: ' + esc(p.desktop) + ' · checking availability…</div>' +
@@ -2367,7 +2424,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     return '<div class="cf-card" id="ag-model-card">' +
       '<div class="cf-head"><span class="cf-file">▣ model</span></div>' +
-      '<div class="cf-desc">What this agent runs on. Pick a model to run this agent on it everywhere — chat, delegated work, scheduled routines — independent of the station default in the COMMS dock. “Follow station default” clears the pin.</div>' +
+      '<div class="cf-desc">What this agent runs on. Pick a model to run this agent on it everywhere — chat, delegated work, scheduled routines — independent of the station default in the COMMS dock. “Follow station default” clears the pin. Choose SAVE MODEL to apply your selection.</div>' +
       picker +
       '<details class="mc-adv"' + ((pinned && !hasPicker) ? ' open' : '') + '><summary>advanced — type a model id</summary>' +
         '<div class="set-row"><label for="ag-model-in">MODEL</label><input id="ag-model-in" class="key-input" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. anthropic/claude-sonnet-4-5" value="' + esc(model) + '"></div>' +
@@ -2375,7 +2432,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '</details>' +
       '<div class="mc-hint">' + (pinned ? 'pinned — this agent ignores the station default' : 'following the station default') + '</div>' +
       '<div class="mc-acts">' +
-        '<button class="bb sm" id="ag-model-save">SAVE PIN</button>' +
+        '<button class="bb sm" id="ag-model-save">SAVE MODEL</button>' +
         (pinned ? '<button class="bb xs" id="ag-model-clear" title="run this agent on the station default model again">FOLLOW STATION DEFAULT</button>' : '') +
       '</div>' +
       '<div id="ag-model-msg" class="msg"></div>' +
@@ -2395,8 +2452,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const target = w.querySelector('#' + b.dataset.cfjump), pane = w.querySelector('.con-pane');
       if (!target || !pane) return;
       sfx('click');
+      target.open = true;
       pane.scrollTop = Math.max(0, target.offsetTop - pane.offsetTop - 8);
     }));
+    body.querySelectorAll('[data-cf-group]').forEach(group => {
+      group.addEventListener('toggle', () => { if (group.isConnected) cfOpen.set(group.dataset.cfGroup, group.open); });
+    });
     body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
       agEdit[b.dataset.edit] = true; sfx('click'); rerender('agents');
     }));
@@ -2482,11 +2543,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const epTruth = body.querySelector('#ag-execution-truth');
       const currentId = executionProfileId(a);
       const paintBackendTruth = (row) => {
-        const p = executionProfileOf(executionProfileId(a));
         const routed = String((row && row.profile && row.profile.effectiveBackend) || 'unknown').toUpperCase();
         const availability = String((row && row.environment && row.environment.availability && row.environment.availability.state) || 'unknown').toUpperCase();
-        if (epTruth) epTruth.innerHTML = sandboxChip(row) + 'ROUTES NEXT COMMAND TO <b>' + esc(routed) + '</b> · AVAILABILITY <b>' + esc(availability) + '</b>' +
-          ' · FILES: ' + esc(p.files) + ' · TOOLS: ' + esc(p.tools) + ' · DESKTOP: ' + esc(p.desktop);
+        if (epTruth) epTruth.innerHTML = sandboxChip(row) + 'ROUTES NEXT COMMAND TO <b>' + esc(routed) + '</b> · AVAILABILITY <b>' + esc(availability) + '</b>. Current reach is shown in effective access above.';
       };
       Harness.api.get('/api/execution-profiles').then(j => paintBackendTruth((j && j.agents || []).find(x => x.agentId === (a && a.id)))).catch(() => paintBackendTruth(null));
       let epArmed = null;
@@ -2539,6 +2598,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         sfx('click'); rerender('agents');
       }));
     }
+    body.querySelectorAll('[data-away-open]').forEach(b => { b.onclick = () => { if (window.AutomationWindow) window.AutomationWindow.openAway(a.id); }; });
+  }
+
+  function wireWorkshop(body, a) {
     // W3 AWAY-WORKSHOP toggle: flip a.workshop via App.setWorkshop (updates the flag + pushRoster + persist).
     // Optimistic UI: on failure we revert the checkbox and say so — never assert a grant the harness didn't record.
     const wOn = body.querySelector('#ag-workshop-on');
@@ -2558,6 +2621,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         if (!ok) { setWMsg('could not save that — the station didn’t record it', false); sfx('bad'); wOn.checked = !next; return; }
         setWMsg(next ? 'on — this agent can build in its sandbox while you’re away' : 'off — this agent stays idle while you’re away', true);
         loadWsLive();   // grant flips arm/disarm the shift → the next-shift line changes
+      }).catch(() => {
+        wOn.disabled = false; wOn.checked = !next;
+        setWMsg('could not save that — reconnect and try again', false);
       });
     });
 
@@ -2674,12 +2740,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        and it lands the card at the TOP of the pane rather than merely "into view", because a 1565px column
        scrolled the minimum distance leaves the card you asked for hugging the bottom edge. */
     const jumpToConfig = (anchor) => {
+      if (anchor === 'ag-workshop-card' && window.AutomationWindow) { window.AutomationWindow.openAway(a.id); return; }
       consoleSection['agents'] = 'config'; sfx('click'); rerender('agents');
       if (!anchor || anchor === '1') return;
       requestAnimationFrame(() => {
         const w = open.agents; if (!w) return;
         const card = w.querySelector('#' + anchor), pane = w.querySelector('.con-pane');
         if (!card || !pane) return;
+        const group = card.closest('.cf-group');
+        if (group) { group.open = true; cfOpen.set(group.dataset.cfGroup, true); }
         pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
         card.classList.add('cf-jumped');
         setTimeout(() => { try { card.classList.remove('cf-jumped'); } catch (_) {} }, 1400);
@@ -2902,33 +2971,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // memory live-refresh never wipe CONFIG/MEMORY DOM, so open editors survive.
     wireHead(host);
     wireConfig(host);
+    loadEffectiveAccess(host, a);
     wireMemoryLive();
     loadMemoryCore(a);
     loadPractice(a && a.id ? a.id : 'agent');   // S5: fill the GROWTH tab's B3 meter from the agent's real skillbase
     drawPortrait(host.querySelector('#ag-portrait'), a);
     lanes.forEach(l => { try { if (typeof l.wire === 'function') l.wire(); } catch (_) {} });
-    // SKILLS tab: a locked capability card deep-links into REFIT to place its missing gear (same
-    // honest path the retired SKILLS window carried — moved here with the grid, NAV CONDENSE 2).
-    const agentName = (a && a.name) || (a && a.id) || 'agent';
-    host.querySelectorAll('.perk-locked[data-perk-cap]').forEach(p => {
-      const go = () => { sfx('click'); placeGearForSkill(p.dataset.perkCap, agentName); };
-      p.addEventListener('click', go);
-      p.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
-    });
-    // TOOLSET honesty: a family switched OFF in ABILITIES → TOOLSETS must read as OFF here too, so
-    // the two surfaces can't tell different stories. Best-effort; a fetch miss leaves perks as-is.
-    Harness.api.get('/api/toolsets').then(j => {
-      const disabledObjs = {};
-      (j && j.toolsets || []).forEach(t => { if (!t.enabled && t.object) disabledObjs[t.object] = true; });
-      const skills = skillsFor((a && a.id) || 'agent');
-      const perks = host.querySelectorAll('.perk-grid .perk');
-      skills.forEach((s, i) => {
-        if (s.cap && disabledObjs[s.cap] && perks[i]) {
-          perks[i].classList.remove('on'); perks[i].classList.add('ts-disabled');
-          const stat = perks[i].querySelector('.perk-stat'); if (stat) { stat.textContent = '○ OFF — switch it on in ⇄ ABILITIES'; stat.classList.remove('ask'); }
-        }
-      });
-    }).catch(() => {});
   }
   function drawPortrait(cv, a) {
     if (!cv) return;
@@ -3625,10 +3673,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function openStream(id) {
     const w = WS(); if (!w) return;
     const s = w.get(id); if (!s) return;
-    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); return; }
+    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); workConversation('tasks'); return; }
     w.switch(id);
     if (typeof Chat === 'object' && Chat.load) Chat.load(s);
     persistWS(); sync();
+    workConversation('tasks');
   }
   function shipTask(id) {
     const w = WS(); if (!w) return;
@@ -3689,6 +3738,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(id);
     else { w.switch(id); if (typeof Chat === 'object' && Chat.load) Chat.load(s); sync(); }
     const started = s.history.some(m => m.role === 'user');
+    workConversation('tasks');
     if (!started && s.title && typeof Chat === 'object' && Chat.send) Chat.send(s.title);
     // name the stream's OWN bound agent (s.agentId), resolved against the roster — never present[0], which is
     // whoever happens to be first, not who this workstream actually runs as.
@@ -3812,6 +3862,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const keepScroll = live ? Array.from(body.querySelectorAll('.kb-col')).map(c => c.scrollTop) : null;
     const streams = boardStreams();
     body.innerHTML =
+      '<div class="work-entry"><span class="ui-overline">PLAN → RUN → REVIEW</span><button type="button" class="bb sm" data-work-to="outbox">OUTBOX</button><button type="button" class="bb sm" data-work-to="deliverables">LIBRARY</button></div>' +
       '<div class="kb-add"><input id="kb-in" maxlength="80" placeholder="add a planned task…" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">+ ADD</button></div>' +
       '<div class="kb-cols">' +
@@ -3830,6 +3881,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // entrance motion belongs to USER-initiated opens only — a background data poke must not re-animate.
     // (body persists across rebuilds, so the class must be actively toggled both ways.)
     body.classList.toggle('kb-live-refresh', live);
+    body.querySelectorAll('[data-work-to]').forEach(b => b.addEventListener('click', () => navigateWork('tasks', b.dataset.workTo)));
     const inp = body.querySelector('#kb-in');
     // capture-then-clear BEFORE addTask: its sync() triggers a live rebuild which would otherwise
     // capture (and faithfully restore) the just-submitted text back into the input.
@@ -3840,7 +3892,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelectorAll('.kb-empty-col .es-cta').forEach(b =>
       b.addEventListener('click', () => { sfx('click'); inp.focus(); }));
     const obLink = body.querySelector('#kb-outbox-link');
-    if (obLink) obLink.addEventListener('click', () => { sfx('click'); openTerm('outbox'); });
+    if (obLink) obLink.addEventListener('click', () => { sfx('click'); navigateWork('tasks', 'outbox'); });
     if (live) {
       // restore what the rebuild destroyed. Focus is restored ONLY if it already lived inside the board —
       // a refresh may never steal the keyboard from the chat composer (the original P1 bug).
@@ -8738,14 +8790,14 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // dom + format primitives
     esc, mkEl, sfx, clock, ts, fmtRel,
     // hud + window plumbing
-    notify, toast, mountConsole, rerender, openTerm, openSignIn,
+    notify, toast, mountConsole, rerender, openTerm, openSignIn, navigateWork, workConversation,
     // deep-link a missing capability object into the REAL placement surface (minimize this console,
     // open REFIT, arm its palette on the exact prop). The TOOLSETS pane's inert rows use it, so a row
     // that diagnoses "no dish on station" can also cure it. Shared, never re-implemented: an auto-place
     // that skipped REFIT would be a fake placement, and the honest path already exists.
     placeGearForSkill,
     // shared window fragments (roster switcher for the per-agent windows; dossier memory loader)
-    rosterSwitchHtml, wireRosterSwitch, loadMemoryCore,
+    rosterSwitchHtml, wireRosterSwitch, loadMemoryCore, workshopCard, wireWorkshop,
     // workstream + persistence seams
     WS, persistWS, save, consoleSection,
     // live core state (read-only views — never reassign through these)
@@ -8757,6 +8809,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function init() {
     applySettings();
     syncTermBand();
+    document.querySelectorAll('[data-crew-filter]').forEach(b => b.addEventListener('click', () => {
+      crewFilter = b.dataset.crewFilter;
+      document.querySelectorAll('[data-crew-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      crewTick(); sfx('click');
+    }));
     document.querySelectorAll('.bb[data-term]').forEach(b =>
       b.addEventListener('click', () => {
         const k = b.dataset.term, def = BUILDERS[k];
@@ -8796,6 +8853,53 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (section) consoleSection[key] = section;
     if (open[key]) { if (minimized[key]) restoreTerm(key); if (section) rerender(key); return; }   // minimized → restore, not duplicate
     toggleTerm(key, def[0], def[1], def[2]);
+  }
+
+  // Following work should uncover the destination and preserve the source's scroll/draft.
+  // Reuse the window manager's suspension, never destroy a form to follow a link.
+  const WORK_LABELS = { tasks: 'TASK BOARD', outbox: 'OUTBOX', deliverables: 'LIBRARY', agents: 'AGENT RECORD' };
+  let workTrail = [];
+  function navigateWork(from, to, section, back) {
+    const alias = TERM_ALIAS[to];
+    if (alias) { section = (section && alias.map[section]) || alias.section; to = alias.term; }
+    if (!BUILDERS[to]) return;
+    if (!back) {
+      if (!workTrail.length || workTrail[workTrail.length - 1].key !== from) workTrail = [{ key: from, section: consoleSection[from] }];
+      const prior = workTrail.findIndex(x => x.key === to);
+      if (prior >= 0) workTrail = workTrail.slice(0, prior + 1);
+      else workTrail.push({ key: to, section });
+    }
+    if (from !== to) minimizeTerm(from);
+    openTerm(to, section);
+    const w = open[to]; if (!w) return;
+    let nav = w.querySelector('.work-path');
+    if (!nav) {
+      nav = mkEl('nav', 'work-path'); nav.setAttribute('aria-label', 'Work navigation');
+      w.querySelector('.term-head').after(nav);
+    }
+    nav.replaceChildren();
+    nav.hidden = workTrail.length < 2;
+    if (workTrail.length > 1) {
+      const previous = workTrail[workTrail.length - 2];
+      const b = mkEl('button', 'work-back', '‹ ' + (WORK_LABELS[previous.key] || previous.key.toUpperCase()));
+      b.type = 'button'; b.onclick = () => { workTrail.pop(); navigateWork(to, previous.key, previous.section, true); };
+      nav.appendChild(b);
+    }
+    const label = mkEl('span', 'work-location', WORK_LABELS[to] || to.toUpperCase()); nav.appendChild(label);
+    const comms = $('#comms-workpath'); if (comms) comms.hidden = true;
+    w.focus();
+  }
+  function workConversation(from) {
+    if (!open[from]) return;
+    minimizeTerm(from);
+    const nav = $('#comms-workpath'); if (!nav) return;
+    nav.replaceChildren(); nav.hidden = false;
+    const b = mkEl('button', 'work-back', '‹ BACK TO ' + (WORK_LABELS[from] || from.toUpperCase())); b.type = 'button';
+    b.onclick = () => { openTerm(from); nav.hidden = true; };
+    nav.appendChild(b);
+    const dismiss = mkEl('button', 'work-dismiss', '×'); dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Dismiss return shortcut');
+    dismiss.onclick = () => { nav.hidden = true; }; nav.appendChild(dismiss);
+    const input = $('#chat-input'); if (input) input.focus();
   }
 
   // the sidecar's bare-string 'notify' bus event (shared/events.js; rides the SSE bridge → U.bus) → one
@@ -8842,6 +8946,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     present = Array.isArray(agents) ? agents : (agents ? [agents] : []);
     if (sel >= present.length) sel = 0;
     crewRender();
+    // Appearance changes update the roster without changing conversations. Refresh the
+    // selected portrait through Chat's identity-only path; never reload the transcript.
+    if (typeof Chat !== 'undefined' && Chat.refreshIdBar) Chat.refreshIdBar();
     if (open.agents) rerender('agents');
     if (open.automation) rerender('automation');   // the ROUTINES lane's create form shows the roster
     // SETTINGS ▸ PERMISSIONS paints one APPROVAL row per crew member. Repaint just that list (never a
