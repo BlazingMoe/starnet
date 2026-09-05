@@ -45,3 +45,10 @@ body, rejects stale receipt claims and preserves legacy answer responses. Worker
 the most recent in-turn context reaches the dispatched worker. Full gate receipts recorded below.
 
 No installed-app build, production provider comparison, or release-readiness claim is made.
+
+Combined candidate (includes customer reliability trunk `f9fa70cea`):
+`run-fast-tests: OK — 719 step(s) green` and `run-test-list: OK — 98 step(s) green`,
+both processes exit 0. Logs: `dev/context-final-fast.log`, `dev/context-final-http.log`.
+Final source restart recheck also showed one pending card, zero stale retry buttons, and
+first-question delegation completing in 566ms with one question total and context revision 1.
+Browser console check found no TypeError. Source syntax and renderer-mirror checks passed.
