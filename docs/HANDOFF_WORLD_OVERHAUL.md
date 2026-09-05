@@ -92,3 +92,21 @@ authoring: rebuild the eight most-seen props (desk, console, bay, intake, outbox
 the reference language (thick own-hue outline, fat lit bevels, big simple forms, one accent), one family
 per sheet, judged with `gal/shoot.mjs` BEFORE touching the rest. Then wall X-braces and ringed pipes and a
 standing tube-lamp prop from the reference.
+
+
+## 8. September 4 custom-world review continuation
+
+Work is isolated in `agent/world-visual-audit-0904`; the custom seeded preview is on :9177.
+Andrew strongly approved the projected prop shadows and refined agent contact shadows.
+He rejected the subsequent reflected-light/threshold redesign; that pass was reverted.
+Preserve the approved interior brightness, falloff, cool equipment palette and original chairs.
+Interior illumination must exclude the exterior shell and wall crowns. The current bake has
+an interior receiver shared by the baked exposure and animated glow clip. Window panes must
+explicitly use destination-out when clearing the light map. `dev/interior-light-probe.mjs`
+checks exterior invariance, receiver classification and transparent window pixels in Chromium.
+
+Latest craftsmanship pass is implemented for review: gasketed equipment access leaves,
+layered mounting pads/fasteners, recessed ventilation, sparse metal-deck inspection hatches,
+and more resolved bulkhead and shell service fittings. It does not change lighting controls,
+chair designs, footprints, capability state, or the custom layout. Reviewed at normal and
+close zoom; 17 focused test steps passed, followed by two floor/chunk checks after hatch placement.

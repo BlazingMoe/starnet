@@ -1524,6 +1524,18 @@ const StationBake = (() => {
     paintDeckRecipe(b, mat, base, x, y, X, Y, z, n, fd);
     if (fd <= 0 || mat === 'turf' || mat === 'plank' || mat === 'grate' || mat === 'meshway' || mat === 'soft') return;
     const seed = hp(x, y, 317), yy = Y + 3 + seed % 5;
+    // Sparse flush inspection hatches on engineered metal decks. One per 8x6
+    // tile bay; furniture still owns the visual hierarchy. Local, world-keyed
+    // pixels keep negative coordinates, refit swatches and chunks consistent.
+    if (['spine','plate','panel','cargo'].includes(mat) && ((x%8)+8)%8===1 && ((y%6)+6)%6===1) {
+      const sh=d=>shade(base,d*fd);
+      b.fillStyle=sh(-0.30);b.fillRect(X+3,Y+3,7,6);
+      b.fillStyle=sh(-0.07);b.fillRect(X+4,Y+4,5,4);
+      b.fillStyle=sh(0.12);b.fillRect(X+4,Y+8,5,1);
+      b.fillStyle=sh(-0.40);b.fillRect(X+7,Y+5,1,2);
+      b.fillStyle=sh(0.18);b.fillRect(X+6,Y+5,1,1);
+      return;
+    }
     if (mat === 'ceramic' || mat === 'resin' || mat === 'tile') {
       // Broad, quiet glaze instead of scratches on hygienic surfaces.
       if (seed % 7 === 0) {
@@ -2156,12 +2168,20 @@ const StationBake = (() => {
       const k = h2(e.x, e.y, 'bkd') % 6;
       if (k === 0) {                                                                  // recessed vent panel
         px(X + 3, topY + 9, 7, 7, sh(-0.5)); px(X + 3, topY + 9, 7, 1, sh(-0.62));
-        for (let i = 0; i < 3; i++) px(X + 4, topY + 11 + i * 2, 5, 1, sh(-0.24));
+        for (let i = 0; i < 3; i++) {
+          px(X + 4, topY + 11 + i * 2, 5, 1, sh(-0.24));
+          px(X + 4, topY + 10 + i * 2, 4, 1, sh(0.05)); // louvre upper edges
+        }
+        px(X+3,topY+15,1,1,sh(0.16));px(X+9,topY+10,1,1,sh(-0.28));
       } else if (k === 1) {                                                           // conduit drop with a junction box
         px(X + 4, topY + 6, 1, footY - topY - 10, sh(-0.36)); px(X + 5, topY + 6, 1, footY - topY - 10, sh(0.05));
         px(X + 3, topY + 12, 4, 3, sh(-0.2)); px(X + 4, topY + 13, 1, 1, sh(0.3));
       } else if (k === 2) {                                                           // an access panel with a status lamp
-        px(X + 2, rail - 9, 8, 6, sh(-0.14)); px(X + 2, rail - 9, 8, 1, sh(0.10)); px(X + 8, rail - 8, 1, 1, sh(0.22));
+        px(X + 2, rail - 9, 8, 6, sh(-0.35)); // gasket around a service door
+        px(X + 3, rail - 8, 6, 4, sh(-0.10));
+        px(X + 3, rail - 4, 6, 1, sh(0.12));
+        px(X + 7, rail - 7, 1, 2, sh(-0.48));px(X + 8, rail - 7, 1, 1, sh(0.18));
+        px(X + 3, rail - 7, 2, 1, sh(0.06));
       }
     }
   }
@@ -2515,6 +2535,10 @@ const StationBake = (() => {
           fg.fillStyle = 'rgba(0,0,0,0.32)'; px(xx, yy, 10, 5);
           fg.fillStyle = 'rgba(156,180,209,0.055)'; px(xx + 1, yy + 1, 8, 1);
           fg.fillStyle = 'rgba(0,0,0,0.42)'; px(xx + 7, yy + 2, 2, 1);
+          // Pressure-door seam and captive fasteners in the same unlit armour tones.
+          fg.fillStyle='rgba(0,0,0,0.24)';px(xx+1,yy+4,8,1);
+          fg.fillStyle='rgba(153,178,198,0.07)';px(xx+1,yy+1,1,1);px(xx+8,yy+3,1,1);
+          fg.fillStyle='rgba(0,0,0,0.30)';px(xx+4,yy+2,1,2);
         }
       }
       // the panel joint's LIT edge — one plate butts against the next and you see the near plate's

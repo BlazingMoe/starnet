@@ -182,6 +182,13 @@ const PropSprites = (() => {
       px(sx, y + 2, 1, h - 4, shade(c, -0.22));
       px(sx + 1, y + 2, 1, h - 4, shade(c, 0.075));
       px(x + 2, y + 2, 2, 1, shade(c, 0.18));
+      // A gasketed access leaf, with a short captive latch, on larger castings.
+      const pw = Math.min(8, w - 8), ph = Math.min(5, h - 4);
+      px(x + 3, y + 2, pw, ph, shade(c, -0.12));
+      px(x + 3, y + 2, pw, 1, shade(c, -0.30));
+      px(x + 3, y + ph + 1, pw, 1, shade(c, 0.10));
+      px(x + pw + 1, y + 3, 1, 2, shade(c, -0.38));
+      px(x + pw, y + 3, 1, 1, shade(c, 0.22));
     }
   };
   const box = (x, y, w, h, c) => {              // outlined, shaded casing — 2026-09-03: own-hue outline (LINE resolves to the prop's ink), two-step bevels
@@ -401,10 +408,21 @@ const PropSprites = (() => {
     px(x + 1, y, w - 2, 1, c); px(x, y + 1, w, h - 2, c); px(x + 1, y + h - 1, w - 2, 1, c);
   };
   const deckPlate = (x, y, w, h2) => {           // bolted-to-deck mounting plate under a SYSTEMS prop
+    if (w < 4 || h2 < 2) return;
     rr(x, y, w, h2, '#10161a');
-    px(x + 1, y, w - 2, 1, '#232d33');           // lit rim
-    px(x + 1, y + 1, 1, 1, '#39454d'); px(x + w - 2, y + 1, 1, 1, '#39454d'); // deck bolts
-    px(x + 1, y + h2 - 1, 3, 1, '#8a7434'); px(x + w - 4, y + h2 - 1, 3, 1, '#8a7434'); // hazard ticks
+    px(x + 1, y, w - 2, 1, '#34434c');           // exposed chamfer
+    if (h2 >= 4) {
+      px(x + 2, y + 1, w - 4, h2 - 2, '#1c272e');
+      px(x + 2, y + h2 - 2, w - 4, 1, '#080f15'); // inset rubber isolation pad
+      for (const bx of [x+2,x+w-4]) {
+        px(bx,y+1,2,2,'#0b1218');
+        px(bx,y+1,2,1,'#566672');
+        px(bx+1,y+2,1,1,'#26333d');
+      }
+    }
+    px(x + 1, y + h2 - 1, w - 2, 1, '#080e14'); // grounded underside
+    px(x + 1, y + h2 - 1, 2, 1, '#8a7434'); px(x + w - 3, y + h2 - 1, 2, 1, '#8a7434');
+
   };
   const deckSocket = (x, y, live) => {           // floor conduit socket a machine's cable runs into
     px(x, y, 2, 1, '#0e1418');                   // conduit
@@ -442,6 +460,13 @@ const PropSprites = (() => {
     px(x+1,y,Math.min(3,w-3),1,r.lit);
     px(x+w-1,y+1,1,h-1,r.dk); px(x,y+h-1,w,1,r.ao);
     if(h>5){px(x+1,y+2,1,h-4,r.top);px(x+2,y+h-3,Math.min(4,w-3),1,r.dk);}
+    if (w >= 9 && h >= 8) {
+      // Recessed ventilation with a metal lip; the surrounding face stays satin.
+      const vx=x+w-5, vy=y+h-5;
+      px(vx-1,vy-1,4,4,r.ao);
+      for(let j=0;j<2;j++){px(vx,vy+j*2,3,1,r.dk);px(vx,vy+j*2-1,2,1,r.top);}
+      px(x+3,y+h-2,2,1,r.mid); // engraved service index, never a status light
+    }
   };
   const captiveBolt = (x,y,r) => {px(x,y,2,2,r.ao);px(x,y,2,1,r.lit);px(x+1,y+1,1,1,r.dk);};
   const equipmentApron = (x,y,w,r) => {
@@ -450,7 +475,10 @@ const PropSprites = (() => {
     // Matte isolation gasket beneath the steel fascia; no specular highlight.
     px(x+2,y+2,w-4,1,r.ao);
     for(const dx of [2,w-4]){px(x+dx,y+1,2,1,r.lit);px(x+dx,y+2,2,1,r.dk);}
-    px(x+Math.floor(w/2)-2,y+1,4,1,r.ao);
+    const latch=x+Math.floor(w/2)-2;
+    px(latch,y+1,4,1,r.ao);
+    px(latch+1,y+1,2,1,r.dk); // recessed pull, flanked by the existing fasteners
+    if(w>18){px(x+5,y+1,3,1,r.top);px(x+w-8,y+1,2,1,r.dk);}
   };
 
   /* ============ ORIENTATION ============
