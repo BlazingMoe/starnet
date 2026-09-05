@@ -14,8 +14,8 @@
        completing the REAL work completes the milestone — never a manual tick.
      • THE CHAINING + EVIDENCE — on every clean run end it re-reads WorkQuestStore's projection; a bound milestone
        whose work quest went done folds the milestone done (Goals.foldMilestoneDone), WRITES the run-summary line
-       as evidence, advances the bar, surfaces the NEXT milestone quest, bumps Study salience (fail-open), and —
-       on the last milestone — completes the whole goal. The completion rides the EXISTING queststatestore
+       as evidence, advances the plan bar, surfaces the NEXT milestone quest, and bumps Study salience.
+       The life goal stays active until its success condition is explicitly confirmed. Step completion rides queststatestore
        celebration (its open→done fold sees arc-step/arc-goal edges in the shared projection).
      • DRIFT — if the Study Engine retires the source goals belief (dossier.forget), sync() detects the belief is
        gone and retires the goal tree (kept for history, hidden from the active quest log).
@@ -53,6 +53,13 @@ const GoalStore = (() => {
   function load() { try { const raw = localStorage.getItem(KEY); return raw ? JSON.parse(raw) : null; } catch (_) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (_) {} }
   function poke() { try { if (typeof StationUI !== 'undefined' && StationUI.rerender) StationUI.rerender('quests', false); } catch (_) {} }
+  function capHistory(s) {
+    while (s.goals.length > GOAL_CAP) {
+      const at = s.goals.findIndex(g => g.status !== 'active');
+      if (at < 0) break;
+      s.goals.splice(at, 1);
+    }
+  }
 
   // defensively rebuild the persisted slice — every goal + milestone re-validated, junk dropped (never a crash).
   function hydrate(raw) {
@@ -80,6 +87,7 @@ const GoalStore = (() => {
             successCondition: String(g.successCondition || '').slice(0, 500),
             outcomeEvidence: String(g.outcomeEvidence || '').slice(0, 1000),
             focusedAt: Number(g.focusedAt) || 0,
+            pendingRegistration: !!g.pendingRegistration,
             sourceBeliefId: g.sourceBeliefId == null ? null : String(g.sourceBeliefId),
             status, milestones: ms, createdAt: created,
             updatedAt: Number.isFinite(Number(g.updatedAt)) ? Number(g.updatedAt) : created
@@ -95,7 +103,7 @@ const GoalStore = (() => {
       }
     }
     s.goals.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    while (s.goals.length > GOAL_CAP) s.goals.shift();
+    capHistory(s);
     return s;
   }
 
@@ -221,7 +229,7 @@ const GoalStore = (() => {
     const goal = Goals.makeGoal(belief.text, texts, belief.id, now());
     if (!goal) { markOffered(belief); return null; }   // an edited-down-to-nothing path still counts as offered (don't loop)
     state.goals.push(goal);
-    while (state.goals.length > GOAL_CAP) state.goals.shift();
+    capHistory(state);
     markOffered(belief);
     // NB the double save(): markOffered persists on its own (its null-path caller has no other save), so this one
     // is redundant for the offered set — it is kept because it is THIS function's save of the pushed goal, and
@@ -335,7 +343,7 @@ const GoalStore = (() => {
     if (!g || condition.length < 4) return { ok: false, error: 'describe the observable result that means this goal is achieved' };
     if (typeof JourneyStore === 'undefined' || !JourneyStore.registerGoal) return { ok: false, error: 'journey service unavailable' };
     const r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition });
-    if (r && r.ok) { g.successCondition = condition.slice(0, 500); save(); pushToSidecar(); poke(); }
+    if (r && r.ok) { g.successCondition = condition.slice(0, 500); g.pendingRegistration = false; save(); pushToSidecar(); poke(); }
     return r;
   }
 
@@ -348,9 +356,15 @@ const GoalStore = (() => {
     const stamp = Math.max(now(), ...state.goals.map(g => (g.createdAt || 0) + 1));
     const g = Goals.makeGoal(title, steps, null, stamp, { userAuthored: true });
     if (!g) return { ok: false, error: 'enter at least one concrete first step' };
-    const r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition });
-    if (r && r.ok) { g.successCondition = condition.slice(0, 500); state.goals.push(g); save(); pushToSidecar(); poke(); }
-    return r;
+    // Save the user-authored goal and stable id before the network boundary. A lost response cannot
+    // strand the path; the success-condition action retries this id, and sync reconciles an accepted write.
+    g.successCondition = condition.slice(0, 500); g.pendingRegistration = true;
+    state.goals.push(g); capHistory(state); save(); pushToSidecar(); poke();
+    let r;
+    try { r = await JourneyStore.registerGoal({ id: g.id, text: g.text, successCondition: condition }); }
+    catch (_) { r = { ok: false }; }
+    if (r && r.ok) { g.pendingRegistration = false; save(); poke(); return r; }
+    return { ok: false, error: 'goal saved on this device; save its success condition to retry Journey registration' };
   }
   function focusGoal(id) {
     const g = ready() && state.goals.find(g => g.id === id && g.status === 'active');
@@ -397,8 +411,8 @@ const GoalStore = (() => {
   }
 
   // after a clean run, re-read WorkQuestStore's projection: any bound milestone whose work quest went DONE folds
-  // the milestone done, writes the run-summary evidence, advances the bar, and — on the last one — completes the
-  // goal. Only REAL completed work moves the bar (never a manual tick). Fail-open + idempotent.
+  // the step done, writes run-summary evidence, and advances the PLAN bar. This never proves a life outcome.
+  // User-performed actions take the separate explicit report path. Fail-open + idempotent.
   function reconcile(runSummary) {
     if (!ready()) return;
     let doneWq = null;
@@ -511,6 +525,7 @@ const GoalStore = (() => {
     for (const known of (journey && journey.goals || [])) {
       const g = state.goals.find(g => g.id === known.id);
       if (!g || g.status !== 'active') continue;
+      if (g.pendingRegistration) { g.pendingRegistration = false; changed = true; }
       if (known.successCondition && g.successCondition !== known.successCondition) { g.successCondition = known.successCondition; changed = true; }
       if (known.status === 'achieved') { g.status = 'done'; g.outcomeEvidence = known.evidence; changed = true; }
     }

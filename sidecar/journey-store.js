@@ -254,7 +254,7 @@ function makeJourneyStore(deps) {
     if (!q || !q.id || q.status !== 'done') return { ok: false, error: 'a completed quest is required' };
     const attest = q.attest && q.attest.confirmed === true ? q.attest : null;
     if (q.contract && q.contract.type === 'attest' && !attest) return { ok: false, error: 'attest completion requires Commander-confirmed evidence' };
-    const aid = agent(q.completedBy) || agent(attest && attest.agentId) || agent(q.agentId);
+    const aid = attest && attest.source === 'commander' ? null : (agent(q.completedBy) || agent(attest && attest.agentId) || agent(q.agentId));
     const proof = q.contract && q.contract.type === 'attest' ? 'commander-confirmed' : 'harness-contract';
     const evidence = attest && attest.evidence
       ? attest.evidence

@@ -19,6 +19,20 @@ Done means a completed plan leaves the goal active; a reported real-world action
 the plan with labelled evidence; a recorded metric informs planning; explicit goal outcome
 confirmation advances Commander level and station evolution exactly once, surviving restart.
 
+Implemented: explicit success conditions and goal confirmation, manual goal creation with one
+or more steps, focus switching, extending plans, user-performed action reports, Commander
+achievement progression, metric checkpoint dedupe, adaptive quest evidence, and defer/resume.
+Independent review corrected assigned-agent attribution for user actions, lost registration
+responses, and active-plan preservation when history is capped.
+
+Live seeded proof (`node dev/life-goal-proof.mjs`, :9143): three action reports left the goal
+active at 100% of plan and 30 points; metrics reached the model directive; a generated quest
+paused, resumed, and completed from a user report; explicit goal confirmation produced 160
+points, Commander Lv 2, and evolution stage 1. Restart preserved those values and repeat
+confirmation minted nothing. Browser warning/exception lists and native-control paint count
+were empty. The provider was a local deterministic mock, so real-provider recommendation
+quality and installed-desktop behavior remain unverified. Full fast/http gates pending.
+
 ## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
 
 Merged as `6002f57f5` after synchronizing with conversation trunk `368d6a8b9`.

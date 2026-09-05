@@ -1,12 +1,11 @@
 /* STARNET — topbar.js : the TOPBAR INSTRUMENT-CLUSTER logic (read-only wiring).
 
-   The topbar holds one cockpit gauge group: STATION (level + an XP-progress sliver)
+   The topbar holds one cockpit gauge group: COMMANDER (level + achievement progress)
    and the moved-up session-status instruments (UPLINK / ONLINE / save).
 
    This module OWNS none of the data. It is a pure read-only consumer:
-     - STATION level      — written into #gt-station by xpstore.js (untouched); we only
-                             ADD the XP sliver, painted from Xp.compute(XpStore.stationStats())
-                             (a read-only exported getter) on the same U.bus growth events.
+     - COMMANDER level   — read from JourneyStore's server-owned progression snapshot.
+                             Crew XP cannot write this headline or celebrate its level.
      - UPLINK / ONLINE / save — their markup was moved up from #bottombar .bb-right with ids
                              intact, so main.js save() and stationui.js tick()/flashSave() keep
                              writing them with zero changes here.
@@ -20,7 +19,7 @@ const Topbar = (() => {
 
   const $ = sel => document.querySelector(sel);
 
-  // ---- STATION XP sliver: read-only compute over the live station rollup ----
+  // ---- Commander achievement sliver: read-only projection of durable Journey proof ----
   function paintXp() {
     try {
       const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
