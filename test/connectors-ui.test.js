@@ -98,6 +98,9 @@ function fakeStack(tools) {
     A.ok(JSON.stringify(s).indexOf('fresh-1') === -1, 'the resolved oauth token never leaves the summary');
     await m.refresh('oa');
     A.eq(seen.transport.token, 'fresh-2', 'Reload/refresh re-invokes the tokenProvider (fresh bearer, not a frozen stale one)');
+    await m.configure('oa', { transport: 'http', url: 'https://mcp.example/x', token: 'manual', tokenProvider: null, enabled: false });
+    A.eq(m.status('oa').oauth, false, 'an explicit null tokenProvider switches the runtime out of OAuth mode');
+    A.eq(m.status('oa').hasToken, true, 'the replacement manual token remains configured after leaving OAuth mode');
   }
 
   // ---------- 2. SOURCE GUARD: the frontend panel ----------

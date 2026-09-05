@@ -2931,7 +2931,18 @@ function persistAllowlist(nextAllow, nextMeta) {   // throws on failure -> the b
     metaToWrite = {};
     for (const k of nextAllow) metaToWrite[k] = grantMeta[k] || { grantedAt: nowMs };
   }
-  saveResilient(ALLOWLIST_FILE, { version: 1, allow: nextAllow, meta: metaToWrite });   // fsync-durable + .bak; throws on a real write failure
+  const value = { version: 1, allow: nextAllow, meta: metaToWrite };
+  const nextSet = new Set(nextAllow);
+  const removesAuthority = Array.from(grantsPermanent).some(k => !nextSet.has(k));
+  if (removesAuthority) {
+    const ok = saveCredentialRemovalVerified(ALLOWLIST_FILE, value, raw => !!raw
+      && Array.isArray(raw.allow)
+      && raw.allow.length === nextAllow.length
+      && raw.allow.every(k => nextSet.has(k)), 'permissions');
+    if (!ok) throw new Error('permission removal could not be verified in both recovery copies');
+  } else {
+    saveResilient(ALLOWLIST_FILE, value);   // additive grant: retain the prior good snapshot for torn-write recovery
+  }
   // commit the provenance to the shared in-memory store ONLY after the durable write succeeds (fail-closed):
   // mirror-replace so a revoke's dropped rows and a grant's new stamp both land coherently.
   for (const k of Object.keys(grantMeta)) delete grantMeta[k];
@@ -4273,10 +4284,21 @@ async function ensureConnectorOauthToken(id, force) {
     const flight = (async () => {
       const cur = connectorOauth.byId[id];              // freshest view once we own the flight
       if (!cur || !cur.accessToken || !cur.refreshToken || !cur.tokenEndpoint) return { token: (cur && cur.accessToken) || '', refreshError: null };
+      const startedCfg = connectorConfigs.find(c => c && c.id === id);
+      const startedGrant = JSON.stringify(cur);
       try {
         const nt = await mcpOauth.refreshTokens({ fetchImpl: connectorOauthFetch, tokenEndpoint: cur.tokenEndpoint, refreshToken: cur.refreshToken,
           clientId: cur.clientId, clientSecret: cur.clientSecret, tokenEndpointAuthMethod: cur.tokenEndpointAuthMethod,
           resource: cur.resource, now: Date.now(), timeoutMs: CONNECTOR_OAUTH_LEG_MS });
+        const currentCfg = connectorConfigs.find(c => c && c.id === id);
+        const currentGrant = connectorOauth.byId[id];
+        // A refresh belongs to the exact connector + grant generation that started it. An edit, import, remove,
+        // sign-in, or sign-out during the await wins; the late response must not recreate the superseded secret.
+        if (!startedCfg || !currentCfg || currentCfg.oauth !== true
+            || String(currentCfg.url || '') !== String(startedCfg.url || '')
+            || JSON.stringify(currentGrant || null) !== startedGrant) {
+          return { token: (currentGrant && currentGrant.accessToken) || '', refreshError: null };
+        }
         const next = connectorStateMod.withOauthEntry(connectorStateMod.envelope(connectorConfigs, connectorOauth), id, Object.assign({}, cur, nt));
         if (!persistConnectorState(next.configs, next.oauth)) throw new Error('refreshed token could not be saved');
         adoptConnectorState(next);
@@ -4318,7 +4340,7 @@ async function configureConnectorCfg(cfg, options) {
     // re-sign-in from, rather than the connector vanishing from /api/connectors.
     return connectors.configure(cfg.id, Object.assign({}, cfg, { token: '', tokenProvider: (force) => ensureConnectorOauthToken(cfg.id, force === true) }), options);
   }
-  return connectors.configure(cfg.id, cfg, options);
+  return connectors.configure(cfg.id, Object.assign({}, cfg, { tokenProvider: null }), options);
 }
 
 /* ---- TOOLSETS kill-switch store (the reference harness's "toolsets" surface): a per-capId-FAMILY on/off flag
@@ -10088,6 +10110,7 @@ async function handleConfigImport(req, res) {
   const only = Array.isArray(body.only) && body.only.length ? new Set(body.only) : null;
   const want = (name) => (!only || only.has(name)) && Object.prototype.hasOwnProperty.call(parsed.sections, name);
   const applied = [];
+  const effectiveSecretsNeeded = (parsed.secretsNeeded || []).filter(x => x && x.kind !== 'connector');
   const sec = parsed.sections;
 
   if (want('budget')) {
@@ -10126,28 +10149,64 @@ async function handleConfigImport(req, res) {
     applied.push('permissions');
   }
   if (want('connectors') && Array.isArray(sec.connectors)) {
-    // Upsert each imported connector by id. A live secret is retained only for the exact same HTTP endpoint;
-    // changing the service identity clears every prior credential instead of donating it to the replacement.
+    // Upsert each imported connector by id. Redaction markers are instructions, never executable config: they
+    // resolve from the protected local row only when the service/execution identity is exact. Otherwise the row
+    // is saved disabled and the response names every value that must be re-entered.
     const byId = new Map((connectorConfigs || []).map(c => [c.id, c]));
     let nextOauth = connectorOauth;
     const importedIds = [];
     for (const c of sec.connectors) {
       const live = byId.get(c.id);
       const merged = Object.assign({}, c);
+      const redacted = new Set(Array.isArray(c.redactedFields) ? c.redactedFields : []);
+      const unresolved = [];
       const sameService = !!(live && c.transport === live.transport && c.transport === 'http' && sameEndpoint(c.url, live.url));
       if (!Object.prototype.hasOwnProperty.call(c, 'enabled')) merged.enabled = sameService && live ? live.enabled !== false : false;
       if (!Object.prototype.hasOwnProperty.call(c, 'oauth')) merged.oauth = sameService && live ? live.oauth === true : false;
-      const sameStdioCommand = !!(live && c.transport === 'stdio' && live.transport === 'stdio' && c.command === live.command);
-      if (!Object.prototype.hasOwnProperty.call(c, 'agentId')) merged.agentId = sameStdioCommand ? String(live.agentId || '') : '';
-      if (!Object.prototype.hasOwnProperty.call(c, 'cwd')) merged.cwd = sameStdioCommand ? String(live.cwd || '') : '';
+      const hasStdioIdentity = ['agentId', 'cwd'].every(k => Object.prototype.hasOwnProperty.call(c, k));
+      const sameStdioCommand = !!(live && c.transport === 'stdio' && live.transport === 'stdio'
+        && hasStdioIdentity && c.command === live.command
+        && String(c.agentId || '') === String(live.agentId || '')
+        && String(c.cwd || '') === String(live.cwd || ''));
+      if (!Object.prototype.hasOwnProperty.call(c, 'agentId')) merged.agentId = '';
+      if (!Object.prototype.hasOwnProperty.call(c, 'cwd')) merged.cwd = '';
       if (!Object.prototype.hasOwnProperty.call(c, 'label')) merged.label = live ? String(live.label || c.id) : c.id;
-      if (sameService && live.token) merged.token = live.token;
-      if (sameService && live.headers) merged.headers = Object.assign({}, c.headers, redactSecretKeep(live.headers, c.headers));
+      if (redacted.has('token')) {
+        if (sameService && live.token) merged.token = live.token;
+        else unresolved.push('token');
+      }
+      merged.headers = Object.assign({}, c.headers || {});
+      for (const field of redacted) if (field.indexOf('header:') === 0) {
+        const key = field.slice(7);
+        if (sameService && live && live.headers && Object.prototype.hasOwnProperty.call(live.headers, key)) merged.headers[key] = live.headers[key];
+        else if (!Object.prototype.hasOwnProperty.call(merged.headers, key)) unresolved.push(field);
+      }
+      if (c.transport === 'stdio') {
+        const rebuiltArgs = (c.args || []).map((value, index) => {
+          const field = 'args:' + index;
+          if (redacted.has(field) || value === '<redacted>') {
+            if (sameStdioCommand && live && Array.isArray(live.args) && index < live.args.length) return live.args[index];
+            unresolved.push(field); return null;
+          }
+          return value;
+        });
+        merged.args = rebuiltArgs.some(x => x == null) ? [] : rebuiltArgs;
+        merged.env = Object.assign({}, c.env || {});
+        for (const field of redacted) if (field.indexOf('env:') === 0) {
+          const key = field.slice(4);
+          if (sameStdioCommand && live && live.env && Object.prototype.hasOwnProperty.call(live.env, key)) merged.env[key] = live.env[key];
+          else if (!Object.prototype.hasOwnProperty.call(merged.env, key)) unresolved.push(field);
+        }
+      }
+      if (redacted.has('url:auth')) unresolved.push('url:auth');
       const keepOauthGrant = !!(sameService && merged.oauth === true && connectorOauth.byId[c.id]);
       if (!keepOauthGrant) nextOauth = connectorStateMod.withOauthEntry(connectorStateMod.envelope([...byId.values()], nextOauth), c.id, null).oauth;
-      const needsSecret = Array.isArray(c.redactedFields) && c.redactedFields.length > 0;
-      const hasUsableSecret = !!(merged.token || Object.keys(merged.headers || {}).length || keepOauthGrant);
-      if (needsSecret && !hasUsableSecret) merged.enabled = false;
+      if (redacted.has('oauth') && !keepOauthGrant) unresolved.push('oauth');
+      const uniqueUnresolved = Array.from(new Set(unresolved));
+      if (uniqueUnresolved.length) {
+        merged.enabled = false;
+        effectiveSecretsNeeded.push({ kind: 'connector', id: c.id, fields: uniqueUnresolved });
+      }
       byId.set(c.id, merged);
       importedIds.push(c.id);
     }
@@ -10172,15 +10231,7 @@ async function handleConfigImport(req, res) {
   if (want('autonomy') && sec.autonomy) browser.autonomy = sec.autonomy;
   if (want('notifyPrefs') && sec.notifyPrefs) browser.notifyPrefs = sec.notifyPrefs;
 
-  return json(200, { ok: true, applied, secretsNeeded: parsed.secretsNeeded || [], notes: parsed.notes || [], browser });
-}
-
-// tiny helper: keep a live header value only for keys the imported config left blank (i.e. the redacted ones),
-// so re-importing a redacted export doesn't clobber a header the user already re-entered live.
-function redactSecretKeep(liveHeaders, importedHeaders) {
-  const out = {}; const imp = importedHeaders || {};
-  for (const k of Object.keys(liveHeaders || {})) { if (!(k in imp)) out[k] = liveHeaders[k]; }
-  return out;
+  return json(200, { ok: true, applied, secretsNeeded: effectiveSecretsNeeded, notes: parsed.notes || [], browser });
 }
 
 /* POST /api/config/reset { section } -> reset ONE server-side section to its environment/empty default, live.

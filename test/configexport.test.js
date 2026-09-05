@@ -26,12 +26,13 @@ const env = C.buildExport({
   dossier: 'the commander block',
   permissions: ['fs.write:workspace', 'shell.exec:*'],
   connectors: [{
-    id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET',
+    id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET#FRAGMENT_SECRET',
     headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' }, hasToken: true,
     enabled: false, oauth: true, label: 'GitHub'
   }, {
     id: 'stdio-sec', transport: 'stdio', command: 'node',
-    args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok'],
+    args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok',
+      '--pwd=SHORT_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'],
     env: { ACCESS: 'ENV_SECRET_WITH_INNOCENT_NAME' }, agentId: 'lead', cwd: 'C:/work', enabled: false
   }, {
     id: 'bad-url', transport: 'http', url: 'https://bad host/mcp?opaque=MALFORMED_URL_SECRET'
@@ -72,11 +73,10 @@ eq(stdio.cwd, 'C:/work', 'stdio working directory is exported');
 eq(stdio.enabled, false, 'disabled stdio connector stays disabled in the export');
 eq(stdio.env.ACCESS, undefined, 'stdio environment values are excluded regardless of variable name');
 ok(stdio.redactedFields.indexOf('env:ACCESS') >= 0, 'excluded environment variable is named for re-entry');
-ok(stdio.args.some(x => x === '--api-token=<redacted>'), 'inline secret argument is scrubbed');
-ok(stdio.args.some(x => x === '<redacted>'), 'value following a secret flag is scrubbed');
-ok(stdio.args.some(x => /access_token=%3Credacted%3E/.test(x)), 'secret URL argument is scrubbed');
+ok(stdio.args.length === 9 && stdio.args.every(x => x === '<redacted>'), 'every opaque stdio argument is replaced by a positional marker');
+ok(stdio.redactedFields.filter(x => x.indexOf('args:') === 0).length === 9, 'every argument position is listed for local restoration or re-entry');
 const exportBytes = JSON.stringify(env);
-for (const secret of ['SEKRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
+for (const secret of ['SEKRET', 'FRAGMENT_SECRET', 'Bearer abc', 'ARG_SECRET', 'NEXT_SECRET', 'URL_SECRET', 'SHORT_SECRET', 'HEADER_ARG_SECRET', 'JSON_ARG_SECRET', 'ENV_SECRET_WITH_INNOCENT_NAME', 'MALFORMED_URL_SECRET']) {
   ok(exportBytes.indexOf(secret) < 0, 'connector secret excluded: ' + secret);
 }
 eq(env.sections.connectors[2].url, '<redacted>', 'an invalid URL is excluded because its auth material cannot be parsed safely');

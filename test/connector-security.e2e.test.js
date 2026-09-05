@@ -65,13 +65,32 @@ async function mockServer(kind, redirectTo) {
     await fixture.json('POST', '/api/connectors', { id: 'oauth', transport: 'http', url: 'https://example.invalid/mcp', oauth: true, enabled: false });
     await fixture.json('POST', '/api/connectors', {
       id: 'stdio-secret', transport: 'stdio', command: 'node', agentId: 'ghost', enabled: false,
-      args: ['server.js', '--api-token=ARG_SECRET'], env: { ACCESS: 'ENV_SECRET' }
+      cwd: 'C:/audit',
+      args: ['server.js', '--pwd=PWD_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'],
+      env: { ACCESS: 'ENV_SECRET', MODE: 'audit' }
     });
     const exported = await fixture.json('POST', '/api/config/export', { only: ['connectors'] });
     A.eq(exported.status, 200, 'connector backup exports');
     const bytes = JSON.stringify(exported.body);
-    A.eq(bytes.includes('ARG_SECRET'), false, 'stdio argument secret is absent from live export');
+    for (const secret of ['PWD_SECRET', 'HEADER_ARG_SECRET', 'JSON_ARG_SECRET']) A.eq(bytes.includes(secret), false, 'opaque stdio argument secret is absent from live export: ' + secret);
     A.eq(bytes.includes('ENV_SECRET'), false, 'stdio environment secret is absent from live export');
+    const stdioRow = exported.body.sections.connectors.find(c => c.id === 'stdio-secret');
+    A.ok(stdioRow.args.every(x => x === '<redacted>'), 'live export carries only positional argument markers');
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [stdioRow] } } });
+    A.eq(r.status, 200, 'same-station stdio backup reimports');
+    A.eq(r.body.secretsNeeded.some(x => x.id === 'stdio-secret'), false, 'matching local stdio secrets resolve without a false re-entry claim');
+    const stateFile = require('node:path').join(fixture.workspace, 'connectors', 'state.json');
+    let diskStdio = JSON.parse(require('node:fs').readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-secret');
+    A.eq(diskStdio.args, ['server.js', '--pwd=PWD_SECRET', '-H', 'Authorization: Bearer HEADER_ARG_SECRET', '{"access":"JSON_ARG_SECRET"}'], 'same execution identity retains protected local argv');
+    A.eq(diskStdio.env, { ACCESS: 'ENV_SECRET', MODE: 'audit' }, 'same execution identity retains protected local environment');
+    const portableRow = Object.assign({}, stdioRow, { id: 'stdio-portable', enabled: true });
+    r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: [portableRow] } } });
+    A.eq(r.status, 200, 'portable stdio backup imports as an incomplete row');
+    diskStdio = JSON.parse(require('node:fs').readFileSync(stateFile, 'utf8')).configs.find(c => c.id === 'stdio-portable');
+    A.eq(diskStdio.enabled, false, 'portable stdio row stays disabled until opaque values are re-entered');
+    A.eq(diskStdio.args, [], 'redaction placeholders are never persisted as executable arguments');
+    A.eq(diskStdio.env, {}, 'redacted environment values are never fabricated');
+    A.ok(r.body.secretsNeeded.some(x => x.id === 'stdio-portable' && x.fields.includes('args:0') && x.fields.includes('env:ACCESS')), 'portable import names the exact missing fields');
     const rows = exported.body.sections.connectors.filter(c => ['disabled', 'oauth'].includes(c.id));
     r = await fixture.json('POST', '/api/config/import', { envelope: { starnetExport: 1, sections: { connectors: rows } } });
     A.eq(r.status, 200, 'connector backup reimports');
@@ -81,12 +100,17 @@ async function mockServer(kind, redirectTo) {
     A.eq(disabled.enabled, false, 'disabled connector remains disabled after import');
     A.eq(oauth.enabled, false, 'disabled OAuth connector remains disabled after import');
     A.eq(oauth.oauth, true, 'custom OAuth mode remains present after import');
+    r = await fixture.json('POST', '/api/connectors', { id: 'oauth', transport: 'http', url: 'https://example.invalid/mcp', oauth: false, token: 'MANUAL_TOKEN', enabled: false });
+    A.eq(r.status, 200, 'ordinary edit can leave OAuth mode');
+    A.eq(r.body.status.oauth, false, 'runtime status drops the OAuth provider immediately');
+    A.eq(r.body.status.hasToken, true, 'runtime status reports the replacement manual credential');
     await fixture.restart();
     list = await fixture.json('GET', '/api/connectors');
     disabled = list.body.connectors.find(c => c.id === 'disabled');
     oauth = list.body.connectors.find(c => c.id === 'oauth');
     A.eq(disabled.enabled, false, 'disabled state survives restart');
-    A.eq(oauth.oauth, true, 'OAuth mode survives restart');
+    A.eq(oauth.oauth, false, 'manual authentication mode survives restart after leaving OAuth');
+    A.eq(oauth.hasToken, true, 'manual credential remains configured after restart');
   } finally {
     await fixture.dispose();
     for (const mock of [original, replacement, redirect]) {
