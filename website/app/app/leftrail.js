@@ -100,7 +100,7 @@
   // the max-height that ends the list flush under each row in turn (border-box sizing, so the
   // list's own padding counts) — summed from REAL geometry every time, never from a row constant
   function rowCuts() {
-    const rows = ul.querySelectorAll('.crew-row');
+    const rows = ul.querySelectorAll('.crew-row:not([hidden])');
     if (!rows.length) return [];
     const cs = getComputedStyle(ul);
     const padBottom = parseFloat(cs.paddingBottom) || 0;
@@ -148,7 +148,7 @@
     // turns that into ~8 forced layouts a second for nothing.
     new MutationObserver(schedule).observe(ul, { childList: true });
     // ROW HEIGHT — crewTick toggles .working, which opens the in-flight bar inside the row.
-    new MutationObserver(schedule).observe(ul, { subtree: true, attributeFilter: ['class'] });
+    new MutationObserver(schedule).observe(ul, { subtree: true, attributeFilter: ['class', 'hidden'] });
     // …and that bar is TRANSITIONED (motion.css §17, --t-med 220ms), so the class toggle above
     // fires while the row is still the OLD height and ANY single re-measure after it samples the
     // animation mid-flight — measured: 13px of the next agent showing until something else

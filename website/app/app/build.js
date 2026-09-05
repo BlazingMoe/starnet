@@ -391,8 +391,9 @@ const Build = (() => {
     selRow.appendChild(toolBtn(byId('select')));
     tools.appendChild(selRow);
     TOOL_GROUPS.forEach(g => {
-      const wrap = document.createElement('div'); wrap.className = 'refit-toolgroup';
-      const lab = document.createElement('div'); lab.className = 'refit-group-label';
+      const wrap = document.createElement('details'); wrap.className = 'refit-toolgroup';
+      wrap.open = g.tools.includes(tool) || g === TOOL_GROUPS[0];
+      const lab = document.createElement('summary'); lab.className = 'refit-group-label';
       lab.innerHTML = '<span class="refit-group-n">' + esc(g.label) + '</span><span class="refit-group-why">' + esc(g.why) + '</span>';
       wrap.appendChild(lab);
       const grid = document.createElement('div'); grid.className = 'refit-tools';
@@ -555,6 +556,7 @@ const Build = (() => {
     grid.setAttribute('aria-label', 'Props');
     list.forEach(c => grid.appendChild(propTile(c)));
     host.appendChild(grid);
+    renderPropPreview();
     try { paintThumbs(performance.now()); } catch (e) {}   // first frame now, so the gallery isn't blank for a beat
   }
 
@@ -654,6 +656,9 @@ const Build = (() => {
         catRow.appendChild(b);
       });
       pal.appendChild(catRow);
+      const preview = document.createElement('section'); preview.id = 'refit-selected-prop';
+      preview.className = 'refit-selected-prop'; preview.setAttribute('aria-label', 'Selected prop');
+      pal.appendChild(preview);
       // row 2 — a scrollable gallery of LIVE previews: each tile draws the real animated sprite, not just its name.
       // It lives in its own HOST because every keystroke rebuilds the gallery and NOTHING else: re-running
       // renderPalette() here would replace the <input> mid-word and the field would lose focus (and the caret)
@@ -955,6 +960,33 @@ const Build = (() => {
     propThumbs.push({ id: c.id, w: c.w, h: c.h, off, octx: off.getContext('2d'), dctx: cvEl.getContext('2d'),
                       nativeW, nativeH, bw: cvEl.width, bh: cvEl.height });
     return b;
+  }
+  // One static, truthful preview per selection/orientation change. The gallery already owns
+  // animated thumbnails; this larger inspection well adds no frame-loop work.
+  function renderPropPreview() {
+    const host = root && root.querySelector('#refit-selected-prop');
+    const c = catalog().find(c => c.id === propType);
+    if (!host || !c) return;
+    const r = propFacing(c.id), m = propFlipOn(c.id), box = propBox(c.id, r), grant = grantLabelOf(c);
+    host.innerHTML = '<div class="refit-preview-art"><canvas width="280" height="180" aria-label="' + esc(c.label) + ' preview"></canvas></div>' +
+      '<div class="refit-preview-info"><span class="ui-overline">SELECTED PROP</span><b>' + esc(c.label) + '</b>' +
+      '<span>' + box.w + ' × ' + box.h + ' tiles · ' + FACE_WORD[r] + (m ? ' · flipped' : '') + '</span>' +
+      '<span class="refit-preview-grant">' + esc(grant ? 'GRANTS ' + grant : (c.seat ? 'AGENT WORKSTATION' : c.tier === 'functional' ? 'WORKFLOW EQUIPMENT' : 'DECOR')) + '</span>' +
+      '<div class="refit-preview-actions">' +
+      (canTurn(c.id) ? '<button class="bb xs" type="button" data-preview-turn>↻ TURN · R</button>' : '') +
+      (canFlip(c.id) ? '<button class="bb xs" type="button" data-preview-flip>⇆ FLIP · M</button>' : '') + '</div></div>';
+    const nativeW = box.w * 12 + 24, nativeH = box.h * 12 + 24;
+    const off = document.createElement('canvas'); off.width = nativeW; off.height = nativeH;
+    const o = off.getContext('2d'); o.translate(12, 12); o.imageSmoothingEnabled = false;
+    PropSprites.setCtx(o); PropSprites.setNow(0);
+    PropSprites.draw({ t: c.id, x: 0, y: 0, w: box.w, h: box.h, r, m }, false);
+    const cv = host.querySelector('canvas'), d = cv.getContext('2d'); d.imageSmoothingEnabled = false;
+    const scale = Math.min(cv.width / nativeW, cv.height / nativeH);
+    const w = Math.round(nativeW * scale), h = Math.round(nativeH * scale);
+    d.drawImage(off, Math.round((cv.width - w) / 2), Math.round((cv.height - h) / 2), w, h);
+    const turn = host.querySelector('[data-preview-turn]'), flip = host.querySelector('[data-preview-flip]');
+    if (turn) turn.onclick = () => { propRot = nextFace(c.id, propRot, 1) & 3; renderPropPreview(); setHint(); sfx('click'); };
+    if (flip) flip.onclick = () => { propMir = propMir ? 0 : 1; renderPropPreview(); setHint(); sfx('click'); };
   }
   // draw every visible preview tile for time `now` (animated). Renders native → fit-blits with nearest-neighbour.
   function paintThumbs(now) {
@@ -1355,6 +1387,7 @@ const Build = (() => {
       const active = b.dataset.tool === id;
       b.classList.toggle('active', active);
       b.setAttribute('aria-pressed', active ? 'true' : 'false');
+      if (active && b.closest('details')) b.closest('details').open = true;
     });
     renderPalette(); repaintIcons(); setHint(); setCursor();
     if (id === 'line') frameBlueprint();   // a footprint you cannot see whole cannot be aimed
@@ -3535,6 +3568,7 @@ const Build = (() => {
     if (tool !== 'prop') { sfx('bad'); flashTip(ev, 'hover a placed prop to turn it, or pick the PROP tool (6)'); return; }
     if (!canTurn(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + ' only faces one way — its turned art is not drawn'); return; }
     propRot = nextFace(propType, propRot, dir) & 3;
+    renderPropPreview();
     const b = propBox(propType, propRot);
     sfx('click'); flashTip(ev, 'facing ' + FACE_WORD[propRot] + ' · ' + b.w + '×' + b.h, true); setHint();
   }
@@ -3551,6 +3585,7 @@ const Build = (() => {
     if (tool !== 'prop') { sfx('bad'); flashTip(ev, 'hover a placed prop to flip it, or pick the PROP tool (6)'); return; }
     if (!canFlip(propType)) { sfx('bad'); flashTip(ev, propLabel(propType) + ' cannot be flipped — its light is painted in, not derived'); return; }
     propMir = propMir ? 0 : 1;
+    renderPropPreview();
     sfx('click'); flashTip(ev, propMir ? 'flipped' : 'unflipped', true); setHint();
   }
   // open the right editor for a logistics prop that carries config (BAY = agent, FILTER/MERGER = routing, AIRLOCK = seal)

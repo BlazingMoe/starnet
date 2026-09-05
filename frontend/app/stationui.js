@@ -757,6 +757,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // quick collapse: a compressed power-off toward the strip (transform/opacity only), then hide.
     w.classList.add('term-minimizing');
     const hide = () => {
+      if (!minimized[key] || w._closing) return; // a quick Back may already have restored this window
       w.classList.remove('term-minimizing');
       w.classList.add('term-min-hidden');
       w.setAttribute('aria-hidden', 'true');
@@ -1382,6 +1383,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const key = String(a.name).trim().toUpperCase();
     return present.filter(x => x && String(x.name || '').trim().toUpperCase() === key).length > 1 ? String(a.id || '') : '';
   }
+  let crewFilter = 'all';
+  function crewPortrait(a) {
+    return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
+  }
   function crewRender() {
     wireCrewLive();   // ensure the per-agent run-state listener is live
     const ul = $('#crew'); if (!ul) return;
@@ -1391,7 +1396,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       return;
     }
     ul.innerHTML = present.map((a, i) =>
-      '<li class="crew-row" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      '<li class="crew-row" role="button" tabindex="0" aria-label="Open dossier for ' + esc(a.name || a.id) + '" data-i="' + i + '" data-agent-id="' + esc(a.id) + '" style="--ci:' + i + '">' +
+      crewPortrait(a) +
       '<span class="dot on"></span>' +
       '<div class="crew-main">' +
       '<div class="crew-name" style="color:' + esc(a.color) + '">' + esc(a.name) +
@@ -1403,8 +1409,13 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="crew-prog bar-active" id="cp-' + esc(a.id) + '" aria-hidden="true"><div></div></div>' +
       '</div></li>').join('');
     // (the head's roster count moved out — #crew-sum below the list already totals the same crew)
-    ul.querySelectorAll('.crew-row').forEach(li =>
-      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); }));
+    ul.querySelectorAll('.crew-row').forEach(li => {
+      if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(li.querySelector('.crew-portrait img'), present[+li.dataset.i]);
+      li.addEventListener('click', () => { sfx('click'); openAgent(+li.dataset.i); });
+      li.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); li.click(); }
+      });
+    });
     crewTick();
   }
   // a crew member is WORKING iff IT has a live run — read from the real agent.run.start/end events, NOT the
@@ -1418,16 +1429,34 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const act = activity();
     let focusedId = '';
     try { focusedId = (typeof App !== 'undefined' && App.currentAgent && App.currentAgent() || {}).id || ''; } catch (_) {}
-    let working = 0;
+    const awaiting = new Set();
+    try {
+      if (typeof Channels !== 'undefined' && typeof Workstreams !== 'undefined') {
+        for (const id of Channels.pendingIds()) { const ws = Workstreams.get(id); if (ws) awaiting.add(ws.agentId || 'agent'); }
+      }
+    } catch (_) {}
+    let working = 0, visible = 0;
     present.forEach(a => {
       const live = agentLive(a.id);
       if (live) working++;
       const e = $('#cs-' + a.id);
-      if (e) e.textContent = live ? (a.id === focusedId && act === 'talk' ? 'in conversation' : 'working at the terminal') : 'idle — awaiting orders';
+      const needsYou = awaiting.has(a.id);
+      if (e) {
+        const status = needsYou ? 'AWAITING APPROVAL' : live ? (a.id === focusedId && act === 'talk' ? 'IN CONVERSATION' : 'WORKING') : 'IDLE';
+        if (e.textContent !== status) e.textContent = status;
+        const row = e.closest('.crew-row');
+        row.classList.toggle('selected', a.id === focusedId);
+        row.classList.toggle('needs-you', needsYou);
+        const hide = crewFilter === 'active' ? !live : crewFilter === 'await' ? !needsYou : false;
+        if (row.hidden !== hide) row.hidden = hide;
+        if (!row.hidden) visible++;
+      }
       // H: mark the row WORKING so the in-flight shimmer bar shows only while it's actually running.
       if (e && e.parentElement && e.parentElement.parentElement) e.parentElement.parentElement.classList.toggle('working', live);
     });
     const sum = $('#crew-sum');
+    const empty = $('#crew-filter-empty');
+    if (empty) { empty.hidden = visible > 0; empty.textContent = crewFilter === 'await' ? 'No approvals waiting.' : 'No agents working right now.'; }
     if (sum) sum.innerHTML =
       '<span class="pos">▮ ' + working + ' WORKING</span>' +
       '<span class="dim">▯ ' + (present.length - working) + ' IDLE</span>';
@@ -2179,10 +2208,20 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { id: 'cf-grp-behaves', label: 'HOW IT BEHAVES' },
     { id: 'cf-grp-unit',   label: 'THE UNIT' }
   ];
+  const cfOpen = new Map();
   function agConfig(a) {
-    const grp = (i, note) => '<div class="sec cf-grp" id="' + CF_GROUPS[i].id + '"><span class="sec-l">' + CF_GROUPS[i].label + '</span>' +
-      '<span class="sec-r"></span><span class="sec-nd"></span></div>' +
-      (note ? '<p class="cf-grp-note">' + note + '</p>' : '');
+    const summaries = [
+      CONFIG_FILES.filter(f => String(docVal(a, f.key) || '').trim()).length + ' of 4 prompt files filled · identity, purpose, context and rules',
+      (a.model || 'Station default model') + ' · ' + (a.approvalMode === 'full' ? 'full access' : 'asks first') + ' · away work ' + (a.workshop ? 'on' : 'off'),
+      ((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[a.skin]) || {}).name || 'Appearance · agent management'
+    ];
+    const grp = (i, note) => {
+      const key = a.id + ':' + CF_GROUPS[i].id;
+      const expanded = cfOpen.get(key) === true;
+      return '<details class="cf-group" id="' + CF_GROUPS[i].id + '" data-cf-group="' + esc(key) + '"' + (expanded ? ' open' : '') + '>' +
+        '<summary><span class="cf-group-title">' + CF_GROUPS[i].label + '</span><span class="cf-group-summary">' + esc(summaries[i]) + '</span></summary><div class="cf-group-body">' +
+        (note ? '<p class="cf-grp-note">' + note + '</p>' : '');
+    };
     // CONFIG is the one pane that is legitimately long (measured 1741px — it is the editor). Grouping tells you
     // what is down there; this row lets you GO there without a scroll hunt. Wired in wireConfig.
     const nav = '<div class="cf-nav" role="group" aria-label="Jump to a config group">' +
@@ -2191,14 +2230,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     return '<div class="cf-root">▣ station://agents/' + esc(agSlug(a)) + '/</div>' + nav +
       grp(0, 'These four files ARE the system prompt. Edit one and the agent changes on its very next run.') +
       CONFIG_FILES.map(f => fileCard(a, f)).join('') +
+      '</div></details>' +
       grp(1, 'Runtime posture — none of this changes what the agent knows, only how it works.') +
       personaCard(a) +
       modelCard(a) +
       executionProfileCard(a) +
       approvalCard(a) +
       workshopCard(a) +
+      '</div></details>' +
       grp(2, '') +
-      agCommand(a);   // SKIN swap + DANGER delete — lives at the END of CONFIG, off the BRIEF landing tab
+      agCommand(a) + '</div></details>';
   }
 
   // W3 per-agent AWAY-WORKSHOP surface (rebuilt 2026-07-15 UX audit — the queue was invisible, the cadence
@@ -2389,8 +2430,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const target = w.querySelector('#' + b.dataset.cfjump), pane = w.querySelector('.con-pane');
       if (!target || !pane) return;
       sfx('click');
+      target.open = true;
       pane.scrollTop = Math.max(0, target.offsetTop - pane.offsetTop - 8);
     }));
+    body.querySelectorAll('[data-cf-group]').forEach(group => {
+      group.addEventListener('toggle', () => { if (group.isConnected) cfOpen.set(group.dataset.cfGroup, group.open); });
+    });
     body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
       agEdit[b.dataset.edit] = true; sfx('click'); rerender('agents');
     }));
@@ -2674,6 +2719,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         const w = open.agents; if (!w) return;
         const card = w.querySelector('#' + anchor), pane = w.querySelector('.con-pane');
         if (!card || !pane) return;
+        const group = card.closest('.cf-group');
+        if (group) { group.open = true; cfOpen.set(group.dataset.cfGroup, true); }
         pane.scrollTop = Math.max(0, card.offsetTop - pane.offsetTop - 8);
         card.classList.add('cf-jumped');
         setTimeout(() => { try { card.classList.remove('cf-jumped'); } catch (_) {} }, 1400);
@@ -3611,10 +3658,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function openStream(id) {
     const w = WS(); if (!w) return;
     const s = w.get(id); if (!s) return;
-    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); return; }
+    if (typeof App !== 'undefined' && App.openWorkstream) { App.openWorkstream(id); workConversation('tasks'); return; }
     w.switch(id);
     if (typeof Chat === 'object' && Chat.load) Chat.load(s);
     persistWS(); sync();
+    workConversation('tasks');
   }
   function shipTask(id) {
     const w = WS(); if (!w) return;
@@ -3675,6 +3723,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (typeof App !== 'undefined' && App.openWorkstream) App.openWorkstream(id);
     else { w.switch(id); if (typeof Chat === 'object' && Chat.load) Chat.load(s); sync(); }
     const started = s.history.some(m => m.role === 'user');
+    workConversation('tasks');
     if (!started && s.title && typeof Chat === 'object' && Chat.send) Chat.send(s.title);
     // name the stream's OWN bound agent (s.agentId), resolved against the roster — never present[0], which is
     // whoever happens to be first, not who this workstream actually runs as.
@@ -3798,6 +3847,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const keepScroll = live ? Array.from(body.querySelectorAll('.kb-col')).map(c => c.scrollTop) : null;
     const streams = boardStreams();
     body.innerHTML =
+      '<div class="work-entry"><span class="ui-overline">PLAN → RUN → REVIEW</span><button type="button" class="bb sm" data-work-to="outbox">OUTBOX</button><button type="button" class="bb sm" data-work-to="deliverables">LIBRARY</button></div>' +
       '<div class="kb-add"><input id="kb-in" maxlength="80" placeholder="add a planned task…" autocomplete="off">' +
       '<button class="bb sm" id="kb-add">+ ADD</button></div>' +
       '<div class="kb-cols">' +
@@ -3816,6 +3866,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // entrance motion belongs to USER-initiated opens only — a background data poke must not re-animate.
     // (body persists across rebuilds, so the class must be actively toggled both ways.)
     body.classList.toggle('kb-live-refresh', live);
+    body.querySelectorAll('[data-work-to]').forEach(b => b.addEventListener('click', () => navigateWork('tasks', b.dataset.workTo)));
     const inp = body.querySelector('#kb-in');
     // capture-then-clear BEFORE addTask: its sync() triggers a live rebuild which would otherwise
     // capture (and faithfully restore) the just-submitted text back into the input.
@@ -3826,7 +3877,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelectorAll('.kb-empty-col .es-cta').forEach(b =>
       b.addEventListener('click', () => { sfx('click'); inp.focus(); }));
     const obLink = body.querySelector('#kb-outbox-link');
-    if (obLink) obLink.addEventListener('click', () => { sfx('click'); openTerm('outbox'); });
+    if (obLink) obLink.addEventListener('click', () => { sfx('click'); navigateWork('tasks', 'outbox'); });
     if (live) {
       // restore what the rebuild destroyed. Focus is restored ONLY if it already lived inside the board —
       // a refresh may never steal the keyboard from the chat composer (the original P1 bug).
@@ -8698,7 +8749,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     // dom + format primitives
     esc, mkEl, sfx, clock, ts, fmtRel,
     // hud + window plumbing
-    notify, toast, mountConsole, rerender, openTerm, openSignIn,
+    notify, toast, mountConsole, rerender, openTerm, openSignIn, navigateWork, workConversation,
     // deep-link a missing capability object into the REAL placement surface (minimize this console,
     // open REFIT, arm its palette on the exact prop). The TOOLSETS pane's inert rows use it, so a row
     // that diagnoses "no dish on station" can also cure it. Shared, never re-implemented: an auto-place
@@ -8717,6 +8768,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function init() {
     applySettings();
     syncTermBand();
+    document.querySelectorAll('[data-crew-filter]').forEach(b => b.addEventListener('click', () => {
+      crewFilter = b.dataset.crewFilter;
+      document.querySelectorAll('[data-crew-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      crewTick(); sfx('click');
+    }));
     document.querySelectorAll('.bb[data-term]').forEach(b =>
       b.addEventListener('click', () => {
         const k = b.dataset.term, def = BUILDERS[k];
@@ -8755,6 +8811,52 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (section) consoleSection[key] = section;
     if (open[key]) { if (minimized[key]) restoreTerm(key); if (section) rerender(key); return; }   // minimized → restore, not duplicate
     toggleTerm(key, def[0], def[1], def[2]);
+  }
+
+  // Following work should uncover the destination and preserve the source's scroll/draft.
+  // Reuse the window manager's suspension, never destroy a form to follow a link.
+  const WORK_LABELS = { tasks: 'TASK BOARD', outbox: 'OUTBOX', deliverables: 'LIBRARY', agents: 'AGENT RECORD' };
+  let workTrail = [];
+  function navigateWork(from, to, section, back) {
+    const alias = TERM_ALIAS[to];
+    if (alias) { section = (section && alias.map[section]) || alias.section; to = alias.term; }
+    if (!BUILDERS[to]) return;
+    if (!back) {
+      if (!workTrail.length || workTrail[workTrail.length - 1].key !== from) workTrail = [{ key: from, section: consoleSection[from] }];
+      const prior = workTrail.findIndex(x => x.key === to);
+      if (prior >= 0) workTrail = workTrail.slice(0, prior + 1);
+      else workTrail.push({ key: to, section });
+    }
+    if (from !== to) minimizeTerm(from);
+    openTerm(to, section);
+    const w = open[to]; if (!w) return;
+    let nav = w.querySelector('.work-path');
+    if (!nav) {
+      nav = mkEl('nav', 'work-path'); nav.setAttribute('aria-label', 'Work navigation');
+      w.querySelector('.term-head').after(nav);
+    }
+    nav.replaceChildren();
+    if (workTrail.length > 1) {
+      const previous = workTrail[workTrail.length - 2];
+      const b = mkEl('button', 'work-back', '‹ ' + (WORK_LABELS[previous.key] || previous.key.toUpperCase()));
+      b.type = 'button'; b.onclick = () => { workTrail.pop(); navigateWork(to, previous.key, previous.section, true); };
+      nav.appendChild(b);
+    }
+    const label = mkEl('span', 'work-location', WORK_LABELS[to] || to.toUpperCase()); nav.appendChild(label);
+    const comms = $('#comms-workpath'); if (comms) comms.hidden = true;
+    w.focus();
+  }
+  function workConversation(from) {
+    if (!open[from]) return;
+    minimizeTerm(from);
+    const nav = $('#comms-workpath'); if (!nav) return;
+    nav.replaceChildren(); nav.hidden = false;
+    const b = mkEl('button', 'work-back', '‹ BACK TO ' + (WORK_LABELS[from] || from.toUpperCase())); b.type = 'button';
+    b.onclick = () => { openTerm(from); nav.hidden = true; };
+    nav.appendChild(b);
+    const dismiss = mkEl('button', 'work-dismiss', '×'); dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Dismiss return shortcut');
+    dismiss.onclick = () => { nav.hidden = true; }; nav.appendChild(dismiss);
+    const input = $('#chat-input'); if (input) input.focus();
   }
 
   // the sidecar's bare-string 'notify' bus event (shared/events.js; rides the SSE bridge → U.bus) → one

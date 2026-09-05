@@ -1093,6 +1093,8 @@ const Chat = (() => {
       if (activeId != null) sel.value = activeId;
     }
     const cur = list.find(a => a.id === activeId) || null;
+    const portrait = el('comms-agent-portrait');
+    if (typeof AgentPortraits !== 'undefined') AgentPortraits.paint(portrait, cur);
     // "pin:" prefix so this per-agent PINNED model readout can't be misread as the dock's active-model chip.
     // DEDUPE (2026-07-27): the composer's dock chip already names the active model a few rows below. When an
     // agent's pin resolves to that SAME model, spelling the name twice in one panel adds nothing — collapse to

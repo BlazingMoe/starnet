@@ -249,10 +249,8 @@
        I connect Telegram" is a different window, and silence there is exactly what sends people hunting.
        Nothing here gates anything: every tab remains one click away in the rail. */
     const ROUTES = [
-      { glyph: '⊞', to: 'catalog', title: 'Pick a ready-made service',
-        blurb: 'Notion, GitHub, Linear, Stripe… Vetted servers that connect in one click or one sign-in. <b>Start here.</b>' },
-      { glyph: '⊞', to: 'catalog', title: 'Connect a platform API or POD service',
-        blurb: 'Printify, Printful, Gelato, Prodigi, Shopify… Choose the platform here, then paste its key.' },
+      { glyph: '⊞', to: 'catalog', title: 'Connect a service',
+        blurb: 'Browse services and platform APIs, including GitHub, Notion, Shopify and print-on-demand. <b>Start here.</b>' },
       { glyph: '⧉', to: 'mcp', title: 'Add a server by URL',
         blurb: 'You already have an MCP endpoint and want to point the station at it.' },
       { glyph: '▤', to: 'toolsets', title: 'Switch a built-in on or off',
@@ -264,8 +262,8 @@
         blurb: 'Anthropic, OpenAI, OpenRouter keys and sign-ins live in SETTINGS › PROVIDERS.' }
     ];
     const secRouter =
-      '<div class="ab-router" id="ab-router">' +
-        '<div class="ab-router-q">What are you trying to connect?</div>' +
+      '<details class="ab-router" id="ab-router">' +
+        '<summary class="ab-router-q"><span>＋ ADD AN ABILITY</span><small>Choose a service, server, channel or model provider</small></summary>' +
         '<div class="ab-router-grid">' +
           ROUTES.map((r, i) =>
             '<button type="button" class="ab-route" style="--ci:' + i + '"' +
@@ -278,7 +276,7 @@
               '<span class="ab-route-go" aria-hidden="true">' + (r.term ? '↗' : '›') + '</span>' +
             '</button>').join('') +
         '</div>' +
-      '</div>';
+      '</details>';
 
     const host = mountConsole(body, 'connectors', [
       { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Every capability your agents can use, grouped and switchable. A prop grants a toolset; the switch is the kill-switch on top.', build: frag(secToolsets) },
@@ -316,7 +314,7 @@
       const to = btn.dataset.abTo;
       if (to) {
         const tab = body.querySelector('#con-tab-connectors-' + to);
-        if (tab) { tab.click(); host.scrollTop = 0; }
+        if (tab) { tab.click(); routerNode.open = false; host.scrollTop = 0; }
         return;
       }
       // cross-window jump: openTerm is idempotent (restores a minimized window rather than duplicating).
@@ -518,6 +516,8 @@
           '</span>'
         : '';
       const consent = t.consentGated ? '<span class="ts-tag">asks first</span>' : '';
+      const availability = off ? 'DISABLED' : inert ? 'NEEDS PROP' : 'AVAILABLE';
+      const status = '<span class="ts-availability' + (!off && !inert ? ' available' : '') + '">' + availability + '</span>';
       const isJuke = t.id === 'jukebox';
       const all = (t.tools && t.tools.length) ? t.tools : [];
       const rest = all.length - TS_TOOLS_SHOWN;
@@ -531,7 +531,7 @@
           '<input type="checkbox" data-ts-toggle="' + esc(t.id) + '"' + (t.enabled ? ' checked' : '') + ' aria-label="Enable ' + esc(t.label) + '">' +
           '<span class="ts-glyph" aria-hidden="true">' + esc(t.glyph || '▪') + '</span>' +
           '<span class="ts-main">' +
-            '<span class="ts-name">' + esc(t.label) + ' ' + consent +
+            '<span class="ts-name">' + esc(t.label) + ' ' + status + consent +
               '<span class="ts-count dim">' + t.toolCount + ' tool' + (t.toolCount === 1 ? '' : 's') + '</span></span>' +
             '<span class="ts-desc dim">' + esc(t.desc) + '</span>' + hint + tools +
             (isJuke ? spotifyInline : '') +
@@ -542,7 +542,12 @@
       try {
         const j = await Harness.api.get('/api/toolsets?placed=' + encodeURIComponent(placedTypes.join(',')));
         const list = (j && j.toolsets) || [];
-        tsListEl.innerHTML = list.map(tsRowHTML).join('');
+        tsListEl.innerHTML = '<div class="ability-readout" aria-label="Station toolset availability">' +
+          '<div><b>' + list.filter(t => t.enabled && t.placed).length + '</b><span>AVAILABLE</span></div>' +
+          '<div><b>' + list.filter(t => t.enabled && !t.placed).length + '</b><span>NEED A PROP</span></div>' +
+          '<div><b>' + list.filter(t => !t.enabled).length + '</b><span>DISABLED</span></div></div>' +
+          '<p class="ability-legend">ENABLED is the switch. AVAILABLE means its prop is also on this station. Service connections and agent permissions still apply.</p>' +
+          list.map(tsRowHTML).join('');
         if (body.querySelector('#sp-connect')) setupSpotify(body);   // wire Spotify now the sp-* markup is in the JUKEBOX row
       } catch (_) { tsListEl.innerHTML = '<div class="mc-detail">sidecar offline — start it to manage toolsets.</div>'; }
     }

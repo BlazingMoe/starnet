@@ -156,3 +156,27 @@ bake, skipped offscreen, and rebaked after context loss. Movement/collision rule
 empty/front views and transparent panes for eight width/material combinations; it also walks the
 real movement helper through every fixture in both directions with zero illegal tile transitions,
 drives a live custom-world agent across the entrance, and checks context-loss recovery.
+
+September 5 cockpit UI pass (the six approved UI recommendations):
+- COMMS now has a cropped, cached agent portrait, clearer identity hierarchy, a recessed multiline
+  composer, and more legible conversation headers. Crew portraits reuse the same per-skin cache.
+- Crew filters ALL / WORKING / NEEDS YOU read the existing run map and per-workstream pending
+  approvals. Hidden rows are excluded from the rail's measured row cuts. Session/project chrome
+  has quieter headings, clearer selection, and more breathing room.
+- Refit tool shelves collapse; keyboard arming opens the matching shelf. A larger selected prop
+  preview shows its actual footprint, facing, flip and capability. It uses the real sprite painter
+  once per selection/orientation change; it adds no frame-loop work or placement side effects.
+- Abilities distinguishes disabled, enabled-but-missing-prop and available toolsets using the API's
+  switch/placement facts. The setup router is a disclosure with one service/catalog route. Config
+  opens on three concise summaries; expanding, jumping, editing and rerendering preserve the group.
+- Task Board, Outbox, Library and Agent Record links suspend the source window and provide Back.
+  Conversation handoffs expose COMMS with a return shortcut. Existing drafts and scroll positions
+  survive because navigation uses the window manager's minimize/restore lifecycle.
+- `frontend/css/interface.css` supplies shared matte housings, recessed content and consistent
+  selected/focus states through theme tokens. Narrow layouts reserve enough space for COMMS.
+
+`node dev/interface-probe.mjs` exercises the custom seeded app without submitting any tasks or model
+calls. Its 20 live checks cover portrait bounds, truthful idle/approval filters, toolset state,
+config expansion/editing, preserved drafts and return navigation, selected prop orientation, and
+composer fit at 1049/700/475px. Screenshots and results are in `.worldshots/interface/`.
+Station art, lighting, chair shape, movement and doorway depth were not modified by this UI pass.
