@@ -26,15 +26,15 @@ try {
       const sample=(fx,fy)=>{ const x=Math.floor((r.x1+w*fx)*12), y=Math.floor((r.y1+h*fy)*12); return 1-ctx.getImageData(x,y,1,1).data[3]/255; };
       const cv=document.createElement('canvas'); cv.width=bake.baseCv.width; cv.height=bake.baseCv.height;
       const c=cv.getContext('2d'); c.drawImage(bake.baseCv,0,0); c.drawImage(bake.lightCv,0,0);
-      results.push({w,h,lamps:bake.lamps.length,center:sample(.5,.5),top:sample(.5,.18),bottom:sample(.5,.82),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
+      results.push({w,h,lamps:bake.lamps.length,source:sample(.5,1.6/h),sourceLeft:sample(.08,1.6/h),sourceRight:sample(.92,1.6/h),wall:sample(.5,-1/h),center:sample(.5,.5),top:sample(.5,.18),bottom:sample(.5,.82),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
     }
     return results;
   })()`);
   for(const r of results) { writeFileSync(`${out}/${phase}-${r.w}x${r.h}.png`,Buffer.from(r.png.split(',')[1],'base64')); delete r.png; }
   writeFileSync(`${out}/${phase}.json`,JSON.stringify(results,null,2));
   console.log(JSON.stringify(results));
-  if(phase!=='before' && results.some(r=>r.center < Math.max(r.left,r.right,r.corner)+.2)) throw new Error('Room centre must remain distinctly brighter than its perimeter');
-  if (phase !== 'before' && results.some(r => Math.max(r.center,r.top,r.bottom)-Math.min(r.center,r.top,r.bottom) > .06)) throw new Error('Vertical strip must stay continuous along the depth');
+  if(phase!=='before' && results.some(r=>r.source < Math.max(r.sourceLeft,r.sourceRight)+.2)) throw new Error('North source must remain brighter than side edges');
+  if (phase !== 'before' && results.some(r => r.wall < .3)) throw new Error('North wall must retain illumination');
   await capture(cdp,out,phase+'-live');
   for(const scene of ['telescope','wood']) {
     await evalJS(cdp,`(() => {

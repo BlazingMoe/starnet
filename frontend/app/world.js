@@ -6337,7 +6337,6 @@ const World = (() => {
     if (!cache || !cache.flickers) return;
     ctx.globalCompositeOperation = 'lighter';
     for (const f of cache.flickers) {
-      if (f.roomStrip) continue; // Continuous room light must not regain circular shimmer pools.
       const a = Math.max(0, CRT.glow * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
       const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
       const rgb = f.rgb || '238,218,184';   // the room's fixture temperature (StationBake.lampRgbOf); tungsten 'rgba(238,218,184' is the hab default
