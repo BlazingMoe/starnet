@@ -7,7 +7,7 @@ severity: P2
 status: fixed
 found: 2026-09-06
 lane: agent/room-lighting-strip
-fix: 970df704b
+fix: 011ba23a4
 origin: owner
 report: Owner reported colourless and constantly moving light in the even-coverage preview, 2026-09-06
 affected: Source 28a9ed488; installed build unknown
@@ -20,7 +20,7 @@ recovery: unconfirmed
 
 ## Symptom
 
-The evenly lit rooms lose warmth and their bright patches pulse rapidly, making light appear to move around the floor. The owner requests richer lighting that complements the pixel art with less motion and little runtime cost.
+The evenly lit rooms lose warmth and their bright patches pulse rapidly, making light appear to move around the floor. The owner requests richer lighting that complements the pixel art with less motion and little runtime cost. After source 970df704b, the owner still found it too dull and explicitly requested rich warm glow without any visible ceiling lights.
 
 ## Repro
 
@@ -32,7 +32,11 @@ Open the seeded :9197 preview on source 28a9ed488. Observe a furnished wood-floo
 
 ## Verdict
 
-Source fix 970df704b steadies ceiling halos at their previous average intensity, reuses gradients via weak caches, slows and reduces emitted prop-light modulation, and separates material colour/reflection gain from the coverage cut. The room grid and diffuse coverage are preserved. Source behavior has live and focused regression proof; the standard full fast gate passed all 723 steps, exit 0. No installer or owner recovery claim is made.
+Source 970df704b fixed rapid motion but the owner rejected its weak colour/glow. Follow-up 011ba23a4 removes room pendants, wall lamp mounts and corridor lamp caps; preserves virtual area-light samples; uses saturated golden light, stronger steady glow, warmer shadow tint and existing low-resolution bloom. Build glow clips to the interior receiver. The room grid and diffuse coverage are preserved. Current source has live and focused proof; the current full gate result is in `qa/digests/2026-09-06-warm-room-glow.md`. No installer or owner recovery claim is made.
+
+## Warm-glow follow-up evidence
+
+`dev/room-lighting-vibrancy-proof.mjs` now compares against the rejected e777e73a4 source. On identical reference geometry, material chroma increases 16.081 -> 25.328 (+57.5%) while luma changes 47.553 -> 49.623 (+4.4%): colour increases relative to exposure, with zero clipped highlights. `.worldshots/warm-glow/` contains native canvas JSON, screenshots, settings and coverage logs. All nine room sizes and L/U/overlap shapes pass; maximum transmission ratio is 1.19. The native bloom probe verifies a halo outside a bright source and restored render state. Simulation-lighting now passes 81 assertions, including absence of all three ceiling-hardware render paths.
 
 ## Regression
 

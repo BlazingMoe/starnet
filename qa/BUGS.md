@@ -89,7 +89,7 @@ User/owner reports: **19** · source fixed: **13** · installer verified: **0** 
 | P2 | fixed | world | [DELETE announces success on a failed request and leaves the row — same missing `resp.ok` check in ROUTINES, LOOPS and CONNECTORS](bugs/aa9cd1cd-delete-announces-success-on-a-failed-request-and.md) | sweep/world | 8e68bf5c |
 | P2 | fixed | world | [`open()` has no `if (chanES) return` guard, so a re-entry (DATA › IMPORT → reentry → enterGame → resumeBridge) inside an SSE retry backoff leaves two live Event](bugs/d459160f-open.md) | sweep/world | f4d03511 |
 | P2 | fixed | world | [Room fixture grids flood edges and corners](bugs/b8594ab9-room-fixture-grids-flood-edges-and-corners.md) | agent/room-lighting-strip | 1525663d0 |
-| P2 | fixed | world | [Room lighting loses colour and flickers across the floor](bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md) | agent/room-lighting-strip | 970df704b |
+| P2 | fixed | world | [Room lighting loses colour and flickers across the floor](bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md) | agent/room-lighting-strip | 011ba23a4 |
 | P2 | fixed | world | [Station tooltip: pointerout during the 320ms show delay cannot clear the pending timer (`if (!anchor) return` runs before hide()), so a ghost card pops up besid](bugs/01caed27-station-tooltip.md) | sweep/world | f4d03511 |
 
 ## Open by surface
