@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "a560621e5c2ee04cc2398f105ab5816f4b314672",
+    "sourceCommit": "1d0725b7da6aa820a193504fc113f424809d17ee",
     "pathSetSha256": "35f806b0a0dbe801e6852fb7d699846911c65713289c283c13b96afb7baf576f",
     "files": [
       {
@@ -199,7 +199,7 @@
       {
         "path": "frontend/app/crtlab.js",
         "bytes": 21363,
-        "sha256": "400bc37dd1af14e2dabba87bc3bc1027ad090d55f6fd75788dde55c0a5c98452"
+        "sha256": "906a230d7514bd2d6390a7bb9d9369ddd31ba800061b82088c1a1bddee5e53fe"
       },
       {
         "path": "frontend/app/ctxgauge.js",
