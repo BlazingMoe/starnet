@@ -39,3 +39,11 @@ Its remaining 53 assertions pass. That test is not in `test/fast.list`.
 
 This is source-app UI proof. The preview uses a keyless dev seed; no provider job,
 installed executable, public website deployment, or release readiness is claimed.
+
+## Integration
+
+Merged into `feat/harness-backend` as `7ea95ab5b`; the combined release-surface
+inventory was re-locked in `fb71dd838` after a concurrent catalog-header lane
+advanced trunk. The final merged tree passed `npm run test:fast`: 725/725 steps,
+exit 0. Existing uncommitted `qa/STATUS.md` and Rooms handoff content remained
+outside both commits. No installed-app or public-deployment verification was run.
