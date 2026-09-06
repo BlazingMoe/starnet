@@ -24,8 +24,11 @@ rendered its existing message about landing page, signup and announcement work. 
 warning/error log: empty. Fixtures were local QA data, not real model output.
 
 Focused regression: `node test/starters.test.js` — 37 assertions green, including production
-signal gathering and click handlers against the real Workstreams store. Full fast gate
-receipt will be recorded when complete. No sidecar route or provider changes.
+signal gathering and click handlers against the real Workstreams store. Full fast gate:
+725/725 before integration at fa05bcc1d, and 725/725 after integration (exit 0). During the
+post-merge gate, 9fb380c28 added only the separate voice lane's documentation; the application
+source stayed identical. Website mirror check: 8 assertions green. No sidecar route or
+provider changes. Integration preserved the existing QA status edits and Rooms handoff.
 
 Installed release behavior and owner recovery have not been verified. Recommendations are
 deterministic evidence-based shortcuts; no claim of universally useful model advice.
