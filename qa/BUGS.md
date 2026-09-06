@@ -4,11 +4,11 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**8** open (open+claimed) of 60 total — 0 P0 · 8 P1 · 0 P2
+**8** open (open+claimed) of 63 total — 0 P0 · 8 P1 · 0 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **19** · source fixed: **12** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **18**.
+User/owner reports: **22** · source fixed: **15** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **21**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
@@ -30,7 +30,10 @@ User/owner reports: **19** · source fixed: **12** · installer verified: **0** 
 | [Tier picker reports available managed models missing](bugs/ddea3c5d-tiers-ignore-managed-catalog.md) | catalog-truth | fixed | unverified | unconfirmed |
 | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | group-chat-picker | fixed | unverified | unconfirmed |
 | [Website station preview fails when hosting beacon is blocked](bugs/b3b8d28f-website-station-preview-fails-when-hosting-beaco.md) | deployment-integrity | fixed | not-applicable | unconfirmed |
+| [Centered room lighting leaves sides dark and creates hotspots](bugs/741832d8-centered-room-lighting-leaves-sides-dark-and-cre.md) | room-lighting | fixed | unverified | unconfirmed |
+| [Raised room corners excluded from interior lighting](bugs/52397fc0-raised-room-corners-excluded-from-interior-light.md) | room-lighting | fixed | unverified | unconfirmed |
 | [Room fixture grids flood edges and corners](bugs/b8594ab9-room-fixture-grids-flood-edges-and-corners.md) | room-lighting | fixed | unverified | unconfirmed |
+| [Room lighting loses colour and flickers across the floor](bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md) | room-lighting | fixed | unverified | unconfirmed |
 
 | Sev | Status | Surface | Bug | Lane | Fix |
 | --- | --- | --- | --- | --- | --- |
@@ -89,9 +92,12 @@ User/owner reports: **19** · source fixed: **12** · installer verified: **0** 
 | P2 | fixed | voice | [Failed Live Voice startup leaves a user mute force-enabled](bugs/d02d029b-failed-live-voice-startup-leaves-a-user-mute-for.md) | agent/voice-release-sweep | 8bc9ff9a |
 | P2 | fixed | voice | [Muting the speaker mid-reply in hands-free nulls the only surviving rearm heartbeat — the mic never re-opens while the mode button still reads 'hands-free ON'](bugs/2f7b280c-muting-the-speaker-mid-reply-in-hands-free-nulls.md) | sweep/voice | 50a8b07b |
 | P2 | fixed | voice | [The /api/stt degrade reason is written to the status line then overwritten by endListening()'s restore in the same synchronous block, so it is never painted](bugs/562b14a5-the-api-stt-degrade-reason-is-written-to-the-sta.md) | sweep/voice | 50a8b07b |
+| P2 | fixed | world | [Centered room lighting leaves sides dark and creates hotspots](bugs/741832d8-centered-room-lighting-leaves-sides-dark-and-cre.md) | agent/room-lighting-strip | 5f40c3e60 |
 | P2 | fixed | world | [DELETE announces success on a failed request and leaves the row — same missing `resp.ok` check in ROUTINES, LOOPS and CONNECTORS](bugs/aa9cd1cd-delete-announces-success-on-a-failed-request-and.md) | sweep/world | 8e68bf5c |
 | P2 | fixed | world | [`open()` has no `if (chanES) return` guard, so a re-entry (DATA › IMPORT → reentry → enterGame → resumeBridge) inside an SSE retry backoff leaves two live Event](bugs/d459160f-open.md) | sweep/world | f4d03511 |
+| P2 | fixed | world | [Raised room corners excluded from interior lighting](bugs/52397fc0-raised-room-corners-excluded-from-interior-light.md) | agent/room-lighting-strip | 624e58ede |
 | P2 | fixed | world | [Room fixture grids flood edges and corners](bugs/b8594ab9-room-fixture-grids-flood-edges-and-corners.md) | agent/room-lighting-strip | 1525663d0 |
+| P2 | fixed | world | [Room lighting loses colour and flickers across the floor](bugs/3365f5ba-room-lighting-loses-colour-and-flickers-across-t.md) | agent/room-lighting-strip | 011ba23a4 |
 | P2 | fixed | world | [Station backup omits backdrop text size and session row preferences](bugs/f5a90439-station-backup-omits-backdrop-text-size-and-sess.md) | agent/release-ui-audit-0906 | 336919446 |
 | P2 | fixed | world | [Station tooltip: pointerout during the 320ms show delay cannot clear the pending timer (`if (!anchor) return` runs before hide()), so a ghost card pops up besid](bugs/01caed27-station-tooltip.md) | sweep/world | f4d03511 |
 
