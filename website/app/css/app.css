@@ -3557,7 +3557,7 @@ body.rows-inbox #workstreams .ws-kebab { grid-area: meta; }
    `--con-h` is declared on `.term.console`, which this window is NOT — restate the same formula here
    (an undefined var would make the height silently invalid → back to content-fit, the bug this exists
    to prevent). */
-.term.quests-win { --con-h: min(var(--term-band, calc(78vh * var(--sn-unzoom, 1))), 720px); height: var(--con-h); }
+.term.quests-win { --con-h: min(var(--term-band, calc(88vh * var(--sn-unzoom, 1))), 900px); height: var(--con-h); }
 
 /* ---- QUEST LOG rhythm: one vertical scale for the whole panel ----
    The window is now wide enough that inconsistent gutters read as sloppiness rather than density. These
