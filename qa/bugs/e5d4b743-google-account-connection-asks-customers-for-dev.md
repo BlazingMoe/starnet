@@ -38,7 +38,7 @@ Source implementation committed at cb8385c56. Public activation is still blocked
 
 ## Regression
 
-Before: fresh Gmail card required client ID and client secret input. After: the seeded UI at 127.0.0.1:8946 showed SIGN IN WITH GOOGLE and zero application-credential inputs. With a synthetic provider, callback completion changed the card to MANAGE SERVICE and displayed six Gmail tools plus a verified synthetic account identity. `test/google-connector.test.js` exercises all 23 native MCP operations and the package configuration guard; `test/google-signin.e2e.test.js` drives the real sidecar across consent, cancellation, persistence failures, restart, refresh, revocation and removal. These tests do not prove Google public approval.
+Before: fresh Gmail card required client ID and client secret input. After: the seeded UI at 127.0.0.1:8946 showed SIGN IN WITH GOOGLE and zero application-credential inputs. With a synthetic provider, callback completion changed the card to MANAGE SERVICE and displayed six Gmail tools plus a verified synthetic account identity. After restarting the seeded sidecar with --keep and opening a fresh browser tab, the connected Gmail account and all six tools were restored in the live UI. `test/google-connector.test.js` exercises all 23 native MCP operations and the package configuration guard; `test/google-signin.e2e.test.js` drives the real sidecar across consent, cancellation, persistence failures, restart, refresh, revocation and removal. These tests do not prove Google public approval.
 
 ## Sibling coverage
 
