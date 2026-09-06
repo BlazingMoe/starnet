@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "6ac1f12f39b33e1f5c1e467c194761880d36f849",
+    "sourceCommit": "0795c63f8268034708d98c6330c0062428732ba4",
     "pathSetSha256": "5aef1a27613366b3be5ccc150bfd68badf86009a0e647461f5cd33983c1ce89a",
     "files": [
       {
@@ -818,8 +818,8 @@
       },
       {
         "path": "frontend/app/toolprops.js",
-        "bytes": 4382,
-        "sha256": "7e5be6fc756bd54d64271e1f29bd61ad442aa36ecd23c7222ba7d245668f7173"
+        "bytes": 4400,
+        "sha256": "7863c703ec7a546ef1c58fab13f93382185f5366c45b443762c8aeda2132e51a"
       },
       {
         "path": "frontend/app/tooltip.js",
@@ -913,13 +913,13 @@
       },
       {
         "path": "frontend/app/widgets.js",
-        "bytes": 40653,
-        "sha256": "084f34e98aba3d84fa653c5b7c1c05305f4a1f08ea9dae5f9cf31d5707bad240"
+        "bytes": 57535,
+        "sha256": "0d696bde396c97711b1879db11cc91a57e6b4df1b8a46ebf2ab652841cbe98ff"
       },
       {
         "path": "frontend/app/windows/automation.js",
-        "bytes": 6214,
-        "sha256": "1e9664124d208a52c19e832f7f45504878c5dd1f30695313a905905f47dc7786"
+        "bytes": 6369,
+        "sha256": "c196866389403ef321ca6f8225af17dfa6830d7e8e3987f58676ba5e668e2580"
       },
       {
         "path": "frontend/app/windows/connectors.js",
@@ -953,8 +953,8 @@
       },
       {
         "path": "frontend/app/windows/routines.js",
-        "bytes": 53435,
-        "sha256": "2249e56772d19ea3ca413363df40cbfd472c564b794510e02c9f00a9f919b423"
+        "bytes": 53579,
+        "sha256": "7cd73f9dc25292bb0bcdef5fb10f96c14ce6290312af573fab1e69cfdc7b56da"
       },
       {
         "path": "frontend/app/windows/trophies.js",
@@ -1108,8 +1108,8 @@
       },
       {
         "path": "frontend/css/widgets.css",
-        "bytes": 17701,
-        "sha256": "de326c069b7e1c453956edabef81a940a44bbf272c757c541c980b0c6bac7e58"
+        "bytes": 20811,
+        "sha256": "bcd3d66b78e61b17dc164ab2985e44a0223c265d68c64214e07b58ffe70b3148"
       },
       {
         "path": "frontend/css/workhub.css",
