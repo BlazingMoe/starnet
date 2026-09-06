@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "1f55f9c01a8783d0082dee71f6ea4793a7d7594c",
+    "sourceCommit": "c50fa8abae3b588c13b652d9e399da01be15dcf7",
     "pathSetSha256": "5aef1a27613366b3be5ccc150bfd68badf86009a0e647461f5cd33983c1ce89a",
     "files": [
       {
@@ -913,8 +913,8 @@
       },
       {
         "path": "frontend/app/widgets.js",
-        "bytes": 39426,
-        "sha256": "ea2e2167a343e117020ef20ce9795f6e38bd68f686407f31399f0229d39328ff"
+        "bytes": 38827,
+        "sha256": "fe2b3658e1e7a26160224534969bc501a77e17c9afd5b7067f4ca9e50ddc0f9b"
       },
       {
         "path": "frontend/app/windows/automation.js",
@@ -1108,8 +1108,8 @@
       },
       {
         "path": "frontend/css/widgets.css",
-        "bytes": 16855,
-        "sha256": "3143cab5a8a589689d386c4c09afc8dbc280dd8fbae8b716f879d9bc9124f706"
+        "bytes": 17298,
+        "sha256": "e4050d61154e6a70001ceaae885d229fbe4d99b74a545a5c8d7c49cdeb63b544"
       },
       {
         "path": "frontend/css/workhub.css",
