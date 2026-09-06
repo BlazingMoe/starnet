@@ -207,6 +207,7 @@ test/journey.test.js
 test/journeystore.test.js
 test/journey-wiring.test.js
 test/commander-progression-ui.test.js
+test/testapi-commander-hud.test.js
 test/questinject.test.js
 test/quests-tool.test.js
 test/questsweeps.test.js
