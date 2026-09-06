@@ -197,18 +197,18 @@ body {
 :is(.crew-filters button, .cf-group > summary, .ab-router > summary, .refit-toolgroup > summary, .work-path button):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
 
 /* Shared action surfaces. Explicit component families, never the native CONTROL FLOOR.
-   Keep each caller's size, layout and semantic selected/recording/armed treatment. */
+   Keep each caller's size, layout and semantic selected/recording/armed treatment.
+   The COMMS composer and its model/voice controls retain their original dedicated skins. */
 :is(#screen-game, #screen-connect, .mkt-scrim, .term) :is(
   .btn, .btn-sm, .btn-xl, .prov, .bb, .choice,
   .x-btn, .term-x, .q-dismiss, .ag-rename, .crew-hide, .wg-add,
-  .chat-send, .chat-attach-btn, .mic-btn, .voice-toggle, .model-dock-toggle,
   .nav-coach-x, .cam-cine, .ws-tab, .ws-kind-filter button, .crew-filters button, .work-path button,
   .con-rail-item, .con-intent, .cf-nav-b, .fm-tab, .mkt-tab, .mkt-lane,
   .mkt-cta-alt, .mkt-build, .mkt-rec, .es-cta, .q-go, .ts-more,
   .ag-setup-row, .ch-sum-row, .prov-select, .lb-tab, .mc-seg-btn, .set-theme:not([data-t]),
   .key-cta-alt, .key-cta-free, .lb-tx-btn, .sp-mode, .rt-agent-btn, .cc-filter, .sk-expand,
   #ws-new, #ws-addproject, #estop-btn
-):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
+):where(:not(#chat-inputrow *)):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
   .armed, .danger-armed, .primary, .refit-primary, .suggested, .confirm,
   [aria-pressed="true"], [aria-selected="true"], [aria-expanded="true"])) {
   color: var(--ui-key-label, var(--ui-key-accent, var(--ph)));
@@ -219,25 +219,24 @@ body {
     box-shadow var(--t-fast) var(--ease-soft), background-color var(--t-fast) var(--ease-soft);
 }
 /* State variables only paint controls that opted into the material above. */
-:is(.screen, .mkt-scrim, .term) button:where(:hover, :focus-visible):not(:disabled) {
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):where(:hover, :focus-visible):not(:disabled) {
   --ui-key-face: var(--ui-key-hover);
   --ui-key-shadow: var(--ui-key-over-shadow);
   --ui-key-edge: var(--ui-key-accent, var(--ph));
   --ui-key-label: var(--ui-key-accent, var(--ph-bright));
 }
-:is(.screen, .mkt-scrim, .term) button:active:not(:disabled) {
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):active:not(:disabled) {
   --ui-key-face: var(--ui-key-rest);
   --ui-key-shadow: inset 0 2px 4px rgba(0,0,0,.42);
 }
-:is(.screen, .mkt-scrim, .term) button:disabled { --ui-key-label: var(--ph-dim); }
-:is(.screen, .mkt-scrim, .term) button:is(.danger, .bad, .off), #estop-btn { --ui-key-accent: var(--bad); }
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):disabled { --ui-key-label: var(--ph-dim); }
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):is(.danger, .bad, .off), #estop-btn { --ui-key-accent: var(--bad); }
 .key-cta-alt, .key-cta-free { --ui-key-accent: var(--warn); }
 .cc-filter:is(.cc-lg-none, .cc-f-on) { --ui-key-accent: var(--ok); }
 .cc-filter.cc-lg-key { --ui-key-accent: var(--gold); }
-#screen-game .chat-send { padding-inline: 12px; }
 #screen-game .cmsg-starter { transform: none; }
 @media (prefers-reduced-motion: reduce) {
-  :is(.screen, .mkt-scrim, .term) button { transition-duration: 0s !important; }
+  :is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)) { transition-duration: 0s !important; }
 }
 @media (max-width: 1100px) {
   #chat-panel .comms-idbar { gap: 9px; padding: 9px 5px; }
