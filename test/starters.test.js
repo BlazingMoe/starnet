@@ -1,102 +1,48 @@
-/* Session starters: evidence, real context navigation, and editable no-history actions. */
 'use strict';
-const A = require('./_assert.js');
-const Starters = require('../frontend/app/starters.js');
-const LaunchMemory = require('../frontend/app/launchmemory.js');
+const A = require('./_assert.js'), S = require('../frontend/app/starters.js');
 const now = 1800000000000, day = 86400000;
-const recipes = [{id:'morning',name:'Morning Brief',cadence:'morning'}, {id:'review',name:'Review a draft'}];
-const base = {now, recipes};
-const session = (id, ago, more = {}) => ({id, title: 'Work ' + id, at:now-ago, ...more});
-for (const hour of [0,8,12,20]) {
-  const c = Starters.pick({...base,hour,ready:false,hunt:true});
-  A.eq(c.map(x=>x.label), ['Plan a task','Compare options','Improve a draft'], 'No history offers useful task templates at hour '+hour);
-  A.ok(c.every(x=>x.kind==='draft' && x.description && x.send), 'Templates explain action and require user context');
-}
-const c = Starters.pick({...base, sessions:[session('older',2*day),session('latest',day)],recent:[{id:'review',at:now-day}],valuesOf:()=>({draft:'saved'})});
-A.eq(c.map(x=>x.kind),['session','session','recipe'],'Recent conversations lead, followed by proven recipe');
-A.eq(c[0].sessionId,'latest','Sort by actual activity, not caller order');
-A.ok(!c[0].send,'Session reopens by id instead of asking a new contextless chat');
-A.eq(c[2].values,{draft:'saved'},'Recipe retains saved inputs');
-A.ok(c[2].description.includes('saved inputs'),'Recipe explains prefill');
-const stale = Starters.pick({...base,sessions:[session('archived',day,{archived:true}),session('busy',day,{busy:true}),session('done',day,{lane:'shipped'}),session('stale',31*day),session('future',-day),session('blank',day,{title:' '})],recent:[{id:'review',at:now-31*day},{id:'gone',at:now-day}]});
-A.ok(stale.every(x=>x.kind==='draft'),'Archived, running, shipped, stale, future, untitled and deleted recipes do not surface');
-const long = 'A very long meaningful session title with Mixed CASE preserved in full';
-A.eq(Starters.pick({...base,sessions:[session('a',day,{title:long})]})[0].label,long,'Preserve full title and casing');
-A.eq(Starters.pick({...base,sessions:[session('a',day),session('a',day),session('b',day),session('c',day)]}).length,2,'Deduplicate and cap context shortcuts without padding');
-A.eq(Starters.pick({...base,recent:[{id:'review',at:now-day}]}).length,1,'One useful recommendation is enough');
-A.notThrows(()=>Starters.pick({...base,recent:[{id:'review',at:now-day}],valuesOf:()=>{throw Error('unavailable');}}),'Missing input store does not discard evidence');
-for (const s of [null,{}, {recipes:42,recent:'bad',sessions:'bad'}, {sessions:[null,session('a',day)]}]) A.notThrows(()=>Starters.pick(s),'Malformed or missing signals fail safely');
-
-// ---- LaunchMemory.recent(): newest-first, capped, corrupt-store honest ----
-{
-  const mem = {};
-  LaunchMemory._setStoreForTest({
-    getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null),
-    setItem: (k, v) => { mem[k] = String(v); },
-    removeItem: k => { delete mem[k]; }
-  });
-  LaunchMemory.reset();
-  A.eq(LaunchMemory.recent(), [], 'recent: empty store → []');
-  LaunchMemory.save('a', { topic: 'one' }, 100);
-  LaunchMemory.save('b', { topic: 'two' }, 300);
-  LaunchMemory.save('c', { topic: 'three' }, 200);
-  A.eq(LaunchMemory.recent().map(e => e.id), ['b', 'c', 'a'], 'recent: newest-first');
-  A.eq(LaunchMemory.recent(2).map(e => e.id), ['b', 'c'], 'recent: cap honored');
-  mem[LaunchMemory.KEY] = '{corrupt';
-  A.eq(LaunchMemory.recent(), [], 'recent: corrupt store → [] (never a crash)');
-}
-
-
-// Execute the production signal gathering and click handlers, with the real session store.
-{
-  const fs = require('node:fs'), vm = require('node:vm');
-  const Workstreams = require('../frontend/app/workstreams.js');
-  Workstreams.reset();
-  const active = Workstreams.create(null, { agentId: 'agent' });
-  const recent = Workstreams.create('Launch checklist', { agentId: 'agent' });
-  recent.history.push({ role: 'user', content: 'Review my checklist' });
-  Workstreams.create('Other agent work', { agentId: 'other' }).history.push({ role: 'user', content: 'Private task' });
-  Workstreams.create('System only', { agentId: 'agent' }).history.push({ role: 'system', content: 'Connected' });
-  Workstreams.switch(active.id);
-  class Element {
-    constructor() { this.children = []; this.events = {}; this.value = ''; this.className = ''; }
-    append(...nodes) { nodes.forEach(n => { n.parent = this; this.children.push(n); }); }
-    appendChild(n) { this.append(n); }
-    querySelector(sel) { return this.children.find(n => n.className.split(' ').includes(sel.slice(1))) || this.children.map(n => n.querySelector(sel)).find(Boolean) || null; }
-    addEventListener(k, fn) { this.events[k] = fn; }
-    setAttribute() {}
-    focus() { this.focused = true; }
-    setSelectionRange() {}
-    remove() { this.parent.children = this.parent.children.filter(n => n !== this); }
-  }
-  const log = new Element(), input = new Element();
-  let loaded = null;
-  const ctx = vm.createContext({ log, input, activeWs: active, name: 'NOVA', interview: false,
-    Starters, Workstreams, document: { createElement: () => new Element() },
-    Channels: { isBusy: () => false, snapshot: () => null }, isBusy: () => false, busyPeerFor: () => false,
-    load: w => { loaded = w; }, refreshWorkflowViews() {}, autoGrowInput() {},
-    submitComposer: () => { throw Error('Starter must not send'); } });
-  const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/chat.js'), 'utf8');
-  for (const name of ['clearEmptyState', 'pickStarters', 'maybeEmptyState', 'prefill']) {
-    const body = A.fnBody(source, 'function ' + name + '(');
-    A.ok(body.length > 0 && body.length < 5000, 'Extract bounded production ' + name);
-    vm.runInContext(body, ctx);
-  }
-  vm.runInContext('maybeEmptyState(); maybeEmptyState();', ctx);
-  A.eq(log.children.length, 1, 'Repeated idle render does not duplicate suggestions');
-  let buttons = log.querySelector('.cmsg-empty-chips').children;
-  A.eq(buttons.length, 1, 'Signal adapter excludes other agents and system-only history');
-  buttons[0].events.click();
-  A.eq(loaded.id, recent.id, 'Click opens exact original session by id');
-  A.eq(loaded.history[0].content, 'Review my checklist', 'Original context remains intact');
-  Workstreams.archive(recent.id);
-  loaded = null;
-  buttons[0].events.click();
-  A.eq(loaded, null, 'Archived-since-render shortcut does not reopen');
-  buttons = log.querySelector('.cmsg-empty-chips').children;
-  input.value = 'My existing notes';
-  buttons[0].events.click();
-  A.ok(input.value.startsWith('My existing notes') && input.value.includes('The outcome I want:'), 'Task starter preserves existing draft and appends scaffold');
-  A.ok(input.focused, 'Draft gets focus for editing');
-}
+const request = 'Build a revenue dashboard for my subscription product; start with churn by cohort.';
+const history = [{ role: 'user', content: request }, { role: 'assistant', content: 'The data import is working. Cohort calculations still need validation.' }];
+const session = (id, more = {}) => ({ id, title: 'Revenue dashboard', agentId: 'agent', projectRoot: '/product', lastActiveAt: now - day, history, ...more });
+const signals = { now, agentId: 'agent', projectRoot: '/product', sessions: [session('revenue')], capabilities: ['workbench'] };
+const ctx = S.context(signals);
+const row = { title: 'Validate revenue retention by cohort', why: 'Your revenue dashboard imports data, but its cohort calculations still need validation.', deliverable: 'Validated cohort calculations and regression checks in the dashboard.', prompt: 'Continue the revenue dashboard. Validate the cohort calculations against sample subscriptions, correct any errors, and test the displayed retention figures.', sourceIds: ['session:revenue:0', 'session:revenue:1'], sessionId: 'revenue', kind: 'continue', requiredCapabilities: ['workbench'] };
+const parse = (r = row, c = ctx, excluded = []) => S.parse(JSON.stringify({ suggestions: [r] }), c, excluded);
+A.eq(S.defaults().length, 3, 'Three substantial general starting points');
+A.ok(S.defaults().every(s => s.general && s.prompt.length > 250 && s.deliverable && !s.evidence.length), 'Defaults carry actionable briefs without fabricated personalization');
+A.ok(S.defaults()[0].prompt.includes('Do not stop at a plan or a mockup'), 'Build default asks for a tangible result');
+A.ok(S.defaults()[1].prompt.includes('implement and test'), 'Automation default goes beyond planning');
+A.ok(S.defaults()[2].prompt.includes('Separate evidence from uncertainty'), 'Decision default requires evidence');
+A.eq(S.launchPrompt(S.defaults()[0]), S.defaults()[0].prompt, 'General starter does not invent supporting history');
+A.ok(ctx.ready && ctx.sources.length === 2, 'Meaningful user work enables personalization immediately');
+A.eq(parse().length, 1, 'Concrete unfinished continuation accepted');
+A.eq(S.context({}).ready, false, 'Empty station has no fabricated understanding');
+A.eq(S.context({ ...signals, enabled: false }).ready, false, 'Pause disables personalization');
+A.eq(S.context({ ...signals, sessions: [session('short', { history: [{ role: 'user', content: 'hi' }] })] }).ready, false, 'Greeting is insufficient evidence');
+A.eq(S.context({ ...signals, sessions: [session('other', { agentId: 'other' }), session('elsewhere', { projectRoot: '/other' }), session('old', { lastActiveAt: now - 31 * day }), session('future', { lastActiveAt: now + day }), session('archived', { archived: true }), session('group', { conversationMode: 'group' })] }).sources.length, 0, 'No other-agent, other-project, stale, future, archived or group history');
+const other = S.context({ ...signals, sessions: [session('book', { history: [{ role: 'user', content: 'Help publish my cookbook with a printable layout and tested recipes for home cooks.' }] })] });
+A.ok(!S.buildDirective(other).includes(request) && S.buildDirective(other).includes('cookbook'), 'Different work yields different model evidence');
+const goal = S.context({ now, goal: { id: 'g', status: 'active', text: 'Launch my subscription product', milestones: [{ id: 'm', text: 'Validate pricing', status: 'open' }] } });
+A.ok(goal.ready && goal.sources.some(x => x.type === 'milestone'), 'Active goal supplies direction without history');
+A.eq(S.context({ now, beliefs: { ambition: [{ id: 'seed', text: 'Build useful things', weight: 'seed' }] } }).ready, false, 'Seed is not learned ambition');
+A.ok(S.context({ now, beliefs: { ambition: [{ id: 'a', text: 'Grow my independent research business', weight: 'strong', createdAt: now }] } }).ready, 'Learned ambition grounds ideas');
+for (const [why, bad] of Object.entries({ 'invented citation': { sourceIds: ['invented'] }, 'result alone': { sourceIds: ['session:revenue:1'] }, 'unavailable capability': { requiredCapabilities: ['missing'] }, 'old preset': { title: 'Plan a task' }, 'unknown kind': { kind: 'arbitrary' }, 'other session': { sessionId: 'other' }, 'invented recurrence': { kind: 'automate', sessionId: null } })) A.eq(parse({ ...row, ...bad }), [], 'Reject ' + why);
+for (const state of [{ busy: true }, { lane: 'shipped' }]) A.eq(parse(row, S.context({ ...signals, sessions: [session('revenue', state)] })), [], 'Do not continue busy/completed work');
+A.eq(parse(row, ctx, [row.title]), [], 'Dismissed title excluded');
+A.eq(S.parse('not json', ctx), [], 'Invalid model output rejected');
+A.eq(S.parse(JSON.stringify({ suggestions: [row, row] }), ctx).length, 1, 'Duplicates collapsed');
+A.ok(S.launchPrompt(parse()[0]).includes(request) && S.launchPrompt(parse()[0]).includes('Expected result:'), 'Launch carries evidence and deliverable');
+A.ok(S.buildDirective(ctx).includes('Never fill a quota') && S.buildDirective(ctx).includes('Current direction outranks old habits'), 'Prompt prioritizes value and latest direction');
+// Execute the production launch handler against real sessions; selecting never starts a run.
+const fs = require('node:fs'), vm = require('node:vm'), W = require('../frontend/app/workstreams.js');
+W.reset(); W.create(null, { agentId: 'agent' }); const original = W.adopt(session('revenue')); let loaded = null, prepared = null;
+const input = { value: '', focus() {} }, hint = {};
+const scope = vm.createContext({ input, Starters: S, Workstreams: W, Channels: { isBusy: () => false }, StarterStore: { exclusions: () => [], prepare: (...args) => { prepared = args; } }, starterContext: () => ctx, load: w => { loaded = w; }, prefill: text => { input.value = text; }, clearEmptyState() {}, maybeEmptyState() {}, refreshWorkflowViews() {}, send: () => { throw Error('Unexpected run'); } });
+const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/chat.js'), 'utf8');
+vm.runInContext(A.fnBody(source, 'function openStarter('), scope); scope.idea = parse()[0]; scope.hint = hint;
+vm.runInContext('openStarter(idea, hint)', scope);
+A.eq(loaded.id, original.id, 'Selection resumes original session'); A.eq(original.history[0].content, request, 'History preserved'); A.eq(prepared[1], original.id, 'Attribution bound to selected session'); A.ok(input.value.includes(request), 'Draft includes source context');
+loaded = null; vm.runInContext('openStarter(idea, hint)', scope); A.eq(loaded, null, 'Existing draft never overwritten or moved');
+input.value = ''; scope.idea = S.defaults()[0]; prepared = null; vm.runInContext('openStarter(idea, hint)', scope);
+A.ok(loaded.id !== original.id && loaded.title === S.defaults()[0].label, 'General starter creates named session'); A.eq(prepared, null, 'General starter is not called personalized');
 A.report('starters');

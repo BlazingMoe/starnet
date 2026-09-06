@@ -14,6 +14,8 @@ const CP = require('../sidecar/contextpack.js');
 const T = 1700000000000;              // fixed "now"
 const DAY = 86400000;
 const ago = (d) => T - d * DAY;
+A.eq(CP.assemble({ runs: [{ title: 'INTERNAL recommendation reasoning', ts: T, internal: true, streamId: '' }] }, { now: T }).counts.runs, 0,
+  'Internal recommendation generation must never become evidence of user work');
 
 // a fake redact that strips a known secret shape (stands in for context.js's redact).
 const redact = (s) => String(s == null ? '' : s).replace(/sk-secret-[A-Za-z0-9]+/g, '[redacted]');

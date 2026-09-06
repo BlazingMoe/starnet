@@ -65,9 +65,17 @@ const ProfileStore = (() => {
   function serialize() { return profile || undefined; }   // folded into the save envelope by App.persist()
 
   // ---- glass-box controls (Phase 1 wires these to the UI) ----
-  function setEnabled(on) { if (ready()) { Profile.setEnabled(profile, on); try { persistFn(); } catch (_) {} } }
+  function setEnabled(on) {
+    if (ready()) { Profile.setEnabled(profile, on); try { persistFn(); } catch (_) {} }
+    if (!on && typeof StarterStore !== 'undefined') StarterStore.cancel();
+    if (typeof Chat !== 'undefined' && Chat.refreshStarters) Chat.refreshStarters();
+  }
   function enabled() { return ready() ? profile.enabled !== false : true; }
-  function forget() { if (typeof Profile !== 'undefined') { profile = Profile.forget(profile || Profile.fresh()); try { persistFn(); } catch (_) {} } }
+  function forget() {
+    if (typeof Profile !== 'undefined') { profile = Profile.forget(profile || Profile.fresh()); try { persistFn(); } catch (_) {} }
+    if (typeof StarterStore !== 'undefined') StarterStore.reset();
+    if (typeof Chat !== 'undefined' && Chat.refreshStarters) Chat.refreshStarters();
+  }
 
   return { init, observeMessage, seed, summary, score, explain, serialize, setEnabled, enabled, forget };
 })();
