@@ -1,5 +1,5 @@
 /* node test/qa-ready.test.js — the READY GATE's pure verdict logic (lane EL-7), fed injected
-   artifact objects + a fixed clock (zero disk, zero git, zero child processes). Asserts: the
+   artifact objects + a fixed clock (no QA-artifact reads, zero git, zero child processes). Asserts: the
    no-fake-green law (a missing/unreadable/erroring artifact is NOT READY, never a silent pass),
    staleness math, guardian trunk-drift + skip-gate rejection, ledger P0/P1 counting via the
    ledger's OWN openBySeverity() authority, and the overall verdict aggregation + numbered reasons.
@@ -35,7 +35,7 @@ function greenArtifacts() {
     ledger: { ok: true, counts: { P0: 0, P1: 0, P2: 3 } },
     bugs: { counts: { P0: 0, P1: 0, P2: 7 } },
     guardian: { stampIso: FRESH, trunkHead: TRUNK, result: 'green', gatesRan: ['test-fast', 'shoot', 'golden', 'audit', 'journeys'], gatesSkipped: [] },
-    journeys: { stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 120, total: 120 },
+    journeys: { stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 120, total: 120, fullSuite: true },
     beginner: { stampIso: FRESH, trunkHead: TRUNK, result: 'PASS', mode: 'ui-only', totalMs: 84000 },
     installed: {
       schemaVersion: 3, stampIso: iso(NOW - 2 * DAY_MS), expectedHead: TRUNK, expectedTree: TREE,
@@ -192,7 +192,20 @@ function greenCfg() {
 /* ─── F. journeys + beginner + installed check semantics ─── */
 {
   const cfg = greenCfg();
-  A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 5, total: 5 }, cfg).ok, true, 'fresh candidate-bound journeys pass -> ok');
+  A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 5, total: 5, fullSuite: true }, cfg).ok, true, 'fresh candidate-bound full journeys pass -> ok');
+  for (const fullSuite of [false, undefined, 'true']) {
+    A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 13, total: 13, fullSuite }, cfg).ok, false,
+      'a focused or unproven-scope receipt cannot satisfy release journeys');
+  }
+  // Exercise the producer's actual argument parser and receipt field, not just
+  // injected reader fixtures: an unfiltered run uses null, not an empty Set.
+  const journeySource = require('fs').readFileSync(path.join(__dirname, '../scripts/qa/journeys.mjs'), 'utf8');
+  const parserStart = journeySource.indexOf('const ONLY = (() => {');
+  const parserEnd = journeySource.indexOf('const J =', parserStart);
+  const scopeExpression = journeySource.match(/fullSuite: ([^\r\n]+),/)[1];
+  const receiptScope = new Function('process', journeySource.slice(parserStart, parserEnd) + '\nreturn ' + scopeExpression + ';');
+  A.eq(receiptScope({ argv: ['node', 'journeys.mjs'] }), true, 'unfiltered producer writes a full-suite receipt');
+  A.eq(receiptScope({ argv: ['node', 'journeys.mjs', '--only', 'J4'] }), false, 'filtered producer writes a partial-suite receipt');
   A.eq(checkJourneys({ stampIso: FRESH, result: 'blocked' }, cfg).ok, false, 'blocked journeys -> NOT READY');
   A.eq(checkJourneys({ stampIso: FRESH, result: 'fail' }, cfg).ok, false, 'failed journeys -> NOT READY');
   A.eq(checkJourneys({ stampIso: STALE, trunkHead: TRUNK, result: 'pass' }, cfg).ok, false, 'a stale journeys pass -> NOT READY');
