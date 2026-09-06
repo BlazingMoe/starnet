@@ -77,7 +77,7 @@ const App = (() => {
         if (typeof Chat !== 'undefined' && Chat.status && !(Chat.isBusy && Chat.isBusy())) Chat.status('online');
         const pill = el('status-pill'); if (pill) { pill.textContent = 'ONLINE'; pill.className = ''; }
         const empty = document.querySelector('.cmsg-empty-line');
-        if (empty && agent) empty.textContent = 'COMMS online. Type a task or a question to ' + agent.name + '.';
+        if (empty && agent) empty.textContent = 'What would you like to work on?';
         return;
       }
       // EventSource.CONNECTING is not a fault. Only call the link unavailable after it has failed to

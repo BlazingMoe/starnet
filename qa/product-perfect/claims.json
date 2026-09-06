@@ -68,8 +68,8 @@
       },
       {
         "path": "frontend/app/app.js",
-        "bytes": 379340,
-        "sha256": "66fe5890e534d4b094f5cb8e55437e8c242f88f6892e46fa29484a543bfe521e"
+        "bytes": 379309,
+        "sha256": "0df53c746420718d173d42d5aecf37d0fea541d4c1d9b3a88898bf1112e707b5"
       },
       {
         "path": "frontend/app/armconfirm.js",
@@ -743,8 +743,8 @@
       },
       {
         "path": "frontend/app/starters.js",
-        "bytes": 8320,
-        "sha256": "923dc609e6e4c9d520af31b5058beee60e9205565acfce86b0d07d5addf5ec8f"
+        "bytes": 2779,
+        "sha256": "43b127dc6d9c204d1e14ca82f079a13bdad9be999a057e0cf2d0f96d05fcb24f"
       },
       {
         "path": "frontend/app/stationbake.js",
@@ -1038,8 +1038,8 @@
       },
       {
         "path": "frontend/css/comms.css",
-        "bytes": 49114,
-        "sha256": "dbfe3a0f2a4399c385d007003a49acd92a971a08a3db2dca1c1f65858b638754"
+        "bytes": 49760,
+        "sha256": "0ba352138e98780ac54c5d52ddc77ae481a3e2c3cdf7555e66fffe89ffac0a55"
       },
       {
         "path": "frontend/css/interface.css",
