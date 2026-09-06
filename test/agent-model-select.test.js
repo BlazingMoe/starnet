@@ -41,7 +41,8 @@ A.ok(/modelPin:\s*pickedSummonModel/.test(mkt), 'the picked model is threaded in
 // they feed — they were a collapsible strip on the far side of the window. The model bar is still wired end to end,
 // now via summonConfigPanelHTML() off the dossier rather than off the roster.
 A.ok(/summonConfigPanelHTML\(s\)/.test(mkt), 'the CONFIGURE panel is rendered into the dossier');
-A.ok(/function summonConfigPanelHTML[\s\S]{0,900}summonModelBarHTML\(s\)/.test(mkt), 'the CONFIGURE panel carries the model bar (still wired into summon)');
+const summonConfigHTML = mkt.match(/function summonConfigPanelHTML\(s\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/summonModelBarHTML\(s\)/.test(summonConfigHTML), 'the CONFIGURE panel carries the model bar (still wired into summon)');
 // Check the function's wiring, independent of how much appearance/name setup precedes it.
 const summonConfigBody = mkt.match(/function wireSummonConfig\(sc\) \{([\s\S]*?)\n  \}/)?.[1] || '';
 A.ok(/ModelPicker\.onChange\(modelWrap/.test(summonConfigBody), 'the panel re-binds its model picker on every dossier repaint');

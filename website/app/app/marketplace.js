@@ -48,6 +48,7 @@ const Marketplace = (() => {
   let pickedSummonModel = null;   // SUMMON-only per-agent model choice: { model, provider, effort } or null = inherit the orchestrator's
   let pickedSummonName = '';      // SUMMON-only agent NAME typed in the config strip ('' = default to the class name)
   let appearanceOpen = false;
+  let modelSettingsOpen = false;
   let focusAgent = null, focusRecipe = null;     // the spec/recipe id shown in the dossier (per tab)
   let laneFilter = 'all';                        // 'all' | 'code' | 'research' | 'general'  (AGENTS tab)
   let archiveOpen = false;                       // SPECIALIST ARCHIVE (deep-cut archetypes) — collapsed by default
@@ -247,6 +248,7 @@ const Marketplace = (() => {
     pickedSummonModel = null;
     pickedSummonName = '';
     appearanceOpen = false;
+    modelSettingsOpen = false;
     const builtins = Specialties.builtins();
     focusAgent = (ctx.currentSpecialtyId && Specialties.get(ctx.currentSpecialtyId)) ? ctx.currentSpecialtyId : (builtins[0] && builtins[0].id) || null;
     focusRecipe = hasRecipes() ? ((Recipes.builtins()[0] && Recipes.builtins()[0].id) || null) : null;
@@ -713,17 +715,20 @@ const Marketplace = (() => {
       '<p class="mkt-hint">niche classes held off the main roster — fully specified, summon any time. When your real work points at one, the station drafts it onto the shelf above for you.</p>' +
       '<div class="mkt-grid mkt-rows">' + archs.map(cardHTML).join('') + '</div>';
   }
-  /* Name and model stay directly available beside the class. Appearance expands in place;
-     its selected character and disclosure state survive class changes within this session. */
+  /* Name and the live character preview lead. Appearance and model controls expand in place;
+     choices and drawer state survive class changes within this session. */
   function summonConfigPanelHTML(s) {
     if (!(ctx && ctx.mode === 'pick' && ctx.summon)) return '';
     return '<section class="mkt-config" aria-label="configure this agent">' +
-      '<div class="mkt-config-h"><span class="mkt-config-ttl">MAKE IT YOURS</span>' +
-        '<span class="mkt-config-note">Optional</span></div>' +
-      summonNameBarHTML() + summonModelBarHTML(s) +
+      '<div class="mkt-config-h"><span class="mkt-config-ttl">▮ YOUR RECRUIT</span>' +
+        '<span class="mkt-config-note">Make it yours</span></div>' +
+      '<div class="mkt-recruit-identity">' + summonSkinStageHTML() + '<div class="mkt-recruit-fields">' + summonNameBarHTML() +
       '<details class="mkt-appearance"' + (appearanceOpen ? ' open' : '') + '><summary>APPEARANCE <span class="mkt-appearance-choice">' +
         esc((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[pickedSummonSkin || DATA.DEFAULT_SKIN] || {}).name || 'Choose a character') +
       '</span></summary>' + summonSkinBarHTML() + '</details>' +
+      '</div></div><details class="mkt-model-settings"' + (modelSettingsOpen ? ' open' : '') + '>' +
+        '<summary>MODEL &amp; EFFORT <span class="mkt-model-choice">' + esc(summonModelSummary()) + '</span></summary>' +
+        summonModelBarHTML(s) + '</details>' +
     '</section>';
   }
   /* The MODEL field's helper line is where CLEARANCE and EFFORT became honest. They used to be two rows of a spec
@@ -737,6 +742,12 @@ const Marketplace = (() => {
     if (pin && pin.effort) return 'the same brain as your orchestrator, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
     return 'Inherits your orchestrator’s model; tuned for <b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>' +
       (s && s.reasoningEffort ? ' · ' + esc(String(s.reasoningEffort).toLowerCase()) + ' effort' : '') + '.';
+  }
+
+  function summonModelSummary() {
+    const pin = pickedSummonModel;
+    return (pin && pin.model ? shortModel(pin.model) : 'Station default') +
+      (pin && pin.effort ? ' · ' + pin.effort : '');
   }
   function shortModel(m) { return String(m || '').split('/').pop().replace(/[-_]+/g, ' ').trim() || String(m || ''); }
   // ONE section-header component (audit item 8): amber struck-metal plate for roster ranks. Shelves add their own
@@ -844,19 +855,18 @@ const Marketplace = (() => {
         '" data-skin="' + esc(id) + '" aria-pressed="' + (id === pickedSummonSkin) + '" title="' + esc(sk.name || id) + '">' +
         '<img src="assets/sprites/' + esc(sk.set) + '/rot_south.png" alt="' + esc(sk.name || id) + '" draggable="false"></button>';
     }).join('');
-    // the live stage: SkinStage.mount binds these two ids in wireRoster and plays the picked skin's walk cycle.
-    // caption: a static "LIVE PREVIEW —" label + a name span SkinStage fills (mount targets the inner span, so the
-    // prefix survives every skin change). Names the live stage for what it is (audit item 8).
-    const stage =
-      '<figure class="mkt-skin-stage">' +
-        '<div class="mkt-skin-stage-frame"><img id="mkt-skin-stage-img" alt="" draggable="false"></div>' +
-        '<figcaption class="mkt-skin-stage-name"><span class="mkt-stage-lbl">LIVE PREVIEW —</span> <span id="mkt-skin-stage-name"></span></figcaption>' +
-      '</figure>';
     return '<div class="mkt-skinbar"><div class="mkt-skinlabel">Choose any character for this class</div>' +
       '<div class="mkt-skin-section">' +
         '<div class="skin-picker" id="mkt-skin-picker">' + thumbs + '</div>' +
-        stage +
       '</div></div>';
+  }
+
+  // The chosen character remains visible even while the appearance drawer is closed.
+  function summonSkinStageHTML() {
+    return '<figure class="mkt-skin-stage">' +
+      '<div class="mkt-skin-stage-frame"><img id="mkt-skin-stage-img" alt="Recruit appearance preview" draggable="false"></div>' +
+      '<figcaption class="mkt-skin-stage-name"><span id="mkt-skin-stage-name"></span></figcaption>' +
+    '</figure>';
   }
 
   // SUMMON-only: choose the new agent's MODEL (optional — blank inherits the orchestrator's). Reuses the shared
@@ -1142,7 +1152,7 @@ const Marketplace = (() => {
           (!lead && brief ? '<p class="bp lead">' + esc(brief) + '</p>' : '') +
         '</div>'
       : '';
-    return '<div class="mkt-dos-label">▮ CLASS DOSSIER</div>' +
+    return '<div class="mkt-dos-scroll"><div class="mkt-dos-label">▮ CLASS DOSSIER</div>' +
       '<div class="mkt-dos-hero">' + sealHTML(s, true) +
         '<div class="mkt-dos-hi"><div class="mkt-dos-name">' + esc(s.name) + badges + '</div>' +
           '<div class="mkt-dos-tag">' + esc(s.tagline) + '</div>' +
@@ -1154,11 +1164,11 @@ const Marketplace = (() => {
       '</div>' +
       aboutBlock +
       // CONFIGURE sits THIRD, immediately under the description and above the reference blocks: description then
-      // decision is the order the Commander reads in, and burying the controls under gear + starters + orders put
-      // them a screen and a half down, behind the sticky CTA. Everything below this point is reference material.
+      // decision is the order the Commander reads in. The CTA owns a separate footer so scrolling reference
+      // material can never draw underneath it. Everything below this point is reference material.
       summonConfigPanelHTML(s) +
       (lead && brief ? '<details class="mkt-brief mkt-block"><summary class="bh">ROLE BRIEF</summary><p class="bp">' + esc(brief) + '</p></details>' : '') +
-      (s.starters && s.starters.length ? '<div class="mkt-block"><div class="bh">TRY ASKING — things you can say to it</div><ul class="mkt-starters">' + s.starters.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' : '') +
+      (s.starters && s.starters.length ? '<details class="mkt-brief mkt-block"><summary class="bh">TRY ASKING</summary><ul class="mkt-starters">' + s.starters.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></details>' : '') +
       // NO gear / skill-package inventories (2026-08-15, Andrew). They listed what the class draws on under the
       // overseer and which bundled skills it gets — true, but it is a manifest, not a reason to recruit, and it
       // ran longer than the description above it. The loadout still applies at summon exactly as before; the
@@ -1172,7 +1182,7 @@ const Marketplace = (() => {
         ? '<div class="mkt-cta-second"><button class="mkt-cta-alt mkt-deploy-cur" data-id="' + esc(s.id) + '">⏼ DEPLOY TO ' + esc(ctx.agentName).toUpperCase() + ' ▸</button>' +
           '<div class="mkt-cta-sub">re-specs ' + esc(ctx.agentName) + ' instead — no new crew member</div></div>'
         : '') +
-      '<div class="mkt-dos-cta">' + custActs +
+      '</div><div class="mkt-dos-cta">' + custActs +
         // adopt-voice sits BESIDE the DEPLOY CTA it modifies (audit item 8), not orphaned up in the toolbar.
         (deploy ? '<label class="mkt-adopt mkt-adopt-cta"><input type="checkbox" class="mkt-adopt-cb"> adopt its voice too</label>' : '') +
         '<button class="mkt-cta-main mkt-deploy" data-id="' + esc(s.id) + '">' + ctaLabel + ' ▸</button>' +
@@ -1493,9 +1503,9 @@ const Marketplace = (() => {
     res.items.forEach((x, i) => trackRecommendation('recruit', x.s, x.why, i + 1));
     const head = res.personalized
       ? noticedHead('based on your recent runs')
-      : coldHead('STARTING LINEUP — a class for each kind of work');
-    return '<div class="mkt-sect-h mkt-rec-sect">' + head + '</div><div class="mkt-rec-rail">' +
-      res.items.map(x => recCardHTML(x.s, x.why)).join('') + '</div>';
+      : coldHead('STARTING LINEUP');
+    return '<div class="mkt-sect-h mkt-rec-sect">' + head + '</div><div class="mkt-rec-rail' + (res.personalized ? '' : ' mkt-lineup') + '">' +
+      res.items.map(x => recCardHTML(x.s, x.why, !res.personalized)).join('') + '</div>';
   }
   // the CURATED-FOR-YOUR-WORKFLOW shelf: returns the shelf HTML when Recruiter has a warm read, else '' (so the
   // caller falls back to the honest lineup). Excludes the currently-focused class (deploy re-spec) like rankSpecs.
@@ -1836,15 +1846,15 @@ const Marketplace = (() => {
       '<div class="mkt-rec-why"><span class="mkt-rec-why-k">' + esc(cat) + '</span>' + (r.custom ? ' <span class="mkt-badge">CUSTOM</span>' : '') +
         (why ? ' <span class="mkt-foryou-why">' + esc(why) + '</span>' : '') + '</div></button>';
   }
-  function recCardHTML(s, why) {
+  function recCardHTML(s, why, compact) {
     // `why` comes from rankSpecs: the profile-affinity reason, a goal-match note, or the cold-start lane label
     // no `--accent` — the shelf cards ride the station phosphor like every other seal in the bay
     // (see the note on mkt-card). STARTING LINEUP sat three different colours side by side.
-    return '<button class="mkt-rec" type="button" data-id="' + esc(s.id) + '">' +
+    return '<button class="mkt-rec" type="button" data-id="' + esc(s.id) + '"' + (compact && why ? ' title="' + esc(why) + '"' : '') + '>' +
       declineGlyphHTML('recruit', s.id, s.name) +
       '<div class="mkt-rec-top">' + sealHTML(s, false) +
         '<div class="mkt-rec-id"><div class="mkt-rec-name">' + esc(s.name) + '</div><div class="mkt-rec-tag">' + esc(s.tagline) + '</div></div></div>' +
-      (why ? '<div class="mkt-rec-why"><span class="mkt-rec-why-k">WHY</span> ' + esc(why) + '</div>' : '') + '</button>';
+      (why && !compact ? '<div class="mkt-rec-why"><span class="mkt-rec-why-k">WHY</span> ' + esc(why) + '</div>' : '') + '</button>';
   }
 
   /* ---------- auto-mint: "SUGGESTED" ---------- */
@@ -2149,7 +2159,9 @@ const Marketplace = (() => {
      CTA's). Called from wireDossier so it re-binds on both a full stage render and a dossier-only repaint. */
   function wireSummonConfig(sc) {
     const appearance = sc.querySelector('.mkt-appearance');
-    if (appearance) appearance.addEventListener('toggle', () => { appearanceOpen = appearance.open; });
+    if (appearance) appearance.addEventListener('toggle', () => { if (appearance.isConnected) appearanceOpen = appearance.open; });
+    const modelSettings = sc.querySelector('.mkt-model-settings');
+    if (modelSettings) modelSettings.addEventListener('toggle', () => { if (modelSettings.isConnected) modelSettingsOpen = modelSettings.open; });
     const nameIn = sc.querySelector('#mkt-summon-name');
     if (nameIn) nameIn.addEventListener('input', () => {
       pickedSummonName = nameIn.value;
@@ -2210,6 +2222,8 @@ const Marketplace = (() => {
         // flashing the choice the Commander just made back to blank until the catalog resolves again.
         const help = sc.querySelector('#mkt-model-help');
         if (help) help.innerHTML = modelHelpHTML((focusAgent && Specialties.get(focusAgent)) || null);
+        const choice = sc.querySelector('.mkt-model-choice');
+        if (choice) choice.textContent = summonModelSummary();
       });
     }
   }
