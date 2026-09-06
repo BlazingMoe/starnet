@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "44a8c300615981cebb8f5745337c88545342690c",
+    "sourceCommit": "7e1db398f3449dd07edabb237f78f31194748cbc",
     "pathSetSha256": "8c036b2c47145e2b8e32ce97c06843562a7539326538d35b72db895d9af4bcba",
     "files": [
       {
@@ -803,8 +803,8 @@
       },
       {
         "path": "frontend/app/testapi.js",
-        "bytes": 8674,
-        "sha256": "5bc3782949a2f5050c3e7db6cc429ff46f86711b65d42dbf4fee1b697f7b8a45"
+        "bytes": 9014,
+        "sha256": "7b20a51c28762244b92f8e2d5044d7331ceee88da787434536191c4d293adb9a"
       },
       {
         "path": "frontend/app/threadstore.js",
