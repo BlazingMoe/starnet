@@ -22,7 +22,10 @@ try {
     const client = desktopClient(parsed);
     // Strip unrelated project fields; only Google's installed client metadata ships.
     const output = JSON.stringify({ installed: { client_id: client.clientId, client_secret: client.clientSecret } });
-    fs.writeFileSync(target, output + '\n', { mode: 0o600 });
+    // Native client metadata is public. Bundled resources must remain readable
+    // when an installer places the app under a different OS account.
+    fs.writeFileSync(target, output + '\n', { mode: 0o644 });
+    fs.chmodSync(target, 0o644);
     if (fs.readFileSync(target, 'utf8').trim() !== output) throw new Error('Google registration staging read-back failed');
     console.log('StarNet Google Desktop registration staged and verified.');
   }

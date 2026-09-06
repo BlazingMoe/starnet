@@ -96,6 +96,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(stage(JSON.stringify(installed)).status, 0);
     const staged = path.join(stageRoot, 'sidecar/mcp/google-client.json');
     assert.equal(JSON.parse(fs.readFileSync(staged, 'utf8')).installed.client_id, installed.installed.client_id);
+    assert.equal(fs.statSync(staged).mode & 0o444, 0o444, 'installed native metadata remains readable across OS accounts');
     assert.equal(stage('', true).status, 0);
     assert.equal(fs.existsSync(staged), false, 'internal builds cannot inherit a stale registration');
   } finally { fs.rmSync(stageRoot, { recursive: true, force: true }); }
