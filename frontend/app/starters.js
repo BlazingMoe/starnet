@@ -63,6 +63,7 @@
       'Choose zero to three high-value sessions this specific user would be glad you anticipated. Best first. Never fill a quota.',
       'Our vision: an agent that continuously understands the user through real work and takes meaningful work off their plate while moving their ambitions forward.',
       'Use the latest requests, explicit goals, unresolved work, actual results and corrections. Current direction outranks old habits. Respect their preferred depth and ambition.',
+      'Preference directions summarize actual feedback: -1 leans against a kind of work, +1 favors it, 0 is neutral. A specific current request still outranks a historical preference.',
       'Look for a substantial deliverable, a consequential decision you can advance with evidence, or a recurring burden you can remove. Scale ambition to this user; do not arbitrarily make every task small.',
       'Do not recommend generic activities such as plan a task, compare options, improve a draft, brainstorm ideas, a station tour or an intake interview. Name the actual project, problem and useful output.',
       'Do not simply repeat the last request, restart completed work, or recommend a session just because it is recent. A continuation needs a specific unfinished next move supported by the transcript.',

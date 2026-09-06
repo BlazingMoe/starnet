@@ -1527,7 +1527,9 @@ const Chat = (() => {
       beliefs[dim] = typeof DossierStore !== 'undefined' ? DossierStore.beliefs(dim) : [];
     }
     for (const kind of ['build', 'research', 'analyze', 'automate', 'continue']) {
-      preferences[kind] = typeof RecLedger !== 'undefined' ? RecLedger.preferenceOf(kind, [kind]) : 0;
+      // An impression changes the ledger's weight denominator, not the user's direction.
+      // Cache on direction so merely showing an idea cannot trigger another paid generation.
+      preferences[kind] = typeof RecLedger !== 'undefined' ? Math.sign(RecLedger.preferenceOf(kind, [kind])) : 0;
     }
     return Starters.context({ now: Date.now(), agentId, projectRoot: activeWs && activeWs.projectRoot,
       sessions: Workstreams.list().map(w => ({ ...w, busy: typeof Channels !== 'undefined' && Channels.isBusy(w.id) })),
