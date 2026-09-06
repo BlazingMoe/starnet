@@ -18,8 +18,8 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "418b3d95a1fdeef9da8f5f63bbe89dec4f4047c2",
-    "pathSetSha256": "71a155584b4f2cc8539826a2050ad9ee6c7ecd29ff1c1ff2ce645060443f5a49",
+    "sourceCommit": "e9b06b8332ed14e960fd370686930f366d5bc159",
+    "pathSetSha256": "5aef1a27613366b3be5ccc150bfd68badf86009a0e647461f5cd33983c1ce89a",
     "files": [
       {
         "path": "INSTALL.md",
@@ -148,8 +148,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 635791,
-        "sha256": "39723d0d399253ef07faf8613c7e5fe87e752e79c9abba8fde6a4f0ce3d0cc41"
+        "bytes": 635858,
+        "sha256": "530d861a72a917217807f31919a730f6382b221a47080c9b0f2f0dbcc7c082d2"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -158,8 +158,8 @@
       },
       {
         "path": "frontend/app/classicons.js",
-        "bytes": 66104,
-        "sha256": "4f2c4d81b68f7738f50caef8f9a0a90c272949ea8c965f4def96af67fdc17386"
+        "bytes": 58245,
+        "sha256": "ce7d0b9abe636465efa7688f6f788ccb4118c8e320493cde263f6e48b0293205"
       },
       {
         "path": "frontend/app/classify.js",
@@ -283,8 +283,8 @@
       },
       {
         "path": "frontend/app/friendlyerror.js",
-        "bytes": 44607,
-        "sha256": "2cc5ce2f73e303a67ea40244b3bcd5725c435ae6517a08c751640dc429e39e98"
+        "bytes": 44560,
+        "sha256": "c10e25d2d35b9ce0798ed75eb7ee0910807945c49e513ff0d672e84462671467"
       },
       {
         "path": "frontend/app/fullscreen.js",
@@ -408,8 +408,8 @@
       },
       {
         "path": "frontend/app/marketplace.js",
-        "bytes": 272756,
-        "sha256": "6ff4928eca9f9d4a23a5858b573ce07b4f21f8c70c71003ca067fdf7e18a4921"
+        "bytes": 272336,
+        "sha256": "9c88eea780f619eb33b3757f7e3ceffab32b88610ca04c06acc9e2018e64de7e"
       },
       {
         "path": "frontend/app/mint.js",
@@ -685,6 +685,11 @@
         "path": "frontend/app/routinenudgestore.js",
         "bytes": 11287,
         "sha256": "244c27dd94f0978f34b6f9d7599fe6fae54937174978a5dd2a5a28594d2cc20f"
+      },
+      {
+        "path": "frontend/app/safety.js",
+        "bytes": 2889,
+        "sha256": "2f0ec13036e9040633e2a2d353a5cc932af4ae70817ea7b5fb1a61528fed0f10"
       },
       {
         "path": "frontend/app/save.js",
@@ -1043,13 +1048,13 @@
       },
       {
         "path": "frontend/css/interface.css",
-        "bytes": 26351,
-        "sha256": "03d33beabb236a308c6b0d742b989c50138198e84ad773966d18742d2efebd16"
+        "bytes": 26749,
+        "sha256": "b5f4f64d6c460cf5db066446c8e3df5a8f424d305f477a86990b90c1611359a0"
       },
       {
         "path": "frontend/css/marketplace.css",
-        "bytes": 90401,
-        "sha256": "1a13bc7f5a754c237a2fabf23c6a1f96aa99f3a18ffc03a590fb22d0a3a7643f"
+        "bytes": 88079,
+        "sha256": "03aa12fe853fbffc92a4629b69314dc5b02290468e9bd9a736441d367488306c"
       },
       {
         "path": "frontend/css/motion.css",
@@ -1073,8 +1078,8 @@
       },
       {
         "path": "frontend/css/safety.css",
-        "bytes": 708,
-        "sha256": "0596422635e19256ef6bd3ef9e1e6154c462867ad4ba6778c3ce0ba4d0997382"
+        "bytes": 1094,
+        "sha256": "7f8c5a66a9c96a51a90a32febb313c1b08849e7153d8d98d39d26f3ff0fc49d1"
       },
       {
         "path": "frontend/css/style.css",
@@ -1088,8 +1093,8 @@
       },
       {
         "path": "frontend/css/topbar.css",
-        "bytes": 5709,
-        "sha256": "d364c8f83c8356bbffd55ddd47535683171449859396467c90c10863d04b7d48"
+        "bytes": 5783,
+        "sha256": "81ad47943c3e2b29ef55b23f624de26ae2641d8657bdaa2f14839a8eeaedee3d"
       },
       {
         "path": "frontend/css/tutorial.css",
@@ -1113,8 +1118,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 81344,
-        "sha256": "4ba96911f9d06f50669d77df43e5f5265e362fd3dd25d9d30faf1353c32843fc"
+        "bytes": 81668,
+        "sha256": "35afc44c7775c106f2d938113d0469ad81c3f816e4669550e6cfd22273fa7fdc"
       },
       {
         "path": "frontend/js/arcade.js",
