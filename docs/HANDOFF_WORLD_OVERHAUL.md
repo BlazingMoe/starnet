@@ -403,3 +403,9 @@ Leaving that view restores the saved category and grouping. E-STOP remains under
 Removed the world renderer's suspended pendant stems, shades and bright tubes at the user's request.
 The existing room light sources, light pools, wall-mounted fixtures, shadows and interior masks remain.
 This removes an overlay draw pass rather than changing the room's lighting calculation.
+
+Final source candidate `03f098895` also includes trunk `948557c62` and its newer Extensions UI.
+Merge preparation passed all 723 fast steps, 100 HTTP steps, and 149 live UI checks; the custom
+144-prop station is preserved. Verification scope and receipts are recorded in
+`docs/WORLD_INTERFACE_MERGE_READINESS_2026-09-06.md`. The lane is prepared for integration,
+not yet merged or packaged as an installed release.
