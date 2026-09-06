@@ -5911,8 +5911,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
        hardcoded here, so it can never drift from what the provider actually offers. */
     const secLiveVoice =
       '<h4 class="ms-h">SPOKEN VOICE</h4>' +
-      '<p class="set-about">The voice your agent speaks with in hands-free LIVE VOICE. Built in and keyless &mdash; the same on every provider. A change applies to the next Live Voice session, keeping one speaker for the whole conversation.</p>' +
-      '<div class="set-themes" id="set-lv-voices"><span class="dim">reading the provider’s voice list…</span></div>';
+      '<p class="set-about">Choose a station default for LIVE VOICE, or assign each agent a built-in, keyless voice for spoken replies and hands-free conversations. Changes apply to the next reply or new Live Voice session. Saved in this app or browser.</p>' +
+      '<div class="set-row"><label for="set-lv-agent">VOICE FOR</label><select id="set-lv-agent" class="fbc-sel"><option value="">Station default</option>' +
+        present.map(a => '<option value="' + esc(a.id) + '">' + esc(a.name || a.id) + '</option>').join('') + '</select></div>' +
+      '<button class="bb sm" id="set-lv-inherit" hidden>USE STATION DEFAULT</button>' +
+      '<p id="set-lv-msg" class="msg" aria-live="polite"></p>' +
+      '<div class="set-themes" id="set-lv-voices"><span class="dim">reading the built-in voice list…</span></div>';
 
     const secAppearance =
       '<h4 class="ms-h">PHOSPHOR THEME</h4><div class="set-themes">' +
@@ -6065,34 +6069,43 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     function wireLiveVoice(host) {
       const wrap = host && host.querySelector ? host.querySelector('#set-lv-voices') : null;
       if (!wrap) return;
-      const paint = (list, chosen) => {
+      const target = host.querySelector('#set-lv-agent');
+      const inherit = host.querySelector('#set-lv-inherit');
+      const message = host.querySelector('#set-lv-msg');
+      let request = 0;
+      const save = want => {
+        try {
+          VoiceLive.setVoice(want, target.value);
+          message.textContent = want ? 'Voice saved. Applies to the next reply or new Live Voice session.' : 'Using the station default. Applies to a new Live Voice session.';
+          refresh();
+          try { SFX.click(); } catch (_) {}
+        } catch (_) { message.textContent = 'Voice could not be saved. Please try again.'; }
+      };
+      const paint = (list, chosen, assigned) => {
+        inherit.hidden = !target.value;
+        inherit.disabled = !assigned;
         if (!list.length) { wrap.innerHTML = '<span class="dim">the speech engine has not reported its voices yet</span>'; return; }
         const group = sex => list.filter(v => v.sex === sex);
         const row = v => '<button class="set-theme ' + (v.id === chosen ? 'sel' : '') + '" aria-pressed="' +
-          (v.id === chosen ? 'true' : 'false') + '" data-lv-voice="' + v.id + '" title="' + v.accent + ' ' + v.sex + '">' + v.label + '</button>';
+          (v.id === chosen ? 'true' : 'false') + '" data-lv-voice="' + esc(v.id) + '" title="' + esc(v.accent + ' ' + v.sex) + '">' + esc(v.label) + '</button>';
         wrap.innerHTML =
           '<div class="dim" style="width:100%">MALE</div>' + group('male').map(row).join('') +
           '<div class="dim" style="width:100%;margin-top:6px">FEMALE</div>' + group('female').map(row).join('');
         wrap.querySelectorAll('[data-lv-voice]').forEach(btn => {
-          btn.onclick = () => {
-            const want = btn.getAttribute('data-lv-voice');
-            if (typeof VoiceLive !== 'undefined' && VoiceLive.setVoice) VoiceLive.setVoice(want);
-            wrap.querySelectorAll('[data-lv-voice]').forEach(b => {
-              const on = b === btn;
-              b.classList.toggle('sel', on);
-              b.setAttribute('aria-pressed', String(on));
-            });
-            try { SFX.click(); } catch (_) {}
-          };
+          btn.onclick = () => save(btn.getAttribute('data-lv-voice'));
         });
       };
-      if (typeof VoiceLive !== 'undefined' && VoiceLive.voices) {
-        VoiceLive.voices()
-          .then(v => paint(v.available || [], v.current || ''))
-          .catch(() => { wrap.innerHTML = '<span class="dim">voice list unavailable</span>'; });
-      } else {
-        wrap.innerHTML = '<span class="dim">live voice is not loaded on this page</span>';
-      }
+      const refresh = async () => {
+        const seq = ++request;
+        wrap.innerHTML = '<span class="dim">reading the built-in voice list…</span>';
+        try {
+          const v = await VoiceLive.voices(target.value);
+          if (seq === request) paint(v.available || [], v.current || '', v.assigned);
+        } catch (_) { if (seq === request) wrap.innerHTML = '<span class="dim">voice list unavailable</span>'; }
+      };
+      target.onchange = () => { message.textContent = ''; refresh(); };
+      inherit.onclick = () => save('');
+      refresh();
     }
 
     /* the backdrop swatches are painted by the REAL world renderer, which costs a full sky/ground build
@@ -6109,7 +6122,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       { id: 'models', label: 'MODELS', glyph: '⇄', desc: 'The fallback chain — what the loop retries on if your primary model fails mid-run.', build: frag(secModels) },
       // build, not frag: the pane is created lazily when the section is opened, so wiring at MOUNT time
       // ran before this element existed and left the list stuck on its placeholder. Paint it when it is born.
-      { id: 'livevoice', label: 'LIVE VOICE', glyph: '◍', desc: "The voice your agent speaks with hands-free, supplied by the provider you already connected.", build: el => { el.innerHTML = secLiveVoice; wireLiveVoice(el); } },
+      { id: 'livevoice', label: 'LIVE VOICE', glyph: '◍', desc: 'Built-in voices for your agents and hands-free conversations.', build: el => { el.innerHTML = secLiveVoice; wireLiveVoice(el); } },
       { id: 'appearance', label: 'APPEARANCE', glyph: '☀', desc: 'Room lighting, phosphor colour, CRT effects, and terminal sound.', build: frag(secAppearance), onShow: () => paintBackdropSwatches() },
       // NAV CONDENSE (2026-08-04) — two label renames, ids untouched (remembered-section keys + wiring
       // bind to the id): 'NOTIFICATIONS' collided with the SYSTEM-dock NOTIFICATIONS panel (inbox vs
