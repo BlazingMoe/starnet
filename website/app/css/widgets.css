@@ -100,7 +100,7 @@
 .wg[data-stale="1"] .wg-dot { background: var(--warn); box-shadow: 0 0 4px var(--warn); animation: none; }
 .wg-sub { font-size: 10px; letter-spacing: 1px; color: var(--ph-dim); white-space: nowrap; }
 /* ticker form (agent-fed list): one cycling line at reading size instead of a big figure */
-.wg-sub.wg-ticktext { font-size: 12px; letter-spacing: 0.5px; color: var(--text, var(--ph-bright));
+.wg-sub.wg-ticktext { display: block; font-size: 12px; letter-spacing: 0.5px; color: var(--text, var(--ph-bright));
   max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- spark: line + soft area fill + bright endpoint dot (the "now" reading) ---- */
@@ -142,7 +142,10 @@
   display: none; align-items: center; justify-content: center;
   font-size: 10px; padding: 0; border-radius: 50%;
 }
-.wg:hover .wg-x { display: inline-flex; }
+.wg:hover .wg-x, .wg:focus-within .wg-x { display: inline-flex; }
+.wg:focus-visible { outline: 1px solid var(--ph); outline-offset: 2px; }
+.wg[data-empty="1"] .wg-dot { background: var(--ph-dim); box-shadow: none; animation: none; }
+.wg[data-stale="1"] .wg-ticktext { opacity: .5; }
 
 /* the drag ghost: the same instrument, lifted off the bench */
 .wg.wg-drag { position: fixed; z-index: 990; pointer-events: none; opacity: 0.95;
@@ -172,19 +175,26 @@
    render() already stamps data-empty on each rail, but nothing consumed it: an empty rail was a ＋ sitting
    at --ph-faint behind a transparent border, i.e. invisible. So the whole bottom rail read as dead chrome in
    the middle of the bar and never got discovered. When a rail holds NOTHING the affordance earns a resting
-   presence — a dashed slot with a legible glyph and a label saying what the space is for. A rail that already
+   presence — a quiet inset button with a legible glyph and a label saying what the space is for. A rail that already
    carries instruments keeps the quiet-until-hover ＋ (nothing left to discover there; don't clutter the bar). */
-.widget-rail[data-empty="1"] .wg-add {
+#screen-game .widget-rail[data-empty="1"] .wg-add {
   width: auto; height: 22px; padding: 0 9px; gap: 6px;
-  color: var(--ph-dim); border-color: var(--ph-faint); border-style: dashed;
+  --ui-key-label: var(--ph-dim); --ui-key-edge: var(--ph-faint);
+  --ui-key-face: rgba(var(--ph-rgb, 255,170,51), 0.04);
+  --ui-key-shadow: inset 0 1px 0 rgba(var(--ph-rgb, 255,170,51), 0.08);
+  color: var(--ui-key-label); border-color: var(--ui-key-edge);
+  background: var(--ui-key-face); box-shadow: var(--ui-key-shadow); border-radius: 2px;
 }
-.widget-rail[data-empty="1"] .wg-add::after {
+#screen-game .widget-rail[data-empty="1"] .wg-add::after {
   content: 'PIN A WIDGET';
-  font-size: 9.5px; letter-spacing: .14em; white-space: nowrap;
+  font-size: 9.5px; letter-spacing: .1em; white-space: nowrap;
 }
-.widget-rail[data-empty="1"] .wg-add:hover, .widget-rail[data-empty="1"] .wg-add:focus-visible {
-  color: var(--ph); border-color: var(--ph-dim); border-style: solid; box-shadow: 0 0 8px var(--ph-glow2);
+#screen-game .widget-rail[data-empty="1"] .wg-add:hover, #screen-game .widget-rail[data-empty="1"] .wg-add:focus-visible,
+#screen-game .widget-rail[data-empty="1"] .wg-add[aria-expanded="true"] {
+  --ui-key-label: var(--ph); --ui-key-edge: var(--ph-dim);
+  --ui-key-shadow: inset 0 1px 0 rgba(var(--ph-rgb, 255,170,51), 0.14);
 }
+#screen-game .widget-rail[data-empty="1"] .wg-add:focus-visible { outline: 1px solid var(--ph); outline-offset: 2px; }
 
 /* ---- the add-widget popover (fixed; positioned by widgets.js above/below its rail) ---- */
 .wg-pop {
@@ -222,3 +232,80 @@
   .wg-pop { animation: none; }
   .widget-rail, .wg, .wg-add, .wg-prog-fill { transition-duration: 0.01ms !important; }
 }
+
+/* Compact rail picker: one flat instrument row, with placement controls alongside. */
+.wg-library { display: flex; flex-direction: column; box-sizing: border-box; min-width: 0;
+  padding: 8px; border-radius: 3px; overflow: hidden; color: var(--ph-bright); background: var(--panel2); }
+.wg-library-header { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; flex-shrink: 0; }
+.wg-library h2 { margin: 0; font-size: 15px; font-weight: normal; letter-spacing: 1.5px; }
+.wg-library-count { margin-left: auto; color: var(--ph-dim); font-size: 11px; }
+.wg-library-close { width: 22px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--ph-dim); cursor: pointer; }
+.wg-library .wg-library-search { box-sizing: border-box; width: 100%; height: 28px; min-height: 28px; padding: 4px 7px; flex-shrink: 0; font-size: 14px; line-height: 18px;
+  border: 1px solid var(--ph-faint); border-radius: 2px; background: var(--bg); color: var(--ph-bright); box-shadow: none; text-shadow: none; }
+.wg-library-search::placeholder { color: var(--ph-dim); }
+.wg-library-filters { display: flex; gap: 3px; padding: 5px 0; flex-shrink: 0; border-bottom: 1px solid var(--ph-faint); }
+.wg-library-filters button, .wg-library-action { padding: 3px 6px; border: 1px solid transparent;
+  border-radius: 2px; color: var(--ph-dim); background: transparent; font-family: inherit; font-size: 12px; cursor: pointer; }
+.wg-library button[aria-pressed="true"] { color: var(--ph-bright); border-color: var(--ph-faint); background: rgba(var(--ph-rgb), .09); }
+.wg-library button:hover { color: var(--ph-bright); border-color: var(--ph-dim); }
+.wg-library button:focus-visible, .wg-library input:focus-visible { outline: 1px solid var(--ph); outline-offset: 1px; }
+.wg-library button:disabled { opacity: .2; cursor: default; }
+.wg-library-list { overflow-y: auto; min-height: 0;
+  scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; overscroll-behavior: contain; }
+.wg-library-card { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 29px;
+  border-bottom: 1px solid var(--ph-faint); }
+.wg-library-card-fed { min-height: 37px; }
+.wg-library-card:last-child { border-bottom: 0; }
+.wg-library-card:hover { background: rgba(var(--ph-rgb), .035); }
+.wg-library .wg-preview { flex: 1; min-width: 0; max-width: 100%; padding: 3px 2px;
+  cursor: default; pointer-events: none; box-sizing: border-box; overflow: hidden;
+  border: 0; background: none; box-shadow: none; border-radius: 0; gap: 5px; }
+.wg-library .wg-meta { flex: 1; overflow: hidden; }
+.wg-library .wg-lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; letter-spacing: .6px; font-size: 13px; color: var(--ph-bright); }
+.wg-library .wg-src { max-width: 100%; font-size: 11px; letter-spacing: 0; }
+.wg-library .wg-preview:not(.wg-fed) .wg-src { display: none; }
+.wg-library .wg-dot, .wg-library .wg-sparkslot, .wg-library .wg-sub { display: none; }
+.wg-library .wg-val { max-width: 74px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; letter-spacing: 0; text-shadow: none; }
+.wg-library .wg-sub.wg-ticktext { display: block; max-width: 74px; font-size: 11px; }
+.wg-library-actions { display: flex; gap: 1px; flex: 0 0 auto; }
+.wg-library-action { min-height: 24px; }
+.wg-library-empty { margin: 0; padding: 12px 5px; font-size: 12px; color: var(--ph-dim); line-height: 1.4; }
+
+/* A pinned attention/schedule instrument leads to the work it describes. */
+.wg-open { flex: 0 0 auto; padding: 1px 3px; border: 1px solid var(--ph-faint); border-radius: 2px;
+  background: transparent; color: var(--ph); font: inherit; cursor: pointer; }
+.wg-open:hover, .wg-open:focus-visible { border-color: var(--ph); color: var(--ph-bright); }
+.wg-open:disabled { opacity: .25; cursor: default; }
+
+/* Connected-app studio: compact source rows and a focused editor, no oversized cards. */
+.wg-studio-heading { margin: 9px 2px; color: var(--ph-bright); font-size: 17px; font-weight: normal; }
+.wg-studio-note, .wg-studio-message { margin: 8px 2px; font-size: 13px; line-height: 1.35; color: var(--ph-dim); overflow-wrap: anywhere; }
+.wg-studio-message:empty { display: none; }
+.wg-studio-error { margin: 8px 2px; color: var(--bad); font-size: 13px; overflow-wrap: anywhere; }
+.wg-studio-button { border: 1px solid var(--ph-faint); padding: 4px 7px; border-radius: 2px; color: var(--ph);
+  background: var(--panel2); font: inherit; font-size: 13px; cursor: pointer; }
+.wg-studio-primary { background: rgba(var(--ph-rgb), .12); border-color: var(--ph-dim); color: var(--ph-bright); }
+.wg-studio-actions, .wg-presets { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 1px; }
+.wg-presets .wg-studio-button { font-size: 12px; }
+.wg-app-row { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--ph-faint); }
+.wg-app-caption { min-width: 0; flex: 1; }
+.wg-app-caption strong, .wg-app-caption small { display: block; overflow-wrap: anywhere; }
+.wg-app-caption strong { font-size: 15px; font-weight: normal; color: var(--ph-bright); }
+.wg-app-caption small { color: var(--ph-dim); font-size: 12px; }
+.wg-studio-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 2px; color: var(--ph-dim); font-size: 13px; }
+.wg-library .wg-studio-input { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--ph-faint);
+  border-radius: 2px; background: var(--bg); color: var(--ph-bright); font: inherit; font-size: 14px; line-height: 1.35; box-shadow: none; }
+.wg-library textarea.wg-studio-input { resize: vertical; min-height: 72px; }
+.wg-library select.wg-studio-input { appearance: none; padding-right: 24px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ph-dim) 50%), linear-gradient(135deg, var(--ph-dim) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.wg-detail-reading { padding: 5px 8px; margin: 7px 0; border: 1px solid var(--ph-faint); background: var(--bg); }
+.wg-detail-value { display: block; color: var(--ph-bright); font-size: 26px; font-weight: normal; overflow-wrap: anywhere; }
+.wg-detail-reading ul { padding-left: 17px; margin: 6px 0; color: var(--ph-bright); font-size: 14px; }
+.wg-detail-reading li { margin: 5px 0; overflow-wrap: anywhere; }
+.wg-detail-reading a { font-size: 13px; color: var(--ph); text-decoration: underline; }
+.wg-detail-chart .wg-spark { display: block; width: 100%; height: 48px; }
+.wg-detail-reading progress { appearance: none; height: 6px; width: 80%; background: var(--ph-faint); border: 0; accent-color: var(--ph); }
+.wg-detail-reading progress::-webkit-progress-bar { background: var(--ph-faint); }
+.wg-detail-reading progress::-webkit-progress-value { background: var(--ph); }
+.wg-detail-reading progress::-moz-progress-bar { background: var(--ph); }

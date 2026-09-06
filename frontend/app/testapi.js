@@ -104,9 +104,9 @@
   }
   const captureBaseline = () => { if (!baseline) baseline = displayedHud(); return baseline; };
 
-  // Returns the displayed values, the baseline captured at log-start, the reduced (event-derived) values,
-  // and PASS/FAIL checks. Station level is cumulative-with-history, so it is checked as a monotonic
-  // lower bound (session XP can only have raised it; it must be >= baseline).
+  // Commander progression is server-owned Journey data, not the crew XP reducer.
+  // Verify exact projection including unavailable/last-good provenance. An honest
+  // dash while loading is not a fabricated level; a missing node still fails.
   function hud() {
     const displayed = displayedHud();
     const base = baseline || displayed;
@@ -114,13 +114,21 @@
     const floor = reduceFloor();
     const xp = reduceXp();
     const checks = [];
-    const chk = (metric, displayedV, expectedV, tol, mode) => {
-      const ok = displayedV != null && expectedV != null && (mode === 'gte' ? displayedV >= expectedV - (tol || 0) : Math.abs(displayedV - expectedV) <= (tol || 0));
-      checks.push({ metric, displayed: displayedV, expected: expectedV, mode: mode || 'eq', ok });
-    };
-    const baseSta = (base.station && base.station.value) || 1;
-    chk('stationLevel', displayed.station.value, Math.max(baseSta, xp ? xp.level : 1), 0, 'gte');
-    return { displayed, baseline: base, reduced: { totals, floor, xp, ctx: ctx() }, checks, allOk: checks.every((c) => c.ok) };
+    let journey = null, stale = true;
+    try {
+      if (typeof JourneyStore !== 'undefined') {
+        journey = JourneyStore.status ? JourneyStore.status() : null;
+        stale = !!(JourneyStore.state && JourneyStore.state().stale);
+      }
+    } catch (_) { journey = null; }
+    const level = journey && journey.progression && journey.progression.level;
+    const known = Number.isFinite(level);
+    const commander = { level: known ? level : null, source: known ? (stale ? 'saved' : 'current') : 'unavailable' };
+    const expectedText = known ? 'Lv ' + level + (stale ? ' · saved' : '') : '—';
+    checks.push({ metric: 'stationLevel', displayed: displayed.station.value,
+      expected: commander.level, mode: 'eq', expectedText, source: commander.source,
+      ok: displayed.station.value === commander.level && displayed.station.text === expectedText });
+    return { displayed, baseline: base, commander, reduced: { totals, floor, xp, ctx: ctx() }, checks, allOk: checks.every((c) => c.ok) };
   }
 
   // ---- readiness + one-call probe ----

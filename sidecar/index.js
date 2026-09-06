@@ -1707,8 +1707,8 @@ const notebookStore = makeMemoryStore({
 
 // WIDGET RAILS Phase 2 — the STATION-scoped agent-fed widget records (one file, not per-agent:
 // widgets are station chrome). Sibling of the notebooks, OUTSIDE every agent's fs jail, same
-// durable+recovery discipline. widget.set (tools/builtin/widgets.js) is the only writer;
-// GET /api/widgets is the read surface the frontend rails poll.
+// durable+recovery discipline. The widget service serializes user definitions, deletion,
+// and versioned agent publications; GET /api/widgets is the frontend read surface.
 const widgetStore = makeDurableJsonStore({
   fs: fs, path: path,
   fileFor: () => path.join(WORKSPACES, 'station.widgets.json'),
@@ -1717,6 +1717,7 @@ const widgetStore = makeDurableJsonStore({
   onCorrupt: (key, file) => quarantineCorrupt(file, 'widgets')
 });
 const widgetTools = makeWidgetTools({ store: widgetStore, clock: { now: () => Date.now() }, redact });
+const widgetsDeleting = new Set();
 
 // AWAY WORKSHOP — per-agent durable state for "Build things while I'm away": the Commander's recorded grant,
 // the build backlog, and the permanent discarded-backlogId denylist. A sibling of the notebooks (WORKSPACES/
@@ -9208,6 +9209,10 @@ const ROUTES = [
   { m: 'GET', exact: '/api/spotify/status', h: handleSpotifyStatus },
   { m: 'POST', exact: '/api/spotify/disconnect', h: handleSpotifyDisconnect },
   { m: 'GET', exact: '/api/widgets', h: handleWidgetsList },   // WIDGET RAILS Phase 2: the agent-fed readouts the chrome rails poll
+  { m: 'GET', exact: '/api/widgets/sources', h: handleWidgetSources },
+  { m: 'POST', exact: '/api/widgets/configure', h: handleWidgetConfigure },
+  { m: 'POST', exact: '/api/widgets/remove', h: handleWidgetRemove },
+  { m: 'POST', exact: '/api/widgets/request', h: handleWidgetRequest },
   { m: 'GET', exact: '/api/state/snapshot', h: handleStateSnapshot },   // reconnect reconciliation (frontend lane consumes it)
   { m: 'GET', exact: '/api/agents/affinity', h: handleAgentAffinity },   // idle-life: the PROVEN social graph the world biases its social beats with
   { m: 'GET', exact: '/api/lifecycle/armed', h: handleLifecycleArmed },   // Lane 4D: tray supervisor's close-decision truth
@@ -11413,10 +11418,71 @@ function parseCronProviderOr400(value) {
 // GET /api/widgets — WIDGET RAILS Phase 2: the agent-fed readout records, verbatim from the durable
 // station store (truthful telemetry: the frontend renders EXACTLY what an agent set, plus provenance —
 // agentId + updatedAt — so the display never claims more than "this agent reported this, then").
-// Read-only; widget.set (the tool) is the only writer. Records are redact()-scrubbed at write time.
+// Readings come from widget.set; user definitions come from configure. Both are scrubbed at write time.
 function handleWidgetsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ widgets: widgetTools.list() }));
+  const sources = widgetSources();
+  res.end(JSON.stringify({ widgets: widgetTools.list().map(w => {
+    if (!w.config) return w;
+    const s = sources.find(x => x.kind === w.config.source.kind && x.id === w.config.source.id);
+    return Object.assign({}, w, { sourceState: s ? s.state : 'removed' });
+  }) }));
+}
+
+// Public app inventory only. Never copy tokens, key values, headers, or MCP launch arguments.
+function widgetSources() {
+  const out = connectors.list().map(c => ({ kind: 'connector', id: c.id, label: redact(c.label || c.id),
+    state: !c.enabled ? 'disabled' : c.authRequired ? 'sign-in required' : c.state,
+    available: c.enabled !== false && ['up', 'cached'].includes(c.state) && !c.authRequired }));
+  for (const k of serviceKeys) if (k && k.key) out.push({ kind: 'servicekey', id: k.envVar,
+    label: redact(k.name), state: k.enabled === false ? 'disabled' : 'configured', available: k.enabled !== false });
+  out.push({ kind: 'agent', id: 'starnet', label: 'StarNet', state: 'available', available: true });
+  return out;
+}
+function handleWidgetSources(req, res) {
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify({ sources: widgetSources() }));
+}
+async function widgetCommand(req, res, command) {
+  const json = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  try {
+    const body = JSON.parse(await readBody(req, 8192));
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid widget request');
+    return json(200, await command(body));
+  } catch (e) { return json(400, { error: redact(String(e.message || e)).slice(0, 300) }); }
+}
+function handleWidgetConfigure(req, res) {
+  return widgetCommand(req, res, async body => {
+    const source = widgetSources().find(s => s.kind === body.source?.kind && s.id === body.source?.id);
+    if (!source || !source.available) throw new Error('This app is unavailable. Connect it before creating a widget.');
+    const id = body.id || ('w-' + crypto.randomBytes(10).toString('hex'));
+    const widget = await widgetTools.configure(Object.assign({}, body, { id }), { kind: source.kind, id: source.id, label: source.label });
+    return { widget };
+  });
+}
+function handleWidgetRemove(req, res) {
+  return widgetCommand(req, res, async body => {
+    const id = String(body.id || '');
+    if (!/^[a-z0-9][a-z0-9-]{0,23}$/.test(id)) throw new Error('Invalid widget id');
+    if (widgetsDeleting.has(id)) throw new Error('Widget deletion is already in progress.');
+    widgetsDeleting.add(id);
+    try {
+      for (const job of cronJobs.filter(j => j.meta?.widgetId === id)) {
+        const lease = cronDriver.leases.get(job.id); if (lease?.ac) lease.ac.abort();
+      }
+      await withCronWrite(jobs => jobs.filter(j => j.meta?.widgetId !== id));
+      await widgetTools.remove(id); return { ok: true };
+    } finally { widgetsDeleting.delete(id); }
+  });
+}
+function handleWidgetRequest(req, res) {
+  return widgetCommand(req, res, async body => {
+    const widget = widgetTools.list().find(w => w.id === body.id && w.config);
+    if (!widget) throw new Error('Widget no longer exists.');
+    const source = widgetSources().find(s => s.kind === widget.config.source.kind && s.id === widget.config.source.id);
+    if (!source?.available) throw new Error('The source app is unavailable. Reconnect it to refresh this widget.');
+    return { prompt: widgetTools.instruction(widget.id), widget };
+  });
 }
 
 function cronStateSnapshot(now) {
@@ -11707,6 +11773,9 @@ async function createCronJobFromSpec(body) {
   body = body || {};
   const out = (status, obj) => ({ status: status, body: obj });
   const takeoverId = body.meta && body.meta.workflowTakeoverId;
+  const widgetId = body.meta && body.meta.widgetId;
+  if (widgetId && (widgetsDeleting.has(widgetId) || !widgetTools.list().some(w => w.id === widgetId && w.config)))
+    return out(409, { error: 'This widget no longer exists. Create a widget before scheduling updates.' });
   if (takeoverId) {
     const existing = cronJobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
     if (existing) return out(200, { ok: true, duplicate: true, job: existing });
@@ -11760,6 +11829,8 @@ async function createCronJobFromSpec(body) {
   try {
     // G4.3: re-read-modify-write UNDER the cron lock so a concurrent advance/CRUD save is not clobbered.
     await withCronWrite(jobs => {
+      if (widgetId && (widgetsDeleting.has(widgetId) || !widgetTools.list().some(w => w.id === widgetId && w.config))) throw new Error('Widget was removed before scheduling completed.');
+      if (widgetId) { const existing = jobs.find(j => j.meta?.widgetId === widgetId); if (existing) { takeoverDuplicate = existing; return jobs; } }
       takeoverDuplicate = takeoverId && jobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
       if (takeoverDuplicate) return jobs;
       return cronStore.createJob(jobs, {
@@ -12238,7 +12309,8 @@ async function validateWorkshopManifest(agentId, runId) {
   if (!man || typeof man !== 'object' || man.v !== 1) { console.warn('[workshop] manifest missing v:1 for run', runId); return null; }
   if (!Array.isArray(man.files) || !man.files.length) { console.warn('[workshop] manifest lists no files for run', runId); return null; }
   // PROVE each listed file exists inside the run dir (jail-checked). Recompute bytes from disk (never trust the
-  // model's number) and drop any listed file that isn't actually there — an empty proven set fails validation.
+  // model's number). A missing member invalidates the whole completion claim; keep partial work on disk
+  // for recovery, but never turn its surviving files into a supposedly complete deliverable.
   const runDirRel = relDir + '/';
   const provenFiles = [];
   // mouse-confinement incident (2026-07-12): a deliverable that requests pointer lock / fullscreen will capture
@@ -12252,9 +12324,12 @@ async function validateWorkshopManifest(agentId, runId) {
   let capturesInput = false, usesMedia = false;
   for (const f of man.files) {
     const p = String((f && f.path) || '').replace(/^[\\/]+/, '');
-    if (!p || p === 'deliverable.json') continue;
-    let abs; try { ({ abs } = await fsJail.resolveInside(agentId, runDirRel + p)); } catch (_) { continue; }
-    let st; try { st = await fsp.stat(abs); } catch (_) { continue; }
+    if (!p || p === 'deliverable.json') { console.warn('[workshop] invalid listed file for run', runId, '— not emitting'); return null; }
+    let abs; try { ({ abs } = await fsJail.resolveInside(agentId, runDirRel + p)); }
+    catch (_) { console.warn('[workshop] listed file path rejected for run', runId, '— not emitting'); return null; }
+    let st; try { st = await fsp.stat(abs); }
+    catch (_) { console.warn('[workshop] listed file missing for run', runId, '— not emitting'); return null; }
+    if (!st || !st.isFile()) { console.warn('[workshop] listed member is not a file for run', runId, '— not emitting'); return null; }
     if (st && st.isFile()) {
       provenFiles.push({ path: p, bytes: st.size });
       if ((!capturesInput || !usesMedia) && SCANNABLE_RE.test(p) && st.size <= 4 * 1024 * 1024) {

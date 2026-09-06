@@ -632,6 +632,10 @@ const Chat = (() => {
     beatCards = (typeof BeatCard !== 'undefined' && BeatCard.create) ? BeatCard.create({ vanish: vanish }) : null;
     beatSlot = beatCards ? beatCards.slot : null;
     log = el('chat-log'); input = el('chat-input'); statusEl = el('chat-status');
+    if (typeof window !== 'undefined' && !window.__chatStarterTimer && typeof StarterStore !== 'undefined') {
+      StarterStore.init();
+      window.__chatStarterTimer = setInterval(() => { try { refreshStarters(); } catch (_) {} }, 15000);
+    }
     // F2: re-derive the idle status on the same cadence the topbar repaints #sig (3s) so a link that dies with
     // NO run in flight still downgrades 'online' → 'station unreachable'. Once-armed (init re-runs per session).
     if (typeof window !== 'undefined' && !window.__chatLinkStatusTimer) {
@@ -1517,53 +1521,109 @@ const Chat = (() => {
     updateControls();   // Stop button visibility + queued pills follow the displayed stream too
   }
   function clearEmptyState() { const e = log && log.querySelector('.cmsg-empty'); if (e) e.remove(); }
-  // first-run state: an empty + idle + non-interview stream shows a single dim hint instead of a black void.
-  // gather the HONEST signals the starter engine ranks on: catalog, real launch history, whether the
-  // station has any prior life, and the local clock. Every read fails open — a missing store just means
-  // fewer signals, never a crash (the engine degrades to the classic orientation set).
-  function pickStarters() {
-    const recipes = (typeof Recipes !== 'undefined' && Recipes.list) ? (Recipes.list() || []) : [];
-    let recent = [], valuesOf = () => null;
-    if (typeof LaunchMemory !== 'undefined' && LaunchMemory.recent) {
-      try { recent = LaunchMemory.recent(8) || []; valuesOf = id => LaunchMemory.get(id); } catch (_) {}
+  function starterContext() {
+    const agentId = (activeWs && activeWs.agentId) || 'agent', beliefs = {}, preferences = {};
+    for (const dim of ['goals', 'pain', 'ambition', 'standing_orders', 'style', 'stack', 'people', 'schedule', 'identity']) {
+      beliefs[dim] = typeof DossierStore !== 'undefined' ? DossierStore.beliefs(dim) : [];
     }
-    // returning = any OTHER session ever had a real row, or anything was ever launched from the catalog.
-    // (maybeEmptyState only renders when the ACTIVE session is empty, so it can't vouch for itself.)
-    let returning = recent.length > 0;
-    // sessions = the OTHER titled sessions with real history, newest first — the engine's earned
-    // context for the "next step: <title>" chip. Same fail-open stance as every other signal.
-    let sessions = [];
-    try {
-      if (typeof Workstreams !== 'undefined' && Workstreams.list) {
-        const others = (Workstreams.list() || []).filter(w => w && w !== activeWs && w.history && w.history.length > 0);
-        returning = returning || others.length > 0;
-        sessions = others
-          .filter(w => w.title)
-          .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
-          .map(w => ({ title: w.title, at: w.lastActiveAt || 0 }));
-      }
-    } catch (_) {}
-    const now = new Date();
-    // V3 §6: the pitch chip is gated on the shared readiness read (fail-closed: no read → no pitch chip).
-    let ready = false;
-    try { const r = (typeof UnderstandingStore !== 'undefined' && UnderstandingStore.readiness) ? UnderstandingStore.readiness() : null; ready = !!(r && r.ready); } catch (_) {}
-    // V3 §7: below the gate, the pitch slot becomes a HUNT probe — but only when a live question actually
-    // exists (consider() honors dismissed/stop-forever/session budget, so a worn-out bank offers nothing).
-    let hunt = false;
-    try { hunt = !ready && typeof CuriosityStore !== 'undefined' && !!CuriosityStore.consider(); } catch (_) {}
-    const sig = { recipes, recent, valuesOf, returning, sessions, hour: now.getHours(), ready, hunt };
-    if (typeof Starters !== 'undefined' && Starters.pick) {
-      try { const out = Starters.pick(sig); if (out && out.length) return out; } catch (_) {}
+    for (const kind of ['build', 'research', 'analyze', 'automate', 'continue']) {
+      // An impression changes the ledger's weight denominator, not the user's direction.
+      // Cache on direction so merely showing an idea cannot trigger another paid generation.
+      preferences[kind] = typeof RecLedger !== 'undefined' ? Math.sign(RecLedger.preferenceOf(kind, [kind])) : 0;
     }
-    // engine missing/hiccuped → the classic orientation set, verbatim.
-    const fallback = [{ label: 'what can you do here', send: 'What can you do here? Give me a short tour of what you can actually do for me.' }];
-    if (recipes[0]) fallback.push({ label: String(recipes[0].name || recipes[0].id), recipe: recipes[0] });
-    fallback.push({ label: 'brief me on this station', send: 'Brief me on this station — what is around me and what I can do from here.' });
-    return fallback;
+    return Starters.context({ now: Date.now(), agentId, projectRoot: activeWs && activeWs.projectRoot,
+      sessions: Workstreams.list().map(w => ({ ...w, busy: typeof Channels !== 'undefined' && Channels.isBusy(w.id) })),
+      beliefs, preferences, goal: typeof GoalStore !== 'undefined' ? GoalStore.activeGoal() : null,
+      capabilities: typeof World !== 'undefined' && World.heroCaps ? World.heroCaps(agentId) : [],
+      enabled: typeof ProfileStore === 'undefined' || ProfileStore.enabled() });
   }
-
+  function starterOptions() {
+    return { system, modelKey: typeof Harness !== 'undefined' ? Harness.getProv() + ':' + Harness.getModel() : '' };
+  }
+  function refreshStarters() {
+    if (!log || !activeWs || activeWs.history.length || isBusy() || interview || (input && input.value.trim())) return;
+    const d = log.querySelector('.cmsg-empty');
+    if (!d) { maybeEmptyState(); return; }
+    const key = JSON.stringify([starterContext(), starterOptions()]);
+    if (d.starterKey === key && !(d.retryAt && Date.now() >= d.retryAt) && Date.now() < d.expiresAt) return;
+    // Keep focus stable during keyboard selection. The next idle tick can refresh it.
+    if (d.contains(document.activeElement)) return;
+    if (d.starterKey === key && d.retryAt && Date.now() >= d.retryAt && d.forcePending) {
+      requestStarterIdeas(d, d.querySelector('.cmsg-empty-hint'), starterContext(), starterOptions(), true); return;
+    }
+    clearEmptyState(); maybeEmptyState();
+  }
+  function openStarter(st, hint) {
+    if (input.value.trim()) { hint.textContent = 'Send or clear your current draft before choosing a session.'; input.focus(); return; }
+    const ctx = starterContext();
+    // Revalidate both evidence and destination at click time: work can finish in another session.
+    const sameEvidence = st.evidence.every(s => ctx.sources.some(current => current.id === s.id && current.text === s.text));
+    const valid = st.general || (sameEvidence && Starters.parse(JSON.stringify({ suggestions: [{ title: st.label, why: st.description, ...st }] }), ctx, StarterStore.exclusions()).length);
+    if ((!st.general && !ctx.enabled) || !valid) { clearEmptyState(); maybeEmptyState(); return; }
+    let ws;
+    if (st.sessionId) {
+      const target = Workstreams.get(st.sessionId);
+      if (!target || target.archived || Channels.isBusy(target.id)) return;
+      ws = Workstreams.switch(target.id);
+    } else ws = Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    if (!ws) return;
+    load(ws);
+    prefill(Starters.launchPrompt(st));
+    if (!st.general) StarterStore.prepare(st, ws.id, input.value);
+    clearEmptyState(); refreshWorkflowViews();
+  }
+  function renderStarterIdeas(d, hint, result) {
+    const old = d.querySelector('.cmsg-empty-chips'); if (old) old.remove();
+    const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
+    const personalized = result.ideas || [], ideas = personalized.length ? personalized : Starters.defaults();
+    const messages = {
+      cold: 'Three ways to put ' + name + ' to work. Suggestions will become specific as we work together.',
+      paused: 'Personalization is paused. These starting points are available to everyone.',
+      loading: 'Finding ideas from your work. These starting points are available meanwhile.',
+      cooldown: 'Updating ideas from your latest context. Or start with one of these.',
+      error: 'Personalized ideas are unavailable right now. Try one of these starting points.',
+      ready: personalized.length ? 'Based on your work and goals. Choose a session to review its brief.' : 'Three substantial starting points. Your own requests will shape future suggestions.'
+    };
+    hint.textContent = messages[result.status] || messages.ready;
+    d.retryAt = result.status === 'cooldown' ? result.retryAt : 0;
+    for (const st of ideas) {
+      if (!st.general) StarterStore.shown(st);
+      const row = document.createElement('div'); row.className = 'cmsg-starter-row';
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter';
+      const title = document.createElement('span'); title.className = 'cmsg-starter-title'; title.textContent = st.label;
+      const detail = document.createElement('span'); detail.className = 'cmsg-starter-detail'; detail.textContent = st.description;
+      const output = document.createElement('span'); output.className = 'cmsg-starter-output'; output.textContent = 'Result: ' + st.deliverable;
+      const arrow = document.createElement('span'); arrow.className = 'cmsg-starter-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true');
+      b.append(title, detail); if (!st.general) b.appendChild(output); b.appendChild(arrow);
+      b.addEventListener('click', () => openStarter(st, hint));
+      const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.className = 'choice cmsg-starter-dismiss';
+      dismiss.textContent = 'Not relevant'; dismiss.setAttribute('aria-label', 'Not relevant: ' + st.label);
+      dismiss.addEventListener('click', () => { StarterStore.dismiss(st); row.remove(); if (!chips.querySelector('.cmsg-starter-row')) renderStarterIdeas(d, hint, { status: 'ready', ideas: [] }); });
+      row.appendChild(b); if (!st.general) row.appendChild(dismiss); chips.appendChild(row);
+    }
+    if (['ready', 'error'].includes(result.status)) {
+      const refresh = document.createElement('button'); refresh.type = 'button'; refresh.className = 'choice cmsg-starter-refresh'; refresh.textContent = 'Refresh suggestions';
+      refresh.addEventListener('click', () => requestStarterIdeas(d, hint, starterContext(), starterOptions(), true)); chips.appendChild(refresh);
+    }
+    d.appendChild(chips);
+  }
+  async function requestStarterIdeas(d, hint, ctx, options, force) {
+    d.forcePending = !!force;
+    renderStarterIdeas(d, hint, { status: 'loading', ideas: [] });
+    // Hydrate durable feedback before spending a generation on boot's temporary zero weights.
+    try { if (typeof RecLedger !== 'undefined') await RecLedger.refresh(); } catch (_) {}
+    if (!d.isConnected) return;
+    ctx = starterContext(); options = starterOptions();
+    d.starterKey = JSON.stringify([ctx, options]);
+    const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
+    StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
+      if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
+      if (JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
+      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result);
+    });
+  }
   function maybeEmptyState() {
-    if (!log || interview) return;
+    if (!log || interview || log.querySelector('.cmsg-empty')) return;
     if (activeWs && activeWs.history && activeWs.history.length) return;
     if (busyPeerFor(activeWs)) return;   // the ALSO RUNNING IN row owns an empty busy-peer session — starter chips would fight it for attention
     if (isBusy() || log.querySelector('.cmsg')) return;
@@ -1571,29 +1631,15 @@ const Chat = (() => {
     if (s && ((s.toolEvents && s.toolEvents.length) || s.tools.length || s.acc || s.pending)) return;
     const d = document.createElement('div'); d.className = 'cmsg-empty';
     const line = document.createElement('div'); line.className = 'cmsg-empty-line';
-    line.textContent = 'COMMS online. Type a task or a question to ' + name + '.';
+    line.textContent = 'What would you like to work on?';
     d.appendChild(line);
-    // STARTER CHIPS — tappable openers so the first prompt isn't a blank void. Sandbox tone,
-    // eerie-not-cute, no exclamation marks. A chip fills the composer and sends; a recipe fills its directive
-    // (blanks left for the Commander to complete) instead of firing blind. Children of .cmsg-empty, so any real
-    // row (clearEmptyState) retires them with the hint.
-    // WHICH chips is the Starters engine's call (starters.js): fresh station → the orientation set;
-    // returning Commander → their usual recipe (prefilled from LaunchMemory), a discovery pick, a pitch ask.
-    const starters = pickStarters();
-    const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
-    for (const st of starters.slice(0, 3)) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter'; b.textContent = st.label;
-      b.addEventListener('click', () => {
-        if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
-        if (st.kind === 'hunt') { startHuntAsk(); return; }              // V3 §7: the probe chip — the click IS the consent
-        if (st.recipe) { insertRecipe(st.recipe, st.values); return; }   // fill the directive to edit, don't auto-fire
-        if (input) { input.value = st.send; autoGrowInput(); }
-        submitComposer();
-      });
-      chips.appendChild(b);
-    }
-    d.appendChild(chips);
+    const hint = document.createElement('div'); hint.className = 'cmsg-empty-hint';
+    d.appendChild(hint);
     log.appendChild(d);
+    const ctx = starterContext(), options = starterOptions(), result = StarterStore.peek(ctx, options);
+    d.starterKey = JSON.stringify([ctx, options]); d.expiresAt = Date.now() + StarterStore.TTL;
+    if (result.status === 'empty' || result.status === 'loading') requestStarterIdeas(d, hint, ctx, options);
+    else renderStarterIdeas(d, hint, result);
   }
 
   /* THE ONE STEP A HAND-SUMMONED AGENT LEAVES TO THE COMMANDER (2026-08-03).
@@ -2816,6 +2862,7 @@ const Chat = (() => {
     // written onto RUN_META at run start), the Commander's verdict on the work is the strongest honest evidence
     // there is about whether that channel's offers are worth making. Unattributed runs say nothing. Fail-open.
     try { if (typeof RecQualityStore !== 'undefined' && RecQualityStore.noteVerdict) RecQualityStore.noteVerdict(runId, verdict); } catch (_) {}
+    try { if (typeof StarterStore !== 'undefined') StarterStore.rated(runId, verdict); } catch (_) {}
     // CORRECTION CAPTURE (consistency loop, slice 2): a short-of-the-mark verdict opens a window in which the
     // Commander's next message to this agent is treated as the CORRECTION of that run and handed to the held
     // skill review in their own words (POST /api/growth/ratings/correction). Praise opens nothing.
@@ -6252,7 +6299,7 @@ const Chat = (() => {
   function wiEmit(name, payload) { try { if (typeof U !== 'undefined' && U.bus) U.bus.emit(name, payload); } catch (_) {} }
 
   /* ---------- TURN CONTROLS (harness-standard): interrupt + type-ahead ---------- */
-  // INTERRUPT — a gentle, per-stream stop, distinct from safety.js's Alt+H "halt EVERYTHING + alarm". It cancels
+  // INTERRUPT — a per-stream stop. It cancels
   // only the DISPLAYED stream's in-flight run; the plumbing already exists (each stream owns an AbortController
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
@@ -7999,6 +8046,7 @@ const Chat = (() => {
     const routedTaskReply = pending && typeof TaskIntent !== 'undefined' && TaskIntent.routeReply ? TaskIntent.routeReply(text) : null;
     const taskAction = (opts && opts.taskAction) || (routedTaskReply && routedTaskReply.action) || '';
     if (Channels.isBusy(ws.id)) return;   // one run per stream — but OTHER streams may be running concurrently
+    const starterId = !retry && !goalContinuation && typeof StarterStore !== 'undefined' ? StarterStore.claimDraft(ws.id, text) : null;
     if (typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(ws.id)) Workstreams.setConnectorHandoff(ws.id, null);
     warmChat();   // D1 WARMTH: sending to the focused stream is real engagement — keep the chat-stare alive
     // FIRST-TURN TITLE UPGRADE: is THIS the stream's first user turn (still on its machine-derived placeholder)?
@@ -8062,11 +8110,10 @@ const Chat = (() => {
     // spoken style — voiceModeRules appended below). It does NOT control the desk trip: the walk is driven
     // by REAL tool use (walkToDesk, below), so the speaker setting can't suppress it. When voice is on, a
     // task's result is also spoken — it's just no longer answered "on the spot" in place of the desk trip.
-    // VOICE OWNERSHIP: ONLY the orchestrator (the hero, id 'agent') speaks aloud. A summoned/secondary agent
-    // exists for the orchestrator to DELEGATE to — the Commander talks to the orchestrator, not to a crowd of
-    // agents — so a summoned agent's replies are never voiced (and never get the short spoken-style prompt).
-    const isOrchestrator = !ws.agentId || ws.agentId === 'agent';
-    const willSpeak = isOrchestrator && liveVoiceOwns(ws)
+    // Direct conversations can speak as any agent. Background sessions must not interrupt
+    // the conversation in view; a live call continues to own its explicitly bound session.
+    const speechOwner = () => liveVoiceCall() ? liveVoiceOwns(ws) : Workstreams.activeId() === ws.id;
+    const willSpeak = speechOwner()
       && typeof Voice !== 'undefined' && Voice.isOn && Voice.isOn();
     // REACTIVE DESK TRIP — the honest signal. We no longer pre-commit the walk on the classifier's GUESS:
     // every turn the agent first turns to face the Commander (listen), and it only gets up and walks to its
@@ -8139,11 +8186,11 @@ const Chat = (() => {
       return s;
     };
     const speechToken = typeof Voice !== 'undefined' && Voice.replyToken ? Voice.replyToken() : undefined;
-    const speechOpts = { replyToken: speechToken };
+    const speechOpts = { replyToken: speechToken, agentId: ws.agentId };
     const pushSpeech = (finalize, finalText) => {
       // Ownership is checked again for every chunk. A voice-commanded rebind can happen while an
       // older run is still streaming; none of its late words may leak into the new call owner.
-      if (typeof Voice === 'undefined' || !willSpeak || !liveVoiceOwns(ws) || !Voice.speakChunk) return;
+      if (typeof Voice === 'undefined' || !willSpeak || !speechOwner() || !Voice.speakChunk) return;
       const src = speakSafe(finalize ? (finalText || acc) : acc);
       const pending = src.slice(spokenIdx);
       if (!pending) return;
@@ -8180,7 +8227,7 @@ const Chat = (() => {
         projectRoot: ws.projectRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
         stationPlaced: (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps() : [],   // Class Loadouts (shared-gear): station-wide gear for SKILL availability — a desk-only specialist still gets its class skills when the STATION has the gear (tools stay room-scoped via `placed`)
-        onRunId: id => { thisRunId = id; runStartedAt = Date.now(); try { RUN_META.set(id, { isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
+        onRunId: id => { thisRunId = id; if (starterId) StarterStore.started(starterId, id); runStartedAt = Date.now(); try { RUN_META.set(id, { isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
         onToken: d => { acc += d; Channels.appendToken(ws.id, d); if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.append(d); if (!isTask) World.say(acc); } if (willSpeak) pushSpeech(false); App.refreshUsage(); },
         onTerminalReset: () => { acc = ''; spokenIdx = 0; Channels.setAcc(ws.id, ''); },
         onUsage: (u) => { if (u && u.model) ranModel = u.model; App.refreshUsage(); },
@@ -8513,7 +8560,7 @@ const Chat = (() => {
       if (titleOk && (firstTurn || (typeof Workstreams !== 'undefined' && Workstreams.needsModelTitle && Workstreams.needsModelTitle(ws.id)))) maybeRetitle(ws, text, finalReply);
       // flush any trailing spoken text and CLOSE the speech stream — the last chunk's end re-arms the
       // hands-free mic (this is the heartbeat for spoken turns; onTurnEnd covers silent/no-speech turns).
-      if (willSpeak && liveVoiceOwns(ws) && typeof Voice !== 'undefined' && Voice.endReply) {
+      if (willSpeak && speechOwner() && typeof Voice !== 'undefined' && Voice.endReply) {
         pushSpeech(true, finalReply);
         // VOICE-AWARE CHOICES: the choice itself is spoken as a natural question — question text only;
         // the 2-3 options are on-screen chips (reading them out was the "reads every option" glitch).
@@ -8750,5 +8797,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();

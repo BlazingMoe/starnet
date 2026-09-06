@@ -109,6 +109,7 @@
       pending = null;
       if (!el.isConnected) return;
       anchor = el;
+      card.classList.toggle('dock-tip', !!el.closest('#bottombar'));
       card.textContent = text;
       card.hidden = false;
       card.classList.remove('show');

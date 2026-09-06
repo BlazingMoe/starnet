@@ -111,6 +111,7 @@
     if (!msg) return;                       // unknown term → nothing (never an empty bubble)
     const b = ensureBubble(); if (!b) return;
     currentAnchor = anchor;
+    b.classList.toggle('dock-tip', !!(anchor.closest && anchor.closest('#bottombar')));
     b.textContent = msg;
     b.setAttribute('aria-hidden', 'false');
     // measure with a first paint (opacity 0), place, then flip on.

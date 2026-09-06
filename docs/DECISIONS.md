@@ -73,16 +73,13 @@ many of these — they win on any wording conflict.
   overriding real skins. Locked by `test/control-floor-theming.test.js`.
 - **COMMS beats:** decided cards must `vanish()`; ONE post-run beat at a time; gold-inset
   beat family (no `.reply` for asides).
-- **Voice v3: ONE station voice — ULTRON** (2026-07-13, Andrew). Supersedes the v2 character
-  set: every agent, every persona speaks the locked Ultron recipe (Algenib@1.0 + machine-shell
-  FX, `Personas.STATION_VOICE`). Personality changes the WORDS (promptInjection/ambient lines),
-  NEVER the sound — do not add per-persona voice fields back. `/api/tts` synthesizes from any
-  credential the station holds, preferring the NATIVE voice API of the provider the user runs
-  agents on (body.preferProvider = Harness.getProv()): an OpenAI station speaks via OpenAI, a
-  Gemini station via Gemini; default chain OpenRouter → Gemini native → OpenAI nearest-voice.
-  Codex (ChatGPT OAuth) and Anthropic have no audio endpoint, so those stations use the default
-  chain — and a station with NO TTS-capable credential degrades honestly to the browser voice. Still standing from v2: PACE-WORD LAW (style pace words are a literal drag)
-  and the /api/tts 200-always contract.
+- **Per-agent spoken voices** (2026-09-06, Andrew). Supersedes the single station-voice
+  restriction: the Commander may assign different built-in voices to stable agent IDs in
+  Settings → Live Voice. Unassigned agents retain existing station behavior. Assignments
+  apply to spoken direct replies and hands-free; each agent's selected identity and serving
+  engine remain pinned during a live call. Personality still controls the words independently.
+  Voice preferences are local to the app/browser, matching the existing station voice picker.
+  PACE-WORD LAW and the /api/tts 200-always contract remain unchanged.
 
 ## Engineering / process
 

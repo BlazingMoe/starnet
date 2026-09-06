@@ -626,6 +626,15 @@ jobs:
           fi
           echo "::notice::[$TARGET] .app: Developer ID + hardened runtime ✓"
 
+          # Verify the SHIPPED microphone permissions, not just the source plist.
+          codesign -d --entitlements :- "$app" > "$T/app-entitlements.plist" 2> "$T/app-entitlements.log"
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.device.audio-input' "$T/app-entitlements.plist")" = "true" ] || {
+            echo "::error::[$TARGET] signed app lacks the microphone audio-input entitlement."; exit 1;
+          }
+          [ -n "$(/usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$app/Contents/Info.plist")" ] || {
+            echo "::error::[$TARGET] app lacks its microphone purpose string."; exit 1;
+          }
+
           # (3) the bundled Node sidecar must carry allow-jit, or V8 dies at runtime.
           side=$(find "$app/Contents" -type f -perm -u+x -name 'node*' | head -1)
           if [ -z "${side:-}" ]; then

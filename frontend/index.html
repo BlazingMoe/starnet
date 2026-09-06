@@ -677,11 +677,10 @@
         <!-- NAV CONDENSE 2: LOGBOOK + RESTORE are per-agent and live in the AGENTS dossier
              (LOGBOOK / RESTORE tabs); openTerm keeps the old keys as deep links. UPDATES stays
              its own window (Andrew's call — check-it-now, not a setting). -->
-        <button class="bb" data-term="manual" data-hint="manual"><span class="bb-i">§</span><span class="bb-tx"><b>FIELD MANUAL</b><small>every prop &amp; mechanic, explained</small></span></button>
+        <button class="bb" data-term="manual" data-hint="manual"><span class="bb-i">§</span><span class="bb-tx"><b>FIELD MANUAL</b><small>first mission, controls &amp; station handbook</small></span></button>
         <button class="bb" data-term="settings" data-hint="settings"><span class="bb-i">⚙</span><span class="bb-tx"><b>SETTINGS</b><small>keys, models, voice, data</small></span></button>
         <button class="bb" data-term="updates" data-hint="update"><span class="bb-i">↑</span><span class="bb-tx"><b>UPDATES</b><small>version &amp; release notes</small></span></button>
         <button class="bb" data-term="notifs" data-hint="notification"><span class="bb-i">▲</span><span class="bb-tx"><b>NOTIFICATIONS</b><small>alerts &amp; unread events</small></span><span id="nf-badge" class="badge"></span></button>
-        <button class="bb" id="estop-btn" type="button" aria-label="Emergency stop — halt all runs (Alt+H)" title="E-STOP — halt all runs (Alt+H)"><span class="bb-i" aria-hidden="true">⏹</span><span class="bb-tx"><b>E-STOP</b><small>halt all runs · Alt+H</small></span></button>
       </div>
     </div>
     <!-- WIDGET RAIL (widgets.js) — the bottom bar's dead middle; #term-strip (stationui.js) docks
@@ -703,13 +702,11 @@
     </div>
   </footer>
 
-  <!-- One-time navigation hint; dismissed on first dock open or acknowledgement (navdock.js). -->
-  <div id="nav-coach" class="nav-coach" aria-labelledby="nav-coach-title" hidden>
-    <div class="nav-coach-copy">
-      <strong id="nav-coach-title">Navigate your station</strong>
-      <p>Open panels from the four docks below. Chat with your agent in <b>COMMS</b>.</p>
-    </div>
-    <button id="nav-coach-x" class="nav-coach-x" type="button" aria-label="Got it, dismiss navigation hint">Got it</button>
+  <!-- one-time coach teaching the new grouped-dock model; dismissed on first dock open / ✕ (navdock.js) -->
+  <div id="nav-coach" class="nav-coach" hidden>
+    <span>Your panels now live in <b>4 docks</b> down here — click one to open it. Talk to your agent up in <b>COMMS ▸</b></span>
+    <button id="nav-coach-x" class="nav-coach-x" aria-label="dismiss hint">GOT IT ✕</button>
+    <span class="nav-coach-arrow">▾</span>
   </div>
 
   <div id="terms"></div>
@@ -879,7 +876,8 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/recruiterstore.js"></script><!-- adaptive-recruitment read surface: joins worksignal+profile+dossier+live roster → the bay's CURATED shelf + the recruit beat -->
 <script src="app/prospectstore.js"></script><!-- prospect generator wiring: growth-gated async mint (reason-only), denylist, staging → the bay's DRAFTED FOR YOU row; never emits -->
 <script src="app/launchmemory.js"></script><!-- lane C: last-used recipe inputs (own key) — the launch form prefills what you filled last time; confirm-by-sight, localStorage only, never emits -->
-<script src="app/starters.js"></script><!-- session-opener chip engine (pure): fresh station → orientation set; returning Commander → usual recipe (LaunchMemory-prefilled) + discovery pick + pitch ask; no storage, never emits -->
+<script src="app/starters.js"></script><!-- Personalized sessions plus substantial general starting points. -->
+<script src="app/starterstore.js"></script>
 <script src="app/routinenudgestore.js"></script><!-- lane D: "you keep launching this — schedule it?" nudge (own key) — reads scout launch counters + /api/cron (read-only), shares the one post-run beat slot, deep-links into SCHEDULE IT; never emits -->
 <script src="app/dossierstore.js"></script>
 <script src="app/studystore.js"></script><!-- GROWTH Tier 1: STUDY wiring (dossier Phase B) — fetch belief-update proposals, session cap + denylist, ratings→taste; self-persists (own key), never emits -->
@@ -929,7 +927,6 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/topbar.js"></script><!-- topbar instrument cluster: read-only STATION-XP + live SPEND-TODAY wiring (after app.js so Harness/Xp/XpStore/U exist) -->
 <script src="app/widgets.js"></script><!-- widget rails: pinnable read-only telemetry instruments (insights/cron polls + run.end/queue.status/cron.fire folds); own localStorage key, never emits -->
 <script src="app/autosessions.js"></script><!-- surface an unattended cron/routine run as a readable SESSION: cron.fire → adopt a 'cron-<runId>' workstream (busy, no focus-steal), cron.result → fold its durable transcript; boot backfill for runs finished while closed. Read-only on U.bus (after app.js so App/Workstreams/Channels/Chat/U exist) -->
-<script src="app/safety.js"></script>
 <script src="app/warroom.js"></script>
 </body>
 </html>

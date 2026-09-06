@@ -55,7 +55,13 @@ function startMockOpenRouter() {
           // file exists to test the shell-open route. Keyed off the item title carried in the prompt.
           const wantsWeb = /web tool/i.test(prompt);
           const wantsFailure = /fail build/i.test(prompt);
-          if (prompt.indexOf(WORKSHOP_MARK) === 0 && wantsFailure) {
+          const partial = prompt.match(/partial (entry|support) build/i);
+          if (prompt.indexOf(WORKSHOP_MARK) === 0 && partial) {
+            const present = partial[1] === 'entry' ? 'README.md' : 'index.html';
+            if (toolResults === 0) tool('p1', 'fs_write', { path: dir + '/' + present, content: 'Recoverable partial work' });
+            else if (toolResults === 1) tool('p2', 'fs_write', { path: dir + '/deliverable.json', content: JSON.stringify({ v: 1, title: 'Incomplete web tool', kind: 'tool', files: [{ path: 'index.html' }, { path: 'README.md' }], howToUse: 'Open index.html' }) });
+            else text('Built the complete web tool.');
+          } else if (prompt.indexOf(WORKSHOP_MARK) === 0 && wantsFailure) {
             text('I could not produce a valid deliverable.');
           } else if (prompt.indexOf(WORKSHOP_MARK) === 0 && wantsWeb) {
             const html = '<!doctype html><meta charset="utf-8"><title>Tip Calc</title>'
@@ -300,6 +306,28 @@ async function startSse(url) {
     const failedLibrary = await (await fetch(B + '/api/deliverables?status=failed', { headers })).json();
     A.ok(failedLibrary.items.some(r => r.title === 'Fail build deliberately' && r.status === 'failed'), 'parked Workshop failure is a durable failed library row');
 
+    // A model's completed claim cannot erase a missing entrypoint or support file.
+    const partialRuns = [];
+    for (const missing of ['entry', 'support']) {
+      const partialAgent = 'partial-' + missing;
+      await fetch(B + '/api/workshop/grant', { method: 'POST', headers, body: JSON.stringify({ agentId: partialAgent, on: true }) });
+      await fetch(B + '/api/workshop/queue', { method: 'POST', headers, body: JSON.stringify({ agentId: partialAgent, id: partialAgent, title: 'Partial ' + missing + ' build' }) });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const events = await readNdjson(await fetch(B + '/api/workshop/shift', { method: 'POST', headers, body: JSON.stringify({ agentId: partialAgent }) }));
+        const outcome = (events.find(e => e.name === 'workshop.shift.result') || {}).payload || {};
+        A.eq(outcome.reason, 'no-manifest', 'missing ' + missing + ' rejects completion');
+        A.ok(!outcome.manifest, 'missing ' + missing + ' never returns a partial success manifest');
+        A.ok(!events.some(e => e.name === 'workshop.built'), 'missing ' + missing + ' never emits built');
+        const present = missing === 'entry' ? 'README.md' : 'index.html';
+        A.ok(outcome.runId && fs.existsSync(path.join(ws, partialAgent, 'workshop', outcome.runId, present)), 'missing ' + missing + ' preserves recoverable files');
+        partialRuns.push(outcome.runId);
+        if (outcome.reason !== 'no-manifest') break;
+      }
+      const partialLibrary = await (await fetch(B + '/api/deliverables?agentId=' + partialAgent, { headers })).json();
+      A.ok(partialLibrary.items.some(r => r.title === 'Partial ' + missing + ' build' && r.status === 'failed'), 'missing ' + missing + ' remains visibly failed after retry');
+    }
+    A.ok(!sse.events.some(e => e.name === 'workshop.built' && partialRuns.includes(e.payload && e.payload.runId)), 'durable SSE never advertises an incomplete build');
+
     // 7.4 KEEP copies a deliverable OUT to a user-chosen folder — COPYFILE_EXCL by default (never a silent
     //     clobber). Runs on its OWN queued item so it doesn't retire item-1 (step 8 still needs it). A second
     //     keep to the SAME folder is refused 409 EEXIST; overwrite:true then replaces.
@@ -354,6 +382,10 @@ async function startSse(url) {
     const afterRestart = await (await fetch(B + '/api/deliverables', { headers: headers2 })).json();
     A.ok(afterRestart.items.some(r => r.runId === runId2 && r.status === 'kept'), 'kept deliverable remains indexed after sidecar restart');
     A.ok(afterRestart.items.some(r => r.runId === runId && r.status === 'discarded'), 'discarded deliverable remains indexed after cleanup undo and restart');
+    for (const missing of ['entry', 'support']) {
+      const partialAfterRestart = await (await fetch(B + '/api/deliverables?agentId=partial-' + missing, { headers: headers2 })).json();
+      A.ok(partialAfterRestart.items.some(r => r.title === 'Partial ' + missing + ' build' && r.status === 'failed'), 'missing ' + missing + ' remains failed after sidecar restart');
+    }
   } finally {
     if (sse) sse.close();
     try { child.kill(); } catch (_) {}

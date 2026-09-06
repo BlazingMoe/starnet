@@ -259,8 +259,9 @@ A.ok(iRoute > 0, 'chat.js defines routeProposalBatch (the shared proposed/write 
 A.ok(/if \(reservedSlot\) slotMemoryEmpty\(runId\);\s*maybeStandaloneRate\(agentId, runId\);/.test(chatSrc.slice(iRoute, iRoute + 3400)),
   'an EMPTY/no-deck proposal batch releases the reserved slot and still fires the standalone rate beat');
 // hole 3: a batch on a non-displayed stream is notify-only — the rating must not vanish with it
-const iNotify = chatSrc.indexOf('to review');
-A.ok(iNotify > 0 && /maybeStandaloneRate\(agentId, runId\)/.test(chatSrc.slice(iNotify, iNotify + 400)),
+const notifyRoute = A.fnBody(chatSrc, 'async function routeProposalBatch(');
+const iNotify = notifyRoute.indexOf('to review');
+A.ok(iNotify > 0 && /maybeStandaloneRate\(agentId, runId\)/.test(notifyRoute.slice(iNotify, iNotify + 400)),
   'an off-stream (notify-only) batch still fires the standalone rate beat');
 // hole 2: a deck decided without rating — finishBatch must hand the rating to the standalone beat
 const iFinish = chatSrc.indexOf('function finishBatch');

@@ -120,7 +120,7 @@
     const runLines = [];
     {
       const rows = (Array.isArray(inputs.runs) ? inputs.runs : [])
-        .filter(r => r && str(r.title).trim() && !isInternalStream(r.streamId) && withinWindow(r.ts))
+        .filter(r => r && !r.internal && str(r.title).trim() && !isInternalStream(r.streamId) && withinWindow(r.ts))
         .slice()
         .sort((a, b) => num(b.ts) - num(a.ts));   // newest-first (deterministic; ties keep input order via stable-ish sort input)
       const seen = {};

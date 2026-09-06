@@ -70,6 +70,7 @@
     const out = [];
     for (const r of runs) {
       if (!r || typeof r !== 'object') continue;
+      if (r.internal) continue;                           // recommendation reasoning is not work to collect/rate
       const runId = str(r.runId); if (!runId) continue;
       if (r.reason !== 'done') continue;                   // slag has its own post-mortem path
       if (num(r.ts) <= since) continue;                    // happened while attended (or before)

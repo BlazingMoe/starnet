@@ -241,11 +241,13 @@ const F = (err, status, opts) => friendlyError(err, status, opts);
   A.ok(/something weird happened/.test(v.raw), 'unknown keeps the raw text');
 
   // agent_busy (2026-07-07 escape): the per-agent mutex message must NEVER flatten to "Something went wrong" —
-  // the sidecar's sentence names the holder (age/source) + the doors (ROUTINES, E-STOP); show it VERBATIM.
+  // retain the holder (age/source), while replacing a retired global-stop instruction from older servers.
   const busyRaw = 'That agent is already running a task — one run at a time per agent (they share a workspace). The run holding it started 12 min ago (source: cron). Wait for it to finish, check ROUTINES for a recurring job on this agent, or press E-STOP to stop everything.';
   v = F(new Error(busyRaw));
   A.eq(v.kind, 'agent_busy', 'the run-mutex message classifies as agent_busy, not unknown');
-  A.eq(v.userMessage, busyRaw, 'the sidecar sentence passes through VERBATIM (holder + age + doors)');
+  A.ok(v.userMessage.includes('started 12 min ago (source: cron)'), 'the holder age and source survive');
+  A.ok(!/E-STOP|Alt\+H/.test(v.userMessage) && /open its conversation and stop the active run/.test(v.userMessage), 'busy guidance uses the available per-conversation stop');
+  A.eq(v.raw, busyRaw, 'diagnostics retain the unmodified server receipt');
   A.eq(v.retryable, true, 'agent_busy is retryable (the slot frees when the holder finishes)');
   A.ok(!/Something went wrong/.test(v.userMessage), 'the generic flattening is gone');
 

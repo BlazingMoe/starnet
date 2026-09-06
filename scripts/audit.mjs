@@ -381,10 +381,8 @@ async function scenarioPropPlace(cdp, A) {
   A.ok('prop-place/capability-persists', after.includes('dish'), `after=[${after.join(', ') || 'none'}] (dish ⇒ web)`);
 }
 
-// SCENARIO: HUD/XP TRUTH — after the driven scenarios ran real work, the DISPLAYED floor-HUD numbers and the
-// XP readout must equal the reduction over the frozen U.bus log (the no-app-lies mandate, extended past
-// floor-rest's single station-level check). We read BOTH sides from the page: the DOM chips (what a human
-// sees) and the testapi reducers (FloorStats/Xp folded over the same frozen events), and compare.
+// SCENARIO: HUD/XP TRUTH — verify event-derived floor stats separately from
+// Commander progression, whose authority is the sidecar's journey endpoint.
 async function scenarioHudXp(cdp, A) {
   await evalJS(cdp, closeOnly).catch(() => {});
   // the app's own displayed-vs-reduced checks (station level etc.) must all hold.
@@ -399,13 +397,17 @@ async function scenarioHudXp(cdp, A) {
   A.ok('hud-xp/floorstats-reduced', !!(floor && typeof floor.runs === 'number'), floor ? `runs=${floor.runs} slag=${floor.slag}` : 'reduceFloor() returned nothing');
   A.ok('hud-xp/floorstats-runs-match-log', !!floor && floor.runs === runEvents, floor ? `FloorStats.runs=${floor.runs} == agent.run.start count=${runEvents}` : 'no floor snapshot');
 
-  // XP truth: the displayed STATION level chip (gt-station) must equal the level the Xp reducer computes from
-  // the frozen log — the SAME fold XpStore feeds the HUD. A lie here (chip ahead of/behind the store) fails.
+  // Crew XP remains observable but cannot determine the Commander headline.
+  // Independently query the real endpoint so an unavailable journey cannot pass
+  // this service-availability check merely by displaying an honest dash.
   const xp = await evalJS(cdp, 'window.__SKYNET_TEST__.reduceXp()').catch(() => null);
+  const journey = await evalJS(cdp, "Harness.api.get('/api/journey')").catch(() => null);
+  const commanderLevel = journey && journey.ok && journey.journey && journey.journey.progression && journey.journey.progression.level;
   const chip = await evalJS(cdp, "(() => { const e=document.getElementById('gt-station'); return e?(e.textContent||'').trim():null; })()").catch(() => null);
   const chipLevel = chip == null ? null : (() => { const m = String(chip).match(/(\d+)/); return m ? parseInt(m[1], 10) : null; })();
   A.ok('hud-xp/xp-reduced', !!(xp && typeof xp.level === 'number'), xp ? `Xp.level=${xp.level} xp=${xp.xp}` : 'reduceXp() returned nothing');
-  A.ok('hud-xp/station-chip-matches-xp', chipLevel != null && xp && chipLevel === xp.level, `displayed STATION="${chip}" (lvl ${chipLevel}) vs Xp.level=${xp && xp.level}`);
+  A.ok('hud-xp/commander-source-available', Number.isFinite(commanderLevel), 'backend Commander level=' + commanderLevel);
+  A.ok('hud-xp/station-chip-matches-journey', chipLevel != null && Number.isFinite(commanderLevel) && chipLevel === commanderLevel, `displayed COMMANDER="${chip}" (lvl ${chipLevel}) vs backend level=${commanderLevel}`);
 }
 
 // SCENARIO: CONVEYOR — drive the REAL production transport module (Conveyor, a page global) end-to-end: a TEST
