@@ -275,4 +275,29 @@ for (const [w, h] of [[9, 7], [14, 9], [15, 14], [18, 18], [24, 16], [12, 24], [
 
 }
 
+// Raised corner faces are part of the interior, including the portion above
+// the footprint. The receiver must follow both corner shapes without lighting
+// the crown or the void above it.
+const savedUp = StationBake.WALL.up, savedN = StationBake.SHAPE.cornerN;
+for (const n of [1, 2]) {
+  StationBake.SHAPE.cornerN = n;
+  const g = makeGeo(), r = {z:'r1',x1:4,y1:6,x2:18,y2:17};
+  g.allRects=[r];g.zones.r1=r;g.zoneGrid.fill(null);
+  for(let y=r.y1;y<=r.y2;y++)for(let x=r.x1;x<=r.x2;x++)g.zoneGrid[g.idx(x,y)]='r1';
+  g.chamfers=[[r.x1,r.y1,'tl'],[r.x2,r.y1,'tr'],[r.x1,r.y2,'bl'],[r.x2,r.y2,'br']];
+  for(const up of [14,30,50]) {
+    StationBake.WALL.up=up;
+    const b=StationBake.bake(g),mask=b.interiorCv;
+    const y=r.y1*12-Math.min(10,up-10); // below the crown even on the shallow 14px wall
+    for(const x of [r.x1*12+6,(r.x2+1)*12-6]) {
+      A.ok(mask._pixels[y*mask.width+x]!==0,'corner '+n+' height '+up+' raised face receives light at '+x);
+      A.eq(mask._pixels[(r.y1*12-up-10)*mask.width+x],0,'corner '+n+' height '+up+' leaves sky outside the receiver');
+    }
+    if(up===30) {
+      const chunks=StationBake.bakeIncremental(g,null,null);
+      A.eq(pixelDiff(composeLayer(chunks,'light'),b.lightCv),0,'corner '+n+' raised wall lighting matches across chunk and full bake');
+    }
+  }
+}
+StationBake.WALL.up=savedUp;StationBake.SHAPE.cornerN=savedN;
 A.report('stationbake.chunk');
