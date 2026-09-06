@@ -2443,14 +2443,14 @@
       "surfaceLocators": [
         {
           "path": "docs/DOWNLOAD_PAGE.md",
-          "needle": "a one-click halt that stops"
+          "needle": "a Stop control in each conversation for stopping its active run."
         }
       ],
       "authorityChecks": [
         {
-          "kind": "contains",
-          "path": "frontend/app/safety.js",
-          "needle": "Harness.haltAll"
+          "kind": "absent",
+          "path": "frontend/index.html",
+          "needles": ["id=\"estop-btn\"", "app/safety.js"]
         },
         {
           "kind": "contains",
@@ -2458,12 +2458,12 @@
           "needle": "haltedAt"
         }
       ],
-      "verdict": "SHIPPED",
-      "disposition": "PROVEN",
+      "verdict": "REFUTED",
+      "disposition": "NARROW",
       "ownerWave": "W0",
-      "qualification": "Durable halt and UI control are already shipped; do not rebuild.",
-      "liveProofRequired": true,
-      "liveProof": "PENDING",
+      "qualification": "Retired at the owner's request on 2026-09-06: the global E-STOP button and Alt+H shortcut are removed. The former advertised promise is no longer offered; the download description now promises only per-conversation Stop. Backend durable halt receipts remain implemented. This historical claim is not certified as shipped.",
+      "liveProofRequired": false,
+      "liveProof": "NOT_REQUIRED",
       "refsChecked": [
         "trunk@ef16fa087ad872f9d266ecde8b72ef813cb9ca82",
         "branches@refs/heads/* audited 2026-07-12",
