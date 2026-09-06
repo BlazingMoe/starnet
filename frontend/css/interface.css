@@ -6,6 +6,26 @@ body {
   --ui-highlight: rgba(var(--ph-bright-rgb), .12);
   --ui-well: inset 0 2px 8px rgba(0,0,0,.65), inset 0 0 0 1px rgba(0,0,0,.7);
   --ui-face: linear-gradient(180deg, rgba(var(--ph-rgb), .06), transparent 50%);
+  /* Phosphor key faces: a crisp bevel and hard seat, like station hardware. */
+  --ui-key-rest: linear-gradient(180deg,
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 4%, var(--panel2)) 2px 100%);
+  --ui-key-hover: linear-gradient(180deg,
+    color-mix(in srgb, var(--ph) 24%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 2px 100%);
+  --ui-key-rest-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .12),
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7);
+  --ui-key-over-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .18),
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7), 0 0 8px rgba(var(--ph-rgb),.15);
+  --ui-key-face: var(--ui-key-rest);
+  --ui-key-shadow: var(--ui-key-rest-shadow);
+  /* Dock menus and hover nameplates borrow the top bar's curved-glass fade. */
+  --ui-dock-face: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.22), rgba(var(--ph-rgb),.10) 52%, rgba(var(--ph-rgb),.04)),
+    var(--panel2);
+  --ui-dock-over: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.32), rgba(var(--ph-rgb),.16) 52%, rgba(var(--ph-rgb),.06)),
+    var(--panel2);
 }
 .ui-overline, .comms-overline { color: var(--ph-dim); font-size: 11px; letter-spacing: 1.6px; line-height: 1.4; }
 
@@ -239,14 +259,6 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 .term .kb-card { margin-block: 8px; padding: 12px; }
 .term .ob-topnote { font-size: 15px; line-height: 1.45; padding-block: 8px; }
 .term .ob-doors { flex-wrap: wrap; }
-.term .bb.sm:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])),
-.term .bb.xs:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])),
-.refit-dock .bb:where(:not(.active):not(.sel):not(.on):not([aria-pressed="true"])) {
-  border-color: var(--ui-edge); background: var(--ui-face), var(--panel2);
-  box-shadow: inset 0 1px 0 var(--ui-highlight), 0 2px 0 rgba(0,0,0,.7);
-}
-.term .bb:hover:not(:disabled), .refit-dock .bb:hover:not(:disabled) { border-color: var(--ph-dim); }
-.term .bb:active:not(:disabled), .refit-dock .bb:active:not(:disabled) { box-shadow: var(--ui-well); }
 .work-path { display: flex; align-items: center; flex-wrap: wrap; flex-shrink: 0; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--ui-edge); background: var(--panel); }
 .work-path[hidden] { display: none; }
 .work-path button { padding: 5px 7px; border: 1px solid var(--ui-edge); border-radius: 2px; color: var(--ph); background: var(--ui-face); font: 12px 'VT323',monospace; cursor: pointer; }
@@ -257,6 +269,58 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 .work-entry { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
 .work-entry .ui-overline { margin-right: auto; }
 :is(#crew-search-toggle, #crew-search-close, #crew-search, .ws-attention, .cf-group > summary, .ab-router > summary, .refit-toolgroup > summary, .work-path button):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+
+/* Shared action surfaces. Explicit component families, never the native CONTROL FLOOR.
+   Keep each caller's size, layout and semantic selected/recording/armed treatment.
+   The COMMS composer and its model/voice controls retain their original dedicated skins. */
+:is(#screen-game, #screen-connect, .mkt-scrim, .term) :is(
+  .btn, .btn-sm, .btn-xl, .prov, .bb, .choice,
+  .x-btn, .term-x, .q-dismiss, .ag-rename, .crew-hide, .wg-add,
+  .nav-coach-x, .cam-cine, .ws-tab, .ws-kind-filter button, .crew-filters button, .work-path button,
+  .con-rail-item, .con-intent, .cf-nav-b, .fm-tab, .mkt-tab, .mkt-lane,
+  .mkt-cta-alt, .mkt-build, .mkt-rec, .es-cta, .q-go, .ts-more,
+  .ag-setup-row, .ch-sum-row, .prov-select, .lb-tab, .mc-seg-btn, .set-theme:not([data-t]),
+  .key-cta-alt, .key-cta-free, .lb-tx-btn, .sp-mode, .rt-agent-btn, .cc-filter, .sk-expand,
+  #ws-new, #ws-addproject, #estop-btn
+):where(:not(#chat-inputrow *)):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
+  .armed, .danger-armed, .primary, .refit-primary, .suggested, .confirm,
+  [aria-pressed="true"], [aria-selected="true"], [aria-expanded="true"])) {
+  color: var(--ui-key-label, var(--ui-key-accent, var(--ph)));
+  background: var(--ui-key-face);
+  border: 1px solid var(--ui-key-edge, var(--ui-key-accent, var(--ph-dim))); border-radius: 2px;
+  box-shadow: var(--ui-key-shadow); text-shadow: 0 0 6px rgba(var(--ph-rgb),.2);
+  transition: color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft),
+    box-shadow var(--t-fast) var(--ease-soft), background-color var(--t-fast) var(--ease-soft);
+}
+/* State variables only paint controls that opted into the material above. */
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):where(:hover, :focus-visible):not(:disabled) {
+  --ui-key-face: var(--ui-key-hover);
+  --ui-key-shadow: var(--ui-key-over-shadow);
+  --ui-key-edge: var(--ui-key-accent, var(--ph));
+  --ui-key-label: var(--ui-key-accent, var(--ph-bright));
+}
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):active:not(:disabled) {
+  --ui-key-face: var(--ui-key-rest);
+  --ui-key-shadow: inset 0 2px 4px rgba(0,0,0,.42);
+}
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):disabled { --ui-key-label: var(--ph-dim); }
+:is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)):is(.danger, .bad, .off), #estop-btn { --ui-key-accent: var(--bad); }
+.key-cta-alt, .key-cta-free { --ui-key-accent: var(--warn); }
+.cc-filter:is(.cc-lg-none, .cc-f-on) { --ui-key-accent: var(--ok); }
+.cc-filter.cc-lg-key { --ui-key-accent: var(--gold); }
+#screen-game .cmsg-starter { transform: none; }
+/* Keep this finish on the navigation dock and hover nameplates only. */
+#bottombar .bb-menu, .station-tip, body > .hint-bubble { background: var(--ui-dock-face); }
+#bottombar .bb-group:not(.open) > .bb-grp,
+#screen-game #bottombar .bb-menu .bb { background: var(--ui-dock-face); }
+#bottombar .bb-group:not(.open) > .bb-grp:is(:hover, :focus-visible),
+#screen-game #bottombar .bb-menu .bb:is(:hover, :focus-visible) { background: var(--ui-dock-over); }
+#bottombar .bb-group.open > .bb-grp {
+  background: linear-gradient(180deg, var(--ph-bright), var(--ph) 52%, var(--ph-dim));
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)) { transition-duration: 0s !important; }
+}
 @media (max-width: 1100px) {
   #chat-panel .comms-idbar { gap: 9px; padding: 9px 5px; }
   .comms-portrait { width: 42px; height: 52px; }

@@ -220,23 +220,25 @@ input[type=file]::file-selector-button:hover { border-color: var(--ph); backgrou
    ZOOMED px (uiZoom law) — tooltip.js divides by z, this sheet must not re-scale anything. */
 .station-tip {
   position: fixed; z-index: 200; pointer-events: none;
-  width: max-content; max-width: 280px;
+  width: max-content; max-width: min(280px, calc(100vw - 24px));
   padding: 7px 10px; text-align: left;
-  font-size: 12px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
-  color: var(--ph); background: var(--panel);
-  border: 2px solid var(--ph); border-radius: 4px;
-  box-shadow: 0 0 0 2px var(--ink), 0 0 18px var(--ph-glow2);
+  font-size: 15px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
+  color: var(--ph-bright); background: var(--ui-key-rest, var(--panel2)); text-shadow: none;
+  border: 1px solid var(--ph-dim); border-radius: 2px;
+  box-shadow: 0 3px 0 rgba(0,0,0,.7), inset 2px 0 0 var(--ph);
   opacity: 0; transform: translateY(3px);
-  transition: opacity .12s var(--ease-out, ease-out), transform .12s var(--ease-out, ease-out);
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
 }
 .station-tip[hidden] { display: none; }
 .station-tip.show { opacity: 1; transform: translateY(0); }
 /* the arrow tracks the anchor's centre (--tip-arrow, set by tooltip.js after clamping) */
 .station-tip::after {
-  content: ''; position: absolute; left: var(--tip-arrow, 50%); margin-left: -6px;
-  top: 100%; border: 6px solid transparent; border-top-color: var(--ph);
+  content: ''; position: absolute; left: var(--tip-arrow, 50%); margin-left: -4px;
+  top: calc(100% - 3px); width: 6px; height: 6px;
+  background: var(--panel2); border-right: 1px solid rgba(var(--ph-rgb), .28);
+  border-bottom: 1px solid rgba(var(--ph-rgb), .28); transform: rotate(45deg);
 }
-.station-tip.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--ph); }
+.station-tip.below::after { top: auto; bottom: calc(100% - 3px); transform: rotate(225deg); }
 @media (prefers-reduced-motion: reduce) {
   .station-tip { transition: none; transform: none; }
   .station-tip.show { transform: none; }
@@ -2445,11 +2447,6 @@ body:not(.no-flicker) #screen-game.active { animation: flick 7s infinite; }
   box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 -6px 26px rgba(0,0,0,.75), 0 0 20px var(--ph-glow2);
 }
 .bb-group.open .bb-menu { display: flex; }
-.bb-menu-h {
-  padding: 5px 10px 7px; margin-bottom: 3px;
-  font-size: 12px; letter-spacing: 2px; color: var(--ph-dim);
-  border-bottom: 1px solid var(--ph-faint); white-space: nowrap;
-}
 .bb-menu .bb {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 1px solid transparent; padding: 6px 10px; font-size: 15px; letter-spacing: 1.5px;
@@ -2476,27 +2473,40 @@ body:not(.no-flicker) #screen-game.active { animation: flick 7s infinite; }
     max-width: calc(100vw - 16px);
     box-sizing: border-box;
   }
-  .bb-menu-h { overflow: hidden; text-overflow: ellipsis; }
   .bb-menu .bb { min-width: 0; }
 }
 
-/* one-time "what now" coach pointing at the new docks */
+/* One-time navigation helper, using the same material and type as the cockpit. */
 .nav-coach {
-  position: fixed; left: 14px; bottom: 58px; z-index: 70; max-width: 470px;
-  display: flex; align-items: center; gap: 12px; padding: 9px 13px;
-  font-size: 14px; color: var(--text); letter-spacing: .4px; line-height: 1.35;
-  background: rgba(4,2,1,.97); border: 2px solid var(--ph); border-radius: 7px;
-  box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 6px 24px rgba(0,0,0,.7), 0 0 20px var(--ph-glow2);
-  animation: coach-in .35s ease-out;
+  position: fixed; left: 16px; bottom: 64px; z-index: 70;
+  width: 420px; max-width: calc(100% - 32px); box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  font-family: inherit; font-size: 16px; line-height: 1.4;
+  color: var(--ph); letter-spacing: .3px; text-shadow: 0 0 6px rgba(var(--ph-rgb),.2);
+  background: var(--ui-key-rest, var(--panel2)); border: 1px solid var(--ph-dim); border-radius: 2px;
+  box-shadow: 0 3px 0 rgba(0,0,0,.7), inset 2px 0 0 var(--ph);
+  animation: coach-in var(--t-med) var(--ease-out);
 }
 .nav-coach[hidden] { display: none; }
-.nav-coach b { color: var(--ph-bright); font-weight: normal; }
+.nav-coach-copy { flex: 1; min-width: 0; }
+.nav-coach-copy > strong { display: block; color: var(--ph-bright); font-size: 15px; font-weight: normal; text-transform: uppercase; letter-spacing: 1.2px; }
+.nav-coach-copy > p { margin: 4px 0 0; font-size: 15px; line-height: 1.3; }
+.nav-coach b { color: var(--text); font-weight: normal; letter-spacing: .3px; }
 .nav-coach-x {
-  flex: 0 0 auto; font-family: inherit; font-size: 12px; letter-spacing: 1px; cursor: pointer;
-  color: var(--ink); background: var(--ph); border: none; border-radius: 3px; padding: 4px 10px;
+  flex: 0 0 auto; min-height: 30px; padding: 5px 9px; cursor: pointer;
+  font-family: inherit; font-size: 15px; line-height: 1.2; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--ph-bright); background: rgba(var(--ph-rgb), .1);
+  border: 1px solid var(--ph-dim); border-radius: 2px; box-shadow: none;
 }
-.nav-coach-x:hover { background: var(--ph-bright); }
-.nav-coach-arrow { position: absolute; left: 32px; bottom: -15px; color: var(--ph); font-size: 17px; text-shadow: 0 0 7px var(--ph-glow); }
+.nav-coach-x:hover, .nav-coach-x:focus-visible {
+  color: var(--ph-bright); background: rgba(var(--ph-rgb), .18); border-color: rgba(var(--ph-rgb), .4);
+}
+@media (max-width: 520px) {
+  .nav-coach { gap: 10px; padding: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-coach { animation: none; }
+}
 @keyframes coach-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
 
 /* TASK BOARD — add-row + per-card actions (new controls over v7 .kb-* cards) */
