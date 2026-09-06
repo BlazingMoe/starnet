@@ -4,10 +4,10 @@ slug: custom-phosphor-theme-desaturates-approved-room
 title: Custom phosphor theme desaturates approved room lighting
 surface: world
 severity: P2
-status: open
+status: fixed
 found: 2026-09-06
 lane: agent/room-lighting-strip
-fix:
+fix: ba3e66447
 origin: owner
 report: Owner 0.11.0 comparison against approved 9197 preview, 2026-09-06
 affected: Windows 0.11.0 owner test candidate
