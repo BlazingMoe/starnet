@@ -9,9 +9,9 @@ try {
  await evalJS(cdp,`World.loadStation(WorldModel.create(${JSON.stringify(st)}));World.rebake();true`);
  const bake=(name='StationBake')=>evalJS(cdp,`(()=>{const b=${name}.bake(WorldModel.create(World.stationDoc()).projectGeometry());return {light:b.lightCv.toDataURL(),base:b.baseCv.toDataURL(),lamps:b.lamps};})()`);
  const current=await bake();
- await evalJS(cdp,execFileSync('git',['show','07a643772:frontend/app/stationbake.js'],{encoding:'utf8'}).replace('const StationBake =', 'window.ReferenceBake =')+'\ntrue');
+ await evalJS(cdp,execFileSync('git',['show','07a643772:frontend/app/stationbake.js'],{encoding:'utf8'}).replace('const StationBake =', 'window.ReferenceBake =').replace('ambient: 0.84', 'ambient: 0.82')+'\ntrue');
  const original=await bake('ReferenceBake');
- const result={lightmapIdentical:current.light===original.light,baseIdentical:current.base===original.base,lamps:current.lamps};
+ const result={baseline:'original renderer with requested ambient lift 0.84 to 0.82',lightmapIdentical:current.light===original.light,baseIdentical:current.base===original.base,lamps:current.lamps};
  writeFileSync(out+'/reference-parity.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  await evalJS(cdp,'World.rebake();true');
  await capture(cdp,out,'reference-restored');
