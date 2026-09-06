@@ -63,7 +63,7 @@ try{
   await check('Stopping the real server produces a visible connection fault',`World.linkState().down&&getComputedStyle(document.querySelector('.tb-link-mark')).stroke===getComputedStyle(document.querySelector('#status-pill')).color`);await shot('05-link-down');
   side=boot();assert.ok(await waitUp('http://127.0.0.1:9490/'));
   // A new sidecar process rotates its launch token; reload through the real bootstrap to receive it.
-  await cdp.send('Page.reload');assert.ok(await waitDevReady(cdp,evalJS,{url:'http://127.0.0.1:9490/'}));
+  await cdp.send('Page.reload');await sleep(1000);assert.ok(await waitDevReady(cdp,evalJS,{url:'http://127.0.0.1:9490/'}));
   await until(`document.querySelector('#status-pill').textContent==='ONLINE'&&!document.querySelector('#sig').classList.contains('down')`);
   await check('The display returns online after reloading against the restarted server',`World.linkState().bridged&&!World.linkState().down`);
   await check('Header controls have no native white paint',`![...document.querySelectorAll('#topbar button')].some(e=>['rgb(255, 255, 255)','rgb(239, 239, 239)'].includes(getComputedStyle(e).backgroundColor))`);
