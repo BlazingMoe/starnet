@@ -19,6 +19,13 @@ body {
     inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7), 0 0 8px rgba(var(--ph-rgb),.15);
   --ui-key-face: var(--ui-key-rest);
   --ui-key-shadow: var(--ui-key-rest-shadow);
+  /* Dock menus and hover nameplates borrow the top bar's curved-glass fade. */
+  --ui-dock-face: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.22), rgba(var(--ph-rgb),.10) 52%, rgba(var(--ph-rgb),.04)),
+    var(--panel2);
+  --ui-dock-over: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.32), rgba(var(--ph-rgb),.16) 52%, rgba(var(--ph-rgb),.06)),
+    var(--panel2);
 }
 .ui-overline, .comms-overline { color: var(--ph-dim); font-size: 11px; letter-spacing: 1.6px; line-height: 1.4; }
 
@@ -235,6 +242,15 @@ body {
 .cc-filter:is(.cc-lg-none, .cc-f-on) { --ui-key-accent: var(--ok); }
 .cc-filter.cc-lg-key { --ui-key-accent: var(--gold); }
 #screen-game .cmsg-starter { transform: none; }
+/* Keep this finish on the navigation dock and hover nameplates only. */
+#bottombar .bb-menu, .station-tip, body > .hint-bubble { background: var(--ui-dock-face); }
+#bottombar .bb-group:not(.open) > .bb-grp,
+#screen-game #bottombar .bb-menu .bb { background: var(--ui-dock-face); }
+#bottombar .bb-group:not(.open) > .bb-grp:is(:hover, :focus-visible),
+#screen-game #bottombar .bb-menu .bb:is(:hover, :focus-visible) { background: var(--ui-dock-over); }
+#bottombar .bb-group.open > .bb-grp {
+  background: linear-gradient(180deg, var(--ph-bright), var(--ph) 52%, var(--ph-dim));
+}
 @media (prefers-reduced-motion: reduce) {
   :is(.screen, .mkt-scrim, .term) button:where(:not(#chat-inputrow *)) { transition-duration: 0s !important; }
 }
