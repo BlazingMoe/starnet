@@ -238,18 +238,14 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.45, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
-  const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
+  const LAMP_RGB = '255,192,104';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
-  /* FIXTURE TEMPERATURE PER ROOM KIND (world overhaul, 2026-09-03). Every room hung the same tungsten,
-     so a lab and a lounge were the same picture in two floor colours. The film that lands light ON
-     things (and the live lamp shimmer, which reads it back through `flickers`) now takes the kind's
-     own fixtures: a lab is lit cool and clinical, a bridge cooler still, a foundry by sodium, quarters
-     by amber. The DECK pool (POOL_RGB) stays the one tungsten — it is the floor's albedo under light
-     and is locked by simulation-lighting.test.js; the temperature difference is the film's to carry.
-     A hab keeps LAMP_RGB exactly, so the stock station is unchanged by this table. */
-  const LAMP_RGB_BY_KIND = { lab: '214,232,255', bridge: '196,216,255', factory: '255,196,120', storage: '232,224,205', quarters: '255,212,156', corridor: '224,230,240' };
+  /* Warm area-light colour by room kind. These are virtual samples for baked
+     surface light and steady glow, not visible ceiling fixtures. Screens and
+     viewport spill provide cooler accents against the golden room illumination. */
+  const LAMP_RGB_BY_KIND = { lab: '250,213,160', bridge: '246,213,172', factory: '255,178,88', storage: '250,204,140', quarters: '255,188,96', corridor: '255,207,145' };
   const lampRgbOf = z => {
     if (G && G.isCorridor && G.isCorridor(z)) return LAMP_RGB_BY_KIND.corridor;
     const k = (G && G.kindOf) ? G.kindOf(z) : null;
@@ -3499,17 +3495,9 @@ const StationBake = (() => {
        2. this room's footprint, GROWN by the pool radius across whichever sides carry an open join.
      At a walled edge nothing grows and the bake is unchanged. */
 
-  /* ---- THE LAMP GRID (2026-08-08) ----
-     Two functions so the POOL pass and the FIXTURE-HARDWARE pass can never disagree about where a
-     lamp is — they used to share a copy-pasted `Math.round(width / 7)` and a copy-pasted `ly`,
-     which is the shape of bug that puts a mount bar where no light lands.
-
-     `lampRows` is the new axis. Row 0 is pinned at `T * 1.6` below the room's north edge — the
-     legacy single row, and the row the wall-mounted flood is drawn for, so its hardware keeps its
-     light. Remaining rows spread evenly from there to `T * 1.2` short of the south edge, at the
-     LIGHT.pitch spacing, so a lamp's ~7-tile carve overlaps its neighbour's instead of leaving the
-     deck between them at raw ambient. A room shallower than one pitch keeps exactly one row and
-     bakes identically to before. */
+  /* Virtual lighting samples span both room axes. Their restrained illumination
+     cuts supply local depth over the diffuse fill; colour and sheen have their
+     own gain so even coverage does not require pale, colourless lighting. */
   /* ---- LIGHT LANDS ON A SURFACE, IT IS NOT A SURFACE (2026-08-10) ----
      Andrew, circling the lit band at the foot of a default HULL-floor room: "not a fan of how this
      lighting is on top of this black dark area — it makes it look unrealistic."
@@ -3564,7 +3552,7 @@ const StationBake = (() => {
   const ROOM_FIXTURE_GAIN = 0.22;
   // Colour and material reflection are independent of the coverage cut. Reducing
   // all three by the same gain drained the warmth from the evenly lit deck.
-  const ROOM_COLOUR_GAIN = 0.55;
+  const ROOM_COLOUR_GAIN = 0.8;
   const lampCols = r => Math.max(1, Math.ceil((r.x2 - r.x1 + 1) / Math.max(3, LIGHT.pitch)));
   function lampRows(Y, RH) {
     const rows = Math.max(1, Math.ceil(RH / (T * Math.max(3, LIGHT.pitch))));
@@ -3606,7 +3594,7 @@ const StationBake = (() => {
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
         b.save(); b.globalAlpha = ROOM_COLOUR_GAIN;
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34); b.restore();
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0, gain: ROOM_FIXTURE_GAIN });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), gain: ROOM_FIXTURE_GAIN });
       }
       b.restore();
     }
@@ -3618,41 +3606,13 @@ const StationBake = (() => {
     b.globalCompositeOperation = 'source-over';
   }
 
+  // Virtual bounce samples light the surfaces without drawing ceiling hardware.
   function bakeRoomLighting(b) {
     additiveFloorPass(b, bakeRoomPools);
     b.globalCompositeOperation = 'source-over';
-    for (const r of G.allRects) {
-      if (G.isCorridor(r.z)) continue;
-      const X = r.x1 * T, RW = (r.x2 - r.x1 + 1) * T;
-      const count = lampCols(r);   // the pool pass's own column count — never a second copy of it
-      for (let i = 0; i < count; i++) {
-        const lx = X + RW * (i + 0.5) / count;
-        /* A WALL-MOUNTED FLOOD NEEDS A WALL (2026-08-05). The fixture hangs one pixel below the
-           room's north edge. Where that edge is an OPEN JOIN there is no wall behind it, so the
-           mount was drawn floating on the open deck — an 8px bar of #6a6253 capped with 55% white,
-           sitting exactly on the seam. Those are the two little white dashes on the line in
-           Andrew's screenshot, and they survived every paint pass being switched off because they
-           are not seam dressing at all. The room keeps its light; only the hardware goes. */
-        /* ... and a DOORWAY is not a wall either (2026-08-10). The open-join test alone still let
-           the mount float in a hallway mouth — with the same-deck sill gone there was nothing left
-           to disguise it, a lone lit tab on the seam. Keep the fixture only where the tile above is
-           genuinely solid: a different/void zone with no passage through. */
-        const fx = Math.floor(lx / T), fyT = r.y1;
-        const aboveZ = fyT - 1 < 0 ? null : G.zoneGrid[G.idx(fx, fyT - 1)];
-        const passable = aboveZ != null && (G.canStep(fx, fyT, fx, fyT - 1) || G.canStep(fx, fyT - 1, fx, fyT));
-        if (aboveZ === r.z || passable) continue;
-        // when the tile behind the fixture carries a TALL exterior face, mount the flood
-        // high on that wall (just under the crown); a door/interior seam keeps the old spot
-        const up = Math.round(WALL.up);
-        const tall = up > 0 && extN.has(Math.floor(lx / T) + ',' + r.y1);
-        const fy = tall ? r.y1 * T - up + 2 : r.y1 * T + 1;   // just under the crown when tall; legacy spot at up:0
-        b.fillStyle = '#6a6253'; b.fillRect(Math.round(lx) - 4, fy, 8, 2);
-        b.fillStyle = 'rgba(255,228,184,0.55)'; b.fillRect(Math.round(lx) - 3, fy, 6, 1);
-      }
-    }
   }
 
-  /* corridor ceiling lights + cable run — feeds lampPos for the lightmap carve.
+  /* corridor light samples + wall cable run — feeds lampPos for the lightmap carve.
 
      LIGHT THE HALLWAY LIKE A ROOM (2026-07-29). Three rounds of corridor DECK work all failed for
      the same reason, and it was never the deck. With the IDENTICAL material laid in both, a room's
@@ -3716,10 +3676,6 @@ const StationBake = (() => {
       const vertical = (r.y2 - r.y1) > (r.x2 - r.x1);
       const cx = (r.x1 + r.x2 + 1) / 2 * T, cy = (r.y1 + r.y2 + 1) / 2 * T;
       b.globalCompositeOperation = 'source-over';
-      // fixture caps + a coloured cable run on the wall side
-      b.fillStyle = '#5b6066';
-      if (vertical) for (let y = r.y1 + 1; y <= r.y2; y += 4) b.fillRect(Math.round(cx) - 3, Math.round((y + 0.5) * T) - 1, 6, 2);
-      else for (let x = r.x1 + 1; x <= r.x2; x += 4) b.fillRect(Math.round((x + 0.5) * T) - 3, Math.round(cy) - 1, 6, 2);
       /* THE CABLE RUN HANGS ON A WALL (2026-08-05). It is conduit — "a coloured cable run on the
          wall side" — and it was pinned to the corridor's first row/column unconditionally. Lay a
          hallway along a room's face and that flank is not a wall at all but an OPEN JOIN, so a 1px
@@ -4405,7 +4361,7 @@ const StationBake = (() => {
     ditherLight(L, lightCv.width, lightCv.height);
     const flickers = [];
     for (let i = 0; i < lampPos.length; i += 2) flickers.push(lampPos[i]);
-    return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamps = EVERY fixture (the overhead pass draws the hanging ones)
+    return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamps = all virtual light samples; no ceiling hardware is rendered
   }
 
   function buildBase() {

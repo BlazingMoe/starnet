@@ -32,7 +32,10 @@ A.eq((bake.match(/falloffStops\((?:gw|g), POOL_RGB, LIGHT\.floor(?: \* ROOM_FIXT
   'room and corridor pools both paint POOL_RGB along the shared falloff curve');
 A.ok(!/rgba\(246,224,188,' \+ LIGHT\.floor/.test(bake), 'no pool still hand-rolls its own stop list');
 A.ok(!/rgba\(250,236,206/.test(bake), 'the near-white floor-pool color no longer ships');
-A.ok(/rgba\(255,228,184,0\.55\)/.test(bake), 'the wall fixture highlight is warm instead of pure white');
+A.ok(!world.includes('drawOverhead('), 'no ceiling pendants are drawn over the room');
+A.ok(!bake.includes("b.fillStyle = '#6a6253'"), 'no room lamp mount bars are painted');
+A.ok(!bake.includes('// fixture caps +'), 'no corridor ceiling lamp caps are painted');
+A.ok(bake.includes("const LAMP_RGB = '255,192,104'"), 'room glow uses saturated golden light');
 A.ok(/f\.rgb \|\| '238,218,184'/.test(world), 'simulation uses fixture temperature with the warm fallback');
 A.ok(/f\.rgb \|\| '238,218,184'/.test(build), 'REFIT uses the same fixture temperature and fallback');
 
@@ -54,7 +57,7 @@ A.ok(warm(glow) > warm(oldGlow), 'animated shimmer shifts warmer rather than mer
 /* World overhaul 2026-09-03: the film that puts light ON the deck under a lamp went 0.14 -> 0.3 and the
    deck pool 0.26 -> 0.3, measured on the same furnished lounge as CONTRAST (luma sd 28.8 -> 35+, crushed
    4% -> 2%) — the deck models by light now instead of sitting in one wash. Ambient, cuts, pitch unmoved. */
-const lightControls = { ambient: '0.82', pool: '0.85', room: '0.46', corridor: '0.34', door: '0.4', floor: '0.24', crown: '0.45', pitch: '8', reach: '1.3', falloff: '0.85', cool: '0.9', warm: '0.16', spill: '0.7' };
+const lightControls = { ambient: '0.82', pool: '0.85', room: '0.46', corridor: '0.34', door: '0.4', floor: '0.24', crown: '0.45', pitch: '8', reach: '1.3', falloff: '0.85', cool: '0.45', warm: '0.16', spill: '0.7' };
 for (const [key, value] of Object.entries(lightControls)) {
   const lock = new RegExp('\\b' + key + ': ' + value.replace('.', '\\.') + '(?:[, }])');
   A.ok(lock.test(bake), 'the shipped ' + key + ' lighting control remains ' + value);
@@ -70,7 +73,7 @@ for (const [name, source, end] of [['world', world, '  /* ---- PROP LIGHT'], ['b
     allocations++; return { coords, stops: [], addColorStop(...s) { this.stops.push(s); } };
   }, fillRect(...rect) { calls.push({rect, alpha:this.globalAlpha, gradient:this.fillStyle}); } };
   const cache = {origin:{tx:2,ty:3}, flickers:[{x:20,y:30,r:25,rgb:'255,196,120'},{x:60,y:30,r:25}]};
-  const draw = new Function('ctx','cache','CRT','T',code+'; return drawGlows;')(ctx,cache,{glow:.06},()=>12);
+  const draw = new Function('ctx','cache','CRT','T',code+'; return drawGlows;')(ctx,cache,{glow:.13},()=>12);
   draw(0); const first = JSON.stringify(calls); calls=[];
   for (const time of [83,210,1000,5000,30000]) {
     draw(time); A.eq(JSON.stringify(calls),first,name+' fixture image is steady at '+time+'ms'); calls=[];
@@ -95,7 +98,7 @@ for(const [mode,limit] of [['screen',.031],['pulse',.041],['fire',.101],['steady
   A.eq(light(100,f,false,false),null,mode+' working source still obeys real activity');
   A.eq(light(100,f,true,true).a,1,mode+' reduced motion stays steady');
 }
-for(const file of ['world.js','build.js','propsprites.js','stationbake.js']) {
+for(const file of ['world.js','build.js','propsprites.js','stationbake.js','crtlab.js']) {
   A.eq(read(file),fs.readFileSync(path.join(__dirname,'..','website','app','app',file),'utf8'),file+' website parity');
 }
 A.report('simulation-lighting');
