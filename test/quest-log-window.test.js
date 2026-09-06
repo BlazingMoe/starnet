@@ -9,7 +9,7 @@
         carries no blind setTimeout guess, and the outcome reads in plain language.
      3. A QUEST STARTS IN ITS OWN SESSION — work/ledger GO routes to 'session' (never the TASK BOARD),
         idempotent by title, composer PREFILLED never sent, ledger quests bind their OWN agent.
-     4. QUESTS LEAD THE PANEL — direction, then quests, then bookkeeping; kind badges name the source;
+     4. QUESTS LEAD THE PANEL — quests, then goal settings and bookkeeping; kind badges name the source;
         the window is a steady-height shell so a data poke cannot re-centre it mid-read.
 
    stationui.js is browser-flow — like outbox-window.test.js we lock its invariants by reading the
@@ -58,19 +58,19 @@ A.ok(/case 'fact':|case 'attest':/.test(stationFns), 'fact and attest ledger con
 /* ---- 4. quests lead the panel; the shell holds steady ---- */
 const renderStart = station.indexOf("body.innerHTML = '<div class=\"gx gx-quests\">");
 const render = station.slice(renderStart, station.indexOf("const journeyFail", renderStart));
-const orderOk = render.indexOf('questRefreshHtml()') < render.indexOf('journalHtml') && render.indexOf('journalHtml') < render.indexOf('journeyHtml()');
-A.ok(orderOk, 'panel order: direction → quests → bookkeeping (quests were the FOURTH thing; never again below the fold)');
+const orderOk = render.indexOf('journalHtml') < render.indexOf('questRefreshHtml()') && render.indexOf('questRefreshHtml()') < render.indexOf('journeyHtml()');
+A.ok(orderOk, 'panel order: quests → goal settings → bookkeeping (the briefing and action lead the window)');
 A.ok(/QUEST_KIND_TAG/.test(station) && /FOR YOU/.test(station), 'cards carry a kind badge naming which real source minted them');
 A.ok(/className: 'quests-win'/.test(station), 'the window declares the steady-height shell class');
 A.ok(/\.term\.quests-win \{ --con-h:/.test(css), 'quests-win RESTATES --con-h (declared only on .term.console — an undefined var would silently fall back to content-fit)');
 A.ok(/\.gx-quests \.q-grid \{ grid-template-columns: repeat\(auto-fill/.test(motion), 'the quest grid follows the window width at its CANONICAL rule in motion.css (app.css copies are silent no-ops)');
 A.ok(/align-items: stretch/.test(motion), 'cards in a row share a height — one action baseline per row');
 
-/* ---- 5. THE GOAL TRACK — the active goal drawn as a path, at the top ---- */
+/* ---- 5. THE GOAL TRACK — the active goal drawn as a path, before refresh controls ---- */
 A.ok(/function questTrackHtml/.test(station), 'the goal track has its own renderer');
 const trackFn = station.slice(station.indexOf('function questTrackHtml'), station.indexOf('function QSS_CELEBRATING'));
 A.ok(render.indexOf('questTrackHtml(arcs)') >= 0 && render.indexOf('questTrackHtml(arcs)') < render.indexOf('questRefreshHtml()'),
-  'the track leads the panel (the Commander’s goal is the first thing in the window)');
+  'the track leads goal settings, before the refresh controls');
 A.ok(/const isArc = q =>/.test(station) && /const rest = qs\.filter\(q => !isArc\(q\)\)/.test(station),
   'arc quests are MOVED out of the card grid — the path is never printed twice');
 /* the ordering bug this test exists for: Quests.build() returns open.concat(done), so a COMPLETED

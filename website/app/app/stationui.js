@@ -8670,10 +8670,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.innerHTML = '<div class="gx gx-quests">'
       + '<header class="q-journal-header"><div><span class="q-journal-eyebrow">COMMANDER’S JOURNAL</span><h2>Your next chapter</h2></div>'
       + journalCount + '</header>'
-      + '<details class="q-journal-planning"><summary>YOUR GOAL &amp; QUEST SETTINGS</summary>'
-      + questTrackHtml(arcs) + lifeGoalsHtml() + questRefreshHtml() + '</details>'
       + proposalsHtml
       + filtersHtml + journalHtml
+      + '<details class="q-journal-planning"><summary>YOUR GOAL &amp; QUEST SETTINGS</summary>'
+      + questTrackHtml(arcs) + lifeGoalsHtml() + questRefreshHtml() + '</details>'
       + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
       + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
       + '<details class="q-journal-history"><summary>COMPLETED QUESTS <span class="gx-tag">' + done.length + '</span></summary>'
