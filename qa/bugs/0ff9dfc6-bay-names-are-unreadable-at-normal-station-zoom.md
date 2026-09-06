@@ -4,10 +4,10 @@ slug: bay-names-are-unreadable-at-normal-station-zoom
 title: Bay names are unreadable at normal station zoom
 surface: world
 severity: P1
-status: open
+status: fixed
 found: 2026-09-06
 lane: release-0110
-fix:
+fix: fe5be77a9
 origin: owner
 report: Owner 0.11.0 installer test, 2026-09-06, bay name screenshot
 affected: Windows 0.11.0 candidate 2cfdcb04e
@@ -34,7 +34,7 @@ Owner bay-name screenshot (2026-09-06). Original frontend/app/propsprites.js use
 
 ## Verdict
 
-Source repair implemented and live proof recorded. Commit linkage will be added after the fix commit. Exact installer behavior and owner recovery remain unverified.
+Source repair fe5be77a9 is implemented and live proof is recorded. Exact installer behavior and owner recovery remain unverified.
 
 ## Regression
 

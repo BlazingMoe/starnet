@@ -4,10 +4,10 @@ slug: sent-group-attachments-appear-only-in-the-shared
 title: Sent group attachments appear only in the shared shelf
 surface: sessions
 severity: P1
-status: open
+status: fixed
 found: 2026-09-06
 lane: release-0110
-fix:
+fix: fe5be77a9
 origin: owner
 report: Owner 0.11.0 installer test, 2026-09-06, image 1
 affected: Windows 0.11.0 candidate 2cfdcb04e
@@ -34,7 +34,7 @@ Owner screenshot 1 (2026-09-06). Live seeded reproduction on :9188 showed the fi
 
 ## Verdict
 
-Source repair implemented and live proof recorded. Commit linkage will be added after the fix commit. Exact installer behavior and owner recovery remain unverified.
+Source repair fe5be77a9 is implemented and live proof is recorded. Exact installer behavior and owner recovery remain unverified.
 
 ## Regression
 
