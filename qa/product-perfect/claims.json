@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "fb1c2bd203262cd1af01c8c4dace35426ecf2582",
+    "sourceCommit": "a97f26a26e653a8151138a71144c3560aae83f56",
     "pathSetSha256": "1e72712bd204040dfeed89cf70ea863beb10ccf3805dd7dcb49fc25b05309320",
     "files": [
       {
@@ -683,8 +683,8 @@
       },
       {
         "path": "frontend/app/safety.js",
-        "bytes": 4107,
-        "sha256": "b305e4637e99666a899237b81acbf9d76c531d2fc8188bffd7470ae3fcc0cd9d"
+        "bytes": 2889,
+        "sha256": "2f0ec13036e9040633e2a2d353a5cc932af4ae70817ea7b5fb1a61528fed0f10"
       },
       {
         "path": "frontend/app/save.js",
@@ -1033,8 +1033,8 @@
       },
       {
         "path": "frontend/css/interface.css",
-        "bytes": 24361,
-        "sha256": "e44bf27f132d098a01dc772bce66349af2cf11a7577c4758434ab32c6c853b6d"
+        "bytes": 22644,
+        "sha256": "5c4fd1857905944b7eedb62540d72d276f12036b76c940bcd98645838d52f417"
       },
       {
         "path": "frontend/css/marketplace.css",
@@ -1063,8 +1063,8 @@
       },
       {
         "path": "frontend/css/safety.css",
-        "bytes": 1899,
-        "sha256": "586136e7fbeb5da4d0c087045612facee92777d9a82c63454a818a180c27fde9"
+        "bytes": 1094,
+        "sha256": "7f8c5a66a9c96a51a90a32febb313c1b08849e7153d8d98d39d26f3ff0fc49d1"
       },
       {
         "path": "frontend/css/style.css",
@@ -1078,8 +1078,8 @@
       },
       {
         "path": "frontend/css/topbar.css",
-        "bytes": 5890,
-        "sha256": "46b9474e564b9716bb21e8d014b0afbb5ae577823d43461a64c564eb77377c33"
+        "bytes": 5783,
+        "sha256": "81ad47943c3e2b29ef55b23f624de26ae2641d8657bdaa2f14839a8eeaedee3d"
       },
       {
         "path": "frontend/css/tutorial.css",
@@ -1103,8 +1103,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 81254,
-        "sha256": "c345f402e620a467f9304e41cf4a9d4ba88fd5caeb20465128283d17b0d749cf"
+        "bytes": 81540,
+        "sha256": "b0189baac23c0ae148eeb5e38f66414bf3923c41500e13892926313ca7f785b0"
       },
       {
         "path": "frontend/js/arcade.js",
