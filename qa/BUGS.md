@@ -4,16 +4,17 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**6** open (open+claimed) of 55 total — 0 P0 · 6 P1 · 0 P2
+**7** open (open+claimed) of 56 total — 0 P0 · 7 P1 · 0 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **17** · source fixed: **11** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **16**.
+User/owner reports: **18** · source fixed: **11** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **17**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
 | [Customer cannot explain idle behavior and unexpectedly high usage](bugs/acb47320-idle-usage-customer-unexplained.md) | work-and-spend-truth | open | unverified | unconfirmed |
 | [Customer reports an ONCE routine absent from Active Routines](bugs/c2a6c3c8-once-routine-reported-missing.md) | durability-and-visibility | open | unverified | unconfirmed |
+| [Google account connection asks customers for developer credentials](bugs/e5d4b743-google-account-connection-asks-customers-for-dev.md) | google-sign-in | open | unverified | unconfirmed |
 | [Mac paid onboarding becomes unreachable after reload and relink](bugs/eaaa3ec8-mac-onboarding-unreachable-after-link.md) | recovery-truth | open | unverified | unconfirmed |
 | [Funded working station still displays a zero-credit warning](bugs/72af29f4-funded-station-false-zero-warning.md) | recovery-truth | open | unverified | unconfirmed |
 | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | production-request-truth | open | unverified | persists |
@@ -41,6 +42,7 @@ User/owner reports: **17** · source fixed: **11** · installer verified: **0** 
 | P0 | fixed | skills | [skill.view's hydrate-then-bump stores the RENDERED SKILL.md as the skill's body, so every view→persist cycle re-appends '## Setup' and '## Support Files' — unbo](bugs/c70f8965-skill-view-s-hydrate-then-bump-stores-the-render.md) | sweep/skills | 598ab4a4 |
 | P1 | open | autonomy | [Customer cannot explain idle behavior and unexpectedly high usage](bugs/acb47320-idle-usage-customer-unexplained.md) | reliability-followup | — |
 | P1 | open | autonomy | [Customer reports an ONCE routine absent from Active Routines](bugs/c2a6c3c8-once-routine-reported-missing.md) | reliability-followup | — |
+| P1 | open | onboarding | [Google account connection asks customers for developer credentials](bugs/e5d4b743-google-account-connection-asks-customers-for-dev.md) | agent/google-account-signin | — |
 | P1 | open | onboarding | [Mac paid onboarding becomes unreachable after reload and relink](bugs/eaaa3ec8-mac-onboarding-unreachable-after-link.md) | reliability-followup | — |
 | P1 | open | providers | [Funded working station still displays a zero-credit warning](bugs/72af29f4-funded-station-false-zero-warning.md) | reliability-followup | — |
 | P1 | open | providers | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | reliability-followup | — |
@@ -98,7 +100,7 @@ User/owner reports: **17** · source fixed: **11** · installer verified: **0** 
 | safecell | 0 |
 | sessions | 0 |
 | skills | 0 |
-| onboarding | 1 |
+| onboarding | 2 |
 | world | 1 |
 | voice | 0 |
 | release | 0 |

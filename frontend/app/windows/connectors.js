@@ -998,20 +998,18 @@
       const cardId = e.catalogId || e.id;
       const chip = e.platformApi && e.unattendedSupported === false
         ? ['', 'manual setup', 'var(--gold)']
-        : (e.needsClient ? ['', 'app setup, then sign in', 'var(--gold)'] : (CC_CHIP[e.authType] || CC_CHIP.none));
-      const origin = e.platformApi
+        : (e.signInAvailable === false ? ['', 'sign-in unavailable', 'var(--gold)'] : (CC_CHIP[e.authType] || CC_CHIP.none));
+      const origin = e.googleApi ? '<span class="cc-badge cc-official" title="StarNet connector using Google’s APIs">STARNET · GOOGLE API</span>' : e.platformApi
         ? '<span class="cc-badge cc-official" title="first-party REST API documented by the vendor">✓ official API</span>'
         : (e.official ? '<span class="cc-badge cc-official" title="first-party server, run by the vendor">✓ official</span>'
                       : '<span class="cc-badge cc-community" title="community-run server">community</span>');
       let action;
       if (e.installed) action = '<button class="bb xs" data-cc-act="manage" data-id="' + esc(cardId) + '">MANAGE SERVICE</button>';
       else if (e.platformApi) action = '<button class="bb xs" data-cc-act="platform" data-id="' + esc(cardId) + '">+ ADD KEY</button>';
-      // staticOauth entry still missing its pre-registered app client (Google): a SET UP reveal, never a
-      // SIGN IN that can only 428. Once the client is saved, needsClient flips and the card renders SIGN IN.
-      else if (e.authType === 'oauth' && e.staticOauth && e.needsClient) action =
-        '<button class="bb xs" data-cc-act="oclient" data-id="' + esc(cardId) + '" title="one-time app setup, then sign-in">▸ SET UP</button>';
+      else if (e.googleApi && e.signInAvailable === false) action =
+        '<button class="bb xs" disabled>GOOGLE SIGN-IN UNAVAILABLE</button>';
       else if (e.authType === 'oauth') action = e.url
-        ? '<button class="bb xs" data-cc-act="signin" data-id="' + esc(cardId) + '" title="opens a secure browser sign-in (OAuth)">▸ SIGN IN</button>'
+        ? '<button class="bb xs" data-cc-act="signin" data-id="' + esc(cardId) + '" title="opens a secure browser sign-in (OAuth)">' + (e.googleApi ? 'SIGN IN WITH GOOGLE' : '▸ SIGN IN') + '</button>'
         : (e.via
           // url-less oauth entry reachable through an aggregator: a LIVE jump to that card, never a mute dead button.
           ? '<button class="bb xs" data-cc-act="via" data-id="' + esc(cardId) + '" data-via="' + esc(e.via) + '" title="no direct endpoint — jump to the connector that reaches it">▸ VIA ' + esc(e.via.toUpperCase()) + '</button>'
@@ -1025,24 +1023,8 @@
         ? '<div class="cc-key" style="display:none"><input type="password" class="key-input" data-cc-key="' + esc(cardId) + '" placeholder="' + esc(e.name) + ' API key / token" autocomplete="off" spellcheck="false">' +
             '<div class="mc-hint">Stored locally by the sidecar, sent as ' + keyDelivery + ', never displayed again.</div></div>'
         : '';
-      /* The one-time app-client setup for staticOauth entries (Google has no automatic app registration).
-         Plain language, the exact redirect URI to paste, and two fields. Saved once per vendor — every other
-         card for that vendor flips straight to SIGN IN. */
-      const redirectUri = 'http://127.0.0.1:' + (location.port || '8787') + '/api/connectors/oauth/callback';
-      const clientField = (e.authType === 'oauth' && e.staticOauth && e.needsClient)
-        ? '<div class="cc-key cc-oclient" style="display:none">' +
-            '<div class="mc-hint">Advanced setup, shared by every Google card. Google Workspace MCP is a developer preview; access must be enabled before sign-in can work.</div>' +
-            '<ol class="cc-steps">' +
-              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a>, enroll in the preview, and enable the service’s MCP API in your Google Cloud project.</li>' +
-              '<li>Configure the consent screen and create an OAuth <b>Web application</b> client. In testing mode, add your Google account as a test user.</li>' +
-              '<li>Add this redirect URI: <span class="cc-uri"><code>' + esc(redirectUri) + '</code><button type="button" class="cc-copy" data-cc-copy="' + esc(redirectUri) + '">COPY</button></span></li>' +
-              '<li>Paste the client ID and secret below.</li>' +
-            '</ol>' +
-            '<input type="text" class="key-input" data-cc-oclientid="' + esc(cardId) + '" placeholder="client ID" autocomplete="off" spellcheck="false">' +
-            '<input type="password" class="key-input" data-cc-oclientsecret="' + esc(cardId) + '" placeholder="client secret" autocomplete="off" spellcheck="false">' +
-            '<div class="mc-hint">Stored locally, never shown again.</div>' +
-          '</div>'
-        : '';
+      const clientField = e.googleApi && e.signInAvailable === false
+        ? '<div class="mc-hint">' + esc(e.signInMessage || 'Google sign-in is not available in this build. StarNet needs to finish enabling it. No account setup is required from you.') + '</div>' : '';
       const home = e.homepage ? ' <a class="cc-home dim" href="' + esc(e.homepage) + '" target="_blank" rel="noopener">site ↗</a>' : '';
       // data-search: the console search box (stationui.js doFilter) matches textContent + this attribute, so a
       // Commander typing "google drive" reaches the Google Workspace card even though those words are only in
@@ -1318,30 +1300,6 @@
         btn.disabled = true; await ccInstall(id, token);
       }
       else if (act === 'signin') { btn.disabled = true; await ccSignIn(id); btn.disabled = false; }
-      else if (act === 'oclient') {
-        // first tap reveals the one-time app-client setup; the second (now ▶ SAVE & SIGN IN) stores the
-        // client with the sidecar and rolls straight into the normal browser sign-in.
-        const card = ev.target.closest('.cc-card');
-        const wrap = card && card.querySelector('.cc-oclient');
-        const idIn = wrap && wrap.querySelector('input[data-cc-oclientid]');
-        const secIn = wrap && wrap.querySelector('input[data-cc-oclientsecret]');
-        if (wrap && wrap.style.display === 'none') { wrap.style.display = ''; btn.textContent = '▶ SAVE & SIGN IN'; if (idIn) idIn.focus(); sfx('tick'); return; }
-        const cid = ((idIn && idIn.value) || '').trim();
-        const secret = ((secIn && secIn.value) || '').trim();
-        if (!cid) { sfx('bad'); ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = 'paste the client ID first'; return; }
-        const entry = ccEntry(id);
-        if (entry && entry.staticOauth && entry.staticOauth.clientSecretRequired && !secret) { sfx('bad'); ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = 'paste the client secret too'; return; }
-        btn.disabled = true;
-        try {
-          const j = await (await postJSON('/api/connectors/oauth/client', { id: id, clientId: cid, clientSecret: secret })).json().catch(() => ({}));
-          if (j.error) { ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = '✕ ' + j.error; sfx('bad'); btn.disabled = false; return; }
-          // update the local cache so ccSignIn sees the flipped state, then sign in right away.
-          ccCache.forEach(x => { if (x.staticOauth && x.staticOauth.authorizationServer === j.authorizationServer) x.needsClient = false; });
-          await ccSignIn(id);
-        } catch (err) { ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = '✕ ' + ((err && err.message) || 'failed to save'); sfx('bad'); }
-        btn.disabled = false;
-        ccRefresh();   // sibling cards on the same vendor flip from SET UP to SIGN IN
-      }
       else if (act === 'signin-cancel') { ccCancelSignIn(id); }
       else if (act === 'via') {
         // Jump to the aggregator card that actually reaches this platform (e.g. Atlassian -> Zapier).
