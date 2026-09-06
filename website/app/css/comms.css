@@ -267,11 +267,15 @@
 .tool-chip .tc-d-res.err { color: var(--bad); }
 @keyframes comms-blink { 50% { opacity: .25; } }
 
-/* STARTER-CHIP EMPTY STATE — the first-run hint gains a couple of tappable openers (chat.js maybeEmptyState).
-   The line keeps its dim centered treatment; the chips sit under it, reusing the .choice vocabulary. */
-.cmsg-empty-line { margin-bottom: 10px; }
-.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
-.cmsg-empty .cmsg-starter { font-size: 13px; }
+/* Starter geometry; the shared cockpit action material lives in interface.css. */
+.cmsg-empty { padding: 18px 10px; opacity: 1; }
+.cmsg-empty-line { margin-bottom: 12px; color: var(--ph); font-size: 15px; }
+.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.cmsg-empty .cmsg-starter {
+  min-height: 32px; max-width: 100%; padding: 6px 10px;
+  font-size: 15px; line-height: 1.2; letter-spacing: .2px;
+  white-space: normal; overflow-wrap: anywhere;
+}
 
 /* the legacy plain tool line (replay / stop-reason) keeps app.css's dim treatment, just tightened here */
 .cmsg.tool { margin-left: 0; }
