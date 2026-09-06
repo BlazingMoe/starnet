@@ -223,8 +223,8 @@ input[type=file]::file-selector-button:hover { border-color: var(--ph); backgrou
   width: max-content; max-width: min(280px, calc(100vw - 24px));
   padding: 9px 12px; text-align: left;
   font-size: 15px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
-  color: var(--ph-bright); background: var(--panel2); text-shadow: none;
-  border: 1px solid rgba(var(--ph-rgb), .28); border-radius: 8px;
+  color: var(--ph-bright); background: var(--ui-key-rest, var(--panel2)); text-shadow: none;
+  border: 1px solid rgba(var(--ph-rgb), .28); border-radius: 5px;
   box-shadow: 0 6px 20px rgba(0,0,0,.4), inset 0 1px 0 rgba(var(--ph-bright-rgb), .06);
   opacity: 0; transform: translateY(3px);
   transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
@@ -2482,25 +2482,25 @@ body:not(.no-flicker) #screen-game.active { animation: flick 7s infinite; }
   .bb-menu .bb { min-width: 0; }
 }
 
-/* One-time navigation helper: readable UI type and a quiet, theme-aware surface. */
+/* One-time navigation helper, using the same material and type as the cockpit. */
 .nav-coach {
   position: fixed; left: 16px; bottom: 64px; z-index: 70;
   width: 420px; max-width: calc(100% - 32px); box-sizing: border-box;
   display: flex; align-items: center; gap: 20px; padding: 16px 18px;
-  font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+  font-family: inherit; font-size: 16px; line-height: 1.4;
   color: var(--text); letter-spacing: normal; text-shadow: none;
-  background: var(--panel2); border: 1px solid rgba(var(--ph-rgb), .18); border-radius: 12px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.32), inset 0 1px 0 rgba(var(--ph-bright-rgb), .035);
+  background: var(--ui-key-rest, var(--panel2)); border: 1px solid var(--ui-edge); border-radius: 5px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.32), inset 0 1px 0 var(--ui-highlight);
   animation: coach-in var(--t-med) var(--ease-out);
 }
 .nav-coach[hidden] { display: none; }
 .nav-coach-copy { flex: 1; min-width: 0; }
-.nav-coach-copy > strong { display: block; color: var(--ph-bright); font-size: 13px; font-weight: 600; }
-.nav-coach-copy > p { margin: 5px 0 0; font-size: 12px; line-height: 1.55; opacity: .85; }
-.nav-coach b { color: var(--text); font-size: 11px; font-weight: 600; letter-spacing: .3px; }
+.nav-coach-copy > strong { display: block; color: var(--ph-bright); font-size: 18px; font-weight: normal; }
+.nav-coach-copy > p { margin: 5px 0 0; font-size: 15px; line-height: 1.4; }
+.nav-coach b { color: var(--text); font-weight: normal; letter-spacing: .3px; }
 .nav-coach-x {
   flex: 0 0 auto; min-height: 34px; padding: 7px 12px; cursor: pointer;
-  font: 500 12px/1.4 "Segoe UI", system-ui, sans-serif; letter-spacing: normal; text-shadow: none;
+  font-family: inherit; font-size: 15px; line-height: 1.2; letter-spacing: normal; text-shadow: none;
   color: var(--ph-bright); background: rgba(var(--ph-rgb), .1);
   border: 1px solid rgba(var(--ph-rgb), .2); border-radius: 7px; box-shadow: none;
 }
