@@ -408,8 +408,8 @@
       },
       {
         "path": "frontend/app/marketplace.js",
-        "bytes": 272336,
-        "sha256": "9c88eea780f619eb33b3757f7e3ceffab32b88610ca04c06acc9e2018e64de7e"
+        "bytes": 271903,
+        "sha256": "f09c3b0f3f367c001252a8fec59b816f2b1a3c77bf34a41f3c780da285acaffd"
       },
       {
         "path": "frontend/app/mint.js",
@@ -1048,8 +1048,8 @@
       },
       {
         "path": "frontend/css/marketplace.css",
-        "bytes": 88079,
-        "sha256": "03aa12fe853fbffc92a4629b69314dc5b02290468e9bd9a736441d367488306c"
+        "bytes": 88150,
+        "sha256": "729cf26814e5786cf83407c49dcbf49de9b19755d82a6dc1eb83674a9d9b090c"
       },
       {
         "path": "frontend/css/motion.css",
