@@ -126,15 +126,16 @@ A.ok(T.adopt(null) === '', 'adopt() tolerates a null element');
       removeAttribute: k => { delete a[k]; },
       hasAttribute: k => k in a,
       getBoundingClientRect: () => ({ left: 100, top: 100, width: 40, height: 20 }),
-      appendChild() {}, contains(other) { return other === el; }, closest(sel) { return (/\[title\]|\[data-tip\]/.test(sel) && ('title' in a || 'data-tip' in a)) ? el : null; },
+      appendChild() {}, contains(other) { return other === el; }, closest(sel) { if (sel === '#bottombar') return a.dock ? el : null; return (/\[title\]|\[data-tip\]/.test(sel) && ('title' in a || 'data-tip' in a)) ? el : null; },
       _attrs: a
     };
     return el;
   }
   const body = mkEl({}, '');
+  let card;
   const doc = {
     body,
-    createElement: () => mkEl({}, ''),
+    createElement: () => (card = mkEl({}, '')),
     addEventListener: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }
   };
   const fire = (name, ev) => (listeners.get(name) || []).forEach(fn => fn(ev));
@@ -172,6 +173,12 @@ A.ok(T.adopt(null) === '', 'adopt() tolerates a null element');
     // ...and leaving now hides it
     fire('pointerout', { target: tipped, relatedTarget: body });
     A.ok(!tipped.getAttribute('aria-describedby'), 'leaving a SHOWN tip still hides it');
+
+    const dock = mkEl({ title: 'Crew', dock: true }, 'Crew');
+    fire('focusin', { target: dock });
+    A.ok(card.classList.contains('dock-tip'), 'a bottom-bar hover card keeps the approved dock finish');
+    fire('focusin', { target: tipped });
+    A.ok(!card.classList.contains('dock-tip'), 'reusing the card outside the dock clears the dock finish');
 
     A.report('station-tooltip.test');
   })().catch(e => { console.log('FAIL: tooltip rig threw — ' + (e && e.stack || e)); process.exit(1); });
