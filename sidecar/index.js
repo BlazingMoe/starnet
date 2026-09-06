@@ -545,6 +545,7 @@ function publicWorkspaceLineage() {
    fallback. Strictly additive to the seatbelt: operator overrides still win, the built-in snapshot
    still answers offline, and a hostile/drifted payload is validated away (liveprices.js). The fetch
    is background + disk-cached (24h cadence) and never blocks a run. SKYNET_LIVE_PRICES=0 disables. */
+let livePricesRefreshTimer = null;
 const livePrices = (function () {
   try {
     if (String(ENV('LIVE_PRICES') || '').trim() === '0') return null;
@@ -553,8 +554,8 @@ const livePrices = (function () {
     const lp = makeLivePrices({ file: path.join(WORKSPACES, 'liveprices.cache.json'), now: () => Date.now() });
     prices.setLiveLookup((family, id) => lp.lookup(family, id));
     lp.refresh().catch(swallow('liveprices.refresh'));
-    const t = setInterval(() => { lp.refresh().catch(swallow('liveprices.refresh')); }, 6 * 60 * 60 * 1000);
-    if (t.unref) t.unref();
+    livePricesRefreshTimer = setInterval(() => { lp.refresh().catch(swallow('liveprices.refresh')); }, 6 * 60 * 60 * 1000);
+    if (livePricesRefreshTimer.unref) livePricesRefreshTimer.unref();
     return lp;
   } catch (e) { console.warn('[prices] live catalog wiring failed:', (e && e.message) || e); return null; }
 })();
@@ -782,6 +783,7 @@ process.on('unhandledRejection', e => surfaceProcessError('unhandledRejection', 
    stays on the log-only path: an un-awaited rejection does not tear the process. */
 const UNCAUGHT_KEEP_SERVING = /^(1|true|yes|on)$/i.test(String(ENV('UNCAUGHT_KEEP_SERVING') || '').trim());
 const UNCAUGHT_EXIT_DELAY_MS = num(ENV('UNCAUGHT_EXIT_DELAY_MS'), 500);   // test knob: widen the observable DEGRADED window
+let processFaultQuiesced = false;
 const processFault = makeProcessFaultHandler({
   surface: surfaceProcessError,
   exit: code => process.exit(code),
@@ -791,6 +793,9 @@ const processFault = makeProcessFaultHandler({
   keepAlive: UNCAUGHT_KEEP_SERVING,
   breaker: CRASH_LOOP_BREAKER ? crashLedger : null,   // crash-loop circuit breaker: the 3rd fault exit in 10m holds the process alive DEGRADED
   log: msg => console.error('[process-fault] ' + msg),
+  // Immediate containment is separate from release: a held crash loop must KEEP the workspace-owner claim so a
+  // second writer cannot enter, while every producer in this torn process is stopped and all live runs abort.
+  quiesce: () => quiesceForProcessFault(),
   // best-effort SYNC release of what gracefulShutdown would release — both are hoisted consts defined later in this
   // file and only ever invoked at runtime (after boot), so the typeof guards are belt-and-braces, not dead code.
   release: () => {
@@ -5752,6 +5757,7 @@ async function runDiscoveryCycle(opts) {
 let discoveryTimer = null;
 function discoveryTick(force) {
   try {
+    if (processFaultQuiesced) return;
     if (String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return;
     if (discoveringNow) return;
     if (!personalizationStore.read().enabled) return;   // the PAUSE is server authority here too
@@ -5760,7 +5766,7 @@ function discoveryTick(force) {
   } catch (_) { discoveringNow = false; }
 }
 function armDiscovery() {
-  if (discoveryTimer || String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return false;
+  if (processFaultQuiesced || discoveryTimer || String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return false;
   discoveryTimer = setInterval(() => discoveryTick(false), DISCOVERY_TICK_MS);
   if (discoveryTimer.unref) discoveryTimer.unref();
   const boot = setTimeout(() => discoveryTick(false), 5000);   // boot catch-up look, same shape as quest refresh
@@ -6468,7 +6474,7 @@ let nightshiftTimer = null;
 // the LIVE armed state: SKYNET_NIGHTSHIFT_ENABLED (env, boot-frozen) OR the posture already permits acting at boot.
 function nightshiftShouldArm() { try { return NIGHTSHIFT_ENABLED || !!(commanderPosture.summary() || {}).actsUnattended; } catch (_) { return NIGHTSHIFT_ENABLED; } }
 function armNightshift() {
-  if (nightshiftTimer) return false;
+  if (processFaultQuiesced || nightshiftTimer) return false;
   nightshiftTimer = setInterval(() => { try { nightshiftDriver.applyTick(Date.now()); } catch (e) { console.warn('[nightshift] tick error:', (e && e.message) || e); } }, NIGHTSHIFT_TICK_MS);
   if (nightshiftTimer.unref) nightshiftTimer.unref();   // the http server keeps the process alive; the ticker alone shouldn't
   console.log('  · night-shift armed (tick ' + Math.round(NIGHTSHIFT_TICK_MS / 1000) + 's, beat ' + Math.round(NIGHTSHIFT_BEAT_MS / 60000) + 'm, away ' + Math.round(NIGHTSHIFT_AWAY_MS / 60000) + 'm)');
@@ -6489,7 +6495,7 @@ function disarmNightshift() {
    NO restart, disarming stops it immediately. The lock re-enters cleanly through applyTick -> setJobs ->
    saveCronJobs. ---- */
 function armCron() {
-  if (cronTimer) return false;   // already armed — idempotent (a second arm must not stack two timers)
+  if (processFaultQuiesced || cronTimer) return false;   // already armed/fault-quiesced — never stack or restart
   console.log('  · cron enabled — ' + cronJobs.length + ' routine(s); running boot reconcile');
   // G4.3: wrap BOTH the resume reconcile and every timer tick in the cross-process lock so two sidecars (or
   // this reconcile racing the first timer tick) can never both fire — whoever holds the lock ticks, the other
@@ -7134,7 +7140,7 @@ function loopTick() {
   if (!anyLiveLoop() && loopDriver.leases.size === 0) disarmLoops();
 }
 function armLoops(quiet) {
-  if (loopTimer) return false;                       // idempotent — a second arm must not stack two timers
+  if (processFaultQuiesced || loopTimer) return false; // idempotent; a faulted process never rearms work
   if (loopsHalted) return false;                     // durable E-STOP: nothing arms until explicitly resumed
   if (!anyLiveLoop()) return false;
   if (!quiet) console.log('  · loops armed — ' + loopJobs.filter(l => l && l.enabled !== false).length + ' standing objective(s), ' + Math.round(LOOP_TICK_MS / 1000) + 's tick');
@@ -7793,6 +7799,7 @@ async function runQuestRefreshCycle(why) {
 // the gate + launch (called by the timer AND nudged after confirm/dismiss so "caught up" feels immediate).
 // stampCycle fires BEFORE the async cycle so a slow/failed pass still spends the cadence (no tick-hammering).
 function questRefreshTick() {
+  if (processFaultQuiesced) return;
   if (process.env.SKYNET_QUEST_REFRESH === '0') return;
   if (questRefreshingNow) return;
   // The cadence and caught-up triggers are BACKGROUND initiative. Read the server-owned effective posture on
@@ -7812,7 +7819,7 @@ function questRefreshTick() {
 }
 let questRefreshTimer = null;
 function armQuestRefresh() {
-  if (questRefreshTimer || process.env.SKYNET_QUEST_REFRESH === '0') return false;
+  if (processFaultQuiesced || questRefreshTimer || process.env.SKYNET_QUEST_REFRESH === '0') return false;
   questRefreshTimer = setInterval(() => { try { questRefreshTick(); } catch (e) { console.warn('[questrefresh] tick error:', (e && e.message) || e); } }, QUESTREFRESH_TICK_MS);
   if (questRefreshTimer.unref) questRefreshTimer.unref();   // the http server keeps the process alive; the ticker alone shouldn't
   // BOOT CATCH-UP (the cron reconcile idiom): desktop sessions are short — the 24h mark usually passes while
@@ -8747,6 +8754,11 @@ updatePreparation = makeUpdatePreparation({
 });
 
 const server = http.createServer((req, res) => {
+  // Once an uncaught exception has made this process's in-memory state unprovable, the server becomes a recovery
+  // shell. Static GET/HEAD keeps the already-installed UI reloadable; health + authenticated diagnostics explain
+  // the fault. Every other API, external-harness, artifact and mutation surface fails closed with 503. This gate
+  // runs before openaiCompat so `/v1` cannot keep spending or calling tools while the process is degraded.
+  if (rejectProcessFaultRequest(req, res)) return;
   // /v1/* (external-harness OpenAI API) + /health are their OWN seam: intercept BEFORE the /api launch-token
   // machinery (they must NOT require the page token, and openai-compat applies its own bearer auth + Host pin).
   if (openaiCompat.handle(req, res)) return;
@@ -8779,6 +8791,27 @@ const server = http.createServer((req, res) => {
     .catch((e) => routeFailure(res, e))
     .finally(() => mutationTicket.release());
 });
+
+function rejectProcessFaultRequest(req, res) {
+  let fault = null;
+  try { fault = processFault.fault(); } catch (_) { fault = null; }
+  if (!fault) return false;
+  const method = String(req.method || 'GET').toUpperCase();
+  const url = String(req.url || '/');
+  const pathname = url.split('?')[0];
+  const diagnosticRead = method === 'GET' && (pathname === '/api/health' || pathname === '/api/diagnostics');
+  const staticRead = (method === 'GET' || method === 'HEAD') &&
+    pathname.indexOf('/api') !== 0 && pathname.indexOf('/v1') !== 0 && pathname !== '/health' &&
+    pathname.indexOf('/workshop-run/') !== 0;
+  if (diagnosticRead || staticRead) return false;
+  if (pathname.indexOf('/api') === 0) {
+    try { applyApiCors(req, res); } catch (e) { failNote('process-fault.reply-cors', e); }
+  }
+  const message = processFault.healthLine();
+  res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '5' });
+  res.end(JSON.stringify({ ok: false, degraded: true, code: 'EPROCESS_FAULT', error: message }));
+  return true;
+}
 
 // routeFailure — the central fail path for the async-route guard. Headers not yet sent → a 500 JSON envelope
 // (redacted message); headers already open (a streaming route mid-flight) → destroy the socket so the client
@@ -9569,6 +9602,50 @@ server.listen(PORT, '127.0.0.1', () => {
    is nothing the sidecar can hook there. Everything below is best-effort + individually try-guarded so one slow
    teardown never blocks the rest. */
 let _shuttingDown = false;
+function quiesceForProcessFault() {
+  if (processFaultQuiesced) return false;
+  processFaultQuiesced = true;
+  console.error('[process-fault] quiescing background work and refusing non-diagnostic requests');
+  const contain = (tag, fn) => {
+    try {
+      const pending = fn();
+      if (pending && typeof pending.then === 'function') pending.catch(e => failNote('process-fault.quiesce.' + tag, e));
+    } catch (e) { failNote('process-fault.quiesce.' + tag, e); }
+  };
+  contain('cron', () => disarmCron());
+  contain('nightshift', () => disarmNightshift());
+  contain('loops', () => disarmLoops());
+  contain('discovery-timer', () => { if (discoveryTimer) clearInterval(discoveryTimer); discoveryTimer = null; });
+  contain('quest-refresh-timer', () => { if (questRefreshTimer) clearInterval(questRefreshTimer); questRefreshTimer = null; });
+  contain('execution-cleanup-timer', () => { if (executionCleanupTimer) clearInterval(executionCleanupTimer); executionCleanupTimer = null; });
+  contain('connector-lifecycle-timer', () => { if (connectorLifecycleTimer) clearInterval(connectorLifecycleTimer); connectorLifecycleTimer = null; });
+  contain('live-prices-timer', () => { if (livePricesRefreshTimer) clearInterval(livePricesRefreshTimer); livePricesRefreshTimer = null; });
+  contain('runs', () => {
+    const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
+    const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
+    const genericInflights = GENERIC_CHANNEL_IDS.map((id) => {
+      const w = genericChannels[id];
+      return (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null;
+    });
+    const tgBotInflights = [...telegramBots.values()].map((w) => (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null);
+    const devInflight = (devHub && devHub._internals) ? devHub._internals.inflight : null;
+    killAll(runs, tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight);
+  });
+  contain('groups', () => groupSessions && groupSessions.halt && groupSessions.halt());
+  contain('subagents', () => subagents && subagents.interruptAll && subagents.interruptAll());
+  contain('shell-background', () => shellBg && shellBg.killAll && shellBg.killAll());
+  contain('terminals', () => terminalSessions && terminalSessions.stopAll && terminalSessions.stopAll());
+  contain('execution-background', () => executionEnvironment && executionEnvironment.killAllBackground && executionEnvironment.killAllBackground());
+  contain('lsp', () => lspManager && lspManager.closeAll && lspManager.closeAll());
+  contain('connectors', () => connectors && connectors.close && connectors.close());
+  contain('telegram', () => stopTelegram());
+  contain('telegram-bots', () => stopAllTelegramBots());
+  contain('discord', () => stopDiscord());
+  contain('generic-channels', () => { for (const id of GENERIC_CHANNEL_IDS) stopGenericChannel(id); });
+  // Keep workspaceOwner + cronLock claimed while this diagnostic shell is alive. Releasing them here would let a
+  // fresh process write beside a still-running, faulted process; the normal delayed-exit path releases at exit.
+  return true;
+}
 function gracefulShutdown(signal) {
   if (_shuttingDown) return;
   _shuttingDown = true;

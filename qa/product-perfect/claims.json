@@ -158,8 +158,8 @@
       },
       {
         "path": "frontend/app/classicons.js",
-        "bytes": 57075,
-        "sha256": "845312f272a020e7cc3fc854bcc5438e213a89541c3436880abec8f14ca5305d"
+        "bytes": 66104,
+        "sha256": "4f2c4d81b68f7738f50caef8f9a0a90c272949ea8c965f4def96af67fdc17386"
       },
       {
         "path": "frontend/app/classify.js",
@@ -408,8 +408,8 @@
       },
       {
         "path": "frontend/app/marketplace.js",
-        "bytes": 270962,
-        "sha256": "e12c8104aacaeebe40eb75d1b7ddc332fee39a64f536294f77782e50eef85264"
+        "bytes": 272750,
+        "sha256": "38265abc2f35d78976575b641f3be6f2fcd23f8054e091af0c45ac7c8e8a431d"
       },
       {
         "path": "frontend/app/mint.js",
@@ -1053,8 +1053,8 @@
       },
       {
         "path": "frontend/css/marketplace.css",
-        "bytes": 74811,
-        "sha256": "b591ac37800e4cbfa8066758f10e8fbb178e364273c48692fa154fe586dfe507"
+        "bytes": 89291,
+        "sha256": "fe471d8f8815ae3557e1b82201d40d54dedab65db580a3ecb73d00a3ade2bd0a"
       },
       {
         "path": "frontend/css/motion.css",

@@ -47,6 +47,8 @@ const Marketplace = (() => {
   let pickedSummonSkin = null;
   let pickedSummonModel = null;   // SUMMON-only per-agent model choice: { model, provider, effort } or null = inherit the orchestrator's
   let pickedSummonName = '';      // SUMMON-only agent NAME typed in the config strip ('' = default to the class name)
+  let appearanceOpen = false;
+  let modelSettingsOpen = false;
   let focusAgent = null, focusRecipe = null;     // the spec/recipe id shown in the dossier (per tab)
   let laneFilter = 'all';                        // 'all' | 'code' | 'research' | 'general'  (AGENTS tab)
   let archiveOpen = false;                       // SPECIALIST ARCHIVE (deep-cut archetypes) — collapsed by default
@@ -245,6 +247,8 @@ const Marketplace = (() => {
     pickedSummonSkin = null;
     pickedSummonModel = null;
     pickedSummonName = '';
+    appearanceOpen = false;
+    modelSettingsOpen = false;
     const builtins = Specialties.builtins();
     focusAgent = (ctx.currentSpecialtyId && Specialties.get(ctx.currentSpecialtyId)) ? ctx.currentSpecialtyId : (builtins[0] && builtins[0].id) || null;
     focusRecipe = hasRecipes() ? ((Recipes.builtins()[0] && Recipes.builtins()[0].id) || null) : null;
@@ -357,11 +361,17 @@ const Marketplace = (() => {
   }
   function focusables() {
     if (!root) return [];
-    return Array.from(root.querySelectorAll('button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'))
+    return Array.from(root.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, a[href], [tabindex]:not([tabindex="-1"])'))
       .filter(e => e.offsetWidth > 0 || e.offsetHeight > 0 || e === document.activeElement);
   }
   // narrow bay = the responsive breakpoint where the dossier becomes a full-width sheet OVER the roster.
-  function isNarrowBay() { try { return typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 820px)').matches; } catch (_) { return false; } }
+  function isNarrowBay() {
+    try {
+      const panel = root && root.querySelector('.mkt');
+      return (tab === 'agents' && panel && panel.clientWidth <= 660) ||
+        (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 820px)').matches);
+    } catch (_) { return false; }
+  }
   function isTypingTarget(t) { return !!(t && t.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)); }
   // dismiss the narrow dossier SHEET back to the roster (the stranded-state fix) and restore focus to the card
   // that opened it, so a keyboard user isn't dropped at the top of the list.
@@ -473,7 +483,7 @@ const Marketplace = (() => {
     bar.innerHTML = html;
     // per-tab search placeholder (audit item 8): name what "search" actually spans on this tab.
     const q = root && root.querySelector('#mkt-q');
-    if (q) { const ph = (tab === 'recipes') ? 'search recipes…' : 'search classes, codes, purpose…';
+    if (q) { const ph = (tab === 'recipes') ? 'search recipes…' : 'Find a class…';
       q.placeholder = ph; q.setAttribute('aria-label', tab === 'recipes' ? 'Search recipes' : 'Search classes'); }
     bar.querySelectorAll('.mkt-tab').forEach(b => b.addEventListener('click', () => {
       const next = b.dataset.tab; if (!next || next === tab) return;
@@ -556,7 +566,7 @@ const Marketplace = (() => {
       else wireLaunchForm(stage);
       return;
     }
-    stage.className = 'mkt-stage';
+    stage.className = 'mkt-stage' + (tab === 'agents' ? ' mkt-recruit' : '');
     // a fresh grid render (open / tab / filter / search) always returns to the ROSTER view on a narrow bay — the
     // dossier SHEET is only entered by an explicit card click, never left stuck over a rebuilt roster.
     const mkt0 = root.querySelector('.mkt'); if (mkt0) mkt0.classList.remove('show-dossier');
@@ -580,7 +590,13 @@ const Marketplace = (() => {
     hydrateSkillRows();                          // fill real skill names once the catalog loads (agent + recipe dossiers)
     if (tab === 'recipes') { hydrateLiveRoutines(); hydrateRecipeRuns(); hydrateReadyShelf(); }   // refresh the live-routine + last-run lines for the focused recipe
     const fid = tab === 'recipes' ? focusRecipe : focusAgent;
-    root.querySelectorAll('.mkt-card').forEach(c => c.classList.toggle('sel', c.dataset.id === fid));
+    root.querySelectorAll('.mkt-card').forEach(c => {
+      c.classList.toggle('sel', c.dataset.id === fid);
+      if (tab === 'agents') {
+        c.setAttribute('aria-pressed', String(c.dataset.id === fid));
+        c.tabIndex = c.dataset.id === fid ? 0 : -1;
+      }
+    });
   }
 
   /* ---------- filtering ---------- */
@@ -699,17 +715,20 @@ const Marketplace = (() => {
       '<p class="mkt-hint">niche classes held off the main roster — fully specified, summon any time. When your real work points at one, the station drafts it onto the shelf above for you.</p>' +
       '<div class="mkt-grid mkt-rows">' + archs.map(cardHTML).join('') + '</div>';
   }
-  /* ---------- CONFIGURE: everything you SET about the new agent, in the dossier, above its button ----------
-     One pane, one job. The roster answers WHICH CLASS; this panel answers WHAT IT IS CALLED, WHAT IT LOOKS LIKE,
-     and WHAT IT THINKS WITH — the only three things a summon actually lets you choose. It is always expanded
-     (2026-08-15): every field carries a working default, so there is nothing to protect the Commander from, and
-     a collapsed strip on the far side of the window made the config look optional AND unreachable at once. */
+  /* Name and the live character preview lead. Appearance and model controls expand in place;
+     choices and drawer state survive class changes within this session. */
   function summonConfigPanelHTML(s) {
     if (!(ctx && ctx.mode === 'pick' && ctx.summon)) return '';
     return '<section class="mkt-config" aria-label="configure this agent">' +
-      '<div class="mkt-config-h"><span class="mkt-config-ttl">CONFIGURE</span>' +
-        '<span class="mkt-config-note">every field already has a working default — change what you care about</span></div>' +
-      summonNameBarHTML() + summonSkinBarHTML() + summonModelBarHTML(s) +
+      '<div class="mkt-config-h"><span class="mkt-config-ttl">▮ YOUR RECRUIT</span>' +
+        '<span class="mkt-config-note">Make it yours</span></div>' +
+      '<div class="mkt-recruit-identity">' + summonSkinStageHTML() + '<div class="mkt-recruit-fields">' + summonNameBarHTML() +
+      '<details class="mkt-appearance"' + (appearanceOpen ? ' open' : '') + '><summary>APPEARANCE <span class="mkt-appearance-choice">' +
+        esc((typeof DATA !== 'undefined' && DATA.SKINS && DATA.SKINS[pickedSummonSkin || DATA.DEFAULT_SKIN] || {}).name || 'Choose a character') +
+      '</span></summary>' + summonSkinBarHTML() + '</details>' +
+      '</div></div><details class="mkt-model-settings"' + (modelSettingsOpen ? ' open' : '') + '>' +
+        '<summary>MODEL &amp; EFFORT <span class="mkt-model-choice">' + esc(summonModelSummary()) + '</span></summary>' +
+        summonModelBarHTML(s) + '</details>' +
     '</section>';
   }
   /* The MODEL field's helper line is where CLEARANCE and EFFORT became honest. They used to be two rows of a spec
@@ -721,9 +740,14 @@ const Marketplace = (() => {
     if (pin && pin.model) return 'pinned to <b>' + esc(shortModel(pin.model)) + '</b>' +
       (pin.effort ? ' at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort' : '') + ' — overrides the class default.';
     if (pin && pin.effort) return 'the same brain as your orchestrator, at <b>' + esc(String(pin.effort).toUpperCase()) + '</b> effort.';
-    const tuned = 'this class is tuned for ' + pipsOf(s && s.model) + ' <b>' + esc(clearanceLabel(s && s.model)) + '</b> work';
-    return 'left blank it runs on the same brain as your orchestrator — ' + tuned +
-      (s && s.reasoningEffort ? ' at <b>' + esc(String(s.reasoningEffort).toUpperCase()) + '</b> effort' : '') + '.';
+    return 'Inherits your orchestrator’s model; tuned for <b>' + esc(clearanceLabel(s && s.model).toLowerCase()) + '</b>' +
+      (s && s.reasoningEffort ? ' · ' + esc(String(s.reasoningEffort).toLowerCase()) + ' effort' : '') + '.';
+  }
+
+  function summonModelSummary() {
+    const pin = pickedSummonModel;
+    return (pin && pin.model ? shortModel(pin.model) : 'Station default') +
+      (pin && pin.effort ? ' · ' + pin.effort : '');
   }
   function shortModel(m) { return String(m || '').split('/').pop().replace(/[-_]+/g, ' ').trim() || String(m || ''); }
   // ONE section-header component (audit item 8): amber struck-metal plate for roster ranks. Shelves add their own
@@ -813,7 +837,7 @@ const Marketplace = (() => {
     const helper = issue === 'too-long' ? 'too long — shorten this name before summoning'
       : dup ? 'duplicate name — summon requires a second confirmation; the agent id will remain unique'
       : 'blank uses the proposed default: ' + summonCandidateName((focusAgent && Specialties.get(focusAgent)) || null);
-    return '<div class="mkt-skinbar mkt-namebar"><label class="mkt-skinlabel" for="mkt-summon-name">NAME <span class="mkt-hint">— what this agent answers to</span></label>' +
+    return '<div class="mkt-skinbar mkt-namebar"><label class="mkt-skinlabel" for="mkt-summon-name">NAME</label>' +
       '<input class="mkt-in" id="mkt-summon-name" type="text" autocomplete="off" spellcheck="false" aria-invalid="' + (issue ? 'true' : 'false') + '" placeholder="' + esc(summonCandidateName((focusAgent && Specialties.get(focusAgent)) || null)) + '" value="' + esc(pickedSummonName) + '">' +
       '<div class="mkt-name-meta"><span class="mkt-name-help' + (issue || dup ? ' warn' : '') + '">' + esc(helper) + '</span><span class="mkt-name-count' + (used > max ? ' over' : '') + '">' + used + ' / ' + max + '</span></div></div>';
   }
@@ -828,22 +852,21 @@ const Marketplace = (() => {
     const thumbs = Object.keys(DATA.SKINS).map(id => {
       const sk = DATA.SKINS[id];
       return '<button type="button" class="skin-thumb' + (id === pickedSummonSkin ? ' sel' : '') +
-        '" data-skin="' + esc(id) + '" title="' + esc(sk.name || id) + '">' +
+        '" data-skin="' + esc(id) + '" aria-pressed="' + (id === pickedSummonSkin) + '" title="' + esc(sk.name || id) + '">' +
         '<img src="assets/sprites/' + esc(sk.set) + '/rot_south.png" alt="' + esc(sk.name || id) + '" draggable="false"></button>';
     }).join('');
-    // the live stage: SkinStage.mount binds these two ids in wireRoster and plays the picked skin's walk cycle.
-    // caption: a static "LIVE PREVIEW —" label + a name span SkinStage fills (mount targets the inner span, so the
-    // prefix survives every skin change). Names the live stage for what it is (audit item 8).
-    const stage =
-      '<figure class="mkt-skin-stage">' +
-        '<div class="mkt-skin-stage-frame"><img id="mkt-skin-stage-img" alt="" draggable="false"></div>' +
-        '<figcaption class="mkt-skin-stage-name"><span class="mkt-stage-lbl">LIVE PREVIEW —</span> <span id="mkt-skin-stage-name"></span></figcaption>' +
-      '</figure>';
-    return '<div class="mkt-skinbar"><label class="mkt-skinlabel">APPEARANCE <span class="mkt-hint">— the character this agent wears (your call, any class)</span></label>' +
+    return '<div class="mkt-skinbar"><div class="mkt-skinlabel">Choose any character for this class</div>' +
       '<div class="mkt-skin-section">' +
         '<div class="skin-picker" id="mkt-skin-picker">' + thumbs + '</div>' +
-        stage +
       '</div></div>';
+  }
+
+  // The chosen character remains visible even while the appearance drawer is closed.
+  function summonSkinStageHTML() {
+    return '<figure class="mkt-skin-stage">' +
+      '<div class="mkt-skin-stage-frame"><img id="mkt-skin-stage-img" alt="Recruit appearance preview" draggable="false"></div>' +
+      '<figcaption class="mkt-skin-stage-name"><span id="mkt-skin-stage-name"></span></figcaption>' +
+    '</figure>';
   }
 
   // SUMMON-only: choose the new agent's MODEL (optional — blank inherits the orchestrator's). Reuses the shared
@@ -852,7 +875,7 @@ const Marketplace = (() => {
   // The helper line under it carries the class's clearance/effort tuning — see modelHelpHTML.
   function summonModelBarHTML(s) {
     if (!(ctx && ctx.mode === 'pick' && ctx.summon) || typeof ModelPicker === 'undefined') return '';
-    return '<div class="mkt-skinbar mkt-modelbar"><label class="mkt-skinlabel">MODEL <span class="mkt-hint">— which brain it runs on</span></label>' +
+    return '<div class="mkt-skinbar mkt-modelbar"><div class="mkt-skinlabel">MODEL &amp; EFFORT</div>' +
       '<div class="mkt-modelpick" id="mkt-model-pick">' +
         ModelPicker.shellHTML({ id: 'mkt-model', inheritLabel: 'Same as the orchestrator', ariaLabel: 'New agent model', effort: true }) +
       '</div>' +
@@ -876,7 +899,7 @@ const Marketplace = (() => {
        var is the whole fix: every rule in marketplace.css already reads `var(--accent, var(--ph))`.
        Class identity is carried where classicons.js always intended it — the emblem SHAPE and the
        3-letter code stamp, never the colour. */
-    return '<button class="mkt-card' + (sel ? ' sel' : '') + '" type="button" data-id="' + esc(s.id) + '" style="--ci:' + (i || 0) + '">' +
+    return '<button class="mkt-card' + (sel ? ' sel' : '') + '" type="button" aria-pressed="' + sel + '" data-id="' + esc(s.id) + '" style="--ci:' + (i || 0) + '">' +
       sealHTML(s, false) +
       '<div class="mkt-card-id">' +
         '<div class="mkt-name">' + esc(s.name) +
@@ -1126,10 +1149,10 @@ const Marketplace = (() => {
     const aboutBlock = (lead || brief)
       ? '<div class="mkt-block mkt-about"><div class="bh">WHAT IT DOES</div>' +
           (lead ? '<p class="bp lead">' + esc(lead) + '</p>' : '') +
-          (brief ? '<p class="bp">' + esc(brief) + '</p>' : '') +
+          (!lead && brief ? '<p class="bp lead">' + esc(brief) + '</p>' : '') +
         '</div>'
       : '';
-    return '<div class="mkt-dos-label">▮ CLASS DOSSIER</div>' +
+    return '<div class="mkt-dos-scroll"><div class="mkt-dos-label">▮ CLASS DOSSIER</div>' +
       '<div class="mkt-dos-hero">' + sealHTML(s, true) +
         '<div class="mkt-dos-hi"><div class="mkt-dos-name">' + esc(s.name) + badges + '</div>' +
           '<div class="mkt-dos-tag">' + esc(s.tagline) + '</div>' +
@@ -1141,10 +1164,11 @@ const Marketplace = (() => {
       '</div>' +
       aboutBlock +
       // CONFIGURE sits THIRD, immediately under the description and above the reference blocks: description then
-      // decision is the order the Commander reads in, and burying the controls under gear + starters + orders put
-      // them a screen and a half down, behind the sticky CTA. Everything below this point is reference material.
+      // decision is the order the Commander reads in. The CTA owns a separate footer so scrolling reference
+      // material can never draw underneath it. Everything below this point is reference material.
       summonConfigPanelHTML(s) +
-      (s.starters && s.starters.length ? '<div class="mkt-block"><div class="bh">TRY ASKING — things you can say to it</div><ul class="mkt-starters">' + s.starters.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></div>' : '') +
+      (lead && brief ? '<details class="mkt-brief mkt-block"><summary class="bh">ROLE BRIEF</summary><p class="bp">' + esc(brief) + '</p></details>' : '') +
+      (s.starters && s.starters.length ? '<details class="mkt-brief mkt-block"><summary class="bh">TRY ASKING</summary><ul class="mkt-starters">' + s.starters.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul></details>' : '') +
       // NO gear / skill-package inventories (2026-08-15, Andrew). They listed what the class draws on under the
       // overseer and which bundled skills it gets — true, but it is a manifest, not a reason to recruit, and it
       // ran longer than the description above it. The loadout still applies at summon exactly as before; the
@@ -1158,7 +1182,7 @@ const Marketplace = (() => {
         ? '<div class="mkt-cta-second"><button class="mkt-cta-alt mkt-deploy-cur" data-id="' + esc(s.id) + '">⏼ DEPLOY TO ' + esc(ctx.agentName).toUpperCase() + ' ▸</button>' +
           '<div class="mkt-cta-sub">re-specs ' + esc(ctx.agentName) + ' instead — no new crew member</div></div>'
         : '') +
-      '<div class="mkt-dos-cta">' + custActs +
+      '</div><div class="mkt-dos-cta">' + custActs +
         // adopt-voice sits BESIDE the DEPLOY CTA it modifies (audit item 8), not orphaned up in the toolbar.
         (deploy ? '<label class="mkt-adopt mkt-adopt-cta"><input type="checkbox" class="mkt-adopt-cb"> adopt its voice too</label>' : '') +
         '<button class="mkt-cta-main mkt-deploy" data-id="' + esc(s.id) + '">' + ctaLabel + ' ▸</button>' +
@@ -1479,9 +1503,9 @@ const Marketplace = (() => {
     res.items.forEach((x, i) => trackRecommendation('recruit', x.s, x.why, i + 1));
     const head = res.personalized
       ? noticedHead('based on your recent runs')
-      : coldHead('STARTING LINEUP — one per lane while the station learns what you work on · this shelf changes as you use agents');
-    return '<div class="mkt-sect-h mkt-rec-sect">' + head + '</div><div class="mkt-rec-rail">' +
-      res.items.map(x => recCardHTML(x.s, x.why)).join('') + '</div>';
+      : coldHead('STARTING LINEUP');
+    return '<div class="mkt-sect-h mkt-rec-sect">' + head + '</div><div class="mkt-rec-rail' + (res.personalized ? '' : ' mkt-lineup') + '">' +
+      res.items.map(x => recCardHTML(x.s, x.why, !res.personalized)).join('') + '</div>';
   }
   // the CURATED-FOR-YOUR-WORKFLOW shelf: returns the shelf HTML when Recruiter has a warm read, else '' (so the
   // caller falls back to the honest lineup). Excludes the currently-focused class (deploy re-spec) like rankSpecs.
@@ -1822,15 +1846,15 @@ const Marketplace = (() => {
       '<div class="mkt-rec-why"><span class="mkt-rec-why-k">' + esc(cat) + '</span>' + (r.custom ? ' <span class="mkt-badge">CUSTOM</span>' : '') +
         (why ? ' <span class="mkt-foryou-why">' + esc(why) + '</span>' : '') + '</div></button>';
   }
-  function recCardHTML(s, why) {
+  function recCardHTML(s, why, compact) {
     // `why` comes from rankSpecs: the profile-affinity reason, a goal-match note, or the cold-start lane label
     // no `--accent` — the shelf cards ride the station phosphor like every other seal in the bay
     // (see the note on mkt-card). STARTING LINEUP sat three different colours side by side.
-    return '<button class="mkt-rec" type="button" data-id="' + esc(s.id) + '">' +
+    return '<button class="mkt-rec" type="button" data-id="' + esc(s.id) + '"' + (compact && why ? ' title="' + esc(why) + '"' : '') + '>' +
       declineGlyphHTML('recruit', s.id, s.name) +
       '<div class="mkt-rec-top">' + sealHTML(s, false) +
         '<div class="mkt-rec-id"><div class="mkt-rec-name">' + esc(s.name) + '</div><div class="mkt-rec-tag">' + esc(s.tagline) + '</div></div></div>' +
-      (why ? '<div class="mkt-rec-why"><span class="mkt-rec-why-k">WHY</span> ' + esc(why) + '</div>' : '') + '</button>';
+      (why && !compact ? '<div class="mkt-rec-why"><span class="mkt-rec-why-k">WHY</span> ' + esc(why) + '</div>' : '') + '</button>';
   }
 
   /* ---------- auto-mint: "SUGGESTED" ---------- */
@@ -2051,12 +2075,15 @@ const Marketplace = (() => {
   // (the selected one, else the first); Left/Right walk in DOM order, Up/Down jump a row (columns derived live from
   // the auto-fill layout). Keeps the grid one Tab-stop instead of dozens, and makes it keyboard-drivable.
   function wireGridNav(scope) {
+    // Filters reuse the stage node. Replace its handler so each arrow advances once,
+    // even after several searches or lane changes.
+    if (scope._mktGridNav) scope.removeEventListener('keydown', scope._mktGridNav);
     const cards0 = Array.from(scope.querySelectorAll('.mkt-card'));
     if (!cards0.length) return;
     const fid = tab === 'recipes' ? focusRecipe : focusAgent;
     let activeIdx = cards0.findIndex(c => c.dataset.id === fid); if (activeIdx < 0) activeIdx = 0;
     cards0.forEach((c, i) => { c.tabIndex = (i === activeIdx ? 0 : -1); });
-    scope.addEventListener('keydown', e => {
+    scope._mktGridNav = e => {
       const cur = document.activeElement;
       if (!cur || !cur.classList || !cur.classList.contains('mkt-card') || !scope.contains(cur)) return;
       if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown'].indexOf(e.key) < 0) return;
@@ -2075,7 +2102,8 @@ const Marketplace = (() => {
       e.preventDefault();
       list.forEach(c => { c.tabIndex = -1; });
       list[next].tabIndex = 0; list[next].focus();
-    });
+    };
+    scope.addEventListener('keydown', scope._mktGridNav);
   }
 
   /* ---------- wiring: prospects (station-drafted new classes) ----------
@@ -2130,6 +2158,10 @@ const Marketplace = (() => {
      therefore patched in place (counter, helper, aria-invalid, and every .mkt-candidate-name echo including the
      CTA's). Called from wireDossier so it re-binds on both a full stage render and a dossier-only repaint. */
   function wireSummonConfig(sc) {
+    const appearance = sc.querySelector('.mkt-appearance');
+    if (appearance) appearance.addEventListener('toggle', () => { if (appearance.isConnected) appearanceOpen = appearance.open; });
+    const modelSettings = sc.querySelector('.mkt-model-settings');
+    if (modelSettings) modelSettings.addEventListener('toggle', () => { if (modelSettings.isConnected) modelSettingsOpen = modelSettings.open; });
     const nameIn = sc.querySelector('#mkt-summon-name');
     if (nameIn) nameIn.addEventListener('input', () => {
       pickedSummonName = nameIn.value;
@@ -2157,8 +2189,11 @@ const Marketplace = (() => {
       skinWrap.querySelectorAll('.skin-thumb').forEach(b => {
         b.addEventListener('click', () => {
           pickedSummonSkin = b.dataset.skin;
-          skinWrap.querySelectorAll('.skin-thumb').forEach(x => x.classList.remove('sel'));
+          skinWrap.querySelectorAll('.skin-thumb').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-pressed', 'false'); });
           b.classList.add('sel'); sfx('click');
+          b.setAttribute('aria-pressed', 'true');
+          const choice = sc.querySelector('.mkt-appearance-choice');
+          if (choice) choice.textContent = DATA.SKINS[pickedSummonSkin].name || pickedSummonSkin;
           if (skinStage) skinStage.show(pickedSummonSkin);
         });
         // hover scrubs the live stage so you can compare without committing; leaving snaps back to the pick
@@ -2187,6 +2222,8 @@ const Marketplace = (() => {
         // flashing the choice the Commander just made back to blank until the catalog resolves again.
         const help = sc.querySelector('#mkt-model-help');
         if (help) help.innerHTML = modelHelpHTML((focusAgent && Specialties.get(focusAgent)) || null);
+        const choice = sc.querySelector('.mkt-model-choice');
+        if (choice) choice.textContent = summonModelSummary();
       });
     }
   }
