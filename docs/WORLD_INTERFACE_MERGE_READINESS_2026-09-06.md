@@ -39,3 +39,15 @@ and `station-without-pendants.png`. Individual live reports are in
 
 Preview: `http://127.0.0.1:9177/` in this worktree. No provider run or paid-model behavior is
 claimed by these UI checks. Integration must still perform its serialized merge and gate.
+
+## Subsequent session-filter correction
+
+User review removed the CHATS category. Source commit `1834b3ae0` now offers only ALL and
+AUTOMATED, makes AUTOMATED strictly automation-only, and falls back to ALL for a saved retired
+CHATS preference. Verification fingerprint commit: `cd71e5ac5`.
+
+This correction passed the full `npm run test:fast` gate (**723 steps**, exit 0) and the updated
+session-attention live probe (**36 checks**, zero runtime exceptions). The live custom preview
+also confirmed AUTOMATED excludes ordinary sessions and ALL restores them. Evidence is in
+`.worldshots/merge-readiness/session-filter-{fast,live}.log` and the corresponding result JSON
+files. No backend code changed, so the earlier HTTP receipt remains applicable.
