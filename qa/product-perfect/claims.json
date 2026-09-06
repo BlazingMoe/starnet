@@ -1033,8 +1033,8 @@
       },
       {
         "path": "frontend/css/app.css",
-        "bytes": 395265,
-        "sha256": "ee3dbd1d0651d95f63e01180b713bd9fd4cb3fd27dd5fde2f4fb8ee2406f32f3"
+        "bytes": 395441,
+        "sha256": "9d6a79149b8c13c5f6e84981837041b46ace67bbe84f8de8a36bf3a382428ef4"
       },
       {
         "path": "frontend/css/asciifx.css",

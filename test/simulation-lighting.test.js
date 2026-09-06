@@ -13,6 +13,15 @@ const bake = read('stationbake.js');
 const world = read('world.js');
 const build = read('build.js');
 const lab = read('crtlab.js');
+// Room colour must survive opening a saved custom phosphor theme. The production
+// theme round-trip is recorded in qa/digests/2026-09-06-room-colour-parity.md.
+const appCss = fs.readFileSync(path.join(__dirname, '..', 'frontend/css/app.css'), 'utf8');
+const stageRule = appCss.match(/#stage\s*\{([^}]+)\}/)[1];
+A.ok(/filter:\s*saturate\(1\.06\) contrast\(1\.1\) brightness\(0\.94\)/.test(stageRule),
+  'station preserves the approved grade independently of theme saturation and hue');
+A.ok(!stageRule.includes('--cam-grade'), 'custom UI grade cannot desaturate the live station');
+A.eq(appCss, fs.readFileSync(path.join(__dirname, '..', 'website/app/css/app.css'), 'utf8'),
+  'website and packaged station use the same colour treatment');
 
 const srgb = v => {
   v /= 255;
