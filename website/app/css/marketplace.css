@@ -924,15 +924,17 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-recruit .mkt-modelpick .mp-model, .mkt-recruit .mkt-modelpick .mp-effort {
   width: 100%; min-width: 0; max-width: none; font-size: 13px; padding: 7px 22px 7px 8px; }
 .mkt-recruit .mkt-field-help { font-size: 12px; line-height: 1.25; margin-top: 6px; }
-.mkt-appearance summary, .mkt-brief summary { cursor: pointer; list-style: none; color: var(--ph);
+.mkt-brief summary { cursor: pointer; list-style: none; color: var(--ph);
   display: flex; align-items: center; gap: 8px; }
-.mkt-appearance summary { padding: 8px 0 0; font-size: 11px; letter-spacing: .5px; }
-.mkt-appearance summary::before, .mkt-brief summary::before { content: '▸'; color: var(--ph-dim); }
-.mkt-appearance[open] > summary::before, .mkt-brief[open] > summary::before { content: '▾'; }
-.mkt-recruit :is(.mkt-appearance, .mkt-model-settings, .mkt-brief) > summary:hover { color: var(--ph-bright); }
-.mkt-recruit :is(.mkt-appearance, .mkt-model-settings, .mkt-brief) > summary::-webkit-details-marker { display: none; }
+.mkt-appearance { padding-top: 12px; }
+.mkt-appearance-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  color: var(--ph-bright); font-size: 12px; letter-spacing: .5px; }
+.mkt-brief summary::before { content: '▸'; color: var(--ph-dim); }
+.mkt-brief[open] > summary::before { content: '▾'; }
+.mkt-recruit :is(.mkt-model-settings, .mkt-brief) > summary:hover { color: var(--ph-bright); }
+.mkt-recruit :is(.mkt-model-settings, .mkt-brief) > summary::-webkit-details-marker { display: none; }
 .mkt-appearance-choice { margin-left: auto; color: var(--text); font-size: 13px; letter-spacing: 0; }
-.mkt-appearance summary:focus-visible, .mkt-brief summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
+.mkt-brief summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
 .mkt-recruit .mkt-config .mkt-skin-stage { margin: 0; width: 86px; gap: 0; align-self: start; }
 .mkt-recruit .mkt-skin-stage-frame { width: 86px; height: 96px; min-height: 0;
   background: radial-gradient(ellipse at 50% 70%, rgba(var(--ph-rgb),.12), transparent 72%), var(--panel);
@@ -942,7 +944,7 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
   transform: scale(1.6); transform-origin: 50% 70%; }
 .mkt-recruit .mkt-skin-stage-name { font-size: 11px; letter-spacing: .5px; margin-top: 7px; }
 .mkt-recruit .mkt-config .mkt-appearance .mkt-skinbar { padding-top: 10px; }
-.mkt-recruit .mkt-config .mkt-skin-section .skin-picker { grid-template-columns: repeat(auto-fill, minmax(48px,1fr)); max-height: 160px; gap: 4px; }
+.mkt-recruit .mkt-config .mkt-skin-section .skin-picker { grid-template-columns: repeat(auto-fill, minmax(48px,1fr)); max-height: 132px; gap: 4px; }
 .mkt-recruit .skin-thumb { min-width: 0; min-height: 0; height: 62px; aspect-ratio: auto; padding: 2px;
   overflow: hidden; align-items: center; border-color: var(--ph-faint); border-radius: 3px; }
 .mkt-recruit .skin-thumb img { width: 78px; height: 78px; max-width: none; flex: 0 0 auto; }
