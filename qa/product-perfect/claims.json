@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "b34063de1036410643b83e9980414aa3a9d881ce",
+    "sourceCommit": "3da7b2d1137352ade8a88c0df355cd1fccb34239",
     "pathSetSha256": "35f806b0a0dbe801e6852fb7d699846911c65713289c283c13b96afb7baf576f",
     "files": [
       {
@@ -773,8 +773,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 668679,
-        "sha256": "68b002f72bb95edfd887e558f6001c04aac67156ebf8aaf1e3309bb146198bab"
+        "bytes": 670768,
+        "sha256": "cacf9686f3d65e21d91d42f2c88fc932912dfe85a7d12bd739fd878b8ba1c6a0"
       },
       {
         "path": "frontend/app/study.js",
