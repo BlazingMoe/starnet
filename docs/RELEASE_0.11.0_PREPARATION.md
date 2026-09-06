@@ -131,3 +131,37 @@ waiver alongside the final release notes.
 5. Prove the exact installed candidate, hosted T0 clean install, G1 packaged lifecycle,
    signed manifest coherence, Mac acceptance, and update preservation/canary behavior.
 6. Review the concrete draft and publish only through the owner-authorized release step.
+
+## Continued preparation: Commander QA repair
+
+On the owner's request to continue, `0d8f2ff4f` repairs the shared HUD truthfulness probe
+and its separate audit assertion. The product already renders Commander progression from
+the server-owned Journey store. QA still compared it with unrelated crew XP and a
+monotonic baseline. A delayed first Journey response therefore produced the exact old
+`displayed=null gte expected=1` failure; a fabricated `Lv 999` also incorrectly passed.
+
+Controlled before/after proof used an owned seeded sidecar at :9188 and Chromium at
+:9388, holding and then releasing the real `/api/journey` request through CDP. The old
+probe rejected the honest loading dash and accepted `Lv 999` against backend level 1.
+The repaired probe accepts the honest dash, matches the loaded level exactly, rejects
+999, and passes again after restoring the genuine projection. No production progression
+logic, readiness skip, golden threshold or known-issue suppression changed.
+
+The separate audit now queries `/api/journey` directly and requires a finite Commander
+level, preserving an explicit service-availability check in addition to display parity.
+Thirteen registered regression assertions cover delayed data, invented levels, missing
+and empty DOM, unrelated crew XP, stale/saved markings, recovery and authoritative reset.
+The website mirror was regenerated. Live audit: 46/46 PASS; full journeys: 130/130 PASS.
+
+Evidence: `hud-before-owned.log`, `hud-after-owned.log`, `hud-regression-before.log`,
+`audit-hud.log`, `journeys-hud.log`, and `.bugloops/release-0110-hud-*/receipt.json` in
+this release worktree. Earlier `hud-before.log`/`hud-after.log` attempts used an occupied
+port and are excluded from the proof; the controlled rerun refuses occupied ports.
+The initial full gate correctly rejected the changed committed HUD fingerprint; its
+reviewed release-surface record must be refreshed before integration. No claim of
+release readiness or customer recovery follows from this QA repair.
+
+The two station-level QA findings have a reproduced detector cause and a source repair.
+The ABILITIES layout timeout remains unresolved: successful reruns do not establish its
+historical cause. All eight customer P1 records and the Google activation requirement
+remain open pending their specific acceptance evidence.
