@@ -12309,7 +12309,8 @@ async function validateWorkshopManifest(agentId, runId) {
   if (!man || typeof man !== 'object' || man.v !== 1) { console.warn('[workshop] manifest missing v:1 for run', runId); return null; }
   if (!Array.isArray(man.files) || !man.files.length) { console.warn('[workshop] manifest lists no files for run', runId); return null; }
   // PROVE each listed file exists inside the run dir (jail-checked). Recompute bytes from disk (never trust the
-  // model's number) and drop any listed file that isn't actually there — an empty proven set fails validation.
+  // model's number). A missing member invalidates the whole completion claim; keep partial work on disk
+  // for recovery, but never turn its surviving files into a supposedly complete deliverable.
   const runDirRel = relDir + '/';
   const provenFiles = [];
   // mouse-confinement incident (2026-07-12): a deliverable that requests pointer lock / fullscreen will capture
@@ -12323,9 +12324,12 @@ async function validateWorkshopManifest(agentId, runId) {
   let capturesInput = false, usesMedia = false;
   for (const f of man.files) {
     const p = String((f && f.path) || '').replace(/^[\\/]+/, '');
-    if (!p || p === 'deliverable.json') continue;
-    let abs; try { ({ abs } = await fsJail.resolveInside(agentId, runDirRel + p)); } catch (_) { continue; }
-    let st; try { st = await fsp.stat(abs); } catch (_) { continue; }
+    if (!p || p === 'deliverable.json') { console.warn('[workshop] invalid listed file for run', runId, '— not emitting'); return null; }
+    let abs; try { ({ abs } = await fsJail.resolveInside(agentId, runDirRel + p)); }
+    catch (_) { console.warn('[workshop] listed file path rejected for run', runId, '— not emitting'); return null; }
+    let st; try { st = await fsp.stat(abs); }
+    catch (_) { console.warn('[workshop] listed file missing for run', runId, '— not emitting'); return null; }
+    if (!st || !st.isFile()) { console.warn('[workshop] listed member is not a file for run', runId, '— not emitting'); return null; }
     if (st && st.isFile()) {
       provenFiles.push({ path: p, bytes: st.size });
       if ((!capturesInput || !usesMedia) && SCANNABLE_RE.test(p) && st.size <= 4 * 1024 * 1024) {
