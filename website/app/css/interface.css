@@ -6,18 +6,17 @@ body {
   --ui-highlight: rgba(var(--ph-bright-rgb), .12);
   --ui-well: inset 0 2px 8px rgba(0,0,0,.65), inset 0 0 0 1px rgba(0,0,0,.7);
   --ui-face: linear-gradient(180deg, rgba(var(--ph-rgb), .06), transparent 50%);
-  /* The existing dock-key material, shared by legacy action controls as well. */
+  /* Phosphor key faces: a crisp bevel and hard seat, like station hardware. */
   --ui-key-rest: linear-gradient(180deg,
-    color-mix(in srgb, var(--ph) 10%, var(--panel2)),
-    color-mix(in srgb, var(--ph) 3%, var(--panel2)) 58%,
-    color-mix(in srgb, #000 20%, var(--panel2)));
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 4%, var(--panel2)) 2px 100%);
   --ui-key-hover: linear-gradient(180deg,
-    color-mix(in srgb, var(--ph) 16%, var(--panel2)),
-    color-mix(in srgb, var(--ph) 6%, var(--panel2)) 62%, var(--panel2));
+    color-mix(in srgb, var(--ph) 24%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 2px 100%);
   --ui-key-rest-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .12),
-    inset 0 -2px 0 rgba(0,0,0,.28), 0 2px 3px rgba(0,0,0,.4);
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7);
   --ui-key-over-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .18),
-    inset 0 -2px 0 rgba(0,0,0,.28), 0 2px 5px rgba(0,0,0,.4);
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7), 0 0 8px rgba(var(--ph-rgb),.15);
   --ui-key-face: var(--ui-key-rest);
   --ui-key-shadow: var(--ui-key-rest-shadow);
 }
@@ -212,10 +211,10 @@ body {
 ):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
   .armed, .danger-armed, .primary, .refit-primary, .suggested, .confirm,
   [aria-pressed="true"], [aria-selected="true"], [aria-expanded="true"])) {
-  color: var(--ui-key-label, var(--ui-key-accent, var(--text)));
+  color: var(--ui-key-label, var(--ui-key-accent, var(--ph)));
   background: var(--ui-key-face);
-  border: 1px solid var(--ui-key-edge, var(--ui-key-accent, var(--ui-edge))); border-radius: 5px;
-  box-shadow: var(--ui-key-shadow); text-shadow: none;
+  border: 1px solid var(--ui-key-edge, var(--ui-key-accent, var(--ph-dim))); border-radius: 2px;
+  box-shadow: var(--ui-key-shadow); text-shadow: 0 0 6px rgba(var(--ph-rgb),.2);
   transition: color var(--t-fast) var(--ease-soft), border-color var(--t-fast) var(--ease-soft),
     box-shadow var(--t-fast) var(--ease-soft), background-color var(--t-fast) var(--ease-soft);
 }
@@ -223,7 +222,7 @@ body {
 :is(.screen, .mkt-scrim, .term) button:where(:hover, :focus-visible):not(:disabled) {
   --ui-key-face: var(--ui-key-hover);
   --ui-key-shadow: var(--ui-key-over-shadow);
-  --ui-key-edge: var(--ui-key-accent, var(--ph-dim));
+  --ui-key-edge: var(--ui-key-accent, var(--ph));
   --ui-key-label: var(--ui-key-accent, var(--ph-bright));
 }
 :is(.screen, .mkt-scrim, .term) button:active:not(:disabled) {
@@ -235,8 +234,6 @@ body {
 .key-cta-alt, .key-cta-free { --ui-key-accent: var(--warn); }
 .cc-filter:is(.cc-lg-none, .cc-f-on) { --ui-key-accent: var(--ok); }
 .cc-filter.cc-lg-key { --ui-key-accent: var(--gold); }
-#screen-game .chat-send::before, #screen-game .chat-send::after,
-#screen-game .bb:hover::before, #screen-game .bb:hover::after { content: none; }
 #screen-game .chat-send { padding-inline: 12px; }
 #screen-game .cmsg-starter { transform: none; }
 @media (prefers-reduced-motion: reduce) {

@@ -268,11 +268,11 @@
 @keyframes comms-blink { 50% { opacity: .25; } }
 
 /* Starter geometry; the shared cockpit action material lives in interface.css. */
-.cmsg-empty { padding: 24px 12px; opacity: 1; text-shadow: none; }
-.cmsg-empty-line { margin-bottom: 16px; color: var(--text); font-size: 15px; }
-.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.cmsg-empty { padding: 18px 10px; opacity: 1; }
+.cmsg-empty-line { margin-bottom: 12px; color: var(--ph); font-size: 15px; }
+.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .cmsg-empty .cmsg-starter {
-  min-height: 38px; max-width: 100%; padding: 9px 13px;
+  min-height: 32px; max-width: 100%; padding: 6px 10px;
   font-size: 15px; line-height: 1.2; letter-spacing: .2px;
   white-space: normal; overflow-wrap: anywhere;
 }
