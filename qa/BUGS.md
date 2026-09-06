@@ -4,7 +4,7 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**9** open (open+claimed) of 68 total — 0 P0 · 9 P1 · 0 P2
+**8** open (open+claimed) of 68 total — 0 P0 · 8 P1 · 0 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
@@ -55,7 +55,6 @@ User/owner reports: **27** · source fixed: **19** · installer verified: **0** 
 | P1 | open | onboarding | [Mac paid onboarding becomes unreachable after reload and relink](bugs/eaaa3ec8-mac-onboarding-unreachable-after-link.md) | reliability-followup | — |
 | P1 | open | providers | [Funded working station still displays a zero-credit warning](bugs/72af29f4-funded-station-false-zero-warning.md) | reliability-followup | — |
 | P1 | open | providers | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | reliability-followup | — |
-| P1 | open | sessions | [Workshop reports a completed web tool when its entry file is missing](bugs/097269b5-workshop-reports-a-completed-web-tool-when-its-e.md) | agent/release-ui-audit-0906 | — |
 | P1 | open | voice | [Mac desktop microphone blocked while browser mirror works](bugs/8a553481-mac-desktop-microphone-blocked-while-browser-mir.md) | agent/voice-agents-mac-0906 | — |
 | P1 | open | world | [Customer viewport becomes blank after ten to twenty minutes](bugs/9256a771-viewport-black-after-idle.md) | reliability-followup | — |
 | P1 | fixed | autonomy | [cron-store's armAt never receives the host defaultTz, so a tz-less cron routine's FIRST nextRunAt is UTC-anchored while every later advance uses local — the mar](bugs/f47a1e3a-cron-store-s-armat-never-receives-the-host-defau.md) | sweep/autonomy | 226cec3c |
@@ -79,6 +78,7 @@ User/owner reports: **27** · source fixed: **19** · installer verified: **0** 
 | P1 | fixed | safecell | [The Projects rail's ADD doorway records a NON-canonical path grant, so blessing a folder reached through a junction/symlink reports success and grants nothing](bugs/cf0cd4cd-the-projects-rail-s-add-doorway-records-a-non-ca.md) | sweep/safecell | 226cec3c |
 | P1 | fixed | sessions | [Add agents silently fails when group backend is unavailable](bugs/0245a284-add-agents-silently-fails-when-group-backend-is.md) | comms-add-agents-0906 | cf6b3ca03c372c404bcb46997a56d570d7747d70 |
 | P1 | fixed | sessions | [checkpoint snapshot() uses the SYNC loadIndex despite being async — after an index+bak loss it re-stamps a 1-entry index that permanently blocks the git rebuild](bugs/d5621e9b-checkpoint-snapshot.md) | sweep/sessions | b315063b |
+| P1 | fixed | sessions | [Workshop reports a completed web tool when its entry file is missing](bugs/097269b5-workshop-reports-a-completed-web-tool-when-its-e.md) | agent/release-ui-audit-0906 | 44a8c3006 |
 | P1 | fixed | skills | [gate.verify()'s tamper branch re-enters decide(), which clears the tamper against the STALE stored contentDigest — one approval permanently blesses whatever is](bugs/76d5dc8a-gate-verify.md) | sweep/skills | 598ab4a4 |
 | P1 | fixed | voice | [A stale sidecar token lets Local Live open a silent microphone session after restart](bugs/ff73b79a-a-stale-sidecar-token-lets-local-live-open-a-sil.md) | agent/voice-release-sweep | 8bc9ff9a |
 | P1 | fixed | voice | [On a zero-key station every Edge blip is misclassified as 'no key': no retry, a 60s dead-voice cold-off, and a tooltip demanding a credential the station never](bugs/151c8d9a-on-a-zero-key-station-every-edge-blip-is-misclas.md) | sweep/voice | 50a8b07b |
@@ -119,7 +119,7 @@ User/owner reports: **27** · source fixed: **19** · installer verified: **0** 
 | autonomy | 2 |
 | providers | 2 |
 | safecell | 0 |
-| sessions | 1 |
+| sessions | 0 |
 | skills | 0 |
 | onboarding | 2 |
 | world | 1 |

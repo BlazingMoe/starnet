@@ -4,10 +4,10 @@ slug: workshop-reports-a-completed-web-tool-when-its-e
 title: Workshop reports a completed web tool when its entry file is missing
 surface: sessions
 severity: P1
-status: open
+status: fixed
 found: 2026-09-06
 lane: agent/release-ui-audit-0906
-fix:
+fix: 44a8c3006
 origin: audit
 ---
 
@@ -56,7 +56,28 @@ not require every declared file to have been written successfully.
 
 ## Verdict
 
-Open. A partial file inventory proves those files exist; it does not prove the claimed
-deliverable is complete. Repair should distinguish incomplete builds from completed
-ones, preserve recoverable files, and add deterministic missing-entrypoint and missing
-support-file coverage to the workshop HTTP tests.
+Source fixed by `44a8c3006` on the release preparation lane. Every declared member must
+validate as a real file; missing, rejected and non-file members invalidate completion.
+Partial files stay on disk. The existing no-manifest failure/retry path remains visible
+and never marks the build complete. Installed-desktop acceptance is still unverified.
+
+## Regression
+
+On 2026-09-06, the real-sidecar `test/workshop.e2e.test.js` reproduction emitted seven
+failing assertions before the repair: both missing-entrypoint and missing-support-file
+builds returned built, returned a partial success manifest, and failed to stay visibly
+failed; the durable SSE also advertised an incomplete build. After repair, all 86
+assertions pass, including two attempts per incomplete build, preserved surviving files,
+no built response/event, and a failed library record surviving a real sidecar restart.
+The full browser journey suite also passes 130/130 on `5f66ccb47`.
+Logs: release preparation worktree `workshop-before.log`, `workshop-after.log`,
+`journeys-release.log`. This is source/runtime evidence, not installer certification.
+
+## Sibling coverage
+
+{
+  "adapters": [{"target":"Workshop filesystem manifest validator","state":"covered","test":"test/workshop.e2e.test.js","scenario":"missing entrypoint and support file reject completion while complete builds remain valid","gate":"http"}],
+  "entrypoints": [{"target":"queued Workshop shift and retry","state":"covered","test":"test/workshop.e2e.test.js","scenario":"two incomplete attempts fail instead of marking built","gate":"http"},{"target":"implement and Night Shift use the same validator","state":"blocked","reason":"Shared validator is repaired; independent fault injection for incomplete implement and Night Shift builds remains a coverage gap."}],
+  "displays": [{"target":"shift response, durable SSE and deliverable library","state":"covered","test":"test/workshop.e2e.test.js","scenario":"no partial success manifest or built event; failed row remains visible","gate":"http"}],
+  "lifecycle": [{"target":"partial files and failed library records","state":"covered","test":"test/workshop.e2e.test.js","scenario":"recoverable files remain on disk and failed records survive real sidecar restart","gate":"http"}]
+}
