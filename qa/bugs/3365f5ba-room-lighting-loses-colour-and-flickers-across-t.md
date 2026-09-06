@@ -32,7 +32,7 @@ Open the seeded :9197 preview on source 28a9ed488. Observe a furnished wood-floo
 
 ## Verdict
 
-Source fix 970df704b steadies ceiling halos at their previous average intensity, reuses gradients via weak caches, slows and reduces emitted prop-light modulation, and separates material colour/reflection gain from the coverage cut. The room grid and diffuse coverage are preserved. Source behavior has live and focused regression proof; the complete gate result is recorded in the lighting digest. No installer or owner recovery claim is made.
+Source fix 970df704b steadies ceiling halos at their previous average intensity, reuses gradients via weak caches, slows and reduces emitted prop-light modulation, and separates material colour/reflection gain from the coverage cut. The room grid and diffuse coverage are preserved. Source behavior has live and focused regression proof; the standard full fast gate passed all 723 steps, exit 0. No installer or owner recovery claim is made.
 
 ## Regression
 

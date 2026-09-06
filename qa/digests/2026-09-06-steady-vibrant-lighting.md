@@ -18,4 +18,4 @@ Artifacts: `.worldshots/vibrant-lighting/colour.json`, `steady.json`, `settings.
 
 ## Gate and delivery status
 
-Syntax, focused regressions, browser proofs and bug-register validation passed. The full `npm run test:fast` result is pending in `.worldshots/vibrant-lighting/test-fast.log`. Candidate source fingerprints were refreshed in `c845ecefc`. This correction is not merged or installer-verified; owner acceptance remains unconfirmed.
+Syntax, focused regressions, browser proofs and bug-register validation passed. The full standard `npm run test:fast` passed all 723 steps, exit 0, recorded in `.worldshots/vibrant-lighting/test-fast.log`. Candidate source fingerprints were refreshed in `c845ecefc`; later commits only update QA records. This correction is not merged or installer-verified; owner acceptance remains unconfirmed.
