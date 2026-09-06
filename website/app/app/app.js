@@ -2796,6 +2796,7 @@ const App = (() => {
     Workstreams.reset();   // a fresh General stream for the new agent
     if (typeof Tutorial !== 'undefined' && Tutorial.reset) Tutorial.reset();   // a NEW Commander re-earns the one-shot tour + FIRST STEPS state (own key)
     if (typeof PitchStore !== 'undefined') PitchStore.reset();   // a brand-new hero re-earns its First Pitch (own key)
+    if (typeof StarterStore !== 'undefined') StarterStore.reset();
     if (typeof SuggestStore !== 'undefined') SuggestStore.reset();   // …and a fresh ongoing-suggestion cadence
     if (typeof SeedStore !== 'undefined') SeedStore.reset();   // …and a fresh seed-offer budget
     if (typeof LaunchMemory !== 'undefined') LaunchMemory.reset();   // …and no inherited last-used recipe inputs (own key)

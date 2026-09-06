@@ -632,6 +632,10 @@ const Chat = (() => {
     beatCards = (typeof BeatCard !== 'undefined' && BeatCard.create) ? BeatCard.create({ vanish: vanish }) : null;
     beatSlot = beatCards ? beatCards.slot : null;
     log = el('chat-log'); input = el('chat-input'); statusEl = el('chat-status');
+    if (typeof window !== 'undefined' && !window.__chatStarterTimer && typeof StarterStore !== 'undefined') {
+      StarterStore.init();
+      window.__chatStarterTimer = setInterval(() => { try { refreshStarters(); } catch (_) {} }, 15000);
+    }
     // F2: re-derive the idle status on the same cadence the topbar repaints #sig (3s) so a link that dies with
     // NO run in flight still downgrades 'online' → 'station unreachable'. Once-armed (init re-runs per session).
     if (typeof window !== 'undefined' && !window.__chatLinkStatusTimer) {
@@ -1517,34 +1521,107 @@ const Chat = (() => {
     updateControls();   // Stop button visibility + queued pills follow the displayed stream too
   }
   function clearEmptyState() { const e = log && log.querySelector('.cmsg-empty'); if (e) e.remove(); }
-  // Derive recent-work shortcuts from real history; missing stores fall back to editable tasks.
-  function pickStarters() {
-    const recipes = (typeof Recipes !== 'undefined' && Recipes.list) ? (Recipes.list() || []) : [];
-    let recent = [], valuesOf = () => null;
-    if (typeof LaunchMemory !== 'undefined' && LaunchMemory.recent) {
-      try { recent = LaunchMemory.recent(8) || []; valuesOf = id => LaunchMemory.get(id); } catch (_) {}
+  function starterContext() {
+    const agentId = (activeWs && activeWs.agentId) || 'agent', beliefs = {}, preferences = {};
+    for (const dim of ['goals', 'pain', 'ambition', 'standing_orders', 'style', 'stack', 'people', 'schedule', 'identity']) {
+      beliefs[dim] = typeof DossierStore !== 'undefined' ? DossierStore.beliefs(dim) : [];
     }
-    let sessions = [];
-    try {
-      if (typeof Workstreams !== 'undefined' && Workstreams.list) {
-        const others = (Workstreams.list() || []).filter(w => w && w.id !== (activeWs && activeWs.id)
-          && w.agentId === (activeWs && activeWs.agentId) && w.conversationMode !== 'group'
-          && w.history && w.history.some(r => r.role === 'user'));
-        sessions = others
-          .filter(w => w.title)
-          .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
-          .map(w => ({ id: w.id, title: w.title, at: w.lastActiveAt || 0, archived: w.archived,
-            lane: w.lane, busy: typeof Channels !== 'undefined' && Channels.isBusy(w.id) }));
-      }
-    } catch (_) {}
-    const now = new Date();
-    const sig = { recipes, recent, valuesOf, sessions, now: now.getTime() };
-    if (typeof Starters !== 'undefined' && Starters.pick) {
-      try { const out = Starters.pick(sig); if (out && out.length) return out; } catch (_) {}
+    for (const kind of ['build', 'research', 'analyze', 'automate', 'continue']) {
+      // An impression changes the ledger's weight denominator, not the user's direction.
+      // Cache on direction so merely showing an idea cannot trigger another paid generation.
+      preferences[kind] = typeof RecLedger !== 'undefined' ? Math.sign(RecLedger.preferenceOf(kind, [kind])) : 0;
     }
-    return [{ kind: 'draft', label: 'Plan a task', description: 'Describe the outcome you want to work toward.', send: 'Help me plan this task.\n\nThe outcome I want: ' }];
+    return Starters.context({ now: Date.now(), agentId, projectRoot: activeWs && activeWs.projectRoot,
+      sessions: Workstreams.list().map(w => ({ ...w, busy: typeof Channels !== 'undefined' && Channels.isBusy(w.id) })),
+      beliefs, preferences, goal: typeof GoalStore !== 'undefined' ? GoalStore.activeGoal() : null,
+      capabilities: typeof World !== 'undefined' && World.heroCaps ? World.heroCaps(agentId) : [],
+      enabled: typeof ProfileStore === 'undefined' || ProfileStore.enabled() });
   }
-
+  function starterOptions() {
+    return { system, modelKey: typeof Harness !== 'undefined' ? Harness.getProv() + ':' + Harness.getModel() : '' };
+  }
+  function refreshStarters() {
+    if (!log || !activeWs || activeWs.history.length || isBusy() || interview || (input && input.value.trim())) return;
+    const d = log.querySelector('.cmsg-empty');
+    if (!d) { maybeEmptyState(); return; }
+    const key = JSON.stringify([starterContext(), starterOptions()]);
+    if (d.starterKey === key && !(d.retryAt && Date.now() >= d.retryAt) && Date.now() < d.expiresAt) return;
+    // Keep focus stable during keyboard selection. The next idle tick can refresh it.
+    if (d.contains(document.activeElement)) return;
+    if (d.starterKey === key && d.retryAt && Date.now() >= d.retryAt && d.forcePending) {
+      requestStarterIdeas(d, d.querySelector('.cmsg-empty-hint'), starterContext(), starterOptions(), true); return;
+    }
+    clearEmptyState(); maybeEmptyState();
+  }
+  function openStarter(st, hint) {
+    if (input.value.trim()) { hint.textContent = 'Send or clear your current draft before choosing a session.'; input.focus(); return; }
+    const ctx = starterContext();
+    // Revalidate both evidence and destination at click time: work can finish in another session.
+    const sameEvidence = st.evidence.every(s => ctx.sources.some(current => current.id === s.id && current.text === s.text));
+    const valid = st.general || (sameEvidence && Starters.parse(JSON.stringify({ suggestions: [{ title: st.label, why: st.description, ...st }] }), ctx, StarterStore.exclusions()).length);
+    if ((!st.general && !ctx.enabled) || !valid) { clearEmptyState(); maybeEmptyState(); return; }
+    let ws;
+    if (st.sessionId) {
+      const target = Workstreams.get(st.sessionId);
+      if (!target || target.archived || Channels.isBusy(target.id)) return;
+      ws = Workstreams.switch(target.id);
+    } else ws = Workstreams.create(st.label, { agentId: ctx.agentId, projectRoot: ctx.projectRoot || undefined });
+    if (!ws) return;
+    load(ws);
+    prefill(Starters.launchPrompt(st));
+    if (!st.general) StarterStore.prepare(st, ws.id, input.value);
+    clearEmptyState(); refreshWorkflowViews();
+  }
+  function renderStarterIdeas(d, hint, result) {
+    const old = d.querySelector('.cmsg-empty-chips'); if (old) old.remove();
+    const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
+    const personalized = result.ideas || [], ideas = personalized.length ? personalized : Starters.defaults();
+    const messages = {
+      cold: 'Three ways to put ' + name + ' to work. Suggestions will become specific as we work together.',
+      paused: 'Personalization is paused. These starting points are available to everyone.',
+      loading: 'Finding ideas from your work. These starting points are available meanwhile.',
+      cooldown: 'Updating ideas from your latest context. Or start with one of these.',
+      error: 'Personalized ideas are unavailable right now. Try one of these starting points.',
+      ready: personalized.length ? 'Based on your work and goals. Choose a session to review its brief.' : 'Three substantial starting points. Your own requests will shape future suggestions.'
+    };
+    hint.textContent = messages[result.status] || messages.ready;
+    d.retryAt = result.status === 'cooldown' ? result.retryAt : 0;
+    for (const st of ideas) {
+      if (!st.general) StarterStore.shown(st);
+      const row = document.createElement('div'); row.className = 'cmsg-starter-row';
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter';
+      const title = document.createElement('span'); title.className = 'cmsg-starter-title'; title.textContent = st.label;
+      const detail = document.createElement('span'); detail.className = 'cmsg-starter-detail'; detail.textContent = st.description;
+      const output = document.createElement('span'); output.className = 'cmsg-starter-output'; output.textContent = 'Result: ' + st.deliverable;
+      const arrow = document.createElement('span'); arrow.className = 'cmsg-starter-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true');
+      b.append(title, detail); if (!st.general) b.appendChild(output); b.appendChild(arrow);
+      b.addEventListener('click', () => openStarter(st, hint));
+      const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.className = 'choice cmsg-starter-dismiss';
+      dismiss.textContent = 'Not relevant'; dismiss.setAttribute('aria-label', 'Not relevant: ' + st.label);
+      dismiss.addEventListener('click', () => { StarterStore.dismiss(st); row.remove(); if (!chips.querySelector('.cmsg-starter-row')) renderStarterIdeas(d, hint, { status: 'ready', ideas: [] }); });
+      row.appendChild(b); if (!st.general) row.appendChild(dismiss); chips.appendChild(row);
+    }
+    if (['ready', 'error'].includes(result.status)) {
+      const refresh = document.createElement('button'); refresh.type = 'button'; refresh.className = 'choice cmsg-starter-refresh'; refresh.textContent = 'Refresh suggestions';
+      refresh.addEventListener('click', () => requestStarterIdeas(d, hint, starterContext(), starterOptions(), true)); chips.appendChild(refresh);
+    }
+    d.appendChild(chips);
+  }
+  async function requestStarterIdeas(d, hint, ctx, options, force) {
+    d.forcePending = !!force;
+    renderStarterIdeas(d, hint, { status: 'loading', ideas: [] });
+    // Hydrate durable feedback before spending a generation on boot's temporary zero weights.
+    try { if (typeof RecLedger !== 'undefined') await RecLedger.refresh(); } catch (_) {}
+    if (!d.isConnected) return;
+    ctx = starterContext(); options = starterOptions();
+    d.starterKey = JSON.stringify([ctx, options]);
+    const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
+    StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
+      if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
+      if (JSON.stringify([starterContext(), starterOptions()]) !== key) { clearEmptyState(); maybeEmptyState(); return; }
+      if (result.status !== 'cancelled') renderStarterIdeas(d, hint, result);
+    });
+  }
   function maybeEmptyState() {
     if (!log || interview || log.querySelector('.cmsg-empty')) return;
     if (activeWs && activeWs.history && activeWs.history.length) return;
@@ -1557,33 +1634,12 @@ const Chat = (() => {
     line.textContent = 'What would you like to work on?';
     d.appendChild(line);
     const hint = document.createElement('div'); hint.className = 'cmsg-empty-hint';
-    hint.textContent = 'Ask ' + name + ' anything, or choose a starting point.';
     d.appendChild(hint);
-    // Each row explains its action. Drafts and recipes remain editable; sessions reopen their context.
-    const starters = pickStarters();
-    const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
-    for (const st of starters.slice(0, 3)) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter';
-      const title = document.createElement('span'); title.className = 'cmsg-starter-title'; title.textContent = st.label;
-      const detail = document.createElement('span'); detail.className = 'cmsg-starter-detail'; detail.textContent = st.description;
-      const arrow = document.createElement('span'); arrow.className = 'cmsg-starter-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true');
-      b.append(title, detail, arrow);
-      b.addEventListener('click', () => {
-        if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
-        if (st.kind === 'session') {
-          const target = Workstreams.get(st.sessionId);
-          if (!target || target.archived) { clearEmptyState(); maybeEmptyState(); return; }
-          const ws = Workstreams.switch(target.id);
-          if (ws) { load(ws); refreshWorkflowViews(); }
-          return;
-        }
-        if (st.recipe) { insertRecipe(st.recipe, st.values); return; }   // fill the directive to edit, don't auto-fire
-        prefill(st.send);
-      });
-      chips.appendChild(b);
-    }
-    d.appendChild(chips);
     log.appendChild(d);
+    const ctx = starterContext(), options = starterOptions(), result = StarterStore.peek(ctx, options);
+    d.starterKey = JSON.stringify([ctx, options]); d.expiresAt = Date.now() + StarterStore.TTL;
+    if (result.status === 'empty' || result.status === 'loading') requestStarterIdeas(d, hint, ctx, options);
+    else renderStarterIdeas(d, hint, result);
   }
 
   /* THE ONE STEP A HAND-SUMMONED AGENT LEAVES TO THE COMMANDER (2026-08-03).
@@ -2806,6 +2862,7 @@ const Chat = (() => {
     // written onto RUN_META at run start), the Commander's verdict on the work is the strongest honest evidence
     // there is about whether that channel's offers are worth making. Unattributed runs say nothing. Fail-open.
     try { if (typeof RecQualityStore !== 'undefined' && RecQualityStore.noteVerdict) RecQualityStore.noteVerdict(runId, verdict); } catch (_) {}
+    try { if (typeof StarterStore !== 'undefined') StarterStore.rated(runId, verdict); } catch (_) {}
     // CORRECTION CAPTURE (consistency loop, slice 2): a short-of-the-mark verdict opens a window in which the
     // Commander's next message to this agent is treated as the CORRECTION of that run and handed to the held
     // skill review in their own words (POST /api/growth/ratings/correction). Praise opens nothing.
@@ -7989,6 +8046,7 @@ const Chat = (() => {
     const routedTaskReply = pending && typeof TaskIntent !== 'undefined' && TaskIntent.routeReply ? TaskIntent.routeReply(text) : null;
     const taskAction = (opts && opts.taskAction) || (routedTaskReply && routedTaskReply.action) || '';
     if (Channels.isBusy(ws.id)) return;   // one run per stream — but OTHER streams may be running concurrently
+    const starterId = !retry && !goalContinuation && typeof StarterStore !== 'undefined' ? StarterStore.claimDraft(ws.id, text) : null;
     if (typeof Workstreams !== 'undefined' && Workstreams.connectorHandoff(ws.id)) Workstreams.setConnectorHandoff(ws.id, null);
     warmChat();   // D1 WARMTH: sending to the focused stream is real engagement — keep the chat-stare alive
     // FIRST-TURN TITLE UPGRADE: is THIS the stream's first user turn (still on its machine-derived placeholder)?
@@ -8169,7 +8227,7 @@ const Chat = (() => {
         projectRoot: ws.projectRoot || undefined,   // project-anchored session: the sidecar injects the folder context ONLY if the root is still a standing blessed grant (truthful)
         placed: (typeof World !== 'undefined' && World.heroCaps) ? World.heroCaps(ws.agentId || 'agent') : [],   // THE MOAT: this run's TOOL reach = the agent's REAL placed props (dish→web · cabinet→files · workbench→terminal · …); compute is the freebie
         stationPlaced: (typeof World !== 'undefined' && World.stationCaps) ? World.stationCaps() : [],   // Class Loadouts (shared-gear): station-wide gear for SKILL availability — a desk-only specialist still gets its class skills when the STATION has the gear (tools stay room-scoped via `placed`)
-        onRunId: id => { thisRunId = id; runStartedAt = Date.now(); try { RUN_META.set(id, { isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
+        onRunId: id => { thisRunId = id; if (starterId) StarterStore.started(starterId, id); runStartedAt = Date.now(); try { RUN_META.set(id, { isTask: !!isTask, title: (ws && ws.title) || '', directive: String(text || ''), correctionOf: correctionOf, intentOfferText: intentOfferText, fromRecipe: fromRecipe, recipeId: recipeId, agentId: ws.agentId || 'agent', rec: recClaimRun(id, ws.agentId || 'agent') }); if (RUN_META.size > 60) RUN_META.delete(RUN_META.keys().next().value); } catch (_) {} Channels.setRunId(ws.id, id, Date.now()); if (walkedToDesk && Channels.setStatus) Channels.setStatus(ws.id, 'working…'); if (isActiveWs(ws)) { syncStatus(); renderPresence(); } if (typeof Workstreams !== 'undefined') { Workstreams.appendRun(ws.id, id); if (typeof App !== 'undefined' && App.refreshRail) App.refreshRail(); } },
         onToken: d => { acc += d; Channels.appendToken(ws.id, d); if (isActiveWs(ws)) { if (activeLiveRow) activeLiveRow.append(d); if (!isTask) World.say(acc); } if (willSpeak) pushSpeech(false); App.refreshUsage(); },
         onTerminalReset: () => { acc = ''; spokenIdx = 0; Channels.setAcc(ws.id, ''); },
         onUsage: (u) => { if (u && u.model) ranModel = u.model; App.refreshUsage(); },
@@ -8739,5 +8797,5 @@ const Chat = (() => {
   // only" gate maybeStandaloneRate uses — so a pure-chat run is never bottle-offered. Used by App.runBottleInfo (R5).
   function runDidWork(id) { const w = id ? runWork.get(id) : null; return !!(w && ((w.toolsOk || 0) >= 1 || (w.delivered || 0) >= 1)); }
 
-  return { init, load, send, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
+  return { init, load, send, refreshStarters, sendOrQueue, continueConnectorTask, stopActive, status, localLine, broadcast, renderProse, setSystem, getHistory, contextRef, abort, isBusy, beatBusy: skillBeatBusy, beginInterview, endInterview, echoUser, prefill, autoGrowInput, choices, clearChoices, retireDeskPrompt, typeLine, nudge, clearNudge, offerCuriosity, offerFork, planGoalPath, briefingReceipt, runMeta, runDidWork, awayDigest, awayReview, awayRate, sampleCard, workshopReturn, refreshIdBar: renderIdBar, refreshGroupControls: updateControls, refreshAgentIdentity, setRosterStatus, askBudgetSpent, spendAsk };
 })();

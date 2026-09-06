@@ -26,6 +26,7 @@ A.eq(R.heartbeat(s, 4000).lastSeenAt, 5000, 'a stale tick can never move attenda
 A.eq(R.unattended(R.hydrate(null), [run({ ts: 99999 })]).length, 0,
   'a FRESH state (first-ever session) digests NOTHING — no prior attendance means nothing was missed');
 s = R.heartbeat(R.hydrate(null), 1000);
+ A.eq(R.unattended(s, [run({ internal: true })]).length, 0, 'Internal recommendation reasoning is never presented as completed user work');
 let rows = R.unattended(s, [run({ runId: 'a', ts: 2000 }), run({ runId: 'b', ts: 500 })]);
 A.eq(rows.length, 1, 'only runs AFTER lastSeenAt are unattended');
 A.eq(rows[0].runId, 'a', 'the attended-era run (ts 500 <= 1000) is excluded');
