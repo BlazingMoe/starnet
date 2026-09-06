@@ -676,8 +676,6 @@ button:active {
 .gx-quests .q-track { padding: 16px; }
 .gx-quests .q-track .sub, .gx-quests .q-track-goal, .gx-quests .q-ns-text { font-size: 20px; opacity: 1; }
 .gx-quests .q-track .q-go { font-size: 16px; padding: 10px 14px; }
-.q-journal-planning { margin: 12px 0 0; padding: 10px 6px 0; border-top: 1px solid var(--ui-edge); }
-.gx-quests .q-journal-planning > summary { font-size: 14px; color: var(--ph); letter-spacing: .06em; }
 .gx-quests summary { cursor: pointer; font-size: 16px; line-height: 1.4; color: var(--ph-bright); }
 .gx-quests summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .q-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px 0; border: 1px solid var(--ui-edge);
@@ -737,8 +735,44 @@ button:active {
 .gx-quests .consent-btn, .gx-quests input, .gx-quests textarea { font-size: 17px; }
 .gx-quests .q-life-quest label, .gx-quests .q-life-goal label { color: var(--ph-bright); font-size: 17px; }
 .gx-quests .q-journey-card .sub, .gx-quests .q-refresh-card .sub { font-size: 17px; line-height: 1.4; }
-.q-journal-history { margin-top: 18px; padding: 12px 6px 0; border-top: 1px solid var(--ui-edge); }
-.q-journal-history > summary { color: var(--ph); }
+.q-journal-records { margin-top: 16px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel2); }
+.q-journal-records > details + details { border-top: 1px solid var(--ui-edge); }
+.gx-quests .q-journal-records > details > summary,
+.gx-quests .q-progress-section > summary { display: flex; align-items: center; gap: 12px; min-height: 52px;
+  margin: 0; padding: 14px 16px; list-style: none; font-size: 17px; line-height: 1.3; letter-spacing: .04em; color: var(--ph-bright); }
+.q-journal-records > details > summary::-webkit-details-marker, .q-progress-section > summary::-webkit-details-marker { display: none; }
+.q-journal-records > details > summary::before, .q-progress-section > summary::before { content: '›'; flex: 0 0 16px;
+  font-size: 22px; line-height: 1; text-align: center; color: var(--ph); }
+.q-journal-records > details[open] > summary::before, .q-progress-section[open] > summary::before { transform: rotate(90deg); }
+.q-journal-records > details > summary:hover, .q-progress-section > summary:hover { background: rgba(var(--ph-rgb), .05); }
+.q-journal-records > details[open] > summary { border-bottom: 1px solid var(--ui-edge); background: var(--ui-face); }
+.q-section-count, .q-section-note { margin-left: auto; color: var(--ph); font-size: 14px; letter-spacing: 0; }
+.q-section-count { min-width: 28px; padding: 2px 7px; line-height: 1; text-align: center; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); }
+.q-section-body { padding: 18px; }
+.gx-quests .q-journey-card { border: 0; background: transparent; padding: 0; margin: 0; }
+.q-progress-overview { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; }
+.gx-quests .q-progress-overview > div { margin: 0; padding: 18px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm);
+  background: var(--ui-face), var(--panel2); box-shadow: inset 0 1px 0 var(--ui-highlight); }
+.gx-quests .q-progress-overview .q-journey-title, .gx-quests .q-progress-overview .q-ns-eyebrow { font-size: 14px; color: var(--ph); letter-spacing: .08em; }
+.q-progress-overview .q-evolution { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 12px; }
+.q-progress-overview .q-evolution-name { font-size: 28px; margin-top: 8px; }
+.q-progress-overview .gx-tag { font-size: 16px; line-height: 1.3; }
+.q-progress-overview .q-evolution .gx-tag { margin-left: 0; }
+.gx-quests .q-progress-overview .sub { margin-top: 10px; line-height: 1.4; }
+.q-progress-goal { padding: 18px 0; }
+.q-progress-section { border-top: 1px solid var(--ui-edge); }
+.q-milestones.q-progress-section { margin: 0; padding: 0; }
+.gx-quests .q-progress-section > summary { padding-inline: 0; }
+.q-progress-section > .q-section-body { padding: 0 0 18px 28px; }
+.q-metric-editor { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel2); }
+.gx-quests .q-metric-create { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; padding-top: 14px; }
+.q-metric-create label { display: flex; flex-direction: column; gap: 6px; font-size: 16px; color: var(--ph-bright); }
+.q-metric-create .q-metric-name-field { grid-column: 1 / -1; }
+.gx-quests .q-metric-create input, .gx-quests .q-metric-actions input { width: 100%; min-height: 40px; padding: 8px 10px; font-size: 18px; }
+.q-metric-create .q-metric-add { grid-column: 1 / -1; justify-self: start; min-height: 40px; padding: 8px 16px; }
+.gx-quests .q-mastery-row { padding: 10px 12px; font-size: 17px; }
+.gx-quests .q-journey-title { font-size: 20px; line-height: 1.3; }
+.q-proof-list .sub + .sub { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--ui-edge); }
 .q-journal-empty { padding: 44px 24px; text-align: center; }
 .q-journal-empty > span { color: var(--gold); font-size: 50px; }
 .q-journal-empty h3 { font-size: 28px; font-weight: normal; }
@@ -751,6 +785,11 @@ button:active {
   .q-journal-count { gap: 6px; }
   .q-filter { flex: 1 1 auto; padding: 9px; }
   .gx-quests .q-track-empty { flex-wrap: wrap; }
+  .q-progress-overview { grid-template-columns: 1fr; }
+  .q-section-body { padding: 14px; }
+  .q-journal-records .q-section-note { display: none; }
+  .gx-quests .q-metric-create { grid-template-columns: minmax(0,1fr); }
+  .q-progress-section > .q-section-body { padding-left: 0; }
 }
 
 /* ============================================================

@@ -87,3 +87,30 @@ qa-product-perfect-claims (64 assertions) and quest-log-window (74 assertions).
 Receipt: `dev/quest-style-fast-final.log` (local ignored log). This supersedes the earlier
 fast-gate blockers for this lane. The earlier journey-suite finding was not re-tested.
 No merge or installed-build change; trunk has a separately claimed release integration.
+
+## Integration and lower-section correction
+
+The approved journal merged into trunk as 61d2ba4de from source candidate 9bc9af29d,
+after synchronization with trunk 824bdfcea. Pre-merge and post-merge fast gates each passed
+725/725. Existing integration-tree QA and Rooms handoff text survived byte-for-byte.
+
+The owner then flagged lower-section clutter and misaligned disclosure rows and explicitly
+requested merging the correction once done. The follow-up replaces the exposed status wall
+with three aligned disclosures: goal settings, completed quests, and Commander journey.
+Commander progress and station evolution are paired cards; metrics, mastery, adaptations,
+recent evidence, and station milestones have separate disclosures. The metric creation form
+is folded by default and has persistent labels for name, starting value, target, and unit.
+Existing handlers and progression authorities remain in place.
+
+Live proof on :8916: all three main disclosure rows measured 52px high, with identical
+left and label offsets. Progress overview cards both measured 150.578125px high with zero
+margin. Opening Outcome metrics then Add a metric revealed the correctly labeled form.
+At 600x820, body clientWidth/scrollWidth were both 554px, the overview used one 492px
+column, and the metric form used one 462px column; no native-painted controls were found.
+Restored the desktop viewport and left the preview open. Scoped tests: journey wiring 13,
+quest journal 74, and website sync 8 assertions passed; Commander progression UI also passed.
+Both mirrored JS files passed syntax checks; whitespace check passed.
+
+Follow-up full gate and merge are queued with the release coordinator, which owns the shared
+suite/merge slot. The first merged version is green; this correction is source/live verified
+but not yet merged. No installer or release claim.
