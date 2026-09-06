@@ -848,8 +848,8 @@
       },
       {
         "path": "frontend/app/tutorial.js",
-        "bytes": 82753,
-        "sha256": "487ccd90cd593113e0b84b3bec9bc67f2976823ab33202a859a53506d467177f"
+        "bytes": 92087,
+        "sha256": "e071c6ad3e5898dfd8f3eac9871ea06f2258139f98c781c6c9ba8f3fcf31f9d3"
       },
       {
         "path": "frontend/app/understanding.js",
@@ -1093,8 +1093,8 @@
       },
       {
         "path": "frontend/css/tutorial.css",
-        "bytes": 9120,
-        "sha256": "8175e8f58be9b9151d401cceddd10221f75d7ca6059b54483ae6775222dc3c2a"
+        "bytes": 11603,
+        "sha256": "75e6106cd784ebf29ceace85d7509bcc36067ae570821a303b95069103dd105f"
       },
       {
         "path": "frontend/css/warroom.css",
@@ -1113,8 +1113,8 @@
       },
       {
         "path": "frontend/index.html",
-        "bytes": 81344,
-        "sha256": "4ba96911f9d06f50669d77df43e5f5265e362fd3dd25d9d30faf1353c32843fc"
+        "bytes": 81354,
+        "sha256": "3661c29d91b0d2f157116329c25acd569e54ee3fde7d8bddebfa7c5f57fb3517"
       },
       {
         "path": "frontend/js/arcade.js",

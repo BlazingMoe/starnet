@@ -220,7 +220,9 @@ const hardline = (call) => (call && call.args && /(^|\/)(\.env|permissions\.allo
     const tutorial = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'tutorial.js'), 'utf8');
     A.ok(/local file reads and private notebook saves do not prompt/i.test(tutorial), 'Field Manual names both no-prompt local exceptions');
     A.ok(/already approved or FULL ACCESS is on/i.test(tutorial), 'Field Manual names standing-grant and Full Access exceptions');
-    A.ok(/protected actions stay blocked/i.test(tutorial), 'Field Manual keeps the hardline floor explicit');
+    A.ok(/ASK and narrower reach modes retain their restrictions/i.test(tutorial), 'Field Manual scopes restrictions to the selected reach and posture');
+    A.ok(/FULL POWER is host-wide/i.test(tutorial), 'Field Manual describes current host-wide Full Power authority');
+    A.ok(!/protected actions stay blocked/i.test(tutorial), 'Field Manual does not apply the retired universal floor to Full Power');
     A.ok(/prop grants a CAPABILITY[^']+not blanket consent/i.test(tutorial), 'Field Manual distinguishes capabilities from consent');
     A.ok(/Settings &gt; Permissions decides whether an action asks or runs without another prompt/i.test(tutorial), 'Field Manual assigns prompting to the real Settings posture');
     A.ok(!/before i touch a file or reach out i stop and ask/i.test(tutorial), 'retired every-action prompt promise is absent');
