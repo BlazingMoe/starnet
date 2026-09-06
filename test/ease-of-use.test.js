@@ -20,6 +20,9 @@ assert.deepEqual(W.railGroups([run('pinned-old', 'a', { pinned: true, lastActive
 assert.equal(W.railGroups(rows, { view: 'conversations' }).some(g => g.type === 'session' && g.w.id === 'chat'), true);
 assert.equal(W.railGroups(rows, { view: 'conversations' })[0].visible[0].id, 'failed', 'errors remain findable in chat view');
 assert.equal(W.railGroups(rows, { view: 'automated' }).some(g => g.type === 'session' && g.w.id === 'chat'), false);
+const ordinary = [{ id: 'active-chat' }, { id: 'pinned-chat', pinned: true }, { id: 'failed-chat', lastRunOk: false }, { id: 'waiting-chat' }];
+assert.deepEqual(W.railGroups(ordinary, { view: 'automated', activeId: 'active-chat', urgent: ['waiting-chat'] }), [], 'automation filter never mixes in ordinary sessions');
+assert.equal(W.railGroups(ordinary, { view: 'all' }).length, 4, 'all restores every ordinary session');
 assert.equal(JSON.stringify(rows), original, 'view changes cannot mutate or discard history');
 assert.equal(W.automationOf({ id: 'ordinary', title: 'Routine' }), null, 'human naming is not automation provenance');
 assert.equal(W.automationOf({ id: 'cron-old' }).id, '', 'legacy unknown parents stay separate');

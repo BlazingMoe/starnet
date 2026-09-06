@@ -27,7 +27,7 @@ global.U = {
 global.document = { createElement() { throw new Error('sampleMaterial must not allocate canvases'); } };
 
 const StationBake = require('../frontend/app/stationbake.js');
-const MATS = ['plate', 'panel', 'tile', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf'];
+const MATS = ['plate', 'panel', 'tile', 'tread', 'soft', 'grate', 'hex', 'plank', 'turf', 'alloy'];
 const TILE = 12;
 
 // a recording 2D context: every mark the painters make, in order, as comparable text

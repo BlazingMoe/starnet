@@ -1430,7 +1430,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const key = String(a.name).trim().toUpperCase();
     return present.filter(x => x && String(x.name || '').trim().toUpperCase() === key).length > 1 ? String(a.id || '') : '';
   }
-  let crewFilter = 'all';
+  let crewQuery = '';
   function crewPortrait(a) {
     return '<span class="crew-portrait" aria-hidden="true"><img alt="" draggable="false" hidden></span>';
   }
@@ -1476,25 +1476,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const act = activity();
     let focusedId = '';
     try { focusedId = (typeof App !== 'undefined' && App.currentAgent && App.currentAgent() || {}).id || ''; } catch (_) {}
-    const awaiting = new Set();
-    try {
-      if (typeof Channels !== 'undefined' && typeof Workstreams !== 'undefined') {
-        for (const id of Channels.pendingIds()) { const ws = Workstreams.get(id); if (ws) awaiting.add(ws.agentId || 'agent'); }
-      }
-    } catch (_) {}
     let working = 0, visible = 0;
     present.forEach(a => {
       const live = agentLive(a.id);
       if (live) working++;
       const e = $('#cs-' + a.id);
-      const needsYou = awaiting.has(a.id);
       if (e) {
-        const status = needsYou ? 'AWAITING APPROVAL' : live ? (a.id === focusedId && act === 'talk' ? 'IN CONVERSATION' : 'WORKING') : 'IDLE';
+        const status = live ? (a.id === focusedId && act === 'talk' ? 'IN CONVERSATION' : 'WORKING') : 'IDLE';
         if (e.textContent !== status) e.textContent = status;
         const row = e.closest('.crew-row');
         row.classList.toggle('selected', a.id === focusedId);
-        row.classList.toggle('needs-you', needsYou);
-        const hide = crewFilter === 'active' ? !live : crewFilter === 'await' ? !needsYou : false;
+        const hide = !!crewQuery && !String(a.name || a.id).toLowerCase().includes(crewQuery) && !String(a.id).toLowerCase().includes(crewQuery);
         if (row.hidden !== hide) row.hidden = hide;
         if (!row.hidden) visible++;
       }
@@ -1502,8 +1494,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       if (e && e.parentElement && e.parentElement.parentElement) e.parentElement.parentElement.classList.toggle('working', live);
     });
     const sum = $('#crew-sum');
-    const empty = $('#crew-filter-empty');
-    if (empty) { empty.hidden = visible > 0; empty.textContent = crewFilter === 'await' ? 'No approvals waiting.' : 'No agents working right now.'; }
+    const empty = $('#crew-search-empty');
+    if (empty) empty.hidden = !crewQuery || visible > 0;
     if (sum) sum.innerHTML =
       '<span class="pos">▮ ' + working + ' WORKING</span>' +
       '<span class="dim">▯ ' + (present.length - working) + ' IDLE</span>';
@@ -5603,6 +5595,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         theme: store.settings.theme, themeHue: store.settings.themeHue,
         themeSat: store.settings.themeSat, themeGlow: store.settings.themeGlow,
         panelBright: store.settings.panelBright, roomLighting: resolveRoomLighting(store.settings.roomLighting),
+        backdrop: store.settings.backdrop, textScale: store.settings.textScale,
+        sessionRow: store.settings.sessionRow,
         flicker: store.settings.flicker, crtGlass: store.settings.crtGlass,
         sound: store.settings.sound, keepComputerAwake: store.settings.keepComputerAwake
       }, notifyPrefs: Object.assign({}, store.settings.notifyPrefs || notifyDefaults()) };
@@ -8937,11 +8931,22 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   function init() {
     applySettings();
     syncTermBand();
-    document.querySelectorAll('[data-crew-filter]').forEach(b => b.addEventListener('click', () => {
-      crewFilter = b.dataset.crewFilter;
-      document.querySelectorAll('[data-crew-filter]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-      crewTick(); sfx('click');
-    }));
+    const crewSearch = $('#crew-search'), crewSearchWrap = $('#crew-search-wrap'), crewSearchToggle = $('#crew-search-toggle');
+    if (crewSearch && crewSearchWrap && crewSearchToggle) {
+      const showSearch = on => {
+        crewSearchWrap.hidden = !on;
+        crewSearchToggle.setAttribute('aria-expanded', String(on));
+        if (on) crewSearch.focus();
+        else { crewSearch.value = ''; crewQuery = ''; crewTick(); crewSearchToggle.focus(); }
+      };
+      crewSearchToggle.onclick = () => { showSearch(crewSearchWrap.hidden); sfx('click'); };
+      $('#crew-search-close').onclick = () => showSearch(false);
+      crewSearch.oninput = () => { crewQuery = crewSearch.value.trim().toLowerCase(); crewTick(); };
+      crewSearch.onkeydown = e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); showSearch(false); }
+        if (e.key === 'ArrowDown') { const first = $('#crew .crew-row:not([hidden])'); if (first) { e.preventDefault(); first.focus(); } }
+      };
+    }
     document.querySelectorAll('.bb[data-term]').forEach(b =>
       b.addEventListener('click', () => {
         const k = b.dataset.term, def = BUILDERS[k];

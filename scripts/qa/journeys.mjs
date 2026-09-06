@@ -997,6 +997,7 @@ async function main() {
       writeFileSync(join(QA_DIR, 'journeys-last-run.json'), JSON.stringify({
         stampIso: new Date().toISOString(),
         trunkHead,
+        fullSuite: ONLY === null,
         result: code === 0 ? 'pass' : code === 2 ? 'blocked' : 'fail',
         exitCode: code, passed, total: all.length, softFails,
       }, null, 2) + '\n', 'utf8');

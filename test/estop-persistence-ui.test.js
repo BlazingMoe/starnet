@@ -22,7 +22,7 @@ async function drive(receipt) {
   const document = {
     readyState: 'complete',
     querySelector(sel) { return sel === '#topbar .tb-status' ? cluster : null; },
-    getElementById() { return null; },
+    getElementById(id) { return id === 'estop-btn' ? button : null; },
     createElement() { return button; },
     addEventListener() {}
   };
