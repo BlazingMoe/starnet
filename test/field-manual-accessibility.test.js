@@ -53,23 +53,16 @@ function pressedState() {
   }));
 }
 
-A.eq(pressedState(), [
-  { text: 'FIRST STEPS', pressed: 'true' },
-  { text: 'THE LOOP', pressed: 'false' },
-  { text: 'GEAR', pressed: 'false' },
-  { text: 'WIRING', pressed: 'false' },
-  { text: 'GROWTH', pressed: 'false' }
-], 'the initial visual section is the sole pressed button');
+const chapters = ['FIRST MISSION', 'CONTROLS', 'CREW', 'GEAR', 'LINES', 'PROGRESS', 'HELP'];
+const expected = active => chapters.map((title, i) => ({
+  text: String(i + 1).padStart(2, '0') + ' · ' + title,
+  pressed: title === active ? 'true' : 'false'
+}));
+A.eq(pressedState(), expected('FIRST MISSION'), 'the initial visual section is the sole pressed button');
 
-const gear = body.buttons.find(button => button.textContent === 'GEAR');
+const gear = body.buttons.find(button => button.dataset.t === 'GEAR');
 A.ok(gear && typeof gear.onclick === 'function', 'the production renderer wired the GEAR control');
 gear.onclick();
-A.eq(pressedState(), [
-  { text: 'FIRST STEPS', pressed: 'false' },
-  { text: 'THE LOOP', pressed: 'false' },
-  { text: 'GEAR', pressed: 'true' },
-  { text: 'WIRING', pressed: 'false' },
-  { text: 'GROWTH', pressed: 'false' }
-], 'selection changes keep the accessible and visual state aligned');
+A.eq(pressedState(), expected('GEAR'), 'selection changes keep the accessible and visual state aligned');
 
 A.report('field-manual-accessibility.test');
