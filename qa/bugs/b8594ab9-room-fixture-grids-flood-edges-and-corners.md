@@ -34,6 +34,8 @@ The owner's actual HAB-16 reference is 15x14 with a single column and two origin
 
 The owner accepted the local preview and requested final validation and integration. This supersedes the earlier centered-cell and continuous-strip experiments. Installed build remains unverified; acceptance of the source preview does not claim installer recovery.
 
+Update, 2026-09-06: the owner retracted that acceptance after using the centered design and explicitly requested even coverage across each room. The active correction is tracked in `qa/bugs/741832d8-centered-room-lighting-leaves-sides-dark-and-cre.md`. Matching the old two-source reference is no longer the acceptance requirement; do not restore it as a regression fix.
+
 ## Regression
 
 Source positions and radius scale from the approved reference room. Column count no longer grows with width. Original falloff, sheen and light temperature remain; the approved ambient/glow values and CRT lab Reset defaults agree. Focused station-bake coverage checks seven room sizes and chunk/monolithic parity.

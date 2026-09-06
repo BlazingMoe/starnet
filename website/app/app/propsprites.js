@@ -11213,9 +11213,11 @@ const PropSprites = (() => {
     let k = 1;
     if (!still) {
       const seed = (f.x * 7.31 + f.y * 3.17) % 6.28;
-      if (e.m === 'screen') k = 0.86 + 0.09 * Math.sin(now / 90 + seed) + 0.05 * Math.sin(now / 610 + seed * 1.7);
-      else if (e.m === 'fire') k = 0.78 + 0.14 * Math.sin(now / 130 + seed) + 0.08 * Math.sin(now / 47 + seed * 2.3);
-      else if (e.m === 'pulse') k = 0.82 + 0.18 * Math.sin(now / 900 + seed);
+      // Keep source animation on the sprite; its bounced light varies only a
+      // little, slowly, so neighbouring pools never seem to travel across a room.
+      if (e.m === 'screen') k = 0.985 + 0.01 * Math.sin(now / 900 + seed) + 0.005 * Math.sin(now / 2400 + seed * 1.7);
+      else if (e.m === 'fire') k = 0.95 + 0.035 * Math.sin(now / 800 + seed) + 0.015 * Math.sin(now / 310 + seed * 2.3);
+      else if (e.m === 'pulse') k = 0.98 + 0.02 * Math.sin(now / 2800 + seed);
     }
     return { x, y, r: e.r, c: e.c, a: e.a * k };
   }

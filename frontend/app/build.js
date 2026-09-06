@@ -4791,17 +4791,29 @@ const Build = (() => {
     ctx.stroke();
   }
 
+  const _fixtureGlow = new WeakMap();
   function drawGlows(now) {
     if (!cache.flickers) return;
     const t = T(), ox = cache.origin.tx * t, oy = cache.origin.ty * t;
+    if (cache.interiorPath) {
+      ctx.save(); ctx.translate(ox, oy); ctx.clip(cache.interiorPath); ctx.translate(-ox, -oy);
+    }
     ctx.globalCompositeOperation = 'lighter';
     for (const f of cache.flickers) {
-      const a = Math.max(0, 0.08 * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
-      const g = ctx.createRadialGradient(ox + f.x, oy + f.y, 1, ox + f.x, oy + f.y, f.r * 0.7);
-      g.addColorStop(0, 'rgba(238,218,184,' + a + ')'); g.addColorStop(1, 'rgba(238,218,184,0)');
+      let entry = _fixtureGlow.get(f);
+      if (!entry || entry.ox !== ox || entry.oy !== oy) {
+        const g = ctx.createRadialGradient(ox + f.x, oy + f.y, 1, ox + f.x, oy + f.y, f.r * 0.7);
+        const rgb = f.rgb || '238,218,184';
+        g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+        entry = { g, ox, oy }; _fixtureGlow.set(f, entry);
+      }
+      const g = entry.g;
+      ctx.globalAlpha = 0.13 * 0.55;
       ctx.fillStyle = g; ctx.fillRect(ox + f.x - f.r * 0.7, oy + f.y - f.r * 0.7, f.r * 1.4, f.r * 1.4);
     }
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
+    if (cache.interiorPath) ctx.restore();
   }
 
   /* ---------- PLACEMENT JUICE (2026-08-07 round 3) ----------
