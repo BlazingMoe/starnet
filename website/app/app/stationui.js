@@ -8427,27 +8427,28 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + '<button class="consent-btn q-metric-update" data-mid="' + esc(m.id) + '">UPDATE</button>'
         + '<button class="consent-btn deny q-metric-retire" data-mid="' + esc(m.id) + '">RETIRE</button></div></div>';
     }).join('');
-    const metricsHtml = '<div class="q-journey-subhead">OUTCOME METRICS <span class="gx-tag">Commander recorded</span></div>'
+    const metricsHtml = '<details class="q-progress-section"><summary><span>Outcome metrics</span><span class="q-section-note">Numbers you track</span></summary><div class="q-section-body">'
       + (metricRows || '<div class="sub dim">no durable metric yet. Add one when the goal has a number you can verify over time.</div>')
-      + '<div class="q-metric-create"><input class="q-metric-label" maxlength="100" placeholder="metric (for example: monthly revenue)">'
-      + '<input class="q-metric-baseline" type="number" step="any" placeholder="baseline"><input class="q-metric-target" type="number" step="any" placeholder="target">'
-      + '<input class="q-metric-unit" maxlength="24" placeholder="unit"><button class="consent-btn q-metric-add">ADD METRIC</button></div>';
+      + '<details class="q-metric-editor"><summary>Add a metric</summary><div class="q-metric-create">'
+      + '<label class="q-metric-name-field">Metric name<input class="q-metric-label" maxlength="100" placeholder="For example: monthly revenue"></label>'
+      + '<label>Starting value<input class="q-metric-baseline" type="number" step="any" placeholder="0"></label><label>Target value<input class="q-metric-target" type="number" step="any" placeholder="100"></label>'
+      + '<label>Unit<input class="q-metric-unit" maxlength="24" placeholder="For example: USD"></label><button class="consent-btn q-metric-add">ADD METRIC</button></div></details></div></details>';
 
     const domainLabel = d => (typeof Journey !== 'undefined' && Journey.DOMAIN_LABEL && Journey.DOMAIN_LABEL[d]) || String(d || '').toUpperCase();
     const mastery = (Array.isArray(j.mastery) ? j.mastery : []).slice().sort((a, b) => Number(b.count || 0) - Number(a.count || 0));
-    const masteryHtml = '<div class="q-journey-subhead">AGENT MASTERY <span class="gx-tag">verified outcomes only</span></div>'
+    const masteryHtml = '<details class="q-progress-section"><summary><span>Agent mastery</span><span class="q-section-note">Verified outcomes</span></summary><div class="q-section-body">'
       + (mastery.length ? '<div class="q-mastery-grid">' + mastery.map(m => '<div class="q-mastery-row"><span class="nm">' + esc(m.agentId) + '</span>'
           + '<span>' + esc(domainLabel(m.domain)) + '</span><span class="gx-tag">' + esc(String(m.tier)) + ' &middot; ' + (Number(m.count) || 0) + '</span></div>').join('') + '</div>'
-        : '<div class="sub dim">mastery appears only after an agent completes a quest or milestone with verified evidence.</div>');
+        : '<div class="sub dim">mastery appears only after an agent completes a quest or milestone with verified evidence.</div>') + '</div></details>';
 
     const suppressed = j.suppressed || {};
     const receipts = (Array.isArray(j.receipts) ? j.receipts : []).slice(-4).reverse();
-    const receiptHtml = '<div class="q-journey-subhead">ADAPTATION RECEIPTS <span class="gx-tag">correctable</span></div>'
+    const receiptHtml = '<details class="q-progress-section"><summary><span>Agent adaptations</span><span class="q-section-note">Review or correct</span></summary><div class="q-section-body">'
       + (receipts.length ? receipts.map(r => {
           const muted = !!(suppressed[r.agentId] && suppressed[r.agentId][r.domain]);
           return '<div class="q-receipt"><div class="sub">' + esc(r.text) + '</div><button class="consent-btn ' + (muted ? 'q-adapt-resume' : 'deny q-adapt-suppress')
             + '" data-aid="' + esc(r.agentId) + '" data-domain="' + esc(r.domain) + '">' + (muted ? 'RESUME ADAPTATION' : 'STOP USING THIS') + '</button></div>';
-        }).join('') : '<div class="sub dim">when verified mastery changes how an agent plans, the reason will appear here.</div>');
+        }).join('') : '<div class="sub dim">when verified mastery changes how an agent plans, the reason will appear here.</div>') + '</div></details>';
 
     const recent = (Array.isArray(j.outcomes) ? j.outcomes : []).slice(-3).reverse();
     const progression = j.progression;
@@ -8464,11 +8465,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       ? '<div class="sub warn q-journey-stale">Journey snapshot is unconfirmed — showing the last verified sidecar response while the live read recovers.</div>'
       : '';
 
-    return '<div class="gx-sec"><span class="gx-title">COMMANDER JOURNEY</span> <span class="gx-tag">real goals, durable proof</span></div>'
-      + '<div class="q-journey-card"><div class="q-evolution"><div><span class="q-ns-eyebrow">STATION EVOLUTION</span><div class="q-evolution-name">' + esc(evo.name) + '</div></div>'
+    return '<div class="q-journey-card">' + staleHtml + '<div class="q-progress-overview">' + growthHtml
+      + '<div class="q-evolution"><div><span class="q-ns-eyebrow">STATION EVOLUTION</span><div class="q-evolution-name">' + esc(evo.name) + '</div></div>'
       + '<span class="gx-tag">' + (Number(evo.goalsReached) || 0) + ' distinct goals reached</span></div>'
-      + staleHtml + growthHtml + goalHtml + metricsHtml + masteryHtml + receiptHtml + outcomeHtml
-      + '<div class="sub dim q-journey-law">Evolution changes the station\'s expression, never your tools, permissions, or capabilities.</div></div>';
+      + '</div><div class="q-progress-goal">' + goalHtml + '</div>' + metricsHtml + masteryHtml + receiptHtml
+      + (outcomeHtml ? '<details class="q-progress-section"><summary><span>Recent progress</span><span class="q-section-note">Recorded evidence</span></summary><div class="q-section-body">' + outcomeHtml + '</div></details>' : '')
+      + '</div>';
   }
 
   function lifeGoalsHtml() {
@@ -8640,8 +8642,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       : '';
     const milestoneDone = milestones.filter(q => q.status === 'done').length;
     const milestonesHtml = milestones.length
-      ? '<details class="q-milestones"><summary>MILESTONES <span class="gx-tag">' + milestoneDone + ' / ' + milestones.length + '</span><span class="dim">long-term station history</span></summary>'
-        + '<div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></details>'
+      ? '<details class="q-milestones q-progress-section"><summary><span>Station milestones</span><span class="q-section-count">' + milestoneDone + ' / ' + milestones.length + '</span></summary>'
+        + '<div class="q-section-body"><div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></div></details>'
       : '';
     // Selection is presentation state only. Keep it on the stable window body across background data pokes;
     // if a selected quest completes/disappears, fall back to the first remaining quest in this category.
@@ -8679,16 +8681,15 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       + journalCount + '</header>'
       + proposalsHtml
       + filtersHtml + journalHtml
-      + '<details class="q-journal-planning"><summary>YOUR GOAL &amp; QUEST SETTINGS</summary>'
-      + questTrackHtml(arcs) + lifeGoalsHtml() + questRefreshHtml() + '</details>'
+      + '<div class="q-journal-records"><details class="q-journal-planning"><summary><span>YOUR GOAL &amp; QUEST SETTINGS</span></summary><div class="q-section-body">'
+      + questTrackHtml(arcs) + lifeGoalsHtml() + questRefreshHtml() + '</div></details>'
       + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
       + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
-      + '<details class="q-journal-history"><summary>COMPLETED QUESTS <span class="gx-tag">' + done.length + '</span></summary>'
-      + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">Completed quests will be recorded here.</p>') + '</div></details>'
-      + milestonesHtml
-      + meterHtml
-      + journeyHtml()
-      + '</div>';
+      + '<details class="q-journal-history"><summary><span>COMPLETED QUESTS</span><span class="q-section-count">' + done.length + '</span></summary>'
+      + '<div class="q-section-body"><div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">Completed quests will be recorded here.</p>') + '</div></div></details>'
+      + '<details class="q-journal-progress"><summary><span>COMMANDER JOURNEY</span><span class="q-section-note">Progress &amp; records</span></summary><div class="q-section-body">'
+      + journeyHtml() + milestonesHtml + meterHtml
+      + '</div></details></div></div>';
     body.querySelectorAll('details').forEach(el => { if (expanded.has(detailKey(el))) el.open = true; });
     if (body.querySelector('.q-mission-list')) body.querySelector('.q-mission-list').scrollTop = listScroll;
     body.querySelectorAll('.q-filter').forEach(b => b.addEventListener('click', () => {

@@ -667,9 +667,9 @@ button:active {
 /* History and deferred quests retain a responsive grid. The active briefing overrides it below.
    motion.css loads after app.css, so quest-grid geometry has one owner here. */
 .gx-quests .q-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; align-items: stretch; }
-.gx-quests .q-grid .gx-tro { padding: 22px; }
-.gx-quests .q-grid .gx-tro .nm { font-size: 25px; margin: 0; font-weight: normal; line-height: 1.15; color: var(--ph-bright); }
-.gx-quests .q-grid .gx-tro .sub { font-size: 18px; margin-top: 8px; line-height: 1.3; opacity: 1; color: var(--ph-bright); }
+.gx-quests .q-grid .gx-tro { padding: 16px; }
+.gx-quests .q-grid .gx-tro .nm { font-size: 22px; margin: 0; font-weight: normal; line-height: 1.15; color: var(--ph-bright); }
+.gx-quests .q-grid .gx-tro .sub { font-size: 16px; margin-top: 6px; line-height: 1.3; opacity: 1; color: var(--ph-bright); }
 /* Recorded progress stays readable inside its collapsed history disclosure. */
 .gx-quests .q-done .gx-tro { opacity: 1; }
 .gx-quests .q-done .gx-tro:hover { opacity: 1; }
@@ -679,26 +679,24 @@ button:active {
 /* Commander journal: a mission index and one generous briefing. Counts and state come from
    the existing quest projection; the visual hierarchy adds no rewards or progression rules. */
 .quests-win .term-body { container-type: inline-size; }
-.gx-quests { color: var(--ph-bright); text-shadow: none; }
+.gx-quests { color: var(--ph-bright); text-shadow: none; font-size: 16px; }
 .q-journal-header { display: flex; align-items: center; justify-content: space-between; gap: 20px;
-  padding: 4px 6px 14px; border-bottom: 1px solid var(--ui-edge); margin-bottom: 8px; }
+  padding: 2px 6px 10px; border-bottom: 1px solid var(--ui-edge); margin-bottom: 8px; }
 .q-journal-eyebrow { color: var(--ph); font-size: 13px; letter-spacing: .16em; }
-.q-journal-header h2 { margin: 5px 0 0; font-size: 28px; font-weight: normal; line-height: 1; }
-.q-journal-count { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+.q-journal-header h2 { margin: 4px 0 0; font-size: 24px; font-weight: normal; line-height: 1; }
+.q-journal-count { display: flex; align-items: center; gap: 8px; padding: 6px 10px;
   border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel2); box-shadow: var(--ui-well); }
-.q-journal-count strong { font-size: 30px; color: var(--gold); font-weight: normal; line-height: 1; }
+.q-journal-count strong { font-size: 26px; color: var(--gold); font-weight: normal; line-height: 1; }
 .q-journal-count span { max-width: 75px; color: var(--ph); font-size: 14px; line-height: 1.15; }
-.gx-quests .q-track { padding: 16px; }
-.gx-quests .q-track .sub, .gx-quests .q-track-goal, .gx-quests .q-ns-text { font-size: 20px; opacity: 1; }
+.gx-quests .q-track { padding: 14px; }
+.gx-quests .q-track .sub, .gx-quests .q-track-goal, .gx-quests .q-ns-text { font-size: 17px; opacity: 1; }
 .gx-quests .q-track .q-go { font-size: 16px; padding: 10px 14px; }
-.q-journal-planning { margin: 12px 0 0; padding: 10px 6px 0; border-top: 1px solid var(--ui-edge); }
-.gx-quests .q-journal-planning > summary { font-size: 14px; color: var(--ph); letter-spacing: .06em; }
 .gx-quests summary { cursor: pointer; font-size: 16px; line-height: 1.4; color: var(--ph-bright); }
 .gx-quests summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .q-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px 0; border: 1px solid var(--ui-edge);
   border-bottom: 0; border-radius: var(--r-sm) var(--r-sm) 0 0; background: var(--ui-face), var(--panel2);
   box-shadow: inset 0 1px 0 var(--ui-highlight); }
-.q-filter { font: inherit; font-size: 17px; padding: 10px 14px; color: var(--ph);
+.q-filter { font: inherit; font-size: 15px; padding: 8px 12px; color: var(--ph);
   border: 0; border-bottom: 2px solid transparent; background: transparent; border-radius: 0; cursor: pointer; }
 .q-filter span { margin-left: 8px; font-size: 14px; color: var(--ph); }
 .q-filter[aria-pressed="true"] { border-bottom-color: var(--ph); background: rgba(var(--ph-rgb), .08); color: var(--ph-bright); }
@@ -706,9 +704,9 @@ button:active {
 .q-filter:focus-visible, .q-mission:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: -3px; }
 .q-journal { display: grid; grid-template-columns: minmax(250px, .9fr) minmax(0, 1.65fr); gap: 0; align-items: stretch;
   border: 1px solid var(--ui-edge); border-radius: 0 0 var(--r-sm) var(--r-sm); background: var(--panel2); box-shadow: var(--ui-well); }
-.q-mission-list { display: flex; flex-direction: column; gap: 3px; max-height: 360px; overflow-y: auto; padding: 8px;
+.q-mission-list { display: flex; flex-direction: column; gap: 3px; max-height: 308px; overflow-y: auto; padding: 6px;
   border-right: 1px solid var(--ui-edge); background: rgba(0,0,0,.18); scrollbar-gutter: stable; }
-.q-mission { display: flex; align-items: center; flex-shrink: 0; gap: 12px; width: 100%; text-align: left; padding: 13px 10px;
+.q-mission { display: flex; align-items: center; flex-shrink: 0; gap: 10px; width: 100%; text-align: left; padding: 10px;
   background: transparent; color: var(--ph-bright); border: 1px solid transparent;
   border-left: 2px solid transparent; border-radius: var(--r-sm); cursor: pointer; font: inherit;
   transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }
@@ -716,13 +714,13 @@ button:active {
 .q-mission.selected { border-color: var(--ui-edge); border-left-color: var(--ph); background: var(--ui-face), rgba(var(--ph-rgb), .05);
   box-shadow: inset 0 1px 0 var(--ui-highlight); }
 .q-mission-number { font-size: 17px; color: var(--ph); flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.q-mission-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.q-mission-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .q-mission-kind { font-size: 12px; letter-spacing: .1em; color: var(--ph); }
-.q-mission-title { font-size: 19px; line-height: 1.15; overflow-wrap: anywhere; }
+.q-mission-title { font-size: 17px; line-height: 1.15; overflow-wrap: anywhere; }
 .q-mission-arrow { margin-left: auto; font-size: 22px; color: var(--ph); visibility: hidden; }
 .q-mission.selected .q-mission-arrow { visibility: visible; }
 .gx-quests .q-briefing { display: block; min-width: 0; }
-.gx-quests .q-briefing .q-card { min-height: 360px; height: 100%; padding: 18px 24px; gap: 4px;
+.gx-quests .q-briefing .q-card { min-height: 308px; height: 100%; padding: 14px 18px; gap: 4px;
   border: 0; border-radius: 0; background: var(--ui-face); box-shadow: inset 0 1px 0 var(--ui-highlight); }
 .gx-quests .q-briefing .q-card::before { display: none; }
 .gx-quests .q-briefing .q-card:hover { translate: none; box-shadow: inset 0 1px 0 var(--ui-highlight); }
@@ -731,41 +729,82 @@ button:active {
 .q-card-state { font-size: 12px; letter-spacing: .08em; color: var(--ph); }
 .q-card-meta .q-dismiss { margin-left: auto; min-width: 32px; min-height: 32px; font-size: 16px; opacity: 1; }
 .gx-quests .q-briefing .q-hd { gap: 12px; align-items: center; }
-.gx-quests .q-briefing .q-hd .gl { color: var(--ph); font-size: 26px; line-height: 1; opacity: 1; }
+.gx-quests .q-briefing .q-hd .gl { color: var(--ph); font-size: 22px; line-height: 1; opacity: 1; }
 .gx-quests .q-grid .q-hd .nm { padding: 0; border: 0; background: none; box-shadow: none; }
-.gx-quests .q-briefing .q-hd .nm { font-size: 27px; opacity: 1; letter-spacing: .01em; overflow-wrap: anywhere; }
+.gx-quests .q-briefing .q-hd .nm { font-size: 23px; opacity: 1; letter-spacing: .01em; overflow-wrap: anywhere; }
 .gx-quests .q-briefing .q-card .sub { color: var(--ph-bright); letter-spacing: .015em; }
-.gx-quests .q-grid .q-card .q-cw { border-top: 1px solid var(--ui-edge); padding: 12px 0 0; text-indent: 0;
-  font-size: 18px; line-height: 1.3; opacity: 1; }
+.gx-quests .q-grid .q-card .q-cw { border-top: 1px solid var(--ui-edge); padding: 10px 0 0; text-indent: 0;
+  font-size: 16px; line-height: 1.3; opacity: 1; }
 .q-field-label { display: block; font-size: 13px; line-height: 1; letter-spacing: .12em; color: var(--ph); margin-bottom: 7px; }
 .q-objective-mark { color: var(--ph); }
 .gx-quests .q-grid .q-card .q-reward { color: var(--gold); background: rgba(var(--gold-rgb), .035);
   border: 0; border-left: 2px solid rgba(var(--gold-rgb), .45); padding: 9px 12px; text-indent: 0; margin: 8px 0 0;
-  font-size: 18px; line-height: 1.3; opacity: 1; }
+  font-size: 16px; line-height: 1.3; opacity: 1; }
 .q-reward .q-field-label { color: var(--gold); }
-.gx-quests .q-grid .q-card .q-actions { padding-top: 14px; }
-.gx-quests .q-actions .q-go { font-size: 18px; line-height: 1.2; min-height: 46px; padding: 12px 16px;
+.gx-quests .q-grid .q-card .q-actions { padding-top: 10px; }
+.gx-quests .q-actions .q-go { font-size: 16px; line-height: 1.2; min-height: 40px; padding: 9px 14px;
   background: var(--ui-face), rgba(var(--ph-rgb), .1); color: var(--ph-bright); border-color: rgba(var(--ph-rgb), .45);
   border-radius: var(--r-sm); box-shadow: inset 0 1px 0 var(--ui-highlight), 0 3px 0 rgba(0,0,0,.7); letter-spacing: .06em; }
 .gx-quests .q-actions .q-go:hover { color: var(--ph-bright); border-color: var(--ph); background-color: rgba(var(--ph-rgb), .17); }
-.gx-quests .q-actions .q-queue { min-height: 46px; min-width: 44px; font-size: 22px; }
-.gx-quests .consent-btn, .gx-quests input, .gx-quests textarea { font-size: 17px; }
-.gx-quests .q-life-quest label, .gx-quests .q-life-goal label { color: var(--ph-bright); font-size: 17px; }
-.gx-quests .q-journey-card .sub, .gx-quests .q-refresh-card .sub { font-size: 17px; line-height: 1.4; }
-.q-journal-history { margin-top: 18px; padding: 12px 6px 0; border-top: 1px solid var(--ui-edge); }
-.q-journal-history > summary { color: var(--ph); }
-.q-journal-empty { padding: 44px 24px; text-align: center; }
-.q-journal-empty > span { color: var(--gold); font-size: 50px; }
-.q-journal-empty h3 { font-size: 28px; font-weight: normal; }
-.q-journal-empty p { font-size: 19px; line-height: 1.4; }
+.gx-quests .q-actions .q-queue { min-height: 40px; min-width: 40px; font-size: 20px; }
+.gx-quests .consent-btn, .gx-quests input, .gx-quests textarea { font-size: 16px; }
+.gx-quests .q-life-quest label, .gx-quests .q-life-goal label { color: var(--ph-bright); font-size: 16px; }
+.gx-quests .q-journey-card .sub, .gx-quests .q-refresh-card .sub { font-size: 16px; line-height: 1.4; }
+.q-journal-records { margin-top: 12px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel2); }
+.q-journal-records > details + details { border-top: 1px solid var(--ui-edge); }
+.gx-quests .q-journal-records > details > summary,
+.gx-quests .q-progress-section > summary { display: flex; align-items: center; gap: 10px; min-height: 44px;
+  margin: 0; padding: 10px 14px; list-style: none; font-size: 15px; line-height: 1.3; letter-spacing: .04em; color: var(--ph-bright); }
+.q-journal-records > details > summary::-webkit-details-marker, .q-progress-section > summary::-webkit-details-marker { display: none; }
+.q-journal-records > details > summary::before, .q-progress-section > summary::before { content: '›'; flex: 0 0 16px;
+  font-size: 22px; line-height: 1; text-align: center; color: var(--ph); }
+.q-journal-records > details[open] > summary::before, .q-progress-section[open] > summary::before { transform: rotate(90deg); }
+.q-journal-records > details > summary:hover, .q-progress-section > summary:hover { background: rgba(var(--ph-rgb), .05); }
+.q-journal-records > details[open] > summary { border-bottom: 1px solid var(--ui-edge); background: var(--ui-face); }
+.q-section-count, .q-section-note { margin-left: auto; color: var(--ph); font-size: 14px; letter-spacing: 0; }
+.q-section-count { min-width: 28px; padding: 2px 7px; line-height: 1; text-align: center; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); }
+.q-section-body { padding: 14px; }
+.gx-quests .q-journey-card { border: 0; background: transparent; padding: 0; margin: 0; }
+.q-progress-overview { display: grid; grid-template-columns: 1.5fr 1fr; gap: 12px; }
+.gx-quests .q-progress-overview > div { margin: 0; padding: 14px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm);
+  background: var(--ui-face), var(--panel2); box-shadow: inset 0 1px 0 var(--ui-highlight); }
+.gx-quests .q-progress-overview .q-journey-title, .gx-quests .q-progress-overview .q-ns-eyebrow { font-size: 14px; color: var(--ph); letter-spacing: .08em; }
+.q-progress-overview .q-evolution { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 12px; }
+.q-progress-overview .q-evolution-name { font-size: 24px; margin-top: 6px; }
+.q-progress-overview .gx-tag { font-size: 16px; line-height: 1.3; }
+.q-progress-overview .q-evolution .gx-tag { margin-left: 0; }
+.gx-quests .q-progress-overview .sub { margin-top: 10px; line-height: 1.4; }
+.q-progress-goal { padding: 14px 0; }
+.q-progress-section { border-top: 1px solid var(--ui-edge); }
+.q-milestones.q-progress-section { margin: 0; padding: 0; }
+.gx-quests .q-progress-section > summary { padding-inline: 0; }
+.q-progress-section > .q-section-body { padding: 0 0 14px 26px; }
+.q-metric-editor { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel2); }
+.gx-quests .q-metric-create { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; padding-top: 10px; }
+.q-metric-create label { display: flex; flex-direction: column; gap: 6px; font-size: 16px; color: var(--ph-bright); }
+.q-metric-create .q-metric-name-field { grid-column: 1 / -1; }
+.gx-quests .q-metric-create input, .gx-quests .q-metric-actions input { width: 100%; min-height: 36px; padding: 7px 9px; font-size: 16px; }
+.q-metric-create .q-metric-add { grid-column: 1 / -1; justify-self: start; min-height: 40px; padding: 8px 16px; }
+.gx-quests .q-mastery-row { padding: 8px 10px; font-size: 16px; }
+.gx-quests .q-journey-title { font-size: 18px; line-height: 1.3; }
+.q-proof-list .sub + .sub { padding-top: 12px; margin-top: 12px; border-top: 1px solid var(--ui-edge); }
+.q-journal-empty { padding: 32px 18px; text-align: center; }
+.q-journal-empty > span { color: var(--gold); font-size: 40px; }
+.q-journal-empty h3 { font-size: 24px; font-weight: normal; }
+.q-journal-empty p { font-size: 17px; line-height: 1.4; }
 @container (max-width: 640px) {
   .q-journal { grid-template-columns: minmax(0, 1fr); }
-  .q-mission-list { max-height: 190px; border-right: 0; border-bottom: 1px solid var(--ui-edge); }
-  .gx-quests .q-briefing .q-card { min-height: 0; padding: 20px; }
-  .q-journal-header h2 { font-size: 26px; }
+  .q-mission-list { max-height: 160px; border-right: 0; border-bottom: 1px solid var(--ui-edge); }
+  .gx-quests .q-briefing .q-card { min-height: 0; padding: 14px; }
+  .q-journal-header h2 { font-size: 24px; }
   .q-journal-count { gap: 6px; }
   .q-filter { flex: 1 1 auto; padding: 9px; }
   .gx-quests .q-track-empty { flex-wrap: wrap; }
+  .q-progress-overview { grid-template-columns: 1fr; }
+  .q-section-body { padding: 14px; }
+  .q-journal-records .q-section-note { display: none; }
+  .gx-quests .q-metric-create { grid-template-columns: minmax(0,1fr); }
+  .q-progress-section > .q-section-body { padding-left: 0; }
 }
 
 /* ============================================================
