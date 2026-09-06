@@ -6333,16 +6333,24 @@ const World = (() => {
     if (cache && cache.interiorPath) ctx.clip(cache.interiorPath);
   }
 
+  // Fixture halos stay anchored and steady. Reuse the gradient until a rebake
+  // replaces its lamp object; no gradient allocation or brightness beat per frame.
+  const _fixtureGlow = new WeakMap();
   function drawGlows(now) {
     if (!cache || !cache.flickers) return;
     ctx.globalCompositeOperation = 'lighter';
     for (const f of cache.flickers) {
-      const a = Math.max(0, CRT.glow * (0.55 + 0.45 * Math.sin(now / 210 + f.x) * Math.sin(now / 83 + f.y)));
-      const g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
-      const rgb = f.rgb || '238,218,184';   // the room's fixture temperature (StationBake.lampRgbOf); tungsten 'rgba(238,218,184' is the hab default
-      g.addColorStop(0, 'rgba(' + rgb + ',' + a + ')'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+      let g = _fixtureGlow.get(f);
+      if (!g) {
+        g = ctx.createRadialGradient(f.x, f.y, 1, f.x, f.y, f.r * 0.7);
+        const rgb = f.rgb || '238,218,184';
+        g.addColorStop(0, 'rgba(' + rgb + ',1)'); g.addColorStop(1, 'rgba(' + rgb + ',0)');
+        _fixtureGlow.set(f, g);
+      }
+      ctx.globalAlpha = Math.max(0, Math.min(1, CRT.glow * 0.55));
       ctx.fillStyle = g; ctx.fillRect(f.x - f.r * 0.7, f.y - f.r * 0.7, f.r * 1.4, f.r * 1.4);
     }
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
   }
 

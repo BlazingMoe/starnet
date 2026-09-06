@@ -3562,6 +3562,9 @@ const StationBake = (() => {
   // Room coverage comes from the diffuse area fill. Fixtures add restrained local
   // highlights, distributed across BOTH axes instead of stretching two central spots.
   const ROOM_FIXTURE_GAIN = 0.22;
+  // Colour and material reflection are independent of the coverage cut. Reducing
+  // all three by the same gain drained the warmth from the evenly lit deck.
+  const ROOM_COLOUR_GAIN = 0.55;
   const lampCols = r => Math.max(1, Math.ceil((r.x2 - r.x1 + 1) / Math.max(3, LIGHT.pitch)));
   function lampRows(Y, RH) {
     const rows = Math.max(1, Math.ceil(RH / (T * Math.max(3, LIGHT.pitch))));
@@ -3601,7 +3604,7 @@ const StationBake = (() => {
         // FLOOR SHEEN (Slice 2): a faint vertical reflection streak on the deck below the pool, as if
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
-        b.save(); b.globalAlpha = ROOM_FIXTURE_GAIN;
+        b.save(); b.globalAlpha = ROOM_COLOUR_GAIN;
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34); b.restore();
         lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0, gain: ROOM_FIXTURE_GAIN });
       }
@@ -4358,7 +4361,7 @@ const StationBake = (() => {
         if (w > 0.001) for (const l of lampPos) {
           const r = l.r * 0.6;
           const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
-          falloffStops(g, l.rgb || LAMP_RGB, w * (l.gain == null ? 1 : l.gain));
+          falloffStops(g, l.rgb || LAMP_RGB, w * (l.gain == null ? 1 : ROOM_COLOUR_GAIN));
           F.fillStyle = g; F.fillRect(l.x - r, l.y - r, r * 2, r * 2);
         }
         /* VIEWPORT SPILL — the sky is a light source. A pane cut through the north wall opens onto

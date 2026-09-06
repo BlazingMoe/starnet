@@ -33,8 +33,8 @@ A.eq((bake.match(/falloffStops\((?:gw|g), POOL_RGB, LIGHT\.floor(?: \* ROOM_FIXT
 A.ok(!/rgba\(246,224,188,' \+ LIGHT\.floor/.test(bake), 'no pool still hand-rolls its own stop list');
 A.ok(!/rgba\(250,236,206/.test(bake), 'the near-white floor-pool color no longer ships');
 A.ok(/rgba\(255,228,184,0\.55\)/.test(bake), 'the wall fixture highlight is warm instead of pure white');
-A.ok(/rgba\(238,218,184/.test(world), 'the live simulation shimmer uses the warmer lamp color');
-A.ok(/rgba\(238,218,184/.test(build), 'REFIT preview matches the live simulation shimmer color');
+A.ok(/f\.rgb \|\| '238,218,184'/.test(world), 'simulation uses fixture temperature with the warm fallback');
+A.ok(/f\.rgb \|\| '238,218,184'/.test(build), 'REFIT uses the same fixture temperature and fallback');
 
 A.ok(luminance(pool) < luminance(oldPool), 'floor pools are slightly less luminous than before');
 A.ok(luminance(pool) > 0.70, 'floor pools retain a bright source color for readable deck contrast');
@@ -61,4 +61,41 @@ for (const [key, value] of Object.entries(lightControls)) {
   A.ok(lock.test((lab.match(/const LIGHT_DEFAULTS = \{([^}]+)\}/) || [])[1] || ''), 'the CRT lab reset keeps ' + key + ' at the shipped value');
 }
 
+// Run the actual drawing functions: steady across time, cached between frames,
+// refreshed after rebake, with canvas state restored for the next layer.
+for (const [name, source, end] of [['world', world, '  /* ---- PROP LIGHT'], ['build', build, '  /* ---------- PLACEMENT']]) {
+  const code = source.slice(source.indexOf('  const _fixtureGlow ='), source.indexOf(end));
+  let allocations = 0, calls = [];
+  const ctx = { globalAlpha: 1, createRadialGradient(...coords) {
+    allocations++; return { coords, stops: [], addColorStop(...s) { this.stops.push(s); } };
+  }, fillRect(...rect) { calls.push({rect, alpha:this.globalAlpha, gradient:this.fillStyle}); } };
+  const cache = {origin:{tx:2,ty:3}, flickers:[{x:20,y:30,r:25,rgb:'255,196,120'},{x:60,y:30,r:25}]};
+  const draw = new Function('ctx','cache','CRT','T',code+'; return drawGlows;')(ctx,cache,{glow:.06},()=>12);
+  draw(0); const first = JSON.stringify(calls); calls=[];
+  for (const time of [83,210,1000,5000,30000]) {
+    draw(time); A.eq(JSON.stringify(calls),first,name+' fixture image is steady at '+time+'ms'); calls=[];
+  }
+  A.eq(allocations,2,name+' reuses gradients instead of allocating every frame');
+  A.eq(ctx.globalAlpha,1,name+' restores alpha');
+  A.eq(ctx.globalCompositeOperation,'source-over',name+' restores compositing');
+  cache.flickers=cache.flickers.map(f=>({...f,x:f.x+10}));draw(1);
+  A.eq(allocations,4,name+' rebake gets new positioned gradients');
+}
+
+const props = read('propsprites.js');
+const start = props.indexOf('  function lightOf('), stop = props.indexOf('\n  }',start)+4;
+const emission = new Function('EMIT','TILE','SURFACE_RISE','let now=0;'+props.slice(start,stop)+';return (t,f,work,still)=>{now=t;return lightOf(f,work,still);};');
+for(const [mode,limit] of [['screen',.031],['pulse',.041],['fire',.101],['steady',0]]) {
+  const light = emission({probe:{c:[120,200,255],r:22,a:1,m:mode,y:.3,work:true}},12,8);
+  const f={t:'probe',x:4,y:6}; const samples=[];
+  for(let t=0;t<=30000;t+=50)samples.push(light(t,f,true,false));
+  const alphas=samples.map(l=>l.a);
+  A.ok(Math.max(...alphas)-Math.min(...alphas)<=limit,mode+' spill has restrained modulation');
+  A.ok(samples.every(l=>l.x===samples[0].x && l.y===samples[0].y),mode+' source stays anchored');
+  A.eq(light(100,f,false,false),null,mode+' working source still obeys real activity');
+  A.eq(light(100,f,true,true).a,1,mode+' reduced motion stays steady');
+}
+for(const file of ['world.js','build.js','propsprites.js','stationbake.js']) {
+  A.eq(read(file),fs.readFileSync(path.join(__dirname,'..','website','app','app',file),'utf8'),file+' website parity');
+}
 A.report('simulation-lighting');
