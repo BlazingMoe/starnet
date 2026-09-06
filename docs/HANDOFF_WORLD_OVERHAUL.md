@@ -417,3 +417,10 @@ to ALL on load. AUTOMATED strictly shows sessions with automation provenance, in
 automation sessions; ordinary active, pinned, failed or waiting sessions no longer bypass that
 filter. Waiting for you remains a separate shortcut to pending responses across all sessions.
 An empty automation list explains that there are no automation sessions yet.
+
+### Final integration
+
+Session spacing now uses 2px gaps and 5px vertical padding without stacked row margins.
+Merged at `fb22656be`; both the final branch and integrated trunk passed all 724 fast steps.
+The HTTP suite passed 101 steps, and the updated session live probe passed 36 checks.
+See `docs/WORLD_INTERFACE_MERGE_READINESS_2026-09-06.md` for the final integration receipts.
