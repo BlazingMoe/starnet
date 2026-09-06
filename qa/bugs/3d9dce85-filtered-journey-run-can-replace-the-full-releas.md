@@ -47,7 +47,7 @@ result=pass plus current commit and freshness without checking full journey cove
 
 ## Verdict
 
-Fixed by `b45e6ab8d`: receipts explicitly record `fullSuite: ONLY.size === 0`;
+Receipts explicitly record `fullSuite: ONLY === null`;
 the readiness reader requires boolean true. Focused diagnostics can still record their
 result, but cannot satisfy the full-suite gate. Legacy receipts lacking coverage proof
 also require a fresh full run.
@@ -55,9 +55,12 @@ No claim is made that the newest visual merges introduced this pre-existing gap.
 
 ## Regression
 
-`test/qa-ready.test.js` failed three assertions before the repair and passes 116/116
+`test/qa-ready.test.js` failed three assertions before the repair and passes 118/118
 after it. False, absent, and string-valued fullSuite flags cannot qualify.
 A live `--only J6` run passed 6/6, wrote `fullSuite:false`, and `qa:ready` reported:
 `Journey corps last run: journeys receipt does not prove the full suite`.
 After-fix evidence: `release-audit-subset-after.log` and `release-audit-ready-after.log`
 under the audit artifact directory. This QA-only change does not require an installer.
+The complete live run exposed a null-filter error in the first writer patch; an
+executable producer test now verifies both actual argument-parser paths, including
+the unfiltered null value, before the final full-run receipt is accepted.
