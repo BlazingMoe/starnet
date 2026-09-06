@@ -1,5 +1,23 @@
 # NEXT.md — current priorities & task queue
 
+## DONE — 2026-09-06 Add agents integration (`agent/comms-add-agents-0906`)
+
+Owner requested merging the verified COMMS picker repair. It opens before network work,
+shows unavailable-backend errors with Retry, and ignores late results after Cancel.
+Merged as `ceafd9c67`; fast gate passed 725/725 before and after integration. Live port 9177
+now opens the picker and lists the crew. Existing QA status and Rooms handoff edits were
+preserved. Bug record: `0245a284`; receipt: `qa/digests/2026-09-06-add-agents.md`.
+
+## DONE — 2026-09-06 release UI audit integration (`agent/release-ui-audit-0906`)
+
+Owner authorized merging the two audited repairs: complete appearance backups and full-suite
+journey receipts. Synced with trunk `b8f8e8dd6`, then fast-forwarded the exact verified candidate
+`f4baf0d20` into integration. Fast gate passed 724/724 before and after merge; full live journeys
+passed 130/130 with `fullSuite:true` on that same SHA. Real backup export/import retained appearance
+through sidecar restart; merged extension editors and catalog sign-in filter passed live.
+Seven P1 release findings remain open. Unrelated QA status and Rooms handoff bytes were preserved.
+Audit and merge receipts: `docs/RELEASE_UI_AUDIT_2026-09-06.md`; digest in `qa/STATUS.md`.
+
 ## IN PROGRESS — 2026-09-05 paid first-run recovery (`agent/paid-first-run`)
 
 Owner requested fresh assessment and execution of the subscription/credit purchaser recovery

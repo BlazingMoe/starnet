@@ -14,6 +14,30 @@
     orchestrator: 'Let the lead delegate work to other agents.',
     connector: 'Use tools from a connected service.'
   };
+  const ABILITY_NAMES = { cabinet: 'FILE ACCESS', dish: 'WEB & BROWSER', workbench: 'TERMINAL', notebook: 'MEMORY', studio: 'IMAGES', connector: 'CONNECTED SERVICES', jukebox: 'SPOTIFY' };
+  // A capability mapping takes precedence over a prop's visual category or old catalog tier.
+  // Some furniture grants tools; some impressive-looking machinery is only decoration.
+  function kind(spec, cap) {
+    if (cap && cap !== 'computer') return 'abilities';
+    if (cap === 'computer' || spec.tier === 'functional') return 'equipment';
+    return 'decoration';
+  }
+  function label(spec, cap) {
+    if (cap === 'computer') return 'WORKSTATION';
+    if (cap) return 'ABILITY · ' + (ABILITY_NAMES[cap] || cap.toUpperCase());
+    if (spec.cat === 'workflow' && spec.tier === 'functional') return 'WORKFLOW EQUIPMENT';
+    if (spec.tier === 'functional') return 'STATION EQUIPMENT';
+    return 'DECORATION · APPEARANCE ONLY';
+  }
+  // This is TOOL ACCESS, not proof that an external account/provider is connected.
+  function access(cap, view) {
+    if (!view || !view.authority || !Array.isArray(view.toolsets)) return { state: 'unknown', label: 'CHECK ACCESS' };
+    const row = view.toolsets.find(t => t.object === cap);
+    if (!row) return { state: 'service', label: 'CHECK SERVICE' };
+    if (row.available) return { state: 'available', label: 'AVAILABLE', source: row.grantSource };
+    if (!row.enabled) return { state: 'off', label: 'SWITCHED OFF' };
+    return { state: 'missing', label: 'ADD EQUIPMENT' };
+  }
   function inspect(station, agentId, propType) {
     const cap = station.capForProp(propType);
     const roomId = station.agentRoomId(agentId);
@@ -40,5 +64,5 @@
     if (!row.enabled) return 'This toolset is switched off. Open Abilities to enable it; placing another prop will not enable the switch.';
     return 'To add this ability, place one matching prop in ' + facts.scope + '. Actions still follow this agent’s access settings.';
   }
-  return { inspect, status, PURPOSE };
+  return { inspect, status, PURPOSE, ABILITY_NAMES, kind, label, access };
 });

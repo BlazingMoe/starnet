@@ -199,3 +199,4 @@ dev/.shots-toast/
 # Isolated group-DM live-test application profile (never production data).
 /dev/.group-profile/
 .worldshots/
+sidecar/mcp/google-client.json

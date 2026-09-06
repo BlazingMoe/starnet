@@ -253,10 +253,26 @@ A.ok(canvases.every(boundedCanvas),
    this file's canvas mock resolves a gradient fillStyle to a single value, so the room-lighting
    pass flattens the whole footprint and every floor mark under it becomes invisible. */
 const matGeo = mat => { const g = makeGeo(); g.matOf = () => mat; return g; };
-for (const mat of ['grate', 'hex', 'plank', 'turf']) {
+for (const mat of ['grate', 'hex', 'plank', 'turf', 'alloy']) {
   const g = matGeo(mat);
   A.eq(pixelDiff(composeLayer(StationBake.bakeIncremental(g, null, null), 'base'), StationBake.bake(g).baseCv), 0,
     mat + ' deck bakes identically chunked and monolithic');
+}
+
+// Regression: room growth must not move fixtures against the outer walls.
+// Exercise production bake output, including the small/narrow cases whose
+// radius previously depended only on depth. Pixel contrast is checked live by
+// dev/room-lighting-proof.mjs (this canvas mock cannot represent gradients).
+for (const [w, h] of [[9, 7], [14, 9], [15, 14], [18, 18], [24, 16], [12, 24], [40, 30]]) {
+  const g = makeGeo(), r = { z: 'r1', x1: 2, y1: 2, x2: w + 1, y2: h + 1 };
+  g.allRects = [r]; g.zones.r1 = r; g.zoneGrid.fill(null);
+  for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) g.zoneGrid[g.idx(x, y)] = 'r1';
+  const lamps = StationBake.bake(g).lamps;
+  A.ok(lamps.every(l => l.x === (2 + w / 2) * 12), w + 'x' + h + ' keeps fixtures on one north-south centre line');
+  A.eq(lamps.length, 2, w + 'x' + h + ' uses the reference top and bottom lights');
+  A.ok(Math.abs(lamps[0].y - (2 + h * 1.6 / 14) * 12) < .001, w + 'x' + h + ' scales the reference top position');
+  A.ok(lamps.every(l => Math.abs(l.r - 60 * Math.min(w / 15, h / 14) * 1.3 * 1.4) < .001), w + 'x' + h + ' scales the exact reference radius');
+
 }
 
 A.report('stationbake.chunk');

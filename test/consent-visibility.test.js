@@ -55,7 +55,19 @@ const F = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 {
   const app = F('frontend/app/app.js');
   // the rail row's attn state must carry an explicit human-readable marker, not just a subtle dot recolor.
-  A.ok(/railRowState[\s\S]{0,900}?NEEDS YOU/.test(app), 'app.js: the pending row shows an explicit NEEDS YOU marker in its meta');
+  const Channels = require('../frontend/app/channels.js');
+  const context = require('node:vm').createContext({ Channels, Workstreams: { get: id => ['ws-one', 'ws-two'].includes(id) ? { id, agentId: 'same-agent' } : null, unread: () => false }, railRelTime: () => '', railFmtElapsed: () => '' });
+  require('node:vm').runInContext(A.fnBody(app, 'function railPendingIds()') + '\n' + A.fnBody(app, 'function railRowState(w)'), context);
+  Channels.setPending('ws-one', { tool: 'fs.write', promptId: 'p1' });
+  Channels.setPending('ws-two', { tool: 'brief.ask', promptId: 'p2' });
+  Channels.setPending('deleted', { tool: 'fs.write', promptId: 'gone' });
+  A.eq([...context.railPendingIds()], ['ws-one', 'ws-two'], 'attention counts sessions sharing one agent separately and excludes orphaned prompts');
+  A.eq(context.railRowState({ id: 'ws-one' }).meta, 'Approval needed', 'the exact session shows a clear approval badge even before run-start state arrives');
+  A.eq(context.railRowState({ id: 'ws-two' }).meta, 'Reply needed', 'an agent question asks for a reply, not permission');
+  Channels.clearPending('ws-one');
+  A.eq([...context.railPendingIds()], ['ws-two'], 'resolving one session leaves the other waiting session visible');
+  A.eq(context.railRowState({ id: 'ws-one' }).attn, false, 'the resolved session no longer asks for attention');
+  Channels.reset();
   const wr = F('frontend/app/warroom.js');
   A.ok(!/if \(awaiting\) cls = 'wr-await'/.test(wr),
     'warroom.js: the GLOBAL await flip is gone (it lit ALL agents\' dots for one agent\'s prompt — untruthful telemetry)');
@@ -77,8 +89,8 @@ const F = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 /* ---------- FIX 2 · E-STOP: copy told users to "press E-STOP" while no control existed on screen ---------- */
 {
   const safety = F('frontend/app/safety.js');
-  A.ok(/estop/.test(safety) && /#topbar|tb-status/.test(safety),
-    'safety.js: a visible E-STOP control is built into the topbar chrome (was hotkey-only, never in the DOM)');
+  A.ok(/getElementById\('estop-btn'\)/.test(safety) && /data-group="system"[\s\S]*id="estop-btn"/.test(F('frontend/index.html')),
+    'safety.js: E-STOP is wired to an actual SYSTEM menu control, not a hidden hotkey-only action');
   A.ok(/Alt\+H/.test(safety), 'safety.js: the control itself teaches the Alt+H hotkey');
   const fe = F('frontend/app/friendlyerror.js');
   const estopMsgs = (fe.match(/msg:\s*'[^']*E-STOP[^']*'/g) || []);

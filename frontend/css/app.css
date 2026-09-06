@@ -4340,8 +4340,36 @@ body.crew-rail-off #screen-game.active {
 .mc-form { display: flex; flex-direction: column; gap: 6px; }
 /* EXTENSIONS authoring: two fields side by side on a wide panel, stacked when the console is narrow. No
    colours or chrome of its own — it inherits .key-input / .bb so it can never drift from the control floor. */
-.ext-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-@media (max-width: 620px) { .ext-pair { grid-template-columns: 1fr; } }
+.ext-workspace { container-type: inline-size; }
+.ext-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ext-choice { display: flex; align-items: center; gap: 12px; text-align: left; padding: 18px 14px;
+  border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--ui-face);
+  box-shadow: inset 0 1px 0 var(--ui-highlight); color: var(--text); cursor: pointer; }
+.ext-choice > span:nth-child(2) { flex: 1; min-width: 0; }
+.ext-choice b { display: block; font-size: 17px; font-weight: normal; color: var(--ph-bright); }
+.ext-choice small { display: block; font-size: 13px; margin-top: 5px; color: var(--text); }
+.ext-choice-icon { font-size: 28px; color: var(--ph); }
+.ext-choice:hover, .ext-choice[aria-expanded="true"] { border-color: var(--ph); background: var(--ui-face), var(--panel); }
+.ext-choice:focus-visible, .ext-details summary:focus-visible { outline: 1px solid var(--ph-bright); outline-offset: 3px; }
+.ext-editor { padding: 16px; margin: 12px 0 20px; border: 1px solid var(--ui-edge);
+  border-radius: var(--r-sm); background: var(--panel); box-shadow: var(--ui-well); }
+.ext-workspace [hidden] { display: none; }
+.ext-editor-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+.ext-editor-head b { color: var(--ph-bright); font-size: 18px; font-weight: normal; }
+.ext-editor label, .ext-details label { display: block; color: var(--text); margin: 7px 0 2px; font-size: 14px; }
+.ext-editor .key-input { width: 100%; min-width: 0; box-sizing: border-box; }
+.ext-workspace .mc-hint { color: var(--text); line-height: 1.5; }
+.ext-details { margin-top: 10px; }
+.ext-details summary { color: var(--ph); cursor: pointer; font-size: 13px; padding: 4px 0; }
+.ext-details[open] summary { margin-bottom: 8px; }
+.ext-list-heading { color: var(--ph); font-size: 12px; letter-spacing: var(--ls-2); margin: 16px 0 8px; }
+.ext-empty { padding: 10px 0; font-size: 14px; color: var(--text); }
+.ext-row { background: var(--ui-face), var(--panel); border-color: var(--ui-edge); box-shadow: inset 0 1px 0 var(--ui-highlight); padding: 12px; }
+.ext-row .mc-top b { overflow-wrap: anywhere; min-width: 0; }
+.ext-command { display: block; overflow-wrap: anywhere; white-space: pre-wrap; margin: 8px 0 12px; color: var(--text); }
+.ext-workspace #ext-msg:empty { display: none; }
+.ext-workspace #ext-msg:not(:empty) { padding: 10px 0; overflow-wrap: anywhere; }
+@container (max-width: 540px) { .ext-choices { grid-template-columns: 1fr; } .ext-choice { padding: 12px; } }
 /* ROUTINES — RUN NOW result (P0 #11): renders inline in the ACTIVE pane, spliced under the row that fired it,
    framed like a mini terminal so the paid run's output is unmissable (never streamed into the hidden CREATE pane). */
 .rt-out { margin: 2px 0 8px; border: 1px solid var(--ph-dim); border-left: 2px solid var(--ph);

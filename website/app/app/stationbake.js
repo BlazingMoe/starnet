@@ -172,6 +172,7 @@ const StationBake = (() => {
      lamps square-on. It is cut MULTIPLICATIVELY, so the crown still darkens away from the lamps
      like everything else; it just never falls under the shell outside it. */
   let crownRects = [];
+  let cornerFaceRects = [];
   let doorOcclusion = [];   // solid entrance surfaces, kept for the entity depth pass
   const crown = (b, x, y, w, h, color) => {
     b.fillStyle = color; b.fillRect(x, y, w, h);
@@ -238,7 +239,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -898,7 +899,7 @@ const StationBake = (() => {
   // FALLBACK ONLY — projected geometry always carries matOf, so this map is not what you see in
   // game. WorldModel.ROOM_KINDS[kind].mat is the authority; keep the two in step.
   const MAT_BY_KIND = { hab: 'spine', corridor: 'spine', bridge: 'panel', lab: 'tile', factory: 'tread', storage: 'tread', quarters: 'soft' };
-  const MAT_PITCH = { plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [4, 3], diamond: [1, 1], resin: [4, 4], ceramic: [3, 3], cargo: [3, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
+  const MAT_PITCH = { alloy: [4, 3], plate: [2, 2], panel: [4, 1], tile: [2, 2], tread: [2, 2], soft: [3, 2], grate: [1, 1], hex: [1, 1], plank: [5, 1], turf: [1, 1], spine: [4, 3], diamond: [1, 1], resin: [4, 4], ceramic: [3, 3], cargo: [3, 2], runner: [2, 2], treadway: [3, 2], meshway: [3, 3] };
   const MAT_NO_WEAR = { tile: 1, grate: 1, turf: 1, ceramic: 1, resin: 1 };   // gloss, open mesh, growth, and a poured or glazed floor take no boot scuffs   // gloss, open mesh and growth don't take boot scuffs
   // the room's deck material — the model's per-room choice when it has one, else the kind default
   // (a station built before the material axis existed has none, and bakes exactly as it always did).
@@ -1503,7 +1504,32 @@ const StationBake = (() => {
     }
   }
 
+  // Large matte plates: most pixels belong to the quiet top surface. Recesses and
+  // captive fixings stay on the plate perimeter, readable at the normal station zoom.
+  // Every mark is tile-local and world-keyed, including negative world coordinates.
+  function deckAlloy(b, base, x, y, X, Y, z, n, fd) {
+    const px = (a, c, w, h, d) => { b.fillStyle = shade(base, d * fd); b.fillRect(a, c, w, h); };
+    const lx = ((x % 4) + 4) % 4, ly = ((y % 3) + 3) % 3;
+    const panel = hp(Math.floor(x / 4), Math.floor(y / 3), 8201);
+    const body = 0.075 + ((panel % 3) - 1) * 0.006;
+    px(X, Y, T, T, body);
+    // A shallow stepped fall across the broad face, not repeated brushed-metal stripes.
+    px(X, Y, T, T, body + (1 - ly) * 0.009);
+    const seam = Math.max(0, DEPTH.deckSeam);
+    if (lx === 0) { px(X, Y, 1, T, -0.15 * seam); px(X + 1, Y, 1, T, body + 0.05 * seam); }
+    if (ly === 0) { px(X, Y, T, 1, -0.15 * seam); px(X, Y + 1, T, 1, body + 0.05 * seam); }
+    if (lx === 3) px(X + T - 1, Y, 1, T, body - 0.035 * seam);
+    if (ly === 2) px(X, Y + T - 1, T, 1, body - 0.035 * seam);
+    if (lx === 0 && ly === 0 && panel % 2 === 0) {
+      px(X + 4, Y + 4, 3, 2, body - 0.15); px(X + 4, Y + 4, 2, 1, body + 0.055);
+    }
+    if (lx === 3 && ly === 2 && panel % 3 === 0) {
+      px(X + 4, Y + 7, 5, 1, body - 0.06); px(X + 8, Y + 5, 1, 2, body - 0.06);
+    }
+  }
+
   function paintDeckRecipe(b, mat, base, x, y, X, Y, z, n, fd) {
+    if (mat === 'alloy') return deckAlloy(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'runner') return deckRunner(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'treadway') return deckTreadway(b, base, x, y, X, Y, z, n, fd);
     if (mat === 'meshway') return deckMeshway(b, base, x, y, X, Y, z, n, fd);
@@ -1523,7 +1549,7 @@ const StationBake = (() => {
   // anchored to world coordinates so refit swatches and chunked decks agree.
   function paintDeck(b, mat, base, x, y, X, Y, z, n, fd) {
     paintDeckRecipe(b, mat, base, x, y, X, Y, z, n, fd);
-    if (fd <= 0 || mat === 'turf' || mat === 'plank' || mat === 'grate' || mat === 'meshway' || mat === 'soft') return;
+    if (fd <= 0 || mat === 'alloy' || mat === 'turf' || mat === 'plank' || mat === 'grate' || mat === 'meshway' || mat === 'soft') return;
     const seed = hp(x, y, 317), yy = Y + 3 + seed % 5;
     // Sparse flush inspection hatches on engineered metal decks. One per 8x6
     // tile bay; furniture still owns the visual hierarchy. Local, world-keyed
@@ -1597,13 +1623,24 @@ const StationBake = (() => {
       const X = x * T, Y = y * T, n = h2(x, y, r.z);
       const sh = d => shade(base, d * fd);
       paintDeck(b, mat, base, x, y, X, Y, r.z, n, fd);
+      if (mat === 'alloy') {
+        // A darker painted inset is a recessed finish within the same walkable deck.
+        // Edge pixels follow real paint boundaries, never a room-id or camera overlay.
+        const raw = G.baseColorOf(r.z, x, y);
+        const luma = hex => { const c = parseInt(hex.slice(1), 16); return ((c >> 16) & 255) * .299 + ((c >> 8) & 255) * .587 + (c & 255) * .114; };
+        const inset = (nx, ny) => zAt(nx, ny) === r.z && luma(G.baseColorOf(r.z, nx, ny)) > luma(raw) + 5;
+        if (inset(x, y - 1)) px(X, Y, T, 2, sh(-0.22));
+        if (inset(x - 1, y)) px(X, Y, 2, T, sh(-0.22));
+        if (inset(x, y + 1)) { px(X, Y + T - 2, T, 1, sh(-0.2)); px(X, Y + T - 1, T, 1, sh(0.16)); }
+        if (inset(x + 1, y)) { px(X + T - 2, Y, 1, T, sh(-0.2)); px(X + T - 1, Y, 1, T, sh(0.16)); }
+      }
       // FLOOR WEAR — a lived-in deck: hash-keyed scuffs, drag marks, worn-pale patches and
       // grime films over the plates above. Same idiom (opaque-ish 1px marks, deterministic on
       // the tile hash); DEPTH.floorWear scales alpha, 0 = the pristine pre-wear floor exactly.
       // Wear follows the central circulation lane; storage edges stay quieter.
       // Geometry-derived dressing, not a claim about recorded foot traffic.
       const lane = Math.abs(x - (r.x1 + r.x2) / 2) <= 1.5;
-      const wear = Math.max(0, DEPTH.floorWear) * (lane ? 1 : 0.35);
+      const wear = Math.max(0, DEPTH.floorWear) * (lane ? 1 : 0.35) * (mat === 'alloy' ? 0.18 : 1);
       if (wear > 0.001 && !MAT_NO_WEAR[mat]) {
         const wa = a => (a * wear).toFixed(3);
         if (n % 9 === 1) px(X + (n % 6), Y + 3 + (n % 8), 4 + (n % 3), 1, 'rgba(0,0,0,' + wa(0.18) + ')');          // boot scuff streak
@@ -2332,6 +2369,15 @@ const StationBake = (() => {
           const tx = tx0 + i;
           recipe(g, pal, i * T, 0, h, { x: tx, y: ty, z: null }, h2(tx, ty, 'nwall'), true, h);
         }
+        // Curved/side faces are solid structure, not additional windows. Glass
+        // edge tints carry low alpha; reading their RGB as opaque paint made
+        // these faces bright cyan. Composite them over their own wall metal
+        // before sampling, while the straight window keeps its real sky hole.
+        if (matId === 'viewport') {
+          g.globalCompositeOperation = 'destination-over';
+          g.fillStyle = pal.face; g.fillRect(0, 0, w, h);
+          g.globalCompositeOperation = 'source-over';
+        }
         const img = g.getImageData(0, 0, w, h);
         strip = { d: img.data, w, h, x0: tx0 * T };
       }
@@ -2868,8 +2914,48 @@ const StationBake = (() => {
     }
   };
 
+  // Broad structural panels use the existing six silhouette stamps. The quiet middle
+  // of the ramp removes the stacked-strake read without adding canvas work per frame.
+  const hullMonocoque = {
+    pal(raw) {
+      const p = hullStationPal(raw);
+      p.bands = [0.40, 0.54, 0.93, 1.08, 1.28, 2.05].map(k => lift(p.base, k));
+      p.edge = lift(p.base, 1.05); p.rim = lift(p.base, 1.35); p.arc = lift(p.base, 1.45);
+      return p;
+    },
+    bands: rampBands,
+    seam: 0,
+    dress(b, p, x, y, w, h) {
+      b.fillStyle = p.seam;
+      for (let wx = Math.ceil(x / 48) * 48; wx < x + w; wx += 48) b.fillRect(wx, y, 1, h);
+    },
+    rim(b, p, x1, y1, x2, y2) {
+      b.strokeStyle = p.rim; b.lineWidth = 1;
+      b.strokeRect(x1 + 1.5, y1 + 1.5, x2 - x1 - 3, y2 - y1 - 3);
+      b.fillStyle = p.bolt;
+      for (let x = x1 + 12; x < x2 - 8; x += 48) { b.fillRect(x, y1 + 2, 2, 1); b.fillRect(x, y2 - 3, 2, 1); }
+    },
+    veins(g, p, w, h, vx, vy, topOf) {
+      const px = boxed(g, 0, 0, w, h);
+      for (const run of runsOf(topOf, w, 0)) {
+        const top = run[2];
+        g.fillStyle = 'rgba(0,0,0,0.28)'; px(run[0], top + 3, run[1], 2);
+        g.fillStyle = 'rgba(172,196,220,0.075)'; px(run[0], top + 5, run[1], 1);
+        for (let wx = Math.ceil((vx + run[0]) / 48) * 48; wx < vx + run[0] + run[1]; wx += 48) {
+          const x = wx - vx;
+          g.fillStyle = 'rgba(0,0,0,0.42)'; px(x, top + 6, 2, Math.max(1, WALL.skirt - 10));
+          g.fillStyle = 'rgba(164,188,214,0.065)'; px(x + 2, top + 6, 1, Math.max(1, WALL.skirt - 10));
+          if (x + 35 >= run[0] + run[1]) continue;
+          // A single recessed maintenance latch per large panel; no blinking decoration.
+          g.fillStyle = 'rgba(0,0,0,0.30)'; px(x + 25, top + 10, 10, 9);
+          g.fillStyle = 'rgba(164,188,214,0.065)'; px(x + 26, top + 11, 8, 1);
+          g.fillStyle = 'rgba(0,0,0,0.45)'; px(x + 32, top + 13, 1, 3);
+        }
+      }
+    }
+  };
   const HULL_RECIPES = {
-    station: hullStation, timber: hullTimber, clapboard: hullClapboard, shingle: hullShingle,
+    station: hullStation, monocoque: hullMonocoque, timber: hullTimber, clapboard: hullClapboard, shingle: hullShingle,
     brick: hullBrick, stone: hullStone, stucco: hullStucco, curtain: hullCurtain, hedge: hullHedge
   };
 
@@ -3082,7 +3168,7 @@ const StationBake = (() => {
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
     const lit = shade(pal.cap, 0.30), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
-    const put = (x, y, w, h, c) => {
+    const put = (x, y, w, h, c, interior = false) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
       const y0 = Math.max(yLo, y), y1 = Math.min(yHi, y + h);
       if (x1 <= x0 || y1 <= y0) return;
@@ -3097,6 +3183,9 @@ const StationBake = (() => {
         const yEnd = Math.min(y1, lim);
         if (yEnd > y0) {
           b.fillStyle = c; b.fillRect(cx0, y0, cx1 - cx0, yEnd - y0);
+          // Record the face AFTER clipping to the silhouette and nearer walls.
+          // A raised corner is an interior wall, even above the floor footprint.
+          if (interior) cornerFaceRects.push([cx0, y0, cx1 - cx0, yEnd - y0]);
           // the ring's crown tones join the straights' in the ambient cut — a corner that stayed
           // under full ambient beside a lifted straight would be the same inversion, just localised.
           if (c === pal.cap || c === lit) crownRects.push([cx0, y0, cx1 - cx0, yEnd - y0]);
@@ -3105,6 +3194,7 @@ const StationBake = (() => {
         cx0 = cx1;
       }
     };
+    const putFace = (x, y, w, h, c) => put(x, y, w, h, c, true);
     /* the 45° split between the two duals — where the profile's own reach equals the distance along
        it, i.e. rad·2^(-1/n). At n = 2 that is the circle's HR/√2, written verbatim; at n = 1 (the
        shipped chamfer) it is HR/2, and using the circle's split there handed a slab of the chamfer
@@ -3192,14 +3282,14 @@ const StationBake = (() => {
         put(ex, py, 1, 1, shellEdge);                                             // the shell's own edge
         put(ex + 1, py, w, 1, pal.cap); put(ex + 1, py, 1, 1, lit);            // the lit top surface
         // face, down to the deck — depth 0 sits just inside the crown, so the material curves with it
-        cornerFaceSlice(put, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, 1, sOf(ex, py));
+        cornerFaceSlice(putFace, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, 1, sOf(ex, py));
         put(ex + 1 + w, py, 1, 1, seam);
       } else {
         // the lit edge is the crown's OUTERMOST row, i.e. ex - 1 here — putting it on `ex` paints
         // over the shell edge and rules a near-white line along the station's own silhouette.
         put(ex, py, 1, 1, shellEdge);
         put(ex - w, py, w, 1, pal.cap); put(ex - 1, py, 1, 1, lit);
-        cornerFaceSlice(put, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, -1, sOf(ex, py));
+        cornerFaceSlice(putFace, pal, ed, strip, map, alongOf(ex, py), true, py, fs, len, -1, sOf(ex, py));
         put(ex - 1 - w, py, 1, 1, seam);
       }
     }
@@ -3227,12 +3317,12 @@ const StationBake = (() => {
       if (outY < 0) {
         put(ix, ey, 1, 1, shellEdge);
         put(ix, ey + 1, 1, w, pal.cap); put(ix, ey + 1, 1, 1, lit);
-        cornerFaceSlice(put, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey + 2 + w, Math.max(0, inner - (ey + 2 + w)), 1, sOf(ix, ey));
+        cornerFaceSlice(putFace, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey + 2 + w, Math.max(0, inner - (ey + 2 + w)), 1, sOf(ix, ey));
         put(ix, ey + 1 + w, 1, 1, seam);
       } else {
         put(ix, ey, 1, 1, shellEdge);
         put(ix, ey - w, 1, w, pal.cap); put(ix, ey - 1, 1, 1, lit);   // outermost crown row, not the shell edge
-        cornerFaceSlice(put, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey - 2 - w, Math.max(0, (ey - 1 - w) - inner), -1, sOf(ix, ey));
+        cornerFaceSlice(putFace, pal, ed, strip, cMap, alongOf(ix, ey), false, ix, ey - 2 - w, Math.max(0, (ey - 1 - w) - inner), -1, sOf(ix, ey));
         put(ix, ey - 1 - w, 1, 1, seam);
       }
     }
@@ -3559,11 +3649,13 @@ const StationBake = (() => {
     b.restore();
   }
 
-  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / Math.max(2, LIGHT.pitch)));
+  // Reference HAB-16 is 15 x 14 tiles with one column and two original floods.
+  // Keep that arrangement when a room grows instead of adding bright side columns.
+  const lampCols = () => 1;
   function lampRows(Y, RH) {
-    const y0 = Y + T * 1.6, yLast = Y + RH - T * 1.2;
-    const rows = Math.max(1, 1 + Math.floor(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
-    return { rows, y0, step: rows > 1 ? (yLast - y0) / (rows - 1) : 0 };
+    const scaleY = RH / (14 * T);
+    const y0 = Y + T * 1.6 * scaleY, yLast = Y + RH - T * 1.2 * scaleY;
+    return { rows: 2, y0, step: yLast - y0 };
   }
 
   /* the ADDITIVE half of the room lighting — every warm floor pool + its sheen, drawn to whatever
@@ -3580,7 +3672,7 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = Math.min(60, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
+      const rad = 60 * Math.min(RW / (15 * T), RH / (14 * T)) * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -3600,7 +3692,7 @@ const StationBake = (() => {
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0 });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z) });
       }
       b.restore();
     }
@@ -4178,6 +4270,10 @@ const StationBake = (() => {
       const up = Math.max(0, Math.round(e.room ? WALL.up : WALL.corUp));
       b.fillRect(e.x*T, e.y*T-up, T, up+(e.room ? NFACE : 5));
     }
+    // Continue the same interior exposure around the bend. Reuse the painter's
+    // exact face pixels; a rectangle or expanded floor mask would light the cap
+    // and exterior shell along with the wall.
+    for (const [x,y,w,h] of cornerFaceRects) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'destination-out';
     for (const [x,y,w,h] of crownRects) b.fillRect(x,y,w,h);
     b.globalCompositeOperation = 'source-over';
@@ -4288,6 +4384,12 @@ const StationBake = (() => {
          case that assumption gets wrong, and it is the commonest shape on a real station.
          `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
+      if (!cor) {
+        // The reference room's original soft fill, scaled with the same source geometry.
+        const referenceScale = Math.min(RW / (15 * T), RH / (14 * T));
+        cut(X + RW * 0.5, Y + RH * 0.42, 14 * T * 0.78 * referenceScale, LIGHT.room);
+        continue;
+      }
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
       const n = Math.max(1, Math.round(along / (cross * 1.4)));
@@ -4385,7 +4487,7 @@ const StationBake = (() => {
     ditherLight(L, lightCv.width, lightCv.height);
     const flickers = [];
     for (let i = 0; i < lampPos.length; i += 2) flickers.push(lampPos[i]);
-    return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamps = EVERY fixture (the overhead pass draws the hanging ones)
+    return { lightCv, interiorCv, flickers, lamps: lampPos.slice() };   // lamp sources retained for lighting and diagnostics
   }
 
   function buildBase() {
@@ -4722,6 +4824,7 @@ const StationBake = (() => {
     stripCache = null;     // ...and the rendered face strips the curved surfaces sample
     viewportRects = [];    // ...and so are the window holes the wall pass punches
     crownRects = [];       // ...and the crown rects the ambient cut reads back
+    cornerFaceRects = [];  // ...and only the clipped interior faces of the corners
     doorOcclusion = [];
     crownReach = new Map();   // ...and the corner crown's measured reach, which the mask erase reads back
     VX = viewport ? viewport.x : 0; VY = viewport ? viewport.y : 0;

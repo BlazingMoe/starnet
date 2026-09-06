@@ -60,11 +60,11 @@
       scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'].concat(scopes),
       // Without these Google issues NO refresh token and the connector dies in ~1h.
       extraAuthParams: { access_type: 'offline', prompt: 'consent select_account' },
-      clientSecretRequired: true,
-      developerPreview: true,
-      setupUrl: 'https://developers.google.com/workspace/guides/configure-mcp-servers',
-      setupName: 'Google Workspace setup guide',
-      setupNote: 'Developer Preview: enable the product API and MCP API in your Google Cloud project, then create an OAuth Web application client.'
+      clientSecretRequired: false,
+      developerPreview: false,
+      setupUrl: 'https://developers.google.com/identity/protocols/oauth2/native-app',
+      setupName: 'StarNet publisher setup',
+      setupNote: 'StarNet supplies the Google application registration. Users only sign in and approve access.'
     };
   }
 
@@ -142,38 +142,33 @@
     // ── OAuth tier — LISTED but not installable until the OAuth slice ships (honest, not a dead click) ──
     /* `via` (url-less oauth entries only): the catalog id of the AGGREGATOR that reaches this platform today.
        The panel renders it as a live "VIA <name>" jump to that card instead of a mute disabled button. */
-    /* ── Google Workspace (2026-08-14): Google now SHIPS official per-product remote MCP endpoints
-       (rolled out May 2026 — developers.google.com/workspace/guides/configure-mcp-servers). Their AS
-       (accounts.google.com) has NO dynamic client registration, so these rows carry `staticOauth`:
-       fixed authorization/token endpoints + per-product scopes. The sign-in route uses a PRE-REGISTERED
-       OAuth client (a Google Cloud "Web application" client with our loopback redirect) stored once per
-       authorization server — pasted by the Commander, or shipped app-wide via env. `access_type=offline`
-       + `prompt=consent` are REQUIRED extra authorize params or Google never returns a refresh token. */
+    /* StarNet implements MCP tools locally over stable Google APIs. The publisher supplies
+       an installed-app OAuth registration; customers never configure a Google Cloud project. */
     { id: 'gmail', name: 'Gmail', category: 'Productivity', authType: 'oauth', transport: 'http',
-      url: 'https://gmailmcp.googleapis.com/mcp/v1', official: true, homepage: 'https://mail.google.com',
+      url: 'https://gmail.googleapis.com/gmail/v1/users/me', googleApi: true, official: false, homepage: 'https://mail.google.com',
       aliases: ['google', 'gmail', 'google mail', 'email', 'gsuite', 'g suite', 'google workspace'],
       staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose']),
-      blurb: 'Read, search, and draft Gmail through Google\'s Developer Preview MCP server. Requires one-time Google Cloud setup and sign-in.' },
+      blurb: 'Search and read Gmail, create drafts, and send approved drafts. Sign in with Google to connect your account.' },
     { id: 'google-drive', name: 'Google Drive', category: 'Productivity', authType: 'oauth', transport: 'http',
-      url: 'https://drivemcp.googleapis.com/mcp/v1', official: true, homepage: 'https://drive.google.com',
+      url: 'https://www.googleapis.com/drive/v3', googleApi: true, official: false, homepage: 'https://drive.google.com',
       aliases: ['google', 'google drive', 'gdrive', 'drive', 'gsuite', 'g suite', 'google workspace'],
       staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file']),
-      blurb: 'Search, read, and manage Drive files through Google\'s Developer Preview MCP server. Requires one-time Google Cloud setup and sign-in.' },
+      blurb: 'Search, read, export, and manage Drive files. Sign in with Google to connect your account.' },
     { id: 'google-calendar', name: 'Google Calendar', category: 'Productivity', authType: 'oauth', transport: 'http',
-      url: 'https://calendarmcp.googleapis.com/mcp/v1', official: true, homepage: 'https://calendar.google.com',
+      url: 'https://www.googleapis.com/calendar/v3', googleApi: true, official: false, homepage: 'https://calendar.google.com',
       aliases: ['google', 'google calendar', 'gcal', 'calendar', 'gsuite', 'g suite', 'google workspace'],
       staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/calendar.calendarlist.readonly', 'https://www.googleapis.com/auth/calendar.events.readonly', 'https://www.googleapis.com/auth/calendar.events.freebusy']),
-      blurb: 'Read calendars, events, and free/busy through Google\'s Developer Preview MCP server. Requires one-time Google Cloud setup and sign-in.' },
+      blurb: 'Read calendars, events, and availability. Sign in with Google to connect your account.' },
     { id: 'google-docs', name: 'Google Docs', category: 'Productivity', authType: 'oauth', transport: 'http',
-      url: 'https://docsmcp.googleapis.com/mcp/v1', official: true, homepage: 'https://docs.google.com',
+      url: 'https://docs.googleapis.com/v1/documents', googleApi: true, official: false, homepage: 'https://docs.google.com',
       aliases: ['google', 'google docs', 'docs', 'gsuite', 'g suite', 'google workspace'],
       staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly']),
-      blurb: 'Read and write Docs through Google\'s Developer Preview MCP server. Requires one-time Google Cloud setup and sign-in.' },
+      blurb: 'Read, create, and edit Google Docs. Sign in with Google to connect your account.' },
     { id: 'google-sheets', name: 'Google Sheets', category: 'Productivity', authType: 'oauth', transport: 'http',
-      url: 'https://sheetsmcp.googleapis.com/mcp/v1', official: true, homepage: 'https://sheets.google.com',
+      url: 'https://sheets.googleapis.com/v4/spreadsheets', googleApi: true, official: false, homepage: 'https://sheets.google.com',
       aliases: ['google', 'google sheets', 'sheets', 'spreadsheet', 'gsuite', 'g suite', 'google workspace'],
       staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly']),
-      blurb: 'Read and write Sheets through Google\'s Developer Preview MCP server. Requires one-time Google Cloud setup and sign-in.' },
+      blurb: 'Read, create, and edit Google Sheets. Sign in with Google to connect your account.' },
     { id: 'notion', name: 'Notion', category: 'Productivity', authType: 'oauth', transport: 'http',
       url: 'https://mcp.notion.com/mcp', official: true, homepage: 'https://notion.so',
       blurb: 'Search, read, and create Notion pages and databases. Needs Notion sign-in (OAuth).' },
@@ -377,7 +372,7 @@
   function cloneEntry(e) {
     return {
       id: e.id, name: e.name, category: e.category, authType: e.authType, transport: e.transport,
-      url: e.url || '', official: !!e.official, homepage: e.homepage || '', blurb: e.blurb || '',
+      url: e.url || '', googleApi: !!e.googleApi, official: !!e.official, homepage: e.homepage || '', blurb: e.blurb || '',
       via: e.via || '', keyHeader: e.keyHeader || '', local: !!e.local, installable: isInstallable(e),
       // staticOauth: fixed OAuth endpoints for an AS with no dynamic registration (Google). Deep-cloned.
       staticOauth: e.staticOauth ? {
