@@ -3504,12 +3504,9 @@ const StationBake = (() => {
      lamp is — they used to share a copy-pasted `Math.round(width / 7)` and a copy-pasted `ly`,
      which is the shape of bug that puts a mount bar where no light lands.
 
-     `lampRows` is the new axis. Row 0 is pinned at `T * 1.6` below the room's north edge — the
-     legacy single row, and the row the wall-mounted flood is drawn for, so its hardware keeps its
-     light. Remaining rows spread evenly from there to `T * 1.2` short of the south edge, at the
-     LIGHT.pitch spacing, so a lamp's ~7-tile carve overlaps its neighbour's instead of leaving the
-     deck between them at raw ambient. A room shallower than one pitch keeps exactly one row and
-     bakes identically to before. */
+     `lampRows` centres each row in its share of the depth. The north-wall flood aims at the
+     first pool; subsequent rows have hanging fixtures. Columns grow at twice the row pitch,
+     keeping illumination through the middle instead of surrounding a dark centre. */
   /* ---- LIGHT LANDS ON A SURFACE, IT IS NOT A SURFACE (2026-08-10) ----
      Andrew, circling the lit band at the foot of a default HULL-floor room: "not a fan of how this
      lighting is on top of this black dark area — it makes it look unrealistic."
@@ -3559,11 +3556,14 @@ const StationBake = (() => {
     b.restore();
   }
 
-  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / Math.max(2, LIGHT.pitch)));
+  // Keep fixtures in the middle of the deck. Width used to add a new column every
+  // eight tiles, while rows hugged the north/south walls: large rooms lit their
+  // corners more than their centre. Cell-centred rows and a wider column pitch
+  // preserve a dark perimeter without lowering the station's ambient exposure.
+  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / (Math.max(2, LIGHT.pitch) * 2)));
   function lampRows(Y, RH) {
-    const y0 = Y + T * 1.6, yLast = Y + RH - T * 1.2;
-    const rows = Math.max(1, 1 + Math.floor(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
-    return { rows, y0, step: rows > 1 ? (yLast - y0) / (rows - 1) : 0 };
+    const rows = Math.max(1, Math.floor(RH / (Math.max(2, LIGHT.pitch) * T)));
+    return { rows, y0: Y + RH / rows / 2, step: RH / rows };
   }
 
   /* the ADDITIVE half of the room lighting — every warm floor pool + its sheen, drawn to whatever
@@ -3580,7 +3580,10 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = Math.min(60, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
+      const { rows, y0, step } = lampRows(Y, RH);
+      // Bound reach by the space each fixture serves, including narrow rooms.
+      // The 1.4 multiplier below is shared by the cut, film and live shimmer.
+      const rad = Math.min(60, RW / count * 0.44, RH / rows * 0.61) * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -3588,7 +3591,6 @@ const StationBake = (() => {
       for (const q of G.allRects) b.rect(q.x1 * T, q.y1 * T, (q.x2 - q.x1 + 1) * T, (q.y2 - q.y1 + 1) * T);
       b.clip();
       b.beginPath(); b.rect(X - gW, Y - gN, RW + gW + gE, RH + gN + gS); b.clip();
-      const { rows, y0, step } = lampRows(Y, RH);
       for (let j = 0; j < rows; j++) for (let i = 0; i < count; i++) {
         const lx = X + RW * (i + 0.5) / count, ly = y0 + step * j;
         const gw = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
@@ -4291,14 +4293,13 @@ const StationBake = (() => {
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
       const n = Math.max(1, Math.round(along / (cross * 1.4)));
-      const rad = Math.max(cross * 0.78, along / n * 0.62);
+      const rad = cor ? Math.max(cross * 0.78, along / n * 0.62) : Math.max(cross * 0.58, along / n * 0.52);
       const lift = cor ? LIGHT.corridor : LIGHT.room;
       for (let i = 0; i < n; i++) {
         const t = (i + 0.5) / n;
-        // rooms keep their established 0.42-down-the-height placement; a corridor is lit from its
-        // centre line, because a passage has no far wall to throw the pool against.
-        if (vert) cut(X + RW * (cor ? 0.5 : 0.42), Y + RH * t, rad, lift);
-        else cut(X + RW * t, Y + RH * (cor ? 0.5 : 0.42), rad, lift);
+        // Fill stays on the centre line; fixtures provide the local highlights.
+        if (vert) cut(X + RW * 0.5, Y + RH * t, rad, lift);
+        else cut(X + RW * t, Y + RH * 0.5, rad, lift);
       }
     }
     /* THE CROWN CUT — a flat, hard-edged pull on the ambient over every rect the crown painted, so
