@@ -1,3 +1,9 @@
+## Latest correction: extend the narrow beam down the room
+
+Implementation d7a95d70f supersedes the north-focused version described below. The owner wanted the same narrow lateral falloff continued down the full floor. The additive floor light, darkness cut and warm film now share that full-depth beam; the separate wall illumination is preserved. Fixture hardware, sheen and shimmer retain the existing style. Current preview at :9197 was reloaded and visually checked: the light reaches the lower floor, with dark sides and visible north-wall panels.
+
+Six live room sizes show lower center transmission .757-.784, matching the upper source within .028, with side transmission .141-.271. Focused checks: simulation lighting 40 assertions; stationbake chunk 54 assertions. No completed full-suite receipt for this revision; no merge or installer verification. Prior receipts and the history below apply to earlier revisions only.
+
 # Room lighting reference correction
 
 Current implementation: 5fd23677c, source lock 2976fce4c, agent/room-lighting-strip.
