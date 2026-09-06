@@ -35,6 +35,7 @@ try {
   console.log(JSON.stringify(results));
   if(phase!=='before' && results.some(r=>r.source < Math.max(r.sourceLeft,r.sourceRight)+.2)) throw new Error('North source must remain brighter than side edges');
   if (phase !== 'before' && results.some(r => r.wall < .3)) throw new Error('North wall must retain illumination');
+  if (phase !== 'before' && results.some(r => r.bottom < r.source - .07)) throw new Error('The narrow beam must reach the lower floor');
   await capture(cdp,out,phase+'-live');
   for(const scene of ['telescope','wood']) {
     await evalJS(cdp,`(() => {
