@@ -435,6 +435,7 @@ test/permissions-ui.test.js
 test/theme-custom-phosphor.test.js
 test/panel-brightness.test.js
 test/simulation-lighting.test.js
+test/room-lighting-settings.test.js
 test/window-minimize.test.js
 test/nightshift-steer-ui.test.js
 test/world-agent-click.test.js
