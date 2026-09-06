@@ -187,9 +187,9 @@ assert.match(cmdSource, /VoiceLive\.isActive\(\) && VoiceLive\.rebind/, 'a voice
   callActive = false;
   assert.equal(owns({ id: 'general' }), true, 'ordinary speaker behavior is unchanged outside Live Voice');
 }
-assert.match(chatSource, /const willSpeak = isOrchestrator && liveVoiceOwns\(ws\)/, 'a non-bound run never opens a spoken reply');
-assert.match(chatSource, /const pushSpeech = \(finalize, finalText\) => \{[\s\S]{0,500}!liveVoiceOwns\(ws\)/, 'ownership is rechecked on every streamed speech chunk');
-assert.match(chatSource, /willSpeak && liveVoiceOwns\(ws\)[\s\S]{0,120}Voice\.endReply/, 'only the bound run may close the live speech stream');
+assert.match(chatSource, /const speechOwner = \(\) => liveVoiceCall\(\) \? liveVoiceOwns\(ws\) : Workstreams.activeId\(\) === ws.id/, 'speech belongs to the bound call or visible direct conversation, including specialists');
+assert.match(chatSource, /const pushSpeech = \(finalize, finalText\) => \{[\s\S]{0,500}!speechOwner\(\)/, 'ownership is rechecked on every streamed speech chunk');
+assert.match(chatSource, /willSpeak && speechOwner\(\)[\s\S]{0,120}Voice\.endReply/, 'only the owning run may close the live speech stream');
 assert.match(chatSource, /\(!liveVoiceCall\(\) \|\| liveVoiceOwns\(ws\)\)[\s\S]{0,120}Voice\.onTurnEnd/, 'only the bound run may re-arm the live microphone');
 
 /* ⛔ LIVE VOICE RENDERS NO CLICKABLE PROMPTS — AND NARRATES NO STALE ONES. Two failures, in order: chips

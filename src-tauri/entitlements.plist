@@ -26,6 +26,11 @@
 -->
 <plist version="1.0">
 <dict>
+  <!-- WKWebView microphone capture also needs hardened-runtime resource access.
+       NSMicrophoneUsageDescription alone cannot authorize a signed desktop build. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
   <!-- V8 and WKWebView both generate and execute code at runtime. -->
   <key>com.apple.security.cs.allow-jit</key>
   <true/>

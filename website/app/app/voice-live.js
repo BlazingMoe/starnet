@@ -1246,7 +1246,7 @@ const VoiceLive = (() => {
       failed = true;
       setState('offline');
       setError(/permission|denied|allowed/i.test(String(error && error.message || error))
-        ? 'Microphone access is blocked. Allow it for this local page, then try again.'
+        ? Voice.microphoneHelp()
         : String(error && error.message || error));
       closeMicrophone();
       reflectButton(false);
@@ -1564,7 +1564,7 @@ const VoiceLive = (() => {
       failed = true;
       setState('offline');
       setError(/permission|denied|allowed/i.test(String(error && error.message || error))
-        ? 'Microphone access is blocked. Allow it for this local page, then try again.'
+        ? Voice.microphoneHelp()
         : String(error && error.message || error));
       teardownRealtime();
       closeMicrophone();
@@ -1721,27 +1721,21 @@ const VoiceLive = (() => {
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && active) end(); });
   }
 
-  /* Pick the spoken voice. Persisted, and applied on the NEXT session — every Live Voice session fixes both
-     its selected voice and serving engine for its lifetime, so changing it mid-call would silently do nothing. Returns the
-     names the provider actually offers, read from status() rather than a list copied here. */
-  /* The voice picker now describes the BUILT-IN engine, because that is the only engine live voice uses.
-     Read from the sidecar's own catalogue rather than a list copied here, so it cannot drift from the voice
-     files actually present. Applies to the next thing spoken — no restart needed. */
-  async function voices() {
-    let cur = '';
-    try { cur = String(localStorage.getItem(LOCAL_VOICE_KEY) || '').trim(); } catch (_) {}
+  // The built-in catalogue is sidecar-owned. Agent assignments share Voice's persistent
+  // selection path; an ongoing call keeps each speaker pinned until a new session.
+  async function voices(agentId) {
+    const assigned = Voice.voiceChoice(agentId);
+    const cur = Voice.localVoiceId(agentId);
     try {
       const r = await fetch('/api/local-voice/status', { cache: 'no-store' });
       const j = await r.json();
-      return { available: j.voices || [], current: cur || j.voice || '', engine: 'built-in', appliesOn: 'the next Live Voice session' };
+      return { available: j.voices || [], current: cur || j.voice || '', assigned, engine: 'built-in', appliesOn: 'the next spoken reply or new Live Voice session' };
     } catch (_) {
-      return { available: [], current: cur, engine: 'built-in', appliesOn: 'the next Live Voice session' };
+      return { available: [], current: cur, assigned, engine: 'built-in', appliesOn: 'the next spoken reply or new Live Voice session' };
     }
   }
-  function setVoice(id) {
-    const want = String(id || '').trim();
-    try { if (want) localStorage.setItem(LOCAL_VOICE_KEY, want); else localStorage.removeItem(LOCAL_VOICE_KEY); } catch (_) {}
-    return { voice: want, appliesOn: 'the next Live Voice session' };
+  function setVoice(id, agentId) {
+    return Voice.setVoiceChoice(id, agentId);
   }
 
   return { init, start, end, isActive: () => active, statusSnapshot, voices, setVoice, rebind, boundSessionId: () => boundWsId };

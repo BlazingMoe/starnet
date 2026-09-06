@@ -8052,11 +8052,10 @@ const Chat = (() => {
     // spoken style — voiceModeRules appended below). It does NOT control the desk trip: the walk is driven
     // by REAL tool use (walkToDesk, below), so the speaker setting can't suppress it. When voice is on, a
     // task's result is also spoken — it's just no longer answered "on the spot" in place of the desk trip.
-    // VOICE OWNERSHIP: ONLY the orchestrator (the hero, id 'agent') speaks aloud. A summoned/secondary agent
-    // exists for the orchestrator to DELEGATE to — the Commander talks to the orchestrator, not to a crowd of
-    // agents — so a summoned agent's replies are never voiced (and never get the short spoken-style prompt).
-    const isOrchestrator = !ws.agentId || ws.agentId === 'agent';
-    const willSpeak = isOrchestrator && liveVoiceOwns(ws)
+    // Direct conversations can speak as any agent. Background sessions must not interrupt
+    // the conversation in view; a live call continues to own its explicitly bound session.
+    const speechOwner = () => liveVoiceCall() ? liveVoiceOwns(ws) : Workstreams.activeId() === ws.id;
+    const willSpeak = speechOwner()
       && typeof Voice !== 'undefined' && Voice.isOn && Voice.isOn();
     // REACTIVE DESK TRIP — the honest signal. We no longer pre-commit the walk on the classifier's GUESS:
     // every turn the agent first turns to face the Commander (listen), and it only gets up and walks to its
@@ -8129,11 +8128,11 @@ const Chat = (() => {
       return s;
     };
     const speechToken = typeof Voice !== 'undefined' && Voice.replyToken ? Voice.replyToken() : undefined;
-    const speechOpts = { replyToken: speechToken };
+    const speechOpts = { replyToken: speechToken, agentId: ws.agentId };
     const pushSpeech = (finalize, finalText) => {
       // Ownership is checked again for every chunk. A voice-commanded rebind can happen while an
       // older run is still streaming; none of its late words may leak into the new call owner.
-      if (typeof Voice === 'undefined' || !willSpeak || !liveVoiceOwns(ws) || !Voice.speakChunk) return;
+      if (typeof Voice === 'undefined' || !willSpeak || !speechOwner() || !Voice.speakChunk) return;
       const src = speakSafe(finalize ? (finalText || acc) : acc);
       const pending = src.slice(spokenIdx);
       if (!pending) return;
@@ -8503,7 +8502,7 @@ const Chat = (() => {
       if (titleOk && (firstTurn || (typeof Workstreams !== 'undefined' && Workstreams.needsModelTitle && Workstreams.needsModelTitle(ws.id)))) maybeRetitle(ws, text, finalReply);
       // flush any trailing spoken text and CLOSE the speech stream — the last chunk's end re-arms the
       // hands-free mic (this is the heartbeat for spoken turns; onTurnEnd covers silent/no-speech turns).
-      if (willSpeak && liveVoiceOwns(ws) && typeof Voice !== 'undefined' && Voice.endReply) {
+      if (willSpeak && speechOwner() && typeof Voice !== 'undefined' && Voice.endReply) {
         pushSpeech(true, finalReply);
         // VOICE-AWARE CHOICES: the choice itself is spoken as a natural question — question text only;
         // the 2-3 options are on-screen chips (reading them out was the "reads every option" glitch).
