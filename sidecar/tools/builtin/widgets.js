@@ -171,7 +171,10 @@
 
         let sourceUrl = null;
         if (args.sourceUrl) {
-          try { const url = new URL(String(args.sourceUrl)); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) sourceUrl = trunc(redact(url.href), 1500); } catch (_) {}
+          try { const url = new URL(String(args.sourceUrl)); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) sourceUrl = trunc(redact(url.href), 1500); } catch (_) {
+            // A malformed optional link must not discard an otherwise valid reading.
+            sourceUrl = null;
+          }
         }
 
         const rec = {

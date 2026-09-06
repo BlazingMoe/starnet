@@ -176,6 +176,9 @@ const rejects = async (p, label) => { try { await p; A.ok(false, label + ' (did 
     await run(t, { id: 'progress', version: 1, value: '0 of 4', progress: 0, sourceUrl: 'javascript:alert(1)' });
     A.eq(t.list().find(w => w.id === 'progress').progress, 0, 'real zero progress survives');
     A.eq(t.list().find(w => w.id === 'progress').sourceUrl, null, 'non-web source links are rejected');
+    await run(t, { id: 'progress', version: 1, value: '1 of 4', progress: 25, sourceUrl: 'not a URL' });
+    A.eq(t.list().find(w => w.id === 'progress').sourceUrl, null, 'malformed source links are omitted');
+    A.eq(t.list().find(w => w.id === 'progress').progress, 25, 'malformed optional link does not discard the reading');
     A.eq(t.list().find(w => w.id === 'trend').spark.length, 3, 'actual trend points are retained');
   }
 
