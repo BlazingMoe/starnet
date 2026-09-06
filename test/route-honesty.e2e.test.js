@@ -129,8 +129,9 @@ function exited(child, ms) {
 
     // ---- 4. CRASH-LOOP BREAKER across three lives of ONE workspace (crash-ledger.js) ----
     // life 1 + life 2: fault → exit 1 (the ledger remembers). life 3: the 3rd fault inside 10m TRIPS the breaker —
-    // the process stays alive, /api/health answers 503 "degraded: crash-loop: 3 faults in 10m — last: …", read
-    // routes keep serving, diagnostics carries crashLoop. The ledger FILE is the restart-survival proof.
+    // the process stays alive QUIESCED, /api/health answers 503 "degraded: crash-loop: 3 faults in 10m — last: …",
+    // the static recovery shell + diagnostics keep serving, and every other route fails closed. The ledger FILE
+    // is the restart-survival proof.
     const wsLoop = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-route-honesty-loop-'));
     let port3 = b2.port + 1;
     const lifeFault = async (life) => {
@@ -164,8 +165,19 @@ function exited(child, ms) {
       const c = await exited(child, 1500);
       A.eq(c, null, 'life 3: the process is HELD alive (no exit)');
       A.ok(/\[process-fault\] uncaughtException: CRASH LOOP — 3 fault exit/.test(bl.output()), 'life 3: boot log carries the crash-loop hold line');
+      const shell = await fetch(BL + '/', { headers: { Origin: BL } });
+      A.eq(shell.status, 200, 'life 3: static recovery shell remains reloadable');
       const rd = await fetch(BL + '/api/skills?placed=cabinet', { headers: { 'X-StarNet-Token': tokL, Origin: BL } });
-      A.eq(rd.status, 200, 'life 3: read routes keep serving while held');
+      A.eq(rd.status, 503, 'life 3: non-diagnostic API reads fail closed while held');
+      const rosterFile = path.join(wsLoop, 'agent.roster.json');
+      A.eq(fs.existsSync(rosterFile), false, 'life 3: no roster existed before the refused mutation');
+      const wr = await fetch(BL + '/api/roster', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': tokL, Origin: BL }, body: JSON.stringify({ updatedAt: Date.now(), agents: [{ agentId: 'agent', system: 'audit', name: 'Audit', provider: 'openrouter' }] }) });
+      const wj = await wr.json();
+      A.eq(wr.status, 503, 'life 3: mutations fail closed while held');
+      A.eq(wj.code, 'EPROCESS_FAULT', 'life 3: refusal names the process-fault boundary');
+      A.eq(fs.existsSync(rosterFile), false, 'life 3: refused mutation wrote no roster bytes');
+      const v1 = await fetch(BL + '/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer fixture' }, body: '{}' });
+      A.eq(v1.status, 503, 'life 3: external /v1 work also fails closed');
       const dg3 = await fetch(BL + '/api/diagnostics', { headers: { 'X-StarNet-Token': tokL, Origin: BL } });
       const d3 = await dg3.json();
       A.ok(d3.report && d3.report.processFault && d3.report.processFault.exiting === false && d3.report.processFault.loop && d3.report.processFault.loop.count === 3, 'life 3: diagnostics processFault says held + loop count 3');
