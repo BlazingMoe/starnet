@@ -90,8 +90,9 @@ const MANUAL =
   'Some platforms are reached THROUGH another connector rather than directly (their card says so and offers ' +
   'a “VIA …” jump) — Jira/Confluence remains on its verified Zapier route until StarNet proves an authenticated ' +
   'tool call through Atlassian\'s newer direct OAuth endpoint; discovery alone is not connection proof. Google ' +
-  'Workspace connects DIRECTLY: Gmail, Drive, Calendar, Docs, and Sheets each have an official Google catalog ' +
-  'card. Their first connect asks for one-time app setup, after which every Google card is a browser sign-in.\n' +
+  'Workspace connects through StarNet’s Google API connectors: Gmail, Drive, Calendar, Docs, and Sheets. ' +
+  'Users choose SIGN IN WITH GOOGLE and approve access; never tell them to create a Cloud project or paste client credentials. ' +
+  'If Google sign-in is unavailable, StarNet’s publisher must enable it for that build.\n' +
   'LOOK IT UP BEFORE YOU ANSWER. If you have the connectors.list tool, CALL IT — it is read-only, needs no ' +
   'approval, and returns the real catalog: what is already connected AND what the Commander could add but ' +
   'has not. That is the one way to answer “can you reach <platform>?” with a fact instead of a guess, so ' +
