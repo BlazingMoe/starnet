@@ -1730,7 +1730,21 @@ const Build = (() => {
          and the live world's NO AGENT nag did NOTHING while any other dock's card was open.
      So: a card REGISTERS its own close path on its element, and both callers route through it. Closing is
      always the card's own closing; opening always replaces whatever is up. */
-  function cardRegister(el, closeFn) { el._refitClose = closeFn; return el; }
+  function cardRegister(el, closeFn) {
+    el._refitClose = closeFn;
+    if (el.classList.contains('refit-workflow-editor')) {
+      el.addEventListener('keydown', e => {
+        if (e.key !== 'Tab') return;
+        const fields = [...el.querySelectorAll('button,input,textarea,select,summary,[tabindex]')]
+          .filter(n => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden');
+        const first = fields[0], last = fields[fields.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      });
+      requestAnimationFrame(() => { if (el.isConnected) el.querySelector('[data-workflow-close]')?.focus({ preventScroll: true }); });
+    }
+    return el;
+  }
   // topmost = last mounted (DOM order); these cards are appended, never re-ordered
   function cardTop() {
     if (!root) return null;
@@ -1870,15 +1884,16 @@ const Build = (() => {
   function workflowHTML(comp) {
     if (!comp) return '<div class="refit-note">Connect this inbox to a step to see its workflow.</div>';
     const view = workflowReadout(comp, valPlan, agentLabelFor);
-    return '<section class="refit-workflow" aria-label="Workflow overview"><div class="refit-sec">HOW THIS WORKFLOW FLOWS</div>'
-      + '<p><b>START</b> ' + esc(view.start) + '</p>'
+    return '<section class="refit-workflow" aria-label="Workflow overview"><h4>Connected steps</h4>'
+      + '<p class="workflow-help">Click a step to choose its agent and instructions.</p>'
       + view.steps.map(s => {
         const prop = station.propById(s.propId), brief = prop && prop.brief;
-        return '<button type="button" class="bb refit-workflow-step" data-workflow-step="' + esc(s.propId) + '"><b>' + esc(s.label) + '</b><span>' + esc(s.agent) + (s.receives ? ' · ' + esc(s.receives) : '') + '</span>'
+        const detail = [s.agent !== s.label ? s.agent : '', s.receives].filter(Boolean).join(' · ');
+        return '<button type="button" class="bb refit-workflow-step" data-workflow-step="' + esc(s.propId) + '"><b>' + esc(s.label) + '</b>' + (detail ? '<span>' + esc(detail) + '</span>' : '')
           + '<span>' + (brief ? esc(String(brief).slice(0, 180)) + (String(brief).length > 180 ? '…' : '') : 'Add instructions for this step') + '</span>'
           + '<span>Next → ' + esc(s.sends) + '</span><span class="refit-workflow-edit">Edit agent & instructions</span></button>';
       }).join('')
-      + '<p><b>RESULT</b> ' + esc(view.result) + '</p><p class="refit-workflow-note">This is the current route, not a completed run. Click a step to customize it; configure the start below.</p></section>';
+      + '<p><b>Result</b><br>' + esc(view.result) + '</p><p class="refit-workflow-note">Connections shown here describe where work will go. They do not mean a job has run.</p></section>';
   }
   /* which position does this dock's agent hold on the COMPILED line? (inbox-trigger, 2026-08-05)
      'entry' = fed straight by an intake source (plan.reach — the BFS from every source), 'chain' = fed by an
@@ -1906,15 +1921,15 @@ const Build = (() => {
      fact: the line from Pipeline.lineComponents, the hand-off from plan.chains (the sidecar's own route). */
   function lineFactHTML(bayId) {
     const comp = lineOfProp(bayId);
-    if (!comp) return 'not on a line yet — lay belts (7) or click-connect two machines to put this dock on one';
+    if (!comp) return 'Not connected yet. Close this panel, choose BELT, then click this Bay and the next prop to connect them.';
     const p = station.propById(bayId), aid = p && p.agentId;
     const ch = aid && valPlan && valPlan.chains && valPlan.chains[aid];
     const feeds = !ch ? null
-      : (ch.next && ch.next.length) ? 'feeds <b>' + esc(ch.next.map(agentLabelFor).join(' + ').toUpperCase()) + '</b>'
-      : ch.outbox ? 'ships to <b>OUTBOX</b>'
-      : ch.deadEnd ? 'its output <b>dead-ends</b> — belt it onward' : null;
-    return 'ON <b>' + esc((lineNameOf(comp) || 'an unnamed line').toUpperCase()) + '</b> — ' + comp.bays.length + ' dock' + (comp.bays.length === 1 ? '' : 's')
-      + (feeds ? ', ' + feeds : (aid ? ', feeds nothing yet' : ''));
+      : (ch.next && ch.next.length) ? 'Sends the result to <b>' + esc(ch.next.map(agentLabelFor).join(' + ')) + '</b>.'
+      : ch.outbox ? 'Sends the result to the <b>Outbox</b>.'
+      : ch.deadEnd ? 'No next step connected. Add a belt to another Bay or an Outbox.' : null;
+    return '<b>' + esc(lineNameOf(comp) || 'Unnamed workflow') + '</b> · ' + comp.bays.length + ' agent step' + (comp.bays.length === 1 ? '' : 's')
+      + '<p>' + (feeds || (aid ? 'No onward connection confirmed yet.' : 'Choose an agent to check this step’s route.')) + '</p>';
   }
   function refreshLineFacts() {
     if (!root) return;
@@ -1927,9 +1942,9 @@ const Build = (() => {
      addProp path a hand placement takes; never a flag). Reads bayObjectsMemoed — the same truth the nag draws. */
   function computeFactHTML(bayId) {
     const p = station.propById(bayId); if (!p || !p.agentId) return '';
-    if (bayObjectsMemoed(p.agentId).indexOf('computer') >= 0) return '<div class="step-fact">✓ <b>COMPUTE</b> — ' + esc(agentLabel(p.agentId)) + ' has a PC in this room</div>';
-    return '<div class="refit-note">NO COMPUTE — needs a PC assigned to <b>' + esc(agentLabel(p.agentId).toUpperCase()) + '</b> in this room, or routed work cannot run here</div>'
-      + '<button type="button" class="bb sm refit-primary refit-summon" id="step-pc">⊕ ADD A PC FOR ' + esc(agentLabel(p.agentId).toUpperCase()) + ' HERE</button>';
+    if (bayObjectsMemoed(p.agentId).indexOf('computer') >= 0) return '<div class="step-fact">✓ ' + esc(agentLabel(p.agentId)) + ' has a workstation for this step.</div>';
+    return '<div class="refit-note">' + esc(agentLabel(p.agentId)) + ' needs an assigned workstation in this room before this step can run.</div>'
+      + '<button type="button" class="bb sm refit-primary refit-summon" id="step-pc">⊕ ADD A WORKSTATION HERE</button>';
   }
   function requisitionPcFor(bayId) {
     const p = station.propById(bayId); if (!p || !p.agentId) return { ok: false, reason: 'uncrewed' };
@@ -1983,8 +1998,8 @@ const Build = (() => {
     const comp = lineOfProp(bayId);
     const lineTxt = lineFactHTML(bayId);
     const stepTxt = roleInfo
-      ? 'THIS STEP WANTS A <b>' + esc(p.role) + '</b> — ' + esc(roleInfo.desc)
-      : 'a dock — work routed here runs as its agent';
+      ? 'Suggested role: <b>' + esc(p.role) + '</b>. ' + esc(roleInfo.desc)
+      : 'Any agent can handle this step. Choose who should do the work.';
     /* WORK BELONGS TO A LINE (Andrew's ruling, 2026-08-07): "each conveyor system built has a purpose and
        a different workflow — the conveyor system should visually run ONLY when the specific workflow is
        running." So the dock has to SAY what makes its line distinct and when it runs. Both facts are read
@@ -1994,30 +2009,28 @@ const Build = (() => {
     const handsOn = !!(cur && valPlan && valPlan.chains && valPlan.chains[cur] && (valPlan.chains[cur].next || []).length);
     const runsTxt = !comp ? null
       : comp.intakes.length
-      ? 'IT RUNS when work arrives at this line’s <b>INBOX</b> — or when one of its routines fires.'
-      : 'IT RUNS when one of this line’s routines fires at a dock on it.';
+      ? 'This step runs when work reaches it from the workflow’s <b>Inbox</b> or a schedule for this workflow.'
+      : 'This step can run from a schedule assigned to this workflow.';
     const restTxt = (comp && (handsOn || comp.bays.length > 1))
-      ? 'A job you hand this agent yourself is answered right here and stops here — it does not run the rest of the line.'
+      ? 'A direct COMMS message only runs this agent. Start the workflow through its Inbox or schedule to include the other steps.'
       : null;
-    const rows = agents.map(a => `<button type="button" class="bb sm bay-agent${a.id === cur ? ' active' : ''}" data-aid="${esc(a.id)}">${esc(a.name || a.id)}</button>`).join('');
+    const rows = agents.map(a => `<button type="button" class="bb sm bay-agent${a.id === cur ? ' active' : ''}" data-aid="${esc(a.id)}" aria-pressed="${a.id === cur}">${esc(a.name || a.id)}</button>`).join('');
     const briefPh0 = 'what this step does with arriving work' + (roleInfo ? ' — e.g. ' + roleInfo.desc : '');
     const briefPh = BRIEF_PH[stepPositionOf(cur)] || briefPh0;
     const g = document.createElement('div');
-    g.className = 'refit-guide refit-step-card';
+    g.className = 'refit-guide refit-step-card refit-workflow-editor';
     g.innerHTML = `
-      <div class="refit-guide-card">
-        <h3>▮ STEP — ${esc(p.role || 'DOCK')}</h3>
-        ${flowStripHTML('bay')}
-        <div class="refit-form">
-        <div class="refit-sec">THE STEP</div>
-        <div class="step-fact">${stepTxt}</div>
-        <div class="step-fact" data-linefact="${esc(bayId)}">${lineTxt}</div>
-        ${runsTxt ? '<div class="step-fact">' + runsTxt + '</div>' : ''}
-        ${restTxt ? '<div class="refit-note">' + esc(restTxt) + '</div>' : ''}
-        <div class="refit-sec">THE AGENT — <span id="step-bound">${cur ? 'crewed by ' + esc(agentLabel(cur)) : 'uncrewed'}</span></div>
-        <div class="step-compute" id="step-compute"></div>
-        ${canSummon ? '<button type="button" class="bb sm refit-primary refit-summon" id="bay-summon">⊕ SUMMON A ' + esc(p.role) + ' HERE</button>' : ''}
+      <div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">
+        ${workflowIntroHTML('BAY · AGENT STEP', 'Give an agent a job', 'A Bay is one step in your workflow. Pick who works here and tell them what to do with each arriving task.')}
+        <div class="workflow-body workflow-columns">
+        <div class="workflow-main refit-form">
+        <section class="workflow-section"><h4><span>1</span> Choose an agent</h4>
+        ${roleInfo ? '<p class="workflow-help">' + stepTxt + '</p>' : ''}
+        <div id="step-bound" class="workflow-selection" role="status">${cur ? 'Assigned to ' + esc(agentLabel(cur)) : 'No agent selected yet'}</div>
+        ${agents.length > 8 ? '<input id="step-agent-search" class="refit-input" type="search" placeholder="Find an agent…" aria-label="Find an agent" />' : ''}
         ${agents.length ? '<div class="refit-agents refit-bay-agents" id="step-rows">' + rows + '</div>' : ''}
+        <p id="step-agent-empty" class="workflow-help" hidden>No matching agent. Try another name.</p>
+        ${canSummon ? '<button type="button" class="bb sm refit-summon" id="bay-summon">⊕ RECRUIT A ' + esc(p.role) + '</button>' : ''}
         <details><summary>Assign by agent ID</summary>
         <input id="bay-aid" class="refit-input" type="text" maxlength="40" placeholder="${agents.length ? 'or type an agent id' : 'agent id — e.g. coder'}" value="${esc(cur)}" />
         <div class="refit-error" id="bay-err">unknown agent — pick one above, or check the id</div>
@@ -2026,12 +2039,20 @@ const Build = (() => {
           <button type="button" class="btn-sm" id="bay-clear">UNASSIGN</button>
         </div>
         </details>
-        <div class="refit-sec">WHAT THIS AGENT SHOULD DO</div>
-        <textarea id="step-brief" class="refit-input refit-brief" maxlength="2000" rows="3" placeholder="${esc(briefPh)}">${esc(p.brief || '')}</textarea>
-        <div class="refit-note step-brief-note">These instructions accompany each job at this step. Saved when you leave the field or close this card. Agent and tool access stay as configured above.</div>
-        <div class="refit-actions">
-          <button type="button" class="btn-sm refit-primary" id="step-done">✓ DONE</button>
+        <div class="step-compute" id="step-compute"></div></section>
+        <section class="workflow-section"><h4><span>2</span> What should they do?</h4>
+        <p class="workflow-help">For example: “Check the draft and return a corrected version.”</p>
+        <textarea id="step-brief" class="refit-input refit-brief" aria-label="Instructions for this step" maxlength="2000" rows="5" placeholder="${esc(briefPh)}">${esc(p.brief || '')}</textarea>
+        <div class="step-brief-note">These instructions apply to every task that reaches this step.</div></section>
         </div>
+        <aside class="workflow-aside"><section class="workflow-section"><h4>Where the work goes</h4>
+        <div class="step-fact" data-linefact="${esc(bayId)}">${lineTxt}</div></section>
+        <section class="workflow-section"><h4>When it runs</h4>
+        <p class="workflow-help">${runsTxt || 'Connect this Bay to an Inbox or another Bay using the BELT tool.'}</p>
+        ${restTxt ? '<p class="workflow-help">' + esc(restTxt) + '</p>' : ''}</section></aside>
+        </div><div class="workflow-footer">
+          <span>Instructions save when you leave the field or close.</span>
+          <button type="button" class="btn-sm refit-primary" id="step-done">✓ DONE</button>
         </div>
       </div>`;
     root.appendChild(g);
@@ -2042,13 +2063,21 @@ const Build = (() => {
     const clearErr = () => { input.classList.remove('is-error'); };
     const closeP = () => { saveBrief(); if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);   // ESC closes THROUGH here, so the job brief is saved and never discarded
+    g.querySelector('[data-workflow-close]').onclick = closeP;
+    const agentSearch = g.querySelector('#step-agent-search');
+    if (agentSearch) agentSearch.oninput = () => {
+      const query = agentSearch.value.trim().toLowerCase();
+      let visible = 0;
+      g.querySelectorAll('.bay-agent').forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(query); if (!b.hidden) visible++; });
+      g.querySelector('#step-agent-empty').hidden = visible > 0;
+    };
     // a bind/unbind UPDATES the card in place (the brief draft must survive crewing the dock) — the
     // one-surface law: configure the whole step here, close once.
     refreshComputeFact(g, bayId);
     const refreshBinding = () => {
       const live = station.propById(bayId), aid = (live && live.agentId) || '';
-      if (boundEl) boundEl.textContent = aid ? 'crewed by ' + agentLabel(aid) : 'uncrewed';   // the display NAME, never the raw id (the roster chips say RESEARCHER; this said "researcher")
-      g.querySelectorAll('.bay-agent').forEach(x => x.classList.toggle('active', x.dataset.aid === aid));
+      if (boundEl) boundEl.textContent = aid ? 'Assigned to ' + agentLabel(aid) : 'No agent selected yet';
+      g.querySelectorAll('.bay-agent').forEach(x => { x.classList.toggle('active', x.dataset.aid === aid); x.setAttribute('aria-pressed', String(x.dataset.aid === aid)); });
       refreshComputeFact(g, bayId);
       input.value = aid;
       // a bind can place this dock on the compiled line — re-read its position so the brief placeholder
@@ -2185,16 +2214,12 @@ const Build = (() => {
         if (station.beltAt(xx, yy)) return { x: xx, y: yy };
     return null;
   }
-  /* ---------- THE FLOW STRIP + FLOW CARD (belt-teach): ONE picture of the whole system, shown wherever
-     a workflow prop is touched, with the clicked piece lit — so the model accretes instead of fragmenting
-     across six prop descriptions. INBOX/OUTBOX clicks (no editor of their own) open the card directly. */
-  function flowStripHTML(hot) {
-    const seg = (id, label) => '<span class="flow-seg' + (id === hot ? ' hot' : '') + '">' + label + '</span>';
-    const ar = '<span class="flow-arrow">▸</span>';
-    return '<div class="refit-flowstrip"><div class="flow-line">'
-      + seg('intake', 'INBOX') + ar + seg('junction', 'SORT') + ar + seg('bay', 'BAY') + ar
-      + '<span class="flow-seg desk">DESK</span>' + ar + seg('bay', 'BAY') + ar + seg('outbox', 'OUTBOX')
-      + '</div><div class="flow-note">outside work rides IN to an agent’s dock · they work it at their desk · the finished result rides OUT. (A direct COMMS message goes to that agent. Start at the INBOX to run the whole workflow.)</div></div>';
+  // Each editor explains the clicked prop. Actual connections are shown in context,
+  // never as a generic diagram that implies extra props or a fixed workflow shape.
+  function workflowIntroHTML(kicker, title, description) {
+    return '<header class="workflow-header"><div><span class="workflow-kicker">' + esc(kicker) + '</span>'
+      + '<h3 id="workflow-title">' + esc(title) + '</h3><p>' + esc(description) + '</p></div>'
+      + '<button type="button" class="bb workflow-close" data-workflow-close aria-label="Close setup">✕</button></header>';
   }
   /* REFIT-JUNCTION-PURE-BEGIN (extraction marker — test/refit-junction-cards.test.js evals this block with
      injected deps; PURE: params + locals only, no module state, no DOM). The LOOP card's lane labels and the
@@ -2273,22 +2298,22 @@ const Build = (() => {
     const p = station.propById(propId); if (!p) return;
     cardCloseAll();
     finFocusLine(propId);
-    const hot = p.t === 'intake' ? 'intake' : p.t === 'outbox' ? 'outbox' : (p.t === 'filter' || p.t === 'splitter' || p.t === 'merger' || p.t === 'joiner' || p.t === 'loop') ? 'junction' : 'bay';
-    const TITLE = { intake: 'INBOX — WORK IN', outbox: 'OUTBOX — RESULTS OUT', merger: 'MERGER — LANES JOIN', splitter: 'SPLITTER — LANES BALANCE', joiner: 'JOINER — BRANCHES WAIT', loop: 'LOOP — GO ROUND AGAIN' };
+    const TITLE = { intake: 'Start this workflow', outbox: 'Collect the finished work', merger: 'Bring paths together', splitter: 'Send work down different paths', joiner: 'Wait for every part', loop: 'Repeat until the work is ready' };
+    const PROP_NAME = { intake: 'INBOX', outbox: 'OUTBOX', merger: 'MERGER', splitter: 'SPLITTER', joiner: 'JOINER', loop: 'LOOP' };
     const LINE = {
-      intake: 'Work starts here. Choose what starts the workflow, give each step its instructions, then try a sample from the line checklist.',
-      outbox: 'Every job the crew actually FINISHES ships a green crate here; the pallet is today’s output. Click it (when quiet) for the LOGBOOK.',
+      intake: 'The Inbox is where work enters. Give your workflow a name, then choose how tasks arrive.',
+      outbox: 'The Outbox receives completed work. Connect the last Bay to it with a belt; there are no settings to fill in here.',
       // honest by construction: the harness runs each work-item on its own, so the floor must show each
       // one arriving. A merger tidies several lanes into one — it never combines the JOBS riding them.
-      merger: 'Where several belt lanes join into one. Every crate rides straight through — a merger tidies the LANES, it does not combine the jobs on them (each still runs on its own). Nothing to configure.',
+      merger: 'Connect several belts into one outgoing belt. Each task keeps going separately. This joins paths, not the contents of the tasks.',
       // the splitter's counterpart card: it balances UNOWNED work across its out-lanes; addressed
       // jobs still ride home (junctionLaneOwners). Nothing to configure — topology does the work.
-      splitter: 'Where one lane fans into several. Unowned work balances across the out-lanes; addressed jobs (crons, bound chats) still take the lane that leads to their owner’s bay. Nothing to configure.',
+      splitter: 'Connect one incoming belt to several outgoing belts. Tasks without an assigned agent are spread across those paths. Tasks already assigned to an agent follow that agent’s path.',
       // the joiner is the barrier the merger never was: one crate per in-lane is HELD per job until every branch
       // has delivered (or the timeout passes), then ONE merged crate leaves — the sidecar chain runner performs it.
-      joiner: 'Where parallel branches of ONE job come back together. Each branch’s result is held here until every in-lane has delivered (10 minutes at most — then it goes on, marked partial), and a single merged crate continues. A SPLITTER upstream of a JOINER runs all its lanes, not one.',
+      joiner: 'Bring together the results from parallel parts of the same job. Work waits here for every part, then continues as one combined result.',
       // a bounded cycle: the gate is the only legal way round; the runner counts passes per job
-      loop: 'The gate that lets a line go round again. One lane leads BACK to an upstream dock, the other is DONE. Work re-enters until the reviewer’s last line says VERDICT: approved (or up to MAX PASSES, default 5 — the line’s dollar cap still binds), then leaves on DONE. A cycle drawn without a LOOP is refused.'
+      loop: 'Send work back for another attempt, then let it continue when your chosen condition is met. Connect one path back to an earlier Bay and one path onward.'
     };
     const line = LINE[p.t] || LINE.outbox;
     /* LINE NAMING (workflow studio, 2026-08-05): the INTAKE is a line's front door, so its card names the
@@ -2297,11 +2322,11 @@ const Build = (() => {
        what the Commander types is saved. Legibility only — the finish-the-line header + the intake glance
        read it; routing never does. Multiple lines on one floor become nameable systems. */
     const isIntake = p.t === 'intake';
-    const namePh = isIntake ? (stampNameOf[p.id] || 'name this line') : '';
+    const namePh = isIntake ? (stampNameOf[p.id] || 'e.g. Weekly news summary') : '';
     const nameHtml = isIntake
-      ? '<div class="refit-sec">LINE NAME</div>'
-        + '<input id="line-name" class="refit-input" type="text" maxlength="48" placeholder="' + esc(namePh) + '" value="' + esc(p.label || '') + '" />'
-        + '<div class="refit-note">names this whole line (shown on its checklist + this INBOX\'s glance) — saved on Enter / blur</div>'
+      ? '<section class="workflow-section"><h4><span>1</span> Name your workflow</h4>'
+        + '<input id="line-name" class="refit-input" type="text" aria-label="Workflow name" maxlength="48" placeholder="' + esc(namePh) + '" value="' + esc(p.label || '') + '" />'
+        + '<p class="workflow-help">Choose a name that reminds you what this workflow does.</p></section>'
       : '';
     /* LINE BUDGET (2026-08-21): the line's own ceilings, set at its front door like its name. Rides the intake
        prop as `limits` (worldmodel.setPropLimits -> migrate() whitelist), compiles onto plan.lines[].limits
@@ -2334,9 +2359,9 @@ const Build = (() => {
     const jnField = (id, label, min, max, step, val, ph) => '<label class="refit-field lb-field" for="' + id + '">' + label
       + '<input id="' + id + '" class="refit-num lb-num" type="number" min="' + min + '" max="' + max + '" step="' + step + '" placeholder="' + esc(ph) + '" value="' + esc(val) + '" /></label>';
     const joinerHtml = isJoiner
-      ? '<div class="refit-sec">TIMEOUT — PARTIAL RELEASE</div>'
+      ? '<section class="workflow-section"><h4>How long should it wait?</h4>'
         + jnField('jn-timeout', 'minutes to wait for a late branch', 1, 120, 1, p.timeoutMin ? String(p.timeoutMin) : '', '10')
-        + '<div class="refit-note" id="jn-note">if a branch has not delivered after this long, the crate goes on with the branches that did arrive, marked PARTIAL — so one stuck lane never stalls the line. blank = 10 · 1–120 — saved on Enter / blur</div>'
+        + '<div class="workflow-help" id="jn-note">If a part is late, the available results continue without it, marked PARTIAL. Leave blank for 10 minutes. Choose 1–120 minutes.</div></section>'
       : '';
     // LOOP: the gate's REAL exits, read off the compiled plan in its local frame (junctionBeltTile = the
     // compiler's attach tile), each labelled by direction AND destination ("E → OUTBOX" / "S → to WRITER").
@@ -2347,13 +2372,13 @@ const Build = (() => {
     const loopMaxCeil = (typeof Pipeline !== 'undefined' && Pipeline.LOOP_MAX_CEILING) || 20;
     const loopDoneCur = (p.done && loopExits.some(x => x.dir === p.done)) ? p.done : (loopExits[0] ? loopExits[0].dir : null);
     const loopHtml = isLoop
-      ? '<div class="refit-sec">DONE LANE — WHERE THE CRATE LEAVES</div>'
+      ? '<section class="workflow-section"><h4><span>1</span> Where should finished work go?</h4>'
         + (loopExits.length
             ? '<div class="refit-agents loop-exits" id="loop-exits">' + loopExits.map(x => '<button type="button" class="bb sm loop-exit' + (x.dir === loopDoneCur ? ' active' : '') + '" data-dir="' + x.dir + '">'
                 + esc(x.label) + '</button>').join('') + '</div>'
               + '<div class="step-fact" id="loop-back">' + esc(loopBackTxt(loopExits, loopDoneCur)) + '</div>'
-            : '<div class="refit-note bad">lay belts OUT of this gate first — it needs two exits: one onward, one back</div>')
-        + '<div class="refit-sec">HOW MANY TIMES ROUND</div>'
+            : '<div class="refit-note bad">Add two outgoing belts first: one to the next step and one back to an earlier Bay.</div>')
+        + '</section><section class="workflow-section"><h4><span>2</span> Limit the number of attempts</h4>'
         + jnField('loop-max', 'MAX PASSES', 1, loopMaxCeil, 1, p.maxIter ? String(p.maxIter) : '', String(loopMaxDef))
         /* the verdict is a pick, not a free word, and the picks are the ONLY words the sidecar's loop gate
            (routing/chain.js) can ever read: two VERDICT words (`VERDICT: approved` / `VERDICT: revise` — the
@@ -2361,13 +2386,17 @@ const Build = (() => {
            and the three content tags the same classifier a FILTER sorts by can produce (classify.js getTag).
            A verdict word flips the rule: the crate goes round UNTIL the verdict says it (revise / no verdict =
            round again); a classifier tag keeps it going round WHILE the output reads as that kind of work. */
-        + '<div class="refit-route-row loop-when-row"><span class="refit-route-lbl">LOOP UNTIL VERDICT →</span>'
+        + '<p class="workflow-help">A pass is one attempt. The workflow stops repeating when it reaches this limit.</p></section>'
+        + '<section class="workflow-section"><h4><span>3</span> When should it stop repeating?</h4>'
+        + '<p class="workflow-help">Choose the reviewer’s verdict that lets work move on.</p>'
+        + '<div class="refit-route-row loop-when-row">'
         + [['approved', 'APPROVED'], ['revise', 'REVISE']].map(([tag, lbl]) => '<button type="button" class="bb sm loop-when loop-verdict' + (p.when === tag ? ' sel' : '') + '" data-tag="' + tag + '">' + lbl + '</button>').join('')
         + '</div>'
-        + '<div class="refit-route-row loop-when-row"><span class="refit-route-lbl">…OR GO ROUND WHILE →</span>'
+        + '<details class="workflow-extra"' + (p.when && p.when !== 'approved' && p.when !== 'revise' ? ' open' : '') + '><summary>Repeat based on content instead</summary>'
+        + '<p class="workflow-help">Repeat while the result matches this type. Other results move on.</p><div class="refit-route-row loop-when-row">'
         + [['code', 'CODE'], ['research', 'RESEARCH'], ['general', 'GENERAL']].map(([tag, lbl]) => '<button type="button" class="bb sm loop-when' + (p.when === tag ? ' sel' : '') + '" data-tag="' + tag + '">' + lbl + '</button>').join('')
-        + '</div>'
-        + '<div class="refit-note" id="loop-note">' + esc(loopRuleTxt(p.when, loopMaxDef)) + ' blank max = ' + loopMaxDef + ' · ceiling ' + loopMaxCeil + ' — saved on Enter / blur</div>'
+        + '</div></details>'
+        + '<div class="workflow-help" id="loop-note">' + esc(loopRuleTxt(p.when, p.maxIter || loopMaxDef)) + ' Blank max = ' + loopMaxDef + '.</div></section>'
       : '';
     /* ---------- THE TRIGGER ZONE (inbox-trigger, 2026-08-05) ----------
        The INBOX card is the workflow's WHY, completing the loop the floor already draws: trigger (INBOX) →
@@ -2404,22 +2433,21 @@ const Build = (() => {
       return 'skips ' + skipped.map(a => agentLabelFor(a)).join(' and ') + ' — the line runs from ' + agentLabelFor(aid) + ' on (' + (docks.length - i) + ' of ' + docks.length + ' stages)';
     };
     const trgHtml = isIntake
-      ? '<div class="refit-sec">TRIGGERS — WHY THIS LINE RUNS</div>'
+      ? '<section class="workflow-section"><h4><span>2</span> Choose how it starts</h4>'
         // WORK BELONGS TO A LINE (2026-08-07): the trigger zone is where the Commander decides WHY this line
         // runs, so it is where the rule belongs — only work that comes in through one of these triggers runs
         // the whole line. Plain language; the same fact the STEP card states from the dock's side.
         // It is an EXPLANATION, not a warning, so it reads in the dim voice (.trg-explain) — .refit-note is
         // amber, and an amber paragraph on every INBOX card teaches the Commander to ignore amber.
-        + '<div class="trg-explain">Only work that comes in one of these ways runs this whole line. A job you hand an agent yourself is answered at its own dock and stops there.</div>'
-        + '<div class="step-fact" id="trg-feed">checking the wires…</div>'
-        + '<div id="trg-routines" class="trg-list"></div>'
-        + '<button type="button" class="bb sm refit-primary refit-summon" id="trg-new" aria-expanded="false">⊕ NEW ROUTINE FOR THIS LINE</button>'
+        + '<p class="trg-explain">Use a schedule or a connected channel to start this workflow. A direct COMMS message only runs the agent you message.</p>'
+        + '<div class="workflow-start-options"><button type="button" class="bb workflow-choice" id="trg-new" aria-expanded="false" aria-controls="trg-form"><b>On a schedule</b><span>Choose a task and when it runs.</span></button>'
+        + '<button type="button" class="bb workflow-choice" id="trg-chan"><b>From a channel</b><span>Set up incoming messages in Channels.</span></button></div>'
         // the create form is ONE bordered object (same vocabulary as AUTOMATION's inline RESCHEDULE editor):
         // opened from the ⊕ button, it used to be a stack of loose fields with no edge, so on a card that is
         // already six zones tall there was nothing saying where the form began or ended.
         + '<div id="trg-form" class="trg-form" style="display:none">'
-          + '<div class="trg-form-k">WHAT SHOULD IT DO?</div>'
-          + '<textarea id="trg-prompt" class="refit-input refit-brief" maxlength="2000" rows="2" placeholder="what should each run do? e.g. search for new AI-policy news and summarize the top 3"></textarea>'
+          + '<label class="trg-form-k" for="trg-prompt">What task should start each run?</label>'
+          + '<textarea id="trg-prompt" class="refit-input refit-brief" maxlength="2000" rows="3" placeholder="e.g. Find this week’s AI news and summarize the three biggest stories."></textarea>'
           /* WHEN — the SAME schedule picker the AUTOMATION window mounts (frontend/app/schedpicker.js), not a
              second dialect of "when". It owns the `#trg-sched` text input and TYPES into it, so the server
              preview, the create POST and every selector below are byte-identical to what they always were;
@@ -2433,29 +2461,33 @@ const Build = (() => {
           + '</div>'
           + '<div class="trg-preview" id="trg-preview"></div>'
           + (docks.length > 1
-              ? '<div class="refit-sec">FIRES AT</div><div class="refit-agents" id="trg-docks">' + docks.map(dockChip).join('') + '</div>'
+              ? '<details class="workflow-extra"><summary>Starting agent · ' + esc(agentLabelFor(trgDock)) + '</summary><p class="workflow-help">Usually, start with the first agent. Choosing a later step skips the steps before it.</p><div class="refit-agents" id="trg-docks">' + docks.map(dockChip).join('') + '</div>'
                 + '<div class="step-fact trg-dock-hint" id="trg-dock-hint">' + esc(dockHint(trgDock)) + '</div>'
+                + '</details>'
               : docks.length === 1
               ? '<div class="step-fact">fires at <b>' + esc((docks[0].role ? docks[0].role + ' · ' : '') + agentLabelFor(docks[0].agentId)) + '</b> — this line’s ' + (entryDocks.length ? 'entry dock' : 'dock') + '</div>'
-              : '<div class="refit-note">crew a dock first — a routine fires at an agent</div>')
-          + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ CREATE ROUTINE</button><button type="button" class="btn-sm" id="trg-cancel">CANCEL</button></div>'
+              : '<div class="refit-note">Assign an agent to a connected Bay first. The schedule needs an agent to start the work.</div>')
+          + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="trg-create"' + (docks.length ? '' : ' disabled') + '>▸ SAVE SCHEDULE</button><button type="button" class="btn-sm" id="trg-cancel">CANCEL</button></div>'
           + '<div class="refit-note trg-msg" id="trg-msg" style="display:none"></div>'
         + '</div>'
-        + '<div class="refit-actions trg-doors"><button type="button" class="btn-sm" id="trg-chan">⌁ CONNECT A CHANNEL</button><button type="button" class="btn-sm" id="trg-auto">▸ MANAGE IN AUTOMATION</button></div>'
+        + '<details class="workflow-extra"><summary>Existing schedules & connections</summary><div class="step-fact" id="trg-feed">Checking connections…</div><div id="trg-routines" class="trg-list"></div>'
+        + '<div class="refit-actions trg-doors"><button type="button" class="btn-sm" id="trg-auto">MANAGE SCHEDULES</button></div></details></section>'
       : '';
     const g = document.createElement('div');
-    // the INTAKE card is the only flow card carrying a form (the trigger zone) — it gets a little more glass
-    g.className = 'refit-guide refit-flow-card' + (isIntake ? ' refit-flow-intake' : '');
-    g.innerHTML = '<div class="refit-guide-card"><h3>▮ ' + (TITLE[p.t] || TITLE.outbox) + '</h3>'
-      + (isIntake ? '' : flowStripHTML(hot))
-      + '<ul><li>' + line + '</li></ul>'
-      + nameHtml
-      + (isIntake ? workflowHTML(comp) : '')
-      + (budgetHtml ? '<details class="refit-workflow-advanced"><summary>Limits & advanced settings</summary>' + budgetHtml + '</details>' : '')
-      + joinerHtml
-      + loopHtml
-      + trgHtml
-      + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="flow-ok">✓ GOT IT</button></div></div>';
+    g.className = 'refit-guide refit-flow-card refit-workflow-editor' + (isIntake ? ' refit-flow-intake' : '');
+    const help = p.t === 'joiner' ? 'Connect each parallel path to this Joiner, then connect its outgoing belt to the next step. A Splitter feeding a Joiner runs all its paths for the same job.'
+      : p.t === 'loop' ? 'Use the BELT tool to connect this Loop to an earlier Bay and to the next step. The labels beside each exit come from the belts you actually connected.'
+      : p.t === 'outbox' ? 'Leave Build mode and click the Outbox to browse delivered work in the Logbook.'
+      : 'The belts determine the paths. Close this panel, choose BELT, then click one prop and the next to connect them.';
+    g.innerHTML = '<div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">'
+      + workflowIntroHTML((PROP_NAME[p.t] || 'WORKFLOW') + ' · SETUP', TITLE[p.t] || TITLE.outbox, line)
+      + '<div class="workflow-body' + (isIntake || isJoiner || isLoop ? ' workflow-columns' : '') + '"><div class="workflow-main">' + nameHtml + trgHtml + joinerHtml + loopHtml
+      + (!isIntake && !isJoiner && !isLoop ? '<section class="workflow-section workflow-no-settings"><h4>No extra settings needed</h4><p>' + esc(help) + '</p></section>' : '')
+      + (budgetHtml ? '<details class="refit-workflow-advanced"><summary>Optional limits</summary>' + budgetHtml + '</details>' : '')
+      + '</div>' + (isIntake || isJoiner || isLoop ? '<aside class="workflow-aside">'
+      + (isIntake ? workflowHTML(comp) : '<section class="workflow-section"><h4>Connect it on the station</h4><p class="workflow-help">' + esc(help) + '</p></section>')
+      + '</aside>' : '') + '</div><div class="workflow-footer"><span>' + (isIntake ? 'Names save as you edit. Schedules need SAVE SCHEDULE.' : isJoiner || isLoop ? 'Settings save when you leave a field or close.' : 'Connections are made with the BELT tool.')
+      + '</span><button type="button" class="btn-sm refit-primary" id="flow-ok">✓ DONE</button></div></div>';
     root.appendChild(g);
     g.querySelectorAll('[data-workflow-step]').forEach(b => { b.onclick = () => openStepCard(b.dataset.workflowStep); });
     requestAnimationFrame(() => g.classList.add('refit-swap'));
@@ -2568,6 +2600,7 @@ const Build = (() => {
     });
     const closeP = () => { saveName(); saveLimits(); saveGate(); if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);   // ESC closes THROUGH here, so the line name + budget + gate config are saved and never discarded
+    g.querySelector('[data-workflow-close]').onclick = closeP;
     /* ---- trigger-zone wiring (intake only; every claim below is a server answer, never synthesized) ---- */
     if (isIntake) {
       const feedEl = g.querySelector('#trg-feed'), listEl = g.querySelector('#trg-routines');
@@ -2648,14 +2681,15 @@ const Build = (() => {
         trgDock = b.dataset.aid; sfx('click');
         g.querySelectorAll('.trg-dock').forEach(x => x.classList.toggle('active', x.dataset.aid === trgDock));
         const hintEl = g.querySelector('#trg-dock-hint'); if (hintEl) hintEl.textContent = dockHint(trgDock);
+        b.closest('details').querySelector('summary').textContent = 'Starting agent · ' + agentLabelFor(trgDock);
       });
-      // ONE opener, one closer: while the form is up the ⊕ button steps aside (the form's own CANCEL closes
-      // it), so a card that is already tall never shows two controls for the same door.
+      // Keep the chosen start method visible above its form, so its purpose stays clear while editing.
       const showForm = on => {
         formEl.style.display = on ? '' : 'none';
-        newBtn.style.display = on ? 'none' : '';
+        newBtn.classList.toggle('active', on);
         newBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
         if (on) promptEl.focus();
+        else newBtn.focus();
       };
       newBtn.onclick = () => { sfx('click'); showForm(formEl.style.display === 'none'); };
       g.querySelector('#trg-cancel').onclick = () => { sfx('click'); showForm(false); };
@@ -2746,14 +2780,16 @@ const Build = (() => {
       if (!r.agents.length && !r.unbound && !r.outbox && !r.deadEnd) li.push('This tile isn’t on the compiled line yet — connect it to a machine.');
     } else li.push('No compiled route yet — lay the line to a machine and this card reads its destination.');
     const g = document.createElement('div');
-    g.className = 'refit-guide refit-belt-card';
-    g.innerHTML = '<div class="refit-guide-card"><h3>▮ BELT — LANE ' + (DIRWORD[dir] || dir) + '</h3>'
-      + '<ul>' + li.map(s => '<li>' + s + '</li>').join('') + '</ul>'
-      + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="belt-ok">✓ GOT IT</button></div></div>';
+    g.className = 'refit-guide refit-belt-card refit-workflow-editor';
+    g.innerHTML = '<div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">'
+      + workflowIntroHTML('BELT · ' + (DIRWORD[dir] || dir), 'Where this belt takes work', 'Belts connect the steps in your workflow. Their direction decides where work travels next.')
+      + '<div class="workflow-body"><section class="workflow-section"><h4>Connected destinations</h4><ul>' + li.map(s => '<li>' + s + '</li>').join('') + '</ul></section></div>'
+      + '<div class="workflow-footer"><span>Choose BELT to connect another pair of props.</span><button type="button" class="btn-sm refit-primary" id="belt-ok">✓ DONE</button></div></div>';
     root.appendChild(g);
     requestAnimationFrame(() => g.classList.add('refit-swap'));
     const closeP = () => { if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);
+    g.querySelector('[data-workflow-close]').onclick = closeP;
     g.querySelector('#belt-ok').onclick = () => { sfx('click'); closeP(); };
     g.addEventListener('click', e => { if (e.target === g) closeP(); });
   }
@@ -2763,7 +2799,7 @@ const Build = (() => {
     cardCloseAll();
     const p = station.propById(propId); if (!p || p.t !== 'filter') return;
     const g = document.createElement('div');
-    g.className = 'refit-guide refit-junction-editor';
+    g.className = 'refit-guide refit-junction-editor refit-workflow-editor';
     const closeP = () => { if (g.parentNode) g.parentNode.removeChild(g); };
     cardRegister(g, closeP);
 
@@ -2772,21 +2808,28 @@ const Build = (() => {
       // junctionBeltTile), so a ring-attached filter is configurable, not a dead editor.
       const jt = junctionBeltTile(p);
       const lanes = jt ? junctionOutLanes(jt.x, jt.y) : [];
+      const origin = (cacheGeo && cacheGeo.origin) || { tx: 0, ty: 0 };
+      const exits = jt ? loopExitLabels(valPlan, { x: jt.x - origin.tx, y: jt.y - origin.ty }, agentLabelFor) : [];
       const cur = { routes: (p.routes && typeof p.routes === 'object') ? Object.assign({}, p.routes) : {}, def: p.def || null };
       const selOf = tag => (tag === '__def__' ? cur.def : cur.routes[tag]);
       const ROWS = [['code', 'CODE'], ['research', 'RESEARCH'], ['__def__', 'EVERYTHING ELSE']];
       const rowHtml = ROWS.map(([tag, label]) => {
         const btns = lanes.length
-          ? lanes.map(d => '<button type="button" class="bb sm lane-btn' + (selOf(tag) === d ? ' sel' : '') + '" data-tag="' + tag + '" data-dir="' + d + '">' + J_ARROW[d] + '</button>').join('')
-          : '<span class="refit-note bad">lay belts OUT of this filter first</span>';
-        return '<div class="refit-route-row"><span class="refit-route-lbl">' + label + ' →</span>' + btns + '</div>';
+          ? lanes.map(d => '<button type="button" class="bb sm lane-btn' + (selOf(tag) === d ? ' sel' : '') + '" data-tag="' + tag + '" data-dir="' + d + '" aria-pressed="' + (selOf(tag) === d) + '">' + esc(exits.find(x => x.dir === d)?.label || d + ' ' + J_ARROW[d]) + '</button>').join('')
+          : '<span class="refit-note bad">Connect an outgoing belt first.</span>';
+        return '<div class="refit-route-row"><span class="refit-route-lbl">' + label + '</span><div class="workflow-lane-options">' + btns + '</div></div>';
       }).join('');
-      g.innerHTML = '<div class="refit-guide-card"><h3>▮ FILTER — route by content</h3>' + flowStripHTML('junction')
-        + '<ul><li>Each <b>kind</b> of work routes to the out-lane you pick; the rest take <b>EVERYTHING ELSE</b>. Sorting applies to <b>unowned</b> work — addressed jobs (crons, bound chats) ride straight to their owner’s bay.</li>'
-        + '<li>Put a <b>BAY</b> on a lane to send that work to a specific agent.</li></ul>'
-        + '<div class="refit-filter-rows">' + rowHtml + '</div>'
-        + '<div class="refit-actions"><button type="button" class="btn-sm refit-primary" id="j-ok">▸ SAVE ROUTES</button><button type="button" class="btn-sm" id="j-clear">CLEAR</button><button type="button" class="btn-sm" id="j-cancel">CANCEL</button></div></div>';
+      g.innerHTML = '<div class="refit-guide-card" role="dialog" aria-modal="true" aria-labelledby="workflow-title">'
+        + workflowIntroHTML('FILTER · SORT TASKS', 'Send each kind of task the right way', 'Choose a path for coding tasks, research tasks and everything else. The Filter reads each task and sends it along the matching belt.')
+        + '<div class="workflow-body workflow-columns"><div class="workflow-main"><section class="workflow-section"><h4>Choose a destination for each kind</h4>'
+        + '<p class="workflow-help">“Everything else” is the fallback. Set it so other tasks have somewhere to go.</p>'
+        + '<div class="refit-filter-rows">' + rowHtml + '</div></section></div>'
+        + '<aside class="workflow-aside"><section class="workflow-section"><h4>Which tasks get sorted?</h4>'
+        + '<p class="workflow-help">Tasks without an assigned agent use these rules. A task already addressed to an agent follows that agent’s path.</p></section>'
+        + '<section class="workflow-section"><h4>Need another destination?</h4><p class="workflow-help">Close this panel and use BELT to connect this Filter to another Bay. Its destination appears here.</p></section></aside></div>'
+        + '<div class="workflow-footer"><span>Save routes to apply your choices.</span><button type="button" class="btn-sm" id="j-clear">CLEAR ROUTES</button><button type="button" class="btn-sm" id="j-cancel">CANCEL</button><button type="button" class="btn-sm refit-primary" id="j-ok">▸ SAVE ROUTES</button></div></div>';
       root.appendChild(g);
+      g.querySelector('[data-workflow-close]').onclick = closeP;
       requestAnimationFrame(() => g.classList.add('refit-swap'));
       g.querySelectorAll('.lane-btn').forEach(b => b.onclick = () => {
         const tag = b.dataset.tag, dir = b.dataset.dir;
@@ -2794,6 +2837,7 @@ const Build = (() => {
         else if (cur.routes[tag] === dir) delete cur.routes[tag]; else cur.routes[tag] = dir;
         g.querySelectorAll('.lane-btn[data-tag="' + tag + '"]').forEach(x => {
           x.classList.toggle('sel', selOf(tag) === x.dataset.dir);
+          x.setAttribute('aria-pressed', String(selOf(tag) === x.dataset.dir));
         });
       });
       g.querySelector('#j-ok').onclick = () => {

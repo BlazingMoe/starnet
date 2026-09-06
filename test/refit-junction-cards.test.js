@@ -136,7 +136,7 @@ A.ok(/class="bb sm loop-exit/.test(flow) && /loopExitLabels\(valPlan/.test(flow)
 A.ok(/loop-when/.test(flow) && /\['code', 'CODE'\], \['research', 'RESEARCH'\], \['general', 'GENERAL'\]/.test(flow),
   'LOOP verdict tag is a pick of the ONLY tags the classifier can produce (a typed "approved" could never match)');
 A.ok(/\['approved', 'APPROVED'\], \['revise', 'REVISE'\]/.test(flow) && /loop-verdict/.test(flow), 'LOOP verdict picks: APPROVED / REVISE (the words routing/verdict.js parses) sit beside the classifier tags (2026-08-22)');
-A.ok(/loopRuleTxt\(p\.when, loopMaxDef\)/.test(flow) && /loopRuleTxt\(res\.when/.test(flow), 'the card copy AND the saved-note read the ONE rule text (loopRuleTxt) — never two wordings of the gate');
+A.ok(/loopRuleTxt\(p\.when, p\.maxIter \|\| loopMaxDef\)/.test(flow) && /loopRuleTxt\(res\.when/.test(flow), 'the card copy and saved-note use the same rule, including the saved pass limit');
 A.ok(/goes round until the reviewer’s last line says VERDICT: ' \+ when/.test(build) && /or MAX PASSES/.test(build) && /marked unapproved/.test(build), 'the verdict rule copy: round until VERDICT: <word> or MAX PASSES, then DONE marked unapproved — what chain.js runs');
 A.ok(/goes round again ONLY while the reviewer’s output reads as/.test(build), 'the classifier-tag rule copy is unchanged: the tag keeps it looping, anything else leaves on DONE');
 A.ok(/station\.configureJunction\(propId, Object\.keys\(cfg\)\.length \? cfg : null\)/.test(flow), 'gate saves go through configureJunction (the validated model path)');
@@ -166,9 +166,9 @@ A.ok(!/sample job dispatched — watch the line/.test(fin), 'the old fire-and-fo
 const step = build.slice(build.indexOf('function lineFactHTML'), build.indexOf('function openWorkstationPicker'));
 A.ok(/data-linefact=/.test(step) && /function refreshLineFacts/.test(step), 'the ON <LINE> fact is addressable and refreshable');
 A.ok(/renderFinCard\(\);\n\s*refreshLineFacts\(\);/.test(build), 'line facts refresh after every plan recompile (click-connect lands on the open card)');
-A.ok(/needs a PC assigned to <b>/.test(step), 'the compute rule says WHOSE PC, in THIS room');
+A.ok(/esc\(agentLabel\(p\.agentId\)\) \+ ' needs an assigned workstation in this room/.test(step), 'the workstation requirement names the assigned agent and room');
 A.ok(/station\.addProp\(\{ t: 'desk', x, y, w: 2, h: 1, agentId: p\.agentId \}\)/.test(step), 'the one-click fix places a real desk in the room, bound to the agent (object=capability)');
-A.ok(/'crewed by ' \+ esc\(agentLabel\(cur\)\)/.test(step) && /'crewed by ' \+ agentLabel\(aid\)/.test(step), 'crewed-by shows the display name, never the raw id');
+A.ok(/'Assigned to ' \+ esc\(agentLabel\(cur\)\)/.test(step) && /'Assigned to ' \+ agentLabel\(aid\)/.test(step), 'assignment shows the display name, never the raw id');
 
 // FINISH card follows the focused line; coach bubbles stack
 A.ok(/function finFocusLine\(propId\)/.test(build), 'a focus-line helper exists');

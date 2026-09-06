@@ -323,3 +323,27 @@ placement without an intermediate button, Escape cancellation, hover/focus behav
 responsive layout, undo/redo and access truth. No runtime exceptions. The 112-item decoration shelf
 measured 60 FPS, 16.7 ms p95 frame intervals and 7.55 ms mean render callback time in this local run.
 Current receipts and screenshots supersede the earlier placement-button UI in `.worldshots/prop-abilities/`.
+
+## September 5 approachable conveyor setup
+
+Clicking a conveyor prop now opens a wide setup screen (960px on desktop, bounded by the viewport).
+The generic INBOX / SORT / BAY / DESK strip is removed. Bay setup leads with choosing an agent and
+writing their instructions; Inbox setup leads with naming the workflow and choosing a schedule or
+channel. The actual connected steps remain editable alongside the settings. Filters name the real
+destinations from the compiled routing plan. Outboxes and simple path props explain their function
+and explicitly say when no extra settings are needed. Loop and Joiner retain their existing controls.
+
+Manual agent IDs, alternate starting agents, advanced loop classification and workflow budgets stay
+available under disclosures. The selected schedule method remains visible while its form is open.
+Names, briefs and gate settings retain their existing save behavior; schedules and Filter routes
+have explicit save buttons. No backend APIs, routing semantics or execution permissions changed.
+The body scrolls independently of the header and Done footer, keyboard focus stays inside setup,
+and generic placement coaching waits until setup closes so it cannot obscure the form. This adds
+no per-frame rendering work. The left Build kit and custom station layout are preserved.
+
+`node dev/workflow-setup-probe.mjs` passes 46 live checks on a disposable in-memory station, covering
+agent search/assignment, brief persistence, workstation creation, schedule preview, route/gate saves,
+keyboard behavior, four smaller viewport sizes and enlarged text. No runtime exceptions. Evidence:
+`.worldshots/workflow-setup/`. The existing `dev/inbox-when-picker-shots.mjs` also verifies that Save
+Schedule persists the chosen cadence through the real seeded server and reads back its agent,
+whole-workflow flag and next run. It uses an isolated workspace and mock provider, with no model run.
