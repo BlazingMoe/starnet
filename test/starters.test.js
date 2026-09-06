@@ -1,120 +1,31 @@
-/* node test/starters.test.js — the pure session-opener chip engine (frontend/app/starters.js)
-   plus LaunchMemory.recent() (its "usual recipe" signal). Locks:
-     - FRESH STATION: the classic orientation set, verbatim (tour / first recipe / station brief)
-     - RETURNING: only EARNED chips — usual recipe (prefilled + ↺), cadence-due recipe,
-       next-step-on-session, pitch ask; cap 3
-     - NO random discovery: off-cadence hours never pitch an unlaunched catalog recipe
-     - a returning Commander NEVER sees the orientation chips (tour / station brief)
-     - usual skips launches whose recipe left the catalog; prefill values ride the chip
-     - cadence: a 'morning' recipe is due 05–11 only
-     - session chip: most recent titled session, truncated label, no state assertion
-     - fail-open: garbage signals / empty catalog still yield tappable chips, never a throw
-     - LaunchMemory.recent(): newest-first, capped, corrupt store → [] */
+/* Session starters: evidence, real context navigation, and editable no-history actions. */
 'use strict';
 const A = require('./_assert.js');
 const Starters = require('../frontend/app/starters.js');
 const LaunchMemory = require('../frontend/app/launchmemory.js');
-
-const CATALOG = [
-  { id: 'morning-brief', name: 'Morning Brief', cadence: 'morning', task: 'Brief me on {topic} over {window}.', params: [{ key: 'topic' }, { key: 'window', default: 'the last 24 hours' }] },
-  { id: 'deep-dive', name: 'Deep Dive', cadence: null, task: 'Deep dive on {topic}.', params: [{ key: 'topic' }] },
-  { id: 'bug-hunt', name: 'Bug Hunt', cadence: null, task: 'Hunt bugs in {repo}.', params: [{ key: 'repo' }] },
-  { id: 'weekly-review', name: 'Weekly Review', cadence: 'weekly', task: 'Review my week.', params: [] }
-];
-
-// ---- fresh station: the classic orientation set, unchanged ----
-{
-  const chips = Starters.pick({ recipes: CATALOG, recent: [], returning: false, hour: 9 });
-  A.eq(chips.length, 3, 'fresh: three chips');
-  A.eq(chips[0].label, 'what can you do here', 'fresh: tour chip first');
-  A.ok(chips[1].kind === 'recipe' && chips[1].recipe.id === 'morning-brief', 'fresh: first catalog recipe second');
-  A.ok(!chips[1].values, 'fresh: recipe chip carries no prefill');
-  A.eq(chips[2].label, 'brief me on this station', 'fresh: station brief third');
+const now = 1800000000000, day = 86400000;
+const recipes = [{id:'morning',name:'Morning Brief',cadence:'morning'}, {id:'review',name:'Review a draft'}];
+const base = {now, recipes};
+const session = (id, ago, more = {}) => ({id, title: 'Work ' + id, at:now-ago, ...more});
+for (const hour of [0,8,12,20]) {
+  const c = Starters.pick({...base,hour,ready:false,hunt:true});
+  A.eq(c.map(x=>x.label), ['Plan a task','Compare options','Improve a draft'], 'No history offers useful task templates at hour '+hour);
+  A.ok(c.every(x=>x.kind==='draft' && x.description && x.send), 'Templates explain action and require user context');
 }
-
-// ---- returning: usual (prefilled) + session next-step + pitch — no random catalog pushes ----
-{
-  const vals = { 'deep-dive': { topic: 'AI agents' } };
-  const chips = Starters.pick({
-    recipes: CATALOG,
-    recent: [{ id: 'deep-dive', at: 200 }, { id: 'morning-brief', at: 100 }],
-    valuesOf: id => vals[id] || null,
-    sessions: [{ title: 'Ship the landing page', at: 500 }, { title: 'Old thing', at: 100 }],
-    returning: true, hour: 20
-  });
-  A.eq(chips.length, 3, 'returning: three chips');
-  A.ok(chips[0].kind === 'recipe' && chips[0].recipe.id === 'deep-dive', 'returning: usual = most recent launch');
-  A.eq(chips[0].values, { topic: 'AI agents' }, 'returning: usual carries last inputs');
-  A.eq(chips[0].label, '↺ Deep Dive', 'returning: prefilled chip wears the ↺ mark');
-  A.eq(chips[1].label, 'next step: ship the landing page', 'returning: slot 2 = next step on the latest titled session');
-  A.ok(chips[1].send.indexOf('"Ship the landing page"') >= 0, 'returning: session title rides the send verbatim');
-  A.eq(chips[2].label, 'pitch me an idea', 'returning: pitch ask third');
-}
-
-// ---- no random discovery: off-cadence + no sessions → usual + pitch ONLY, never a catalog push ----
-{
-  const chips = Starters.pick({
-    recipes: CATALOG, recent: [{ id: 'deep-dive', at: 200 }], returning: true, hour: 20
-  });
-  A.eq(chips.length, 2, 'no-signal: two chips only — no padding');
-  A.ok(chips[0].kind === 'recipe' && chips[0].recipe.id === 'deep-dive', 'no-signal: usual first');
-  A.eq(chips[1].label, 'pitch me an idea', 'no-signal: pitch second');
-  A.ok(chips.every(c => c.label !== 'brief me on this station' && c.label !== 'what can you do here'),
-    'no-signal: returning never sees orientation chips');
-}
-
-// ---- cadence-due survives: morning hour surfaces the morning recipe in slot 2 ----
-{
-  const chips = Starters.pick({
-    recipes: CATALOG, recent: [{ id: 'deep-dive', at: 200 }], returning: true, hour: 8
-  });
-  A.ok(chips[1].kind === 'recipe' && chips[1].recipe.id === 'morning-brief', 'cadence: 8am slot 2 = morning recipe');
-}
-
-// ---- cap 3: usual + due + session squeezes the pitch out ----
-{
-  const chips = Starters.pick({
-    recipes: CATALOG, recent: [{ id: 'deep-dive', at: 200 }],
-    sessions: [{ title: 'Ship the landing page', at: 500 }],
-    returning: true, hour: 8
-  });
-  A.eq(chips.length, 3, 'cap: three chips max');
-  A.eq(chips.map(c => c.label)[2], 'next step: ship the landing page', 'cap: session chip kept, pitch dropped');
-}
-
-// ---- session chip: long titles truncate in the label, ride full in the send ----
-{
-  const title = 'Rebuild the entire onboarding flow end to end';
-  const chips = Starters.pick({ sessions: [{ title, at: 1 }], returning: true, hour: 20 });
-  A.ok(chips[0].label.length <= 'next step: '.length + 28, 'session: label truncated');
-  A.ok(chips[0].send.indexOf('"' + title + '"') >= 0, 'session: full title in the send');
-  A.ok(chips[0].label.indexOf('…') >= 0, 'session: truncation is visible');
-}
-
-// ---- session chip: blank/garbage titles are skipped, not rendered ----
-{
-  const chips = Starters.pick({ sessions: [{ title: '   ', at: 9 }, { title: 'Real work', at: 1 }, null], returning: true, hour: 20 });
-  A.eq(chips[0].label, 'next step: real work', 'session: blank titles skipped for the next real one');
-}
-
-// ---- usual skips a launch whose recipe left the catalog ----
-{
-  const chips = Starters.pick({
-    recipes: CATALOG, recent: [{ id: 'gone-recipe', at: 300 }, { id: 'bug-hunt', at: 100 }], returning: true, hour: 20
-  });
-  A.ok(chips[0].kind === 'recipe' && chips[0].recipe.id === 'bug-hunt', 'usual: dead catalog id skipped for the next real one');
-}
-
-// ---- fail-open: garbage signals and empty catalog still yield chips ----
-{
-  A.notThrows(() => Starters.pick(null), 'fail-open: null signals');
-  A.notThrows(() => Starters.pick({ recipes: 'nope', recent: 42, valuesOf: 7, hour: 'x', sessions: 'bad', returning: true }), 'fail-open: garbage signals');
-  const none = Starters.pick({ recipes: [], recent: [], returning: true, hour: 10 });
-  A.ok(none.length >= 1 && none.every(c => c.kind === 'send'), 'fail-open: empty catalog → live send chip(s), no throw');
-  A.eq(none[none.length - 1].label, 'pitch me an idea', 'fail-open: pitch always survives');
-  const freshNone = Starters.pick({ recipes: [], returning: false });
-  A.eq(freshNone.map(c => c.label), ['what can you do here', 'brief me on this station'], 'fail-open: fresh + empty catalog → classic send pair');
-}
+const c = Starters.pick({...base, sessions:[session('older',2*day),session('latest',day)],recent:[{id:'review',at:now-day}],valuesOf:()=>({draft:'saved'})});
+A.eq(c.map(x=>x.kind),['session','session','recipe'],'Recent conversations lead, followed by proven recipe');
+A.eq(c[0].sessionId,'latest','Sort by actual activity, not caller order');
+A.ok(!c[0].send,'Session reopens by id instead of asking a new contextless chat');
+A.eq(c[2].values,{draft:'saved'},'Recipe retains saved inputs');
+A.ok(c[2].description.includes('saved inputs'),'Recipe explains prefill');
+const stale = Starters.pick({...base,sessions:[session('archived',day,{archived:true}),session('busy',day,{busy:true}),session('done',day,{lane:'shipped'}),session('stale',31*day),session('future',-day),session('blank',day,{title:' '})],recent:[{id:'review',at:now-31*day},{id:'gone',at:now-day}]});
+A.ok(stale.every(x=>x.kind==='draft'),'Archived, running, shipped, stale, future, untitled and deleted recipes do not surface');
+const long = 'A very long meaningful session title with Mixed CASE preserved in full';
+A.eq(Starters.pick({...base,sessions:[session('a',day,{title:long})]})[0].label,long,'Preserve full title and casing');
+A.eq(Starters.pick({...base,sessions:[session('a',day),session('a',day),session('b',day),session('c',day)]}).length,2,'Deduplicate and cap context shortcuts without padding');
+A.eq(Starters.pick({...base,recent:[{id:'review',at:now-day}]}).length,1,'One useful recommendation is enough');
+A.notThrows(()=>Starters.pick({...base,recent:[{id:'review',at:now-day}],valuesOf:()=>{throw Error('unavailable');}}),'Missing input store does not discard evidence');
+for (const s of [null,{}, {recipes:42,recent:'bad',sessions:'bad'}, {sessions:[null,session('a',day)]}]) A.notThrows(()=>Starters.pick(s),'Malformed or missing signals fail safely');
 
 // ---- LaunchMemory.recent(): newest-first, capped, corrupt-store honest ----
 {
@@ -135,25 +46,57 @@ const CATALOG = [
   A.eq(LaunchMemory.recent(), [], 'recent: corrupt store → [] (never a crash)');
 }
 
-// ---- V3 §6: the pitch chip rides the shared readiness gate ----
+
+// Execute the production signal gathering and click handlers, with the real session store.
 {
-  const sig = { recipes: CATALOG, recent: [{ id: 'morning-brief', at: 5 }], valuesOf: () => null, returning: true, hour: 20 };
-  A.ok(Starters.pick(Object.assign({}, sig, { ready: true })).some(c => c.label === 'pitch me an idea'), 'ready station keeps the pitch chip');
-  const gated = Starters.pick(Object.assign({}, sig, { ready: false }));
-  A.eq(gated.some(c => c.label === 'pitch me an idea'), false, 'below the readiness gate the pitch chip is gone');
-  A.ok(gated.every(c => c.label !== 'brief me on this station' && c.label !== 'what can you do here'),
-    'the gated slot never falls back to orientation pads (earned-chips law holds)');
-  A.ok(Starters.pick(sig).some(c => c.label === 'pitch me an idea'), 'undefined ready keeps legacy behavior (callers without the read)');
-
-  // V3 §7: below the gate WITH a live probe, the pitch slot hunts instead of padding.
-  const hunting = Starters.pick(Object.assign({}, sig, { ready: false, hunt: true }));
-  A.ok(hunting.some(c => c.kind === 'hunt'), 'below the gate the pitch slot becomes the hunt probe');
-  A.eq(hunting.some(c => c.label === 'pitch me an idea'), false, 'the hunt slot never coexists with the pitch chip');
-  A.eq(Starters.pick(Object.assign({}, sig, { ready: true, hunt: true })).some(c => c.kind === 'hunt'), false,
-    'a ready station never hunts from the opener row (the pitch chip owns the slot)');
-  // fresh station: the third orientation chip yields to the probe while hunting.
-  const freshHunt = Starters.pick({ recipes: CATALOG, returning: false, ready: false, hunt: true });
-  A.ok(freshHunt.some(c => c.kind === 'hunt'), 'a fresh hunting station spends its third slot on the probe');
+  const fs = require('node:fs'), vm = require('node:vm');
+  const Workstreams = require('../frontend/app/workstreams.js');
+  Workstreams.reset();
+  const active = Workstreams.create(null, { agentId: 'agent' });
+  const recent = Workstreams.create('Launch checklist', { agentId: 'agent' });
+  recent.history.push({ role: 'user', content: 'Review my checklist' });
+  Workstreams.create('Other agent work', { agentId: 'other' }).history.push({ role: 'user', content: 'Private task' });
+  Workstreams.create('System only', { agentId: 'agent' }).history.push({ role: 'system', content: 'Connected' });
+  Workstreams.switch(active.id);
+  class Element {
+    constructor() { this.children = []; this.events = {}; this.value = ''; this.className = ''; }
+    append(...nodes) { nodes.forEach(n => { n.parent = this; this.children.push(n); }); }
+    appendChild(n) { this.append(n); }
+    querySelector(sel) { return this.children.find(n => n.className.split(' ').includes(sel.slice(1))) || this.children.map(n => n.querySelector(sel)).find(Boolean) || null; }
+    addEventListener(k, fn) { this.events[k] = fn; }
+    setAttribute() {}
+    focus() { this.focused = true; }
+    setSelectionRange() {}
+    remove() { this.parent.children = this.parent.children.filter(n => n !== this); }
+  }
+  const log = new Element(), input = new Element();
+  let loaded = null;
+  const ctx = vm.createContext({ log, input, activeWs: active, name: 'NOVA', interview: false,
+    Starters, Workstreams, document: { createElement: () => new Element() },
+    Channels: { isBusy: () => false, snapshot: () => null }, isBusy: () => false, busyPeerFor: () => false,
+    load: w => { loaded = w; }, refreshWorkflowViews() {}, autoGrowInput() {},
+    submitComposer: () => { throw Error('Starter must not send'); } });
+  const source = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/chat.js'), 'utf8');
+  for (const name of ['clearEmptyState', 'pickStarters', 'maybeEmptyState', 'prefill']) {
+    const body = A.fnBody(source, 'function ' + name + '(');
+    A.ok(body.length > 0 && body.length < 5000, 'Extract bounded production ' + name);
+    vm.runInContext(body, ctx);
+  }
+  vm.runInContext('maybeEmptyState(); maybeEmptyState();', ctx);
+  A.eq(log.children.length, 1, 'Repeated idle render does not duplicate suggestions');
+  let buttons = log.querySelector('.cmsg-empty-chips').children;
+  A.eq(buttons.length, 1, 'Signal adapter excludes other agents and system-only history');
+  buttons[0].events.click();
+  A.eq(loaded.id, recent.id, 'Click opens exact original session by id');
+  A.eq(loaded.history[0].content, 'Review my checklist', 'Original context remains intact');
+  Workstreams.archive(recent.id);
+  loaded = null;
+  buttons[0].events.click();
+  A.eq(loaded, null, 'Archived-since-render shortcut does not reopen');
+  buttons = log.querySelector('.cmsg-empty-chips').children;
+  input.value = 'My existing notes';
+  buttons[0].events.click();
+  A.ok(input.value.startsWith('My existing notes') && input.value.includes('The outcome I want:'), 'Task starter preserves existing draft and appends scaffold');
+  A.ok(input.focused, 'Draft gets focus for editing');
 }
-
 A.report('starters');

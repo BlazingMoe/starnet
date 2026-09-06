@@ -1,8 +1,3 @@
-/* Emergency control in SYSTEM; the shortcut remains global. */
-.bb-menu #estop-btn { min-height: 44px; margin-top: 6px; border-top: 1px solid rgba(var(--ph-rgb),.2); color: var(--bad); }
-.bb-menu #estop-btn .bb-i, .bb-menu #estop-btn b { color: var(--bad); }
-.bb-menu #estop-btn:hover, .bb-menu #estop-btn:focus-visible { background: color-mix(in srgb,var(--bad) 10%,var(--panel)); }
-
 /* ---------- accessibility: honor the OS "reduce motion" setting (the repo had NONE) ----------
    Neutralizes the CRT screen-flicker, button/dot pulses, and any keyframe/transition motion while keeping
    the static phosphor look intact. The interface stays fully usable — no cue here is motion-only. */
