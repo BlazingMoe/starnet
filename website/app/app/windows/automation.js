@@ -60,6 +60,10 @@
     body.querySelector('#auto-initiative').onclick = () => H.openTerm('settings', 'autonomy');
     renderAway();
     if (draft) {
+      if (draft.widgetId) {
+        const prompt = body.querySelector('#rt-prompt');
+        if (prompt) prompt.dataset.widgetId = draft.widgetId;
+      }
       if (draft.workflowTakeoverId) {
         const prompt = body.querySelector('#rt-prompt');
         if (prompt) {

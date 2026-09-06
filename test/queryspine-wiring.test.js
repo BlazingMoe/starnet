@@ -25,6 +25,9 @@ for (const file of ['widgets.js', 'routinenudgestore.js', 'returnstore.js', 'aut
 }
 
 const widgets = read('frontend/app/widgets.js');
+const routines = read('frontend/app/windows/routines.js');
+A.ok(/await QuerySpine\.refresh\('cron'\)/.test(routines),
+  'routine edits publish their verified read-back to widgets through the shared scheduler query');
 A.ok(!/setInterval\s*\(\s*pollCron/.test(widgets) && !/function\s+pollCron/.test(widgets),
   'widgets owns no cron poll timer');
 A.ok(/QuerySpine\.subscribe\('cron',\s*foldCron\)/.test(widgets),

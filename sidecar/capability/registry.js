@@ -79,7 +79,8 @@
       { capId: 'memory', tool: 'skill.manage', scope: 'write', requiresConsent: false, network: false },       // H4: create/patch/archive saved skills
       { capId: 'memory', tool: 'skill.list', scope: 'read', requiresConsent: false, network: false },          // H4: list saved skills (metadata only)
       { capId: 'memory', tool: 'skill.view', scope: 'read', requiresConsent: false, network: false },          // H4: load a saved skill's full body
-      { capId: 'memory', tool: 'widget.set', scope: 'write', requiresConsent: false, network: false }          // WIDGET RAILS Phase 2: publish/update an agent-fed rail readout — sandboxed local write to the station's own chrome, same trust class as notebook.write (see tools/builtin/widgets.js)
+      { capId: 'memory', tool: 'widget.get', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'memory', tool: 'widget.set', scope: 'write', requiresConsent: false, network: false }          // User-defined widgets: read the current definition, then publish a sourced reading.
       // QUEST V2 §B: quest.update was MOVED to the `computer` object (above) — see the note there. It rode `notebook`
       // (memory) originally, but the interactive office has no placed notebook, so the tool was absent while the prompt
       // demanded it. It belongs with compute (the always-present freebie), not with placeable memory.

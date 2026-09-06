@@ -121,4 +121,60 @@ A.eq(Widgets._fmtAge(0, 999999), 'now', 'a future timestamp clamps to "now", nev
 // report() LAST — it is what calls process.exit(fail?1:0). This file used to end in a bare
 // console.log, so every assertion failure printed FAIL and STILL exited 0: the fast gate scored
 // it green no matter what broke. Never end an _assert.js test any other way.
+// Current scheduler truth: never count down a stopped, paused, or invalid job.
+const now = Date.parse('2026-09-06T12:00:00Z');
+const scheduled = { enabled: true, jobs: [
+  { id: 'paused', enabled: false, nextRunAt: '2026-09-06T12:01:00Z' },
+  { id: 'later', enabled: true, nextRunAt: '2026-09-06T13:00:00Z' },
+  { id: 'next', name: 'Morning brief', enabled: true, nextRunAt: '2026-09-06T12:05:00Z' },
+  { id: 'bad', enabled: true, nextRunAt: 'invalid' }
+] };
+A.eq(Widgets._nextRoutine(scheduled, now).val, '5m', 'next routine skips paused jobs and sorts actual due times');
+A.eq(Widgets._nextRoutine(scheduled, now).sub, 'Morning brief', 'next routine names the scheduled job');
+A.eq(Widgets._nextRoutine({ ...scheduled, halted: true }, now).val, null, 'E-STOP suppresses countdown');
+A.eq(Widgets._nextRoutine({ ...scheduled, enabled: false }, now).sub, 'disarmed', 'disarmed scheduler is explicit');
+A.eq(Widgets._nextRoutine({ enabled: true, jobs: [] }, now).sub, 'nothing scheduled', 'empty scheduler does not invent a time');
+A.eq(Widgets._nextRoutine(null, now).val, null, 'missing scheduler stays unknown');
+A.eq(Widgets._nextRoutine(scheduled, now + 10 * 60000).val, 'due', 'overdue does not claim running');
+
+// Use the production COMMS state machine without changing its module.
+global.Channels = require('../frontend/app/channels.js');
+global.Channels.begin('connecting', now);
+A.eq(Widgets._commsReadout(false).val, '0', 'unconfirmed request is not a running conversation');
+A.eq(Widgets._commsReadout(false).sub, '1 connecting', 'connection state stays distinct');
+global.Channels.begin('working', now);
+global.Channels.setRunId('working', 'run-1', now);
+A.eq(Widgets._commsReadout(false).val, '1', 'confirmed run is counted');
+global.Channels.setPending('working', { promptId: 'approval-1' }, now);
+A.eq(Widgets._commsReadout(true).val, '1', 'pending approval reflects COMMS state');
+global.Channels.end('working');
+A.eq(Widgets._commsReadout(true).val, '0', 'completed approval clears');
+delete global.Channels;
+A.eq(Widgets._commsReadout(false).val, null, 'unavailable COMMS is unknown, not zero');
+A.eq(Widgets._sanitizeFeedRecord({ id: 'no-progress', value: '10', progress: null }).progress, null, 'null progress does not hide an actual spark behind a fake zero bar');
+A.eq(Widgets._sanitizeFeedRecord({ id: 'zero-progress', value: '10', progress: 0 }).progress, 0, 'explicit zero progress remains valid');
+
+// Attention shortcuts resolve current state at click time, skipping sessions already removed.
+const jumps = [];
+global.Channels = { pendingIds: () => ['removed', 'waiting'] };
+global.Workstreams = { get: id => id === 'waiting' ? { id } : null };
+global.App = { openWorkstream: id => jumps.push('conversation:' + id) };
+global.StationUI = { openTerm: id => jumps.push('window:' + id), h: { workConversation: () => jumps.push('reveal') } };
+A.eq(Widgets._openWidget('approvals'), true, 'waiting conversation shortcut is available');
+A.eq(jumps.join(','), 'conversation:waiting,reveal', 'shortcut opens and reveals the existing waiting conversation');
+global.Channels.pendingIds = () => [];
+A.eq(Widgets._openWidget('approvals'), false, 'resolved attention does not reopen an outdated target');
+A.eq(jumps.length, 2, 'resolved attention performs no navigation');
+A.eq(Widgets._openWidget('next'), true, 'schedule shortcut opens its real settings');
+A.eq(jumps[2], 'window:routines', 'schedule shortcut routes to routines without running a job');
+A.eq(Widgets._openWidget('tokens'), false, 'plain counters have no invented action');
+delete global.Channels; delete global.Workstreams; delete global.App; delete global.StationUI;
+const emptyConfigured = Widgets._sanitizeFeedRecord({ id:'saved', label:'Revenue', value:null, updatedAt:0,
+  config:{ source:{kind:'connector',id:'stripe',label:'Stripe'}, request:'This month', display:'metric', version:1 },
+  sourceState:'disabled', sourceUrl:'javascript:alert(1)', error:'Could not read app' });
+A.ok(!!emptyConfigured, 'a saved definition can exist before a reading is fetched');
+A.eq(emptyConfigured.updatedAt, 0, 'a definition does not invent a report timestamp');
+A.eq(emptyConfigured.sourceUrl, null, 'unsafe source links never reach the UI');
+A.eq(emptyConfigured.sourceState, 'disabled', 'disconnected app state survives the read boundary');
+A.eq(emptyConfigured.error, 'Could not read app', 'source errors stay available to the detail view');
 A.report('widgets.test');
