@@ -121,4 +121,36 @@ A.eq(Widgets._fmtAge(0, 999999), 'now', 'a future timestamp clamps to "now", nev
 // report() LAST — it is what calls process.exit(fail?1:0). This file used to end in a bare
 // console.log, so every assertion failure printed FAIL and STILL exited 0: the fast gate scored
 // it green no matter what broke. Never end an _assert.js test any other way.
+// Current scheduler truth: never count down a stopped, paused, or invalid job.
+const now = Date.parse('2026-09-06T12:00:00Z');
+const scheduled = { enabled: true, jobs: [
+  { id: 'paused', enabled: false, nextRunAt: '2026-09-06T12:01:00Z' },
+  { id: 'later', enabled: true, nextRunAt: '2026-09-06T13:00:00Z' },
+  { id: 'next', name: 'Morning brief', enabled: true, nextRunAt: '2026-09-06T12:05:00Z' },
+  { id: 'bad', enabled: true, nextRunAt: 'invalid' }
+] };
+A.eq(Widgets._nextRoutine(scheduled, now).val, '5m', 'next routine skips paused jobs and sorts actual due times');
+A.eq(Widgets._nextRoutine(scheduled, now).sub, 'Morning brief', 'next routine names the scheduled job');
+A.eq(Widgets._nextRoutine({ ...scheduled, halted: true }, now).val, null, 'E-STOP suppresses countdown');
+A.eq(Widgets._nextRoutine({ ...scheduled, enabled: false }, now).sub, 'disarmed', 'disarmed scheduler is explicit');
+A.eq(Widgets._nextRoutine({ enabled: true, jobs: [] }, now).sub, 'nothing scheduled', 'empty scheduler does not invent a time');
+A.eq(Widgets._nextRoutine(null, now).val, null, 'missing scheduler stays unknown');
+A.eq(Widgets._nextRoutine(scheduled, now + 10 * 60000).val, 'due', 'overdue does not claim running');
+
+// Use the production COMMS state machine without changing its module.
+global.Channels = require('../frontend/app/channels.js');
+global.Channels.begin('connecting', now);
+A.eq(Widgets._commsReadout(false).val, '0', 'unconfirmed request is not a running conversation');
+A.eq(Widgets._commsReadout(false).sub, '1 connecting', 'connection state stays distinct');
+global.Channels.begin('working', now);
+global.Channels.setRunId('working', 'run-1', now);
+A.eq(Widgets._commsReadout(false).val, '1', 'confirmed run is counted');
+global.Channels.setPending('working', { promptId: 'approval-1' }, now);
+A.eq(Widgets._commsReadout(true).val, '1', 'pending approval reflects COMMS state');
+global.Channels.end('working');
+A.eq(Widgets._commsReadout(true).val, '0', 'completed approval clears');
+delete global.Channels;
+A.eq(Widgets._commsReadout(false).val, null, 'unavailable COMMS is unknown, not zero');
+A.eq(Widgets._sanitizeFeedRecord({ id: 'no-progress', value: '10', progress: null }).progress, null, 'null progress does not hide an actual spark behind a fake zero bar');
+A.eq(Widgets._sanitizeFeedRecord({ id: 'zero-progress', value: '10', progress: 0 }).progress, 0, 'explicit zero progress remains valid');
 A.report('widgets.test');

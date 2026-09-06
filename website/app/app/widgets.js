@@ -50,6 +50,7 @@ const Widgets = (() => {
   const feed = new Map();     // slug -> agent-fed record (each /api/widgets poll rebuilds it whole)
   let tickerStep = 0;         // shared ticker phase — every list widget cycles in step
   let stopCron = null;        // subscription ownership; QuerySpine owns the one cron poll timer
+  let insightsRequest = null, feedRequest = null;
 
   // E3: per-source staleness — the honest "this last-good number is no longer live" flag. A silent
   // poll failure used to keep painting the last-good figure with a hardcoded 'live' tag; now the
@@ -66,7 +67,7 @@ const Widgets = (() => {
   // is down (the sidecar is gone, so the next poll is already doomed — flag it now rather than waiting
   // ~30s for the poll to time out). Event-fed QUEUE: only the SSE bridge going down. Agent-fed widgets
   // keep their own provenance/"no signal" honesty and are never marked here.
-  const SRC_OF = { runs24: 'insights', tokens: 'insights', cron: 'cron', queue: 'queue' };
+  const SRC_OF = { runs24: 'insights', tokens: 'insights', cron: 'cron', next: 'cron', queue: 'queue', active: 'queue', approvals: 'queue' };
   function staleFor(id) {
     const src = SRC_OF[id];
     if (src === 'queue') return linkDownNow();
@@ -133,7 +134,7 @@ const Widgets = (() => {
     // expressive dressing (tone/spark/progress) — trust nothing: whitelist the tone, keep only
     // finite spark numbers (≥2 to draw a line), clamp progress into 0-100. All optional.
     const spark = Array.isArray(raw.spark) ? raw.spark.slice(0, 24).map(Number).filter(v => isFinite(v)) : [];
-    const prog = Number(raw.progress);
+    const prog = raw.progress == null || raw.progress === '' ? NaN : Number(raw.progress);
     return {
       slug: slug,
       label: s(raw.label, 28) || slug.toUpperCase(),
@@ -155,9 +156,34 @@ const Widgets = (() => {
     return Math.round(d / 86400000) + 'd';
   }
 
+  function nextRoutine(c, now) {
+    if (!c) return { val: null, sub: 'waiting for scheduler' };
+    if (c.halted || !c.enabled) return { val: null, sub: cronStateLabel(c) };
+    const jobs = (c.jobs || []).filter(j => j.enabled && Number.isFinite(Date.parse(j.nextRunAt)))
+      .sort((a, b) => Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt));
+    if (!jobs.length) return { val: null, sub: 'nothing scheduled' };
+    const mins = Math.ceil((Date.parse(jobs[0].nextRunAt) - now) / 60000);
+    return { val: mins <= 0 ? 'due' : mins < 60 ? mins + 'm' : mins < 1440 ? Math.ceil(mins / 60) + 'h' : Math.ceil(mins / 1440) + 'd', sub: jobs[0].name || jobs[0].id };
+  }
+
+  function commsReadout(approvals) {
+    if (typeof Channels === 'undefined') return { val: null, sub: 'waiting for COMMS' };
+    const ids = Channels.busyIds();
+    const confirmed = ids.filter(id => Channels.runIdOf(id));
+    const n = approvals ? Channels.pendingIds().length : confirmed.length;
+    return { val: String(n), sub: approvals ? 'awaiting you' : (ids.length > confirmed.length ? (ids.length - confirmed.length) + ' connecting' : 'confirmed runs') };
+  }
+
   /* ================= the catalog ================= */
   // paint() returns {val, sub, series?} — null val paints an honest "—".
   const CATALOG = {
+    crew: {
+      lbl: 'CREW', tip: 'Agents in your current station roster, including the overseer.',
+      paint() { return { val: typeof App !== 'undefined' && App.crewCount ? String(App.crewCount()) : null, sub: 'station roster' }; }
+    },
+    active: { lbl: 'ACTIVE COMMS', tip: 'Confirmed running conversations in COMMS. Connecting requests are shown separately; background jobs are not included.', paint: () => commsReadout(false) },
+    approvals: { lbl: 'APPROVALS', tip: 'COMMS conversations currently waiting for your approval.', paint: () => commsReadout(true) },
+    next: { lbl: 'NEXT ROUTINE', tip: 'The next enabled routine on the scheduler. A due time is a schedule, not a claim that the job has started.', paint: () => nextRoutine(cron, Date.now()) },
     runs24: {
       lbl: 'RUNS · 24H',
       tip: 'Runs across the whole station in the last 24h — folded from the real run history (/api/insights), ticking live on each run end.',
@@ -187,7 +213,7 @@ const Widgets = (() => {
     },
     tokens: {
       lbl: 'TOKENS',
-      tip: 'Total tokens across every run the station has ever billed — from the real run-history fold (/api/insights).',
+      tip: 'Recorded tokens across station run history, including subscription runs — from the real usage fold.',
       paint() {
         if (!insights) return { val: null, sub: '' };
         return { val: fmtCount(foldTokens(insights)), sub: 'all-time' };
@@ -201,6 +227,7 @@ const Widgets = (() => {
   // provenance line ("NOVA · 3m") that REPLACES the static widgets' plain "live" source tag.
   function agentNameOf(aid) {
     try {
+      if (typeof App !== 'undefined' && App.agentName) return App.agentName(aid) || aid;
       if (typeof App !== 'undefined' && App.agents && typeof App.agents.get === 'function') {
         const a = App.agents.get(aid);
         if (a && a.name) return String(a.name);
@@ -270,6 +297,9 @@ const Widgets = (() => {
     const el = document.createElement('div');
     el.className = 'wg' + (def.fed ? ' wg-fed' : '');
     el.dataset.wg = id;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', def.lbl + '. Enter to manage; Alt + arrows to move.');
     el.title = def.tip;
     // NOTE label/name text lands via textContent below — feed strings are agent-authored, never innerHTML'd.
     el.innerHTML =
@@ -279,7 +309,17 @@ const Widgets = (() => {
       + '<button class="wg-x" title="remove widget" aria-label="Remove widget">✕</button>';
     el.querySelector('.wg-lbl').textContent = def.lbl;
     el.querySelector('.wg-srctext').textContent = def.fed ? '…' : 'live';
-    el.querySelector('.wg-x').addEventListener('click', (e) => { e.stopPropagation(); removeWidget(id); });
+    el.querySelector('.wg-x').addEventListener('click', (e) => { e.stopPropagation(); removeWidget(id); railEl('top').querySelector('.wg-add').focus(); });
+    el.addEventListener('keydown', e => {
+      if (e.target !== el) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePop(el, layout.top.includes(id) ? 'top' : 'bot'); }
+      if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') placeWidget(id, e.key === 'ArrowUp' ? 'top' : 'bot');
+        else reorderWidget(id, e.key === 'ArrowLeft' ? -1 : 1);
+        document.querySelector('[data-wg="' + id + '"]').focus();
+      }
+    });
     el.addEventListener('pointerdown', (e) => {
       if (e.target && e.target.closest('.wg-x')) return;
       startDrag(e, id);
@@ -310,14 +350,18 @@ const Widgets = (() => {
       else if (p.prog != null) slot.innerHTML = progHtml(p.prog);   // progress beats spark: one accessory per instrument
       else slot.innerHTML = sparkSvg(p.series);
     }
-    if (def.fed && srct) srct.textContent = p.prov || 'no signal';   // provenance: who fed it · how long ago
+    if (def.fed && srct) {
+      const stale = pollFail.feed || linkDownNow();
+      el.setAttribute('data-stale', stale ? '1' : '0');
+      srct.textContent = (p.prov || 'no signal') + (stale ? ' · offline' : '');
+    }
     // E3: STATIC widgets carry a hardcoded 'live' source tag. When the source goes stale (poll failure
     // or SSE drop) flip it to 'stale' and dim the value — but ONLY when a real latched value is showing.
     // A first-paint '—' (no value yet) stays honestly '—'/'live', never dressed as stale data.
     if (!def.fed) {
-      const stale = staleFor(id) && p.val != null && p.tick == null;
+      const stale = staleFor(id);
       el.setAttribute('data-stale', stale ? '1' : '0');
-      if (srct) srct.textContent = stale ? 'stale' : 'live';
+      if (srct) srct.textContent = stale ? 'stale' : p.val == null ? 'no reading' : id === 'crew' ? 'roster' : (SRC_OF[id] === 'insights' || SRC_OF[id] === 'cron') ? 'synced' : 'live';
     }
   }
 
@@ -335,7 +379,8 @@ const Widgets = (() => {
     b.className = 'wg-add';
     b.title = 'add a widget';
     b.setAttribute('aria-label', 'Add a widget to this rail');
-    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-haspopup', 'dialog');
+    b.setAttribute('aria-expanded', 'false');
     b.textContent = '＋';
     b.addEventListener('click', (e) => { e.stopPropagation(); togglePop(b, rail); });
     return b;
@@ -358,61 +403,135 @@ const Widgets = (() => {
     render();
   }
 
-  /* ================= the ＋ popover ================= */
+  function placeWidget(id, rail) {
+    if (!defOf(id) || !['top', 'bot', 'hidden'].includes(rail)) return;
+    if (rail !== 'hidden' && layout[rail].includes(id)) return;
+    layout.top = layout.top.filter(x => x !== id);
+    layout.bot = layout.bot.filter(x => x !== id);
+    if (rail !== 'hidden') layout[rail].push(id);
+    render();
+  }
+  function reorderWidget(id, delta) {
+    const rail = layout.top.includes(id) ? 'top' : 'bot';
+    const index = layout[rail].indexOf(id), target = index + delta;
+    if (index < 0 || target < 0 || target >= layout[rail].length) return;
+    layout[rail].splice(index, 1); layout[rail].splice(target, 0, id); render();
+  }
+
+  /* ================= widget library ================= */
   let popEl = null;
-  function closePop() { if (popEl) { popEl.remove(); popEl = null; document.removeEventListener('click', closePop); } }
+  let popReturn = null, popRail = 'top', popFilter = 'all', popSearch = '';
+  function closePop() {
+    if (!popEl) return;
+    popEl.remove(); popEl = null;
+    document.removeEventListener('click', outsidePop);
+    window.removeEventListener('resize', closePop);
+    const target = popReturn && popReturn.isConnected ? popReturn : railEl(popRail)?.querySelector('.wg-add');
+    if (target) { target.setAttribute('aria-expanded', 'false'); target.focus(); }
+  }
+  function outsidePop(e) { if (popEl && !popEl.contains(e.target)) closePop(); }
+  function libraryCards() {
+    if (!popEl) return;
+    const list = popEl.querySelector('.wg-library-list');
+    const focused = document.activeElement && document.activeElement.dataset.wgControl;
+    list.replaceChildren();
+    const ids = Array.from(new Set([...KNOWN, ...Array.from(feed.keys(), s => 'feed:' + s), ...layout.top, ...layout.bot]));
+    let count = 0;
+    for (const id of ids) {
+      const def = defOf(id), rail = layout.top.includes(id) ? 'top' : layout.bot.includes(id) ? 'bot' : 'hidden';
+      if (popFilter === 'pinned' && rail === 'hidden' || popFilter === 'station' && def.fed || popFilter === 'feeds' && !def.fed) continue;
+      if (!(def.lbl + ' ' + def.tip + ' ' + id).toLowerCase().includes(popSearch.toLowerCase())) continue;
+      count++;
+      const card = document.createElement('section'); card.className = 'wg-library-card'; card.dataset.widget = id;
+      const title = document.createElement('h3'); title.textContent = def.lbl;
+      const description = document.createElement('p'); description.textContent = def.tip;
+      const preview = makeWidget(id); preview.classList.add('wg-preview'); preview.removeAttribute('tabindex');
+      preview.setAttribute('aria-label', def.lbl + ' preview');
+      preview.querySelector('.wg-x').remove();
+      const actions = document.createElement('div'); actions.className = 'wg-library-actions';
+      const action = (label, key, fn, pressed, disabled) => {
+        const b = document.createElement('button'); b.className = 'wg-library-action'; b.textContent = label;
+        b.dataset.wgControl = id + ':' + key; b.setAttribute('aria-label', label + ' ' + def.lbl);
+        if (pressed !== undefined) b.setAttribute('aria-pressed', String(pressed));
+        b.disabled = !!disabled;
+        b.addEventListener('click', () => { fn(); libraryCards(); }); actions.appendChild(b);
+      };
+      action('Top', 'top', () => placeWidget(id, 'top'), rail === 'top');
+      action('Bottom', 'bot', () => placeWidget(id, 'bot'), rail === 'bot');
+      action('Hide', 'hidden', () => placeWidget(id, 'hidden'), rail === 'hidden');
+      if (rail !== 'hidden') {
+        action('←', 'earlier', () => reorderWidget(id, -1), undefined, layout[rail].indexOf(id) === 0);
+        action('→', 'later', () => reorderWidget(id, 1), undefined, layout[rail].indexOf(id) === layout[rail].length - 1);
+      }
+      card.append(title, preview, description, actions); list.appendChild(card);
+    }
+    if (!count) {
+      const empty = document.createElement('p'); empty.className = 'wg-library-empty';
+      empty.textContent = popSearch ? 'No matching widgets. Try another search.' : popFilter === 'feeds' ? 'Ask an agent to track a metric or keep a news digest. Published readouts appear here with their author and update time.' : 'No widgets pinned yet. Choose Station or Agent feeds to add one.';
+      list.appendChild(empty);
+    }
+    popEl.querySelector('.wg-library-count').textContent = layout.top.length + ' top · ' + layout.bot.length + ' bottom';
+    if (focused) {
+      const next = Array.from(list.querySelectorAll('button')).find(b => b.dataset.wgControl === focused && !b.disabled);
+      (next || list.querySelector('button'))?.focus();
+    }
+  }
   function togglePop(btn, rail) {
     if (popEl) { closePop(); return; }
-    const placed = layout.top.concat(layout.bot);
+    popReturn = btn; popRail = rail; popSearch = ''; popFilter = 'all';
     popEl = document.createElement('div');
-    popEl.className = 'wg-pop';
-    popEl.setAttribute('role', 'menu');
-    const addItem = (id, def) => {
-      const has = placed.indexOf(id) >= 0;
-      const item = document.createElement('button');
-      item.setAttribute('role', 'menuitem');
-      item.className = 'wg-pop-item' + (has ? ' on' : '');
-      const nameEl = document.createElement('span'); nameEl.textContent = def.lbl;   // agent-authored labels: textContent only
-      const tagEl = document.createElement('i'); tagEl.textContent = has ? '✓ shown' : '+ add';
-      item.appendChild(nameEl); item.appendChild(tagEl);
-      item.title = def.tip;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (has) { removeWidget(id); } else { layout[rail].push(id); render(); }
-        closePop();
-      });
-      popEl.appendChild(item);
-    };
-    for (const id of KNOWN) addItem(id, CATALOG[id]);
-    // AGENT-FED section: every record the sidecar knows, pinnable like any instrument.
-    const head = document.createElement('div');
-    head.className = 'wg-pop-head';
-    head.textContent = 'AGENT-FED';
-    popEl.appendChild(head);
-    if (!feed.size) {
-      const none = document.createElement('div');
-      none.className = 'wg-pop-none';
-      none.textContent = 'none yet — ask an agent to keep one (it can publish a readout with widget.set)';
-      popEl.appendChild(none);
-    } else {
-      for (const slug of feed.keys()) addItem('feed:' + slug, defOf('feed:' + slug));
+    popEl.className = 'wg-pop wg-library';
+    popEl.setAttribute('role', 'dialog'); popEl.setAttribute('aria-modal', 'true'); popEl.setAttribute('aria-label', 'Widget library');
+    popEl.innerHTML = '<header class="wg-library-header"><div><h2>WIDGET LIBRARY</h2><span class="wg-library-count" role="status"></span></div><button class="wg-library-close" aria-label="Close widget library">✕</button></header>'
+      + '<p class="wg-library-intro">Your station, at a glance. Pin instruments to either rail.</p>'
+      + '<input class="wg-library-search" type="search" aria-label="Search widgets" placeholder="Search widgets…">'
+      + '<div class="wg-library-filters" role="group" aria-label="Widget category"></div><div class="wg-library-list"></div>'
+      + '<footer>Drag to arrange · Alt + arrows to move a focused widget</footer>';
+    for (const [key, label] of [['all', 'All'], ['station', 'Station'], ['feeds', 'Agent feeds'], ['pinned', 'Pinned']]) {
+      const b = document.createElement('button'); b.textContent = label; b.setAttribute('aria-pressed', String(key === popFilter));
+      b.addEventListener('click', () => {
+        popFilter = key;
+        for (const sibling of b.parentElement.children) sibling.setAttribute('aria-pressed', String(sibling === b));
+        libraryCards();
+      }); popEl.querySelector('.wg-library-filters').appendChild(b);
     }
+    popEl.querySelector('.wg-library-close').addEventListener('click', closePop);
+    popEl.querySelector('input').addEventListener('input', e => { popSearch = e.target.value; libraryCards(); });
+    popEl.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); }
+      if (e.key === 'Tab') {
+        const focusable = Array.from(popEl.querySelectorAll('input, button:not(:disabled)'));
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
     document.body.appendChild(popEl);
     // TEXT SIZE zoom: rect + innerWidth are visual px, style.left/top on a body child is zoomed-space
     // — divide everything by the body zoom so the popover still hugs its rail button at any scale.
-    const uz = (() => { const z = parseFloat(document.body.style.zoom); return z > 0 ? z : 1; })();
+    const uz = uiZoom();
     const r = btn.getBoundingClientRect();
     const below = r.top < window.innerHeight / 2;   // top rail → open downward; bottom rail → upward
-    popEl.style.left = Math.max(8, Math.min(window.innerWidth / uz - 228, r.left / uz - 40)) + 'px';
+    popEl.style.width = Math.min(540, window.innerWidth / uz - 16) + 'px';
+    popEl.style.left = Math.max(8, Math.min(window.innerWidth / uz - Math.min(540, window.innerWidth / uz - 16) - 8, r.left / uz - 40)) + 'px';
+    popEl.style.maxHeight = Math.max(100, (below ? window.innerHeight - r.bottom : r.top) / uz - 14) + 'px';
     if (below) popEl.style.top = (r.bottom / uz + 6) + 'px';
     else popEl.style.bottom = ((window.innerHeight - r.top) / uz + 6) + 'px';
     popEl.addEventListener('click', e => e.stopPropagation());
-    setTimeout(() => document.addEventListener('click', closePop), 0);
+    libraryCards(); btn.setAttribute('aria-expanded', 'true'); popEl.querySelector('input').focus();
+    document.addEventListener('click', outsidePop);
+    window.addEventListener('resize', closePop);
+  }
+
+  function uiZoom() {
+    if (typeof U !== 'undefined' && U.uiZoom) return U.uiZoom();
+    return parseFloat(document.body.style.zoom) || 1;
   }
 
   /* ================= drag between rails ================= */
   let drag = null;
   function startDrag(e, id) {
+    if (e.button !== 0 || e.currentTarget?.classList.contains('wg-preview')) return;
     // engage only after a small move so an idle click never grows a ghost
     const sx = e.clientX, sy = e.clientY;
     const arm = (ev) => {
@@ -420,9 +539,10 @@ const Widgets = (() => {
       window.removeEventListener('pointermove', arm);
       engage(ev, id);
     };
-    const disarm = () => window.removeEventListener('pointermove', arm);
+    const disarm = () => { window.removeEventListener('pointermove', arm); window.removeEventListener('pointercancel', disarm); };
     window.addEventListener('pointermove', arm);
     window.addEventListener('pointerup', disarm, { once: true });
+    window.addEventListener('pointercancel', disarm, { once: true });
   }
   function engage(e, id) {
     closePop();
@@ -435,6 +555,7 @@ const Widgets = (() => {
     move(e);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', drop, { once: true });
+    window.addEventListener('pointercancel', cancelDrag, { once: true });
   }
   function hitRail(x, y) {
     for (const r of ['top', 'bot']) {
@@ -454,8 +575,8 @@ const Widgets = (() => {
   }
   function move(e) {
     if (!drag) return;
-    drag.ghost.style.left = (e.clientX - 40) + 'px';
-    drag.ghost.style.top = (e.clientY - 14) + 'px';
+    drag.ghost.style.left = (e.clientX / uiZoom() - 40) + 'px';
+    drag.ghost.style.top = (e.clientY / uiZoom() - 14) + 'px';
     const hot = hitRail(e.clientX, e.clientY);
     for (const r of ['top', 'bot']) { const el = railEl(r); if (el) el.classList.toggle('wg-hot', r === hot); }
     if (drag.caret.parentElement) drag.caret.remove();
@@ -470,6 +591,8 @@ const Widgets = (() => {
   }
   function drop() {
     window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', drop);
+    window.removeEventListener('pointercancel', cancelDrag);
     if (!drag) return;
     const { id, hot, x } = drag;
     if (hot) {
@@ -484,6 +607,7 @@ const Widgets = (() => {
     drag = null;
     render();
   }
+  function cancelDrag() { if (drag) drag.hot = null; drop(); }
 
   /* ================= data wiring (poll + live fold, topbar.js pattern) ================= */
   // GATE THE RAIL POLLERS ON GAME-ENTRY. The intervals arm at DOMContentLoaded, but the rails live in the
@@ -499,10 +623,13 @@ const Widgets = (() => {
   }
   function pollInsights() {
     if (!gameEntered()) return;
-    fetch('/api/insights', { cache: 'no-store' })
+    if (insightsRequest) return insightsRequest;
+    insightsRequest = fetch('/api/insights', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
       .then(r => (r && r.ok) ? r.json() : null)
       .then(st => { if (st) { insights = st; liveRunEnds = 0; pollFail.insights = false; paintAll(); } else { pollFail.insights = true; paintAll(); } })
-      .catch(() => { pollFail.insights = true; paintAll(); });   // E3: silent failure now flips the source stale, not a frozen 'live'
+      .catch(() => { pollFail.insights = true; paintAll(); })
+      .finally(() => { insightsRequest = null; });
+    return insightsRequest;
   }
   function foldCron(q) {
     if (q && q.hasData && q.data && Array.isArray(q.data.jobs)) cron = q.data;
@@ -515,15 +642,22 @@ const Widgets = (() => {
   }
   function pollFeed() {
     if (!gameEntered()) return;
-    fetch('/api/widgets', { cache: 'no-store' })
+    if (feedRequest) return feedRequest;
+    feedRequest = fetch('/api/widgets', { cache: 'no-store', signal: AbortSignal.timeout(10000) })
       .then(r => (r && r.ok) ? r.json() : null)
       .then(st => {
-        if (!st || !Array.isArray(st.widgets)) return;
+        if (!st || !Array.isArray(st.widgets)) throw new Error('Widget feed unavailable');
+        const catalogSignature = () => JSON.stringify(Array.from(feed.values(), rec => [rec.slug, rec.label]));
+        const oldCatalog = catalogSignature();
         feed.clear();
         for (const raw of st.widgets) { const rec = sanitizeFeedRecord(raw); if (rec) feed.set(rec.slug, rec); }
+        pollFail.feed = false;
+        if (oldCatalog !== catalogSignature()) libraryCards();
         paintAll();   // repaints values AND provenance ages
       })
-      .catch(() => { /* sidecar absent: pinned feeds keep their honest "no signal" */ });
+      .catch(() => { pollFail.feed = true; paintAll(); })
+      .finally(() => { feedRequest = null; });
+    return feedRequest;
   }
   // the shared ticker: every list-widget shows its next line, in step. Text-swap only — no layout motion.
   function tickTicker() {
@@ -587,7 +721,8 @@ const Widgets = (() => {
            _sanitizeFeedRecord: sanitizeFeedRecord, _fmtAge: fmtAge, _FEED_RE: FEED_RE, _pollFeed: pollFeed,
            _staleFor: staleFor, _pollFail: pollFail, _setInsights: (v) => { insights = v; },
            _setFeed: (recs) => { feed.clear(); for (const raw of (recs || [])) { const rec = sanitizeFeedRecord(raw); if (rec) feed.set(rec.slug, rec); } },
-           _sparkSvg: sparkSvg, _cronStateLabel: cronStateLabel };
+           _sparkSvg: sparkSvg, _cronStateLabel: cronStateLabel, _nextRoutine: nextRoutine,
+           _commsReadout: commsReadout };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { Widgets };
