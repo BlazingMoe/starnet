@@ -100,7 +100,7 @@
 .wg[data-stale="1"] .wg-dot { background: var(--warn); box-shadow: 0 0 4px var(--warn); animation: none; }
 .wg-sub { font-size: 10px; letter-spacing: 1px; color: var(--ph-dim); white-space: nowrap; }
 /* ticker form (agent-fed list): one cycling line at reading size instead of a big figure */
-.wg-sub.wg-ticktext { font-size: 12px; letter-spacing: 0.5px; color: var(--text, var(--ph-bright));
+.wg-sub.wg-ticktext { display: block; font-size: 12px; letter-spacing: 0.5px; color: var(--text, var(--ph-bright));
   max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---- spark: line + soft area fill + bright endpoint dot (the "now" reading) ---- */
@@ -269,3 +269,36 @@
   background: transparent; color: var(--ph); font: inherit; cursor: pointer; }
 .wg-open:hover, .wg-open:focus-visible { border-color: var(--ph); color: var(--ph-bright); }
 .wg-open:disabled { opacity: .25; cursor: default; }
+
+/* Connected-app studio: compact source rows and a focused editor, no oversized cards. */
+.wg-studio-heading { margin: 9px 2px; color: var(--ph-bright); font-size: 17px; font-weight: normal; }
+.wg-studio-note, .wg-studio-message { margin: 8px 2px; font-size: 13px; line-height: 1.35; color: var(--ph-dim); overflow-wrap: anywhere; }
+.wg-studio-message:empty { display: none; }
+.wg-studio-error { margin: 8px 2px; color: var(--bad); font-size: 13px; overflow-wrap: anywhere; }
+.wg-studio-button { border: 1px solid var(--ph-faint); padding: 4px 7px; border-radius: 2px; color: var(--ph);
+  background: var(--panel2); font: inherit; font-size: 13px; cursor: pointer; }
+.wg-studio-primary { background: rgba(var(--ph-rgb), .12); border-color: var(--ph-dim); color: var(--ph-bright); }
+.wg-studio-actions, .wg-presets { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 1px; }
+.wg-presets .wg-studio-button { font-size: 12px; }
+.wg-app-row { display: flex; align-items: center; gap: 8px; padding: 7px 2px; border-bottom: 1px solid var(--ph-faint); }
+.wg-app-caption { min-width: 0; flex: 1; }
+.wg-app-caption strong, .wg-app-caption small { display: block; overflow-wrap: anywhere; }
+.wg-app-caption strong { font-size: 15px; font-weight: normal; color: var(--ph-bright); }
+.wg-app-caption small { color: var(--ph-dim); font-size: 12px; }
+.wg-studio-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 2px; color: var(--ph-dim); font-size: 13px; }
+.wg-library .wg-studio-input { width: 100%; box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--ph-faint);
+  border-radius: 2px; background: var(--bg); color: var(--ph-bright); font: inherit; font-size: 14px; line-height: 1.35; box-shadow: none; }
+.wg-library textarea.wg-studio-input { resize: vertical; min-height: 72px; }
+.wg-library select.wg-studio-input { appearance: none; padding-right: 24px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ph-dim) 50%), linear-gradient(135deg, var(--ph-dim) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
+.wg-detail-reading { padding: 5px 8px; margin: 7px 0; border: 1px solid var(--ph-faint); background: var(--bg); }
+.wg-detail-value { display: block; color: var(--ph-bright); font-size: 26px; font-weight: normal; overflow-wrap: anywhere; }
+.wg-detail-reading ul { padding-left: 17px; margin: 6px 0; color: var(--ph-bright); font-size: 14px; }
+.wg-detail-reading li { margin: 5px 0; overflow-wrap: anywhere; }
+.wg-detail-reading a { font-size: 13px; color: var(--ph); text-decoration: underline; }
+.wg-detail-chart .wg-spark { display: block; width: 100%; height: 48px; }
+.wg-detail-reading progress { appearance: none; height: 6px; width: 80%; background: var(--ph-faint); border: 0; accent-color: var(--ph); }
+.wg-detail-reading progress::-webkit-progress-bar { background: var(--ph-faint); }
+.wg-detail-reading progress::-webkit-progress-value { background: var(--ph); }
+.wg-detail-reading progress::-moz-progress-bar { background: var(--ph); }

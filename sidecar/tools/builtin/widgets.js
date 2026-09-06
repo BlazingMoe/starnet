@@ -2,7 +2,7 @@
 
    The chrome's widget rails (frontend/app/widgets.js) can pin AGENT-FED instruments —
    a small named readout ANY agent keeps fresh (app revenue, AI news, subscriber count…).
-   This tool is the ONLY writer. The frontend polls GET /api/widgets and renders each
+   User definitions and this tool's readings share one serialized store. The frontend polls GET /api/widgets and renders each
    record with PROVENANCE ("<agent> · <age>"): the app never asserts the value is true,
    only that this agent reported it at that time — truthful telemetry for external data.
 
@@ -38,6 +38,7 @@
     return pts.length >= 2 ? pts : null;
   };
   const cleanProgress = (raw) => {
+    if (raw == null || raw === '') return null;
     const n = Number(raw);
     return isFinite(n) ? Math.max(0, Math.min(100, n)) : null;
   };
@@ -48,15 +49,72 @@
     const clock = deps.clock || { now: () => 0 };
     const redact = typeof deps.redact === 'function' ? deps.redact : (x => x);
 
-    const listOf = () => { const v = store.get(KEY); return Array.isArray(v) ? v : []; };
+    const rawList = () => { const v = store.get(KEY); return Array.isArray(v) ? v : []; };
+    const listOf = () => rawList().filter(w => w && !w.deleted);
     // P1 SAFE WRITE: serialize through store.update when the host provides it (durable store);
     // plain get->mutate->set for a standalone in-memory store (tests). notebook.js discipline.
     const updateList = (mutator) => {
       if (store && typeof store.update === 'function') return store.update(KEY, cur => mutator(Array.isArray(cur) ? cur : []));
-      const next = mutator(listOf());
+      const next = mutator(rawList());
       if (next !== undefined) store.set(KEY, next);
       return Promise.resolve(next);
     };
+
+    // User-owned definitions live beside their readings, so edit/delete and an in-flight
+    // publication are serialized by the SAME durable-store mutex.
+    async function configure(args, source) {
+      const id = String(args.id || '');
+      if (!ID_RE.test(id)) throw new Error('Invalid widget id');
+      const label = String(args.label || '').trim(), request = String(args.request || '').trim();
+      if (!label || label.length > 28) throw new Error('Give the widget a name (up to 28 characters).');
+      if (!request || request.length > 1200) throw new Error('Describe what to display (up to 1200 characters).');
+      if (!['metric', 'list', 'trend', 'progress'].includes(args.display)) throw new Error('Choose a display type.');
+      if (!source || !['connector', 'servicekey', 'agent'].includes(source.kind) || !source.id || !source.label) throw new Error('Choose a source app.');
+      let result;
+      await updateList(list => {
+        const old = list.find(w => w && w.id === id);
+        if (old && !old.config) throw new Error('That widget id is already in use.');
+        if (old && old.deleted) throw new Error('This widget was deleted. Create a new widget instead.');
+        if (old && args.version == null) {
+          if (old.label === trunc(redact(label), 28) && old.config.request === redact(request)
+            && old.config.display === args.display && JSON.stringify(old.config.source) === JSON.stringify(source)) { result = old; return list; }
+          throw new Error('This widget already exists. Reload before editing it.');
+        }
+        if (old && args.version !== old.config.version) throw new Error('This widget changed. Reload before editing it.');
+        if (!old && args.version != null) throw new Error('This widget no longer exists.');
+        if (!old && list.filter(w => w && !w.deleted).length >= MAX_WIDGETS) throw new Error('Remove a widget before adding another.');
+        result = { id, label: trunc(redact(label), 28), value: null, sub: null, list: [], spark: null, progress: null,
+          agentId: null, runId: null, updatedAt: 0, error: null,
+          config: { source, request: redact(request), display: args.display, version: ((old && old.config.version) || 0) + 1,
+            createdAt: old ? old.config.createdAt : clock.now() } };
+        return list.filter(w => w && w.id !== id).concat([result]);
+      });
+      return result;
+    }
+    async function remove(id) {
+      if (!ID_RE.test(String(id))) throw new Error('Invalid widget id');
+      await updateList(list => {
+        const next = list.flatMap(w => w && w.id === id
+          ? (w.config ? [{ id, config: { version: w.config.version + 1 }, deleted: true }] : []) : [w]);
+        const tombs = next.filter(w => w && w.deleted).slice(-100);
+        return next.filter(w => w && !w.deleted).concat(tombs);
+      });
+    }
+    function instruction(id) {
+      const w = listOf().find(x => x.id === id);
+      if (!w || !w.config) throw new Error('Widget no longer exists.');
+      const c = w.config, source = c.source;
+      return 'Refresh my saved widget ' + JSON.stringify(w.label) + '.\n'
+        + 'Source I selected: ' + JSON.stringify(source) + '\n'
+        + 'Information to display: ' + c.request + '\n'
+        + 'Display: ' + c.display + '.\n'
+        + 'Read current information using that connected app through its existing tools/access. This request authorizes reading and updating this widget only, not modifying the app. '
+        + 'Do not substitute another app or invent readings. If details are missing, ask me in this conversation. '
+        + 'Publish the result with widget.set using id=' + JSON.stringify(w.id) + ' and version=' + c.version + '. '
+        + 'For a metric use value and sub (period/unit); for a list use list; for a trend use value plus a real spark series; for progress use value and a real 0-100 progress. '
+        + 'Include sourceUrl when the app supplies a link to the source. If you cannot read it, call widget.set with the same id/version and error explaining why, preserving the last reading. '
+        + 'A chat reply alone does not update the widget.';
+    }
 
     const setTool = {
       // NO consent gate: a widget record is a sandboxed local write to the station's OWN chrome
@@ -86,6 +144,9 @@
           tone: { type: 'string', enum: ['ok', 'warn', 'bad'], description: 'Optional semantic tint for the figure: "ok" (good), "warn", "bad". Omit for neutral.' },
           spark: { type: 'array', items: { type: 'number' }, description: 'Optional trend series (2-24 numbers, oldest first) drawn as a tiny sparkline beside the value.' },
           progress: { type: 'number', description: 'Optional completion fraction 0-100 drawn as a small bar (e.g. a goal or quota).' },
+          version: { type: 'integer', description: 'For a user-configured widget, the exact version supplied in its refresh request. Prevents outdated runs overwriting changed widgets.' },
+          error: { type: 'string', description: 'For a configured widget, report why data could not be read. Keeps the last reading and its original timestamp.' },
+          sourceUrl: { type: 'string', description: 'Optional http(s) link returned by the source app, so the user can inspect the underlying information.' },
           clear: { type: 'boolean', description: 'true = remove this readout from the rails.' }
         }
       },
@@ -96,12 +157,9 @@
         const aid = (ctx && ctx.agentId) || 'agent';
 
         if (args.clear === true) {
-          let existed = false;
-          await updateList(list => {
-            const next = list.filter(w => w && w.id !== id);
-            existed = next.length !== list.length;
-            return next;
-          });
+          const existed = listOf().some(w => w.id === id);
+          if (listOf().some(w => w.id === id && w.config)) throw new Error('User-created widgets are removed in the widget library. Report an error instead of deleting one.');
+          await remove(id);
           return existed
             ? { content: 'Cleared widget "' + id + '" — it is off the rails now.', summary: 'cleared ' + id }
             : { content: 'No widget "' + id + '" exists — nothing to clear.', summary: 'no-op' };
@@ -109,7 +167,12 @@
 
         const hasValue = args.value !== undefined && args.value !== null && String(args.value).trim() !== '';
         const rawList = Array.isArray(args.list) ? args.list.map(x => String(x)).filter(x => x.trim() !== '') : [];
-        if (!hasValue && !rawList.length) throw new Error('give a `value` (a short figure) or a `list` (up to 5 lines) — a widget with neither has nothing to show');
+        if (!hasValue && !rawList.length && !args.error) throw new Error('give a `value` (a short figure) or a `list` (up to 5 lines) — a widget with neither has nothing to show');
+
+        let sourceUrl = null;
+        if (args.sourceUrl) {
+          try { const url = new URL(String(args.sourceUrl)); if (['http:', 'https:'].includes(url.protocol) && !url.username && !url.password) sourceUrl = trunc(redact(url.href), 1500); } catch (_) {}
+        }
 
         const rec = {
           id: id,
@@ -128,25 +191,45 @@
         let created = false;
         await updateList(list => {
           const idx = list.findIndex(w => w && w.id === id);
+          const old = idx >= 0 ? list[idx] : null;
+          if (old && old.deleted) throw new Error('This widget was deleted; do not recreate it.');
+          if (old && old.config) {
+            if (args.version !== old.config.version) throw new Error('Widget definition changed. Use its latest refresh request.');
+            rec.config = old.config; rec.label = old.label; rec.sourceUrl = sourceUrl;
+            rec.error = args.error ? trunc(redact(String(args.error)), 300) : null;
+            if (rec.error) { const next = list.slice(); next[idx] = Object.assign({}, old, { error: rec.error, errorAt: clock.now() }); return next; }
+            const display = old.config.display;
+            if (display === 'list' && !rec.list.length) throw new Error('This widget needs a list. Report error if its data is unavailable.');
+            if (display !== 'list' && !hasValue) throw new Error('This widget needs a value. Report error if its data is unavailable.');
+            if (display === 'trend' && !rec.spark) throw new Error('This trend needs at least two real data points.');
+            if (display === 'progress' && rec.progress == null) throw new Error('This progress widget needs a real completion percentage.');
+          } else if (args.version != null || args.error) throw new Error('The configured widget no longer exists.');
           if (idx >= 0) { const next = list.slice(); next[idx] = rec; return next; }
           // the cap binds NEW ids only — updating an existing readout must always work
-          if (list.length >= MAX_WIDGETS) throw new Error('the station already has ' + MAX_WIDGETS + ' widgets — clear one (widget.set {id, clear:true}) before adding another');
+          if (list.filter(w => w && !w.deleted).length >= MAX_WIDGETS) throw new Error('the station already has ' + MAX_WIDGETS + ' widgets — clear one (widget.set {id, clear:true}) before adding another');
           created = true;
           return list.concat([rec]);
         });
 
         return {
-          content: (created ? 'Published' : 'Updated') + ' widget "' + rec.label + '" (' + id + '). ' +
+          content: args.error ? 'Recorded the refresh error for widget "' + id + '". Its last reading and timestamp are unchanged.' : (created ? 'Published' : 'Updated') + ' widget "' + rec.label + '" (' + id + '). ' +
             'It shows your name and this timestamp; the Commander can pin it from the rail’s ＋ menu.',
           summary: (created ? 'published ' : 'updated ') + id
         };
       }
     };
 
+    const getTool = {
+      name: 'widget.get', capability: 'memory', scope: 'read', requiresConsent: false,
+      description: 'Read the latest user-owned definition and refresh instructions for a saved widget. Call before a scheduled update; if removed, stop without fetching data or recreating it.',
+      schema: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+      run: async args => ({ content: instruction(String(args && args.id || '')), summary: 'widget definition' })
+    };
+
     return {
-      setTool,
+      setTool, getTool, configure, remove, instruction,
       list: listOf,   // the GET /api/widgets read surface (host route) — same records, no reshaping
-      register(reg) { reg.register(setTool); return reg; }
+      register(reg) { reg.register(setTool); reg.register(getTool); return reg; }
     };
   }
 

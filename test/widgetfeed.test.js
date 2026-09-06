@@ -135,6 +135,50 @@ const rejects = async (p, label) => { try { await p; A.ok(false, label + ' (did 
     A.eq(r2.summary, 'no-op', 'clearing a missing id is an honest no-op, not an error');
   }
 
+  // User definitions and readings share a transaction boundary; stale runs cannot undo edits/deletion.
+  {
+    const { t } = make(9000);
+    const source = { kind: 'connector', id: 'stripe', label: 'Stripe' };
+    const input = { id: 'my-revenue', label: 'Revenue', request: 'Revenue this month', display: 'metric' };
+    const w = await t.configure(input, source);
+    A.eq(w.updatedAt, 0, 'a definition alone never pretends to be a reading');
+    A.eq(w.config.version, 1, 'first user definition has a version');
+    A.eq((await t.configure(input, source)).config.version, 1, 'retrying an uncertain create does not duplicate or reset it');
+    await rejects(run(t, { id: w.id, value: '$9' }), 'unversioned publication cannot overwrite a configured widget');
+    await run(t, { id: w.id, version: 1, value: '$42', sourceUrl: 'https://example.com/report' });
+    A.eq(t.list()[0].label, 'Revenue', 'agent does not override the user name');
+    A.eq(t.list()[0].sourceUrl, 'https://example.com/report', 'source link is retained');
+    await run(t, { id: w.id, version: 1, error: 'Source unavailable: sk-private' });
+    A.eq(t.list()[0].value, '$42', 'failed refresh preserves the previous reading');
+    A.eq(t.list()[0].updatedAt, 9000, 'failed refresh preserves the reading timestamp');
+    A.ok(!t.list()[0].error.includes('sk-private'), 'refresh errors are redacted');
+    const edited = await t.configure({ ...input, version: 1, request: 'Revenue yesterday' }, source);
+    A.eq(edited.config.version, 2, 'editing invalidates the old refresh definition');
+    A.eq(edited.value, null, 'changing the requested metric does not mislabel the previous reading');
+    await rejects(run(t, { id: w.id, version: 1, value: '$100' }), 'late result from old definition is rejected');
+    await rejects(t.configure({ ...input, version: 1 }, source), 'stale editor cannot overwrite a newer definition');
+    A.ok(t.instruction(w.id).includes('Revenue yesterday'), 'refresh instructions use the saved current definition');
+    A.ok((await t.getTool.run({ id: w.id })).content.includes('version=2'), 'scheduled runs fetch the current version');
+    await rejects(run(t, { id: w.id, clear: true }), 'agent cannot delete a user-created widget');
+    await t.remove(w.id);
+    A.eq(t.list().length, 0, 'user deletion removes it from the visible inventory');
+    await rejects(run(t, { id: w.id, version: 2, value: '$99' }), 'late result cannot resurrect deleted widget');
+    await rejects(t.getTool.run({ id: w.id }), 'scheduled update stops on a deleted definition');
+  }
+  {
+    const { t } = make(); const source = { kind: 'agent', id: 'starnet', label: 'StarNet' };
+    for (const display of ['list', 'trend', 'progress']) {
+      await t.configure({ id: display, label: display, request: 'real data', display }, source);
+      await rejects(run(t, { id: display, version: 1, value: '9' }), display + ' refuses an invented/missing shape');
+    }
+    await run(t, { id: 'list', version: 1, list: ['No tasks due today'] });
+    await run(t, { id: 'trend', version: 1, value: '9', spark: [3, 7, 9] });
+    await run(t, { id: 'progress', version: 1, value: '0 of 4', progress: 0, sourceUrl: 'javascript:alert(1)' });
+    A.eq(t.list().find(w => w.id === 'progress').progress, 0, 'real zero progress survives');
+    A.eq(t.list().find(w => w.id === 'progress').sourceUrl, null, 'non-web source links are rejected');
+    A.eq(t.list().find(w => w.id === 'trend').spark.length, 3, 'actual trend points are retained');
+  }
+
   console.log('widgetfeed.test.js OK');
   // report() settles the assertion counter — the .catch below only fires on a THROWN error, so
   // without this a failed assertion still exits 0 and the gate scores it green.

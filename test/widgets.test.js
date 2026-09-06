@@ -169,4 +169,12 @@ A.eq(Widgets._openWidget('next'), true, 'schedule shortcut opens its real settin
 A.eq(jumps[2], 'window:routines', 'schedule shortcut routes to routines without running a job');
 A.eq(Widgets._openWidget('tokens'), false, 'plain counters have no invented action');
 delete global.Channels; delete global.Workstreams; delete global.App; delete global.StationUI;
+const emptyConfigured = Widgets._sanitizeFeedRecord({ id:'saved', label:'Revenue', value:null, updatedAt:0,
+  config:{ source:{kind:'connector',id:'stripe',label:'Stripe'}, request:'This month', display:'metric', version:1 },
+  sourceState:'disabled', sourceUrl:'javascript:alert(1)', error:'Could not read app' });
+A.ok(!!emptyConfigured, 'a saved definition can exist before a reading is fetched');
+A.eq(emptyConfigured.updatedAt, 0, 'a definition does not invent a report timestamp');
+A.eq(emptyConfigured.sourceUrl, null, 'unsafe source links never reach the UI');
+A.eq(emptyConfigured.sourceState, 'disabled', 'disconnected app state survives the read boundary');
+A.eq(emptyConfigured.error, 'Could not read app', 'source errors stay available to the detail view');
 A.report('widgets.test');

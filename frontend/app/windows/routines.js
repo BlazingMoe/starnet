@@ -632,8 +632,10 @@
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
           name, prompt, schedule, agentId: agentId || undefined, provider, tz,
-          meta: body.querySelector('#rt-prompt').dataset.workflowTakeoverId
-            ? { workflowTakeoverId: body.querySelector('#rt-prompt').dataset.workflowTakeoverId } : undefined,
+          meta: body.querySelector('#rt-prompt').dataset.widgetId
+            ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
+            : body.querySelector('#rt-prompt').dataset.workflowTakeoverId
+              ? { workflowTakeoverId: body.querySelector('#rt-prompt').dataset.workflowTakeoverId } : undefined,
           unattendedGrants: grants.length ? grants : undefined,
           skills: split('#rt-skills'), contextFrom: split('#rt-context'),
           workdir: workdir || undefined, script: script || undefined,
