@@ -902,6 +902,9 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt:has(.mkt-recruit) { width: min(1120px, 96%); height: 92%; container-type: inline-size;
   box-shadow: 0 0 0 1px rgba(var(--ph-rgb), .48), 0 0 0 3px rgba(0,0,0,.9),
     0 10px 26px rgba(0,0,0,.65), inset 0 1px 0 rgba(var(--ph-bright-rgb), .08); }
+.mkt:has(.mkt-recruit):focus-visible { outline: 1px solid rgba(var(--ph-rgb), .72); outline-offset: 1px; }
+/* Match the stationary cockpit glass; the bay does not need its own sweeping glare. */
+.mkt:has(.mkt-recruit)::after { display: none; animation: none; }
 .mkt:has(.mkt-recruit) .mkt-screw { display: none; }
 .mkt:has(.mkt-recruit) .mkt-brk { border-width: 1px; opacity: .3; width: 9px; height: 9px; }
 .mkt:has(.mkt-recruit) .mkt-head { padding: 13px 22px; border-color: var(--ph-faint); }
@@ -909,12 +912,15 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
   box-shadow: none; font-size: 21px; letter-spacing: 3px; }
 .mkt:has(.mkt-recruit) .mkt-sub { margin-top: 4px; font-size: 13px; letter-spacing: .3px; }
 .mkt:has(.mkt-recruit) .mkt-search { width: 225px; min-width: 0; padding: 8px 10px;
-  border-color: var(--ph-dim); background: rgba(0,0,0,.4); box-shadow: var(--well); }
+  border-color: var(--ui-edge); background: var(--panel); box-shadow: var(--ui-well); }
+.mkt:has(.mkt-recruit) .mkt-search:focus-within { border-color: var(--ph-dim); }
 .mkt:has(.mkt-recruit) .mkt-x { border-width: 1px; font-size: 14px; box-shadow: none; }
 .mkt:has(.mkt-recruit) .mkt-bar { padding: 8px 16px; gap: 5px; }
 .mkt:has(.mkt-recruit) .mkt-lane { padding: 6px 13px; border-color: transparent; box-shadow: none; background: none; }
-.mkt:has(.mkt-recruit) .mkt-lane.on { background: var(--ph-faint); color: var(--ph-bright); border-color: var(--ph-dim); }
+.mkt:has(.mkt-recruit) .mkt-lane.on { background: var(--ui-face); color: var(--ph-bright); border-color: var(--ui-edge);
+  box-shadow: inset 0 1px 0 var(--ui-highlight); }
 .mkt:has(.mkt-recruit) .mkt-lanes-lbl { display: none; }
+.mkt:has(.mkt-recruit) .mkt-foot { border-color: var(--ui-edge); background: var(--ui-face); font-size: 11px; }
 .mkt-recruit { grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); gap: 8px; padding: 8px; }
 .mkt-recruit .mkt-roster, .mkt-recruit .mkt-dossier { border: 1px solid var(--ph-faint); border-radius: 7px;
   box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .06); background: rgba(0,0,0,.15); overscroll-behavior: contain; }
@@ -928,12 +934,12 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-recruit .mkt-rows .mkt-card::before, .mkt-recruit .mkt-rows .mkt-card::after { display: none; }
 .mkt-recruit .mkt-rows .mkt-card:hover { transform: none; background: var(--ph-faint); border-left-color: var(--ph);
   box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .05); }
-.mkt-recruit .mkt-rows .mkt-card.sel { border-color: var(--ph-dim); border-left-color: var(--ph-bright);
-  background: linear-gradient(100deg, var(--ph-faint), transparent); }
+.mkt-recruit .mkt-rows .mkt-card.sel { border-color: var(--ui-edge); border-left-color: var(--ph);
+  background: var(--ui-face); box-shadow: inset 0 1px 0 var(--ui-highlight), 0 2px 4px rgba(0,0,0,.3); }
 .mkt-recruit .mkt-card:focus-visible { outline: 2px solid var(--ph-bright); outline-offset: -2px; }
-.mkt-recruit .mkt-coin { --coin: 50px; border: 1px solid var(--ph-faint); border-radius: 3px;
-  background: radial-gradient(ellipse at 50% 85%, var(--ph-faint), transparent 70%), rgba(0,0,0,.4);
-  box-shadow: inset 0 1px 5px rgba(0,0,0,.8), 0 1px 0 rgba(var(--ph-bright-rgb), .04); }
+.mkt-recruit .mkt-coin { --coin: 50px; border: 1px solid var(--ui-edge); border-radius: 3px;
+  background: radial-gradient(ellipse at 50% 70%, rgba(var(--ph-rgb),.12), transparent 72%), var(--panel);
+  box-shadow: var(--ui-well); }
 .mkt-recruit .mkt-coin-ico { width: 78%; height: 78%; filter: none; color: var(--ph); }
 .mkt-recruit .mkt-card.sel .mkt-coin { border-color: var(--ph-dim); }
 .mkt-recruit .mkt-card.sel .mkt-coin-ico { color: var(--ph); }
@@ -958,8 +964,11 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-recruit .mkt-lineup .mkt-coin { --coin: 28px; }
 .mkt-recruit .mkt-dossier { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
 .mkt-dos-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 20px 16px; flex: 1 1 auto; }
-.mkt-dos-scroll::-webkit-scrollbar { width: 6px; }
-.mkt-dos-scroll::-webkit-scrollbar-thumb { background: var(--ph-dim); border-radius: 3px; }
+.mkt-recruit :is(.mkt-roster, .mkt-dos-scroll, .skin-picker) { scrollbar-width: thin;
+  scrollbar-color: var(--ph-dim) transparent; overscroll-behavior: contain; }
+.mkt-recruit :is(.mkt-roster, .mkt-dos-scroll, .skin-picker)::-webkit-scrollbar { width: 6px; }
+.mkt-recruit :is(.mkt-roster, .mkt-dos-scroll, .skin-picker)::-webkit-scrollbar-thumb { background: var(--ph-dim); border-radius: 3px; }
+.mkt-recruit .mkt-dos-back { flex-shrink: 0; margin: 8px 12px; border-color: var(--ui-edge); background: var(--ui-face); }
 .mkt-recruit .mkt-dos-label, .mkt-recruit .mkt-config-h { display: flex; padding: 9px 14px; color: var(--ph-bright);
   background: linear-gradient(180deg, rgba(var(--ph-rgb), .22), rgba(var(--ph-rgb), .10) 52%, rgba(var(--ph-rgb), .04));
   box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .18), inset 0 -1px 0 rgba(0,0,0,.25);
@@ -995,8 +1004,8 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-model-settings { border-top: 1px solid var(--ph-faint); }
 .mkt-model-settings > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
   color: var(--ph); padding: 12px 14px; font-size: 11px; letter-spacing: .5px; }
-.mkt-model-settings > summary::before { content: '+'; font-size: 16px; }
-.mkt-model-settings[open] > summary::before { content: '−'; }
+.mkt-model-settings > summary::before { content: '▸'; color: var(--ph-dim); }
+.mkt-model-settings[open] > summary::before { content: '▾'; }
 .mkt-model-settings > summary:focus-visible { outline: 2px solid var(--ph); outline-offset: -2px; }
 .mkt-model-choice { margin-left: auto; color: var(--text); font-size: 12px; overflow-wrap: anywhere; text-align: right; }
 .mkt-recruit .mkt-modelbar > .mkt-skinlabel { display: none; }
@@ -1007,13 +1016,16 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-appearance summary, .mkt-brief summary { cursor: pointer; list-style: none; color: var(--ph);
   display: flex; align-items: center; gap: 8px; }
 .mkt-appearance summary { padding: 8px 0 0; font-size: 11px; letter-spacing: .5px; }
-.mkt-appearance summary::before, .mkt-brief summary::before { content: '+'; font-size: 16px; }
-.mkt-appearance[open] > summary::before, .mkt-brief[open] > summary::before { content: '−'; }
+.mkt-appearance summary::before, .mkt-brief summary::before { content: '▸'; color: var(--ph-dim); }
+.mkt-appearance[open] > summary::before, .mkt-brief[open] > summary::before { content: '▾'; }
+.mkt-recruit :is(.mkt-appearance, .mkt-model-settings, .mkt-brief) > summary:hover { color: var(--ph-bright); }
+.mkt-recruit :is(.mkt-appearance, .mkt-model-settings, .mkt-brief) > summary::-webkit-details-marker { display: none; }
 .mkt-appearance-choice { margin-left: auto; color: var(--text); font-size: 13px; letter-spacing: 0; }
 .mkt-appearance summary:focus-visible, .mkt-brief summary:focus-visible { outline: 2px solid var(--ph); outline-offset: 2px; }
 .mkt-recruit .mkt-config .mkt-skin-stage { margin: 0; width: 86px; gap: 0; align-self: start; }
-.mkt-recruit .mkt-skin-stage-frame { width: 86px; height: 96px; min-height: 0; background: rgba(0,0,0,.3);
-  border: 1px solid var(--ph-faint); border-radius: 3px; box-shadow: var(--well); }
+.mkt-recruit .mkt-skin-stage-frame { width: 86px; height: 96px; min-height: 0;
+  background: radial-gradient(ellipse at 50% 70%, rgba(var(--ph-rgb),.12), transparent 72%), var(--panel);
+  border: 1px solid var(--ui-edge); border-radius: 3px; box-shadow: var(--ui-well); }
 .mkt-recruit .mkt-skin-stage-frame::before, .mkt-recruit .mkt-skin-stage-frame::after { display: none; }
 .mkt-recruit .mkt-skin-stage-frame img { width: 76px; height: 90px; object-fit: contain;
   transform: scale(1.6); transform-origin: 50% 70%; }
@@ -1063,7 +1075,6 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
   .mkt.show-dossier .mkt-recruit .mkt-dossier { display: flex; }
 }
 @container (max-width: 850px) {
-  .mkt-recruit { grid-template-columns: minmax(0, .9fr) minmax(0,1.1fr); }
   .mkt-recruit .mkt-rows .mkt-card { grid-template-columns: 42px minmax(0,1fr); gap: 9px; padding: 8px; }
   .mkt-recruit .mkt-rows .mkt-coin { --coin: 42px; }
   .mkt-recruit .mkt-card-side { display: none; }
