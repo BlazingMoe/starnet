@@ -176,7 +176,7 @@ const GroupChat = (() => {
         ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
       if (!content) continue;
       const attachments = (m.artifactIds || []).map(id => group.artifacts.find(f => f.id === id)).filter(Boolean);
-      const rowKey = JSON.stringify([m, content, attachments, group.members]);
+      const rowKey = JSON.stringify([m, content, attachments, group.members, name(m.author), colorOf(m.author)]);
       let row = previousRows.get(m.id);
       if (!row || row._gcMessageKey !== rowKey) {
         row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
