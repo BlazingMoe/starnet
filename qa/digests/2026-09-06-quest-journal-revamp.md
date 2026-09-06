@@ -56,3 +56,28 @@ generated deliverable listed README.md but no index.html. This is outside the ch
 
 No merge, installer rebuild, installation, push or publication. The source redesign is
 available on its isolated branch; the installed app and owner recovery remain unverified.
+
+## Visual refinement — premium station menu
+
+Kept the journal interaction model and replaced the stacked gold outlines with the same
+`--ui-face`, `--ui-edge`, `--ui-highlight`, and `--ui-well` materials used by the other
+station windows. Categories share a tab strip, the quest index is a recessed navigation
+rail, and the briefing is one continuous panel. Gold identifies the real reward and
+Commander level. Goal settings now follow the briefing so they do not displace its action.
+
+Live proof at `http://127.0.0.1:8916` after reload: initial recruitment action fully inside
+the window body; title 27px; description/objective/reward 18px; zero native-painted
+controls. At desktop width, body clientWidth/scrollWidth were both 1050px. The Station
+filter showed three real quests, selecting Wire work changed its briefing, and at 600×820
+the journal became one 520px column with body clientWidth/scrollWidth both 554px. Selection
+survived restoring the viewport. Browser error log was empty. Preview left open.
+
+Scoped verification: quest-log-window 74 assertions and website-app-sync 8 assertions
+passed. JavaScript syntax and diff whitespace checks passed.
+
+The first full-gate invocation reached 281/723 and failed the claims audit because the
+release inventory still hashed the pre-journal stationui.js, app.css and motion.css.
+Reviewed the candidate diff against that inventory: those are the only changed release
+surface files, the path set is unchanged, and the journal still projects real store state.
+Refreshed the inventory to source commit 8ba29be8d, with no changes to claim verdicts,
+dispositions, proof statuses or locators. The full gate is being rerun on that candidate.
