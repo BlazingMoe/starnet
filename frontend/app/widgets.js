@@ -39,7 +39,7 @@ const Widgets = (() => {
   const FEED_RE = /^feed:[a-z0-9][a-z0-9-]{0,23}$/;   // pinned-layout id for an agent-fed record: 'feed:' + its widget.set slug
 
   let wired = false;
-  let layout = { top: ['runs24'], bot: [] };   // first-run default: one instrument, discoverable ＋ on both rails
+  let layout = { top: ['approvals'], bot: [] };   // new stations start with attention, not an all-day activity counter
 
   // ---- live data (module-local; all painted from here) ----
   let insights = null;        // last good /api/insights fold (null until first poll lands)
@@ -178,13 +178,15 @@ const Widgets = (() => {
   // paint() returns {val, sub, series?} — null val paints an honest "—".
   const CATALOG = {
     crew: {
+      stats: true,
       lbl: 'CREW', tip: 'Agents in your current station roster, including the overseer.',
       paint() { return { val: typeof App !== 'undefined' && App.crewCount ? String(App.crewCount()) : null, sub: 'station roster' }; }
     },
-    active: { lbl: 'ACTIVE COMMS', tip: 'Confirmed running conversations in COMMS. Connecting requests are shown separately; background jobs are not included.', paint: () => commsReadout(false) },
-    approvals: { lbl: 'APPROVALS', tip: 'COMMS conversations currently waiting for your approval.', paint: () => commsReadout(true) },
-    next: { lbl: 'NEXT ROUTINE', tip: 'The next enabled routine on the scheduler. A due time is a schedule, not a claim that the job has started.', paint: () => nextRoutine(cron, Date.now()) },
+    active: { stats: true, lbl: 'ACTIVE COMMS', tip: 'Confirmed running conversations in COMMS. Connecting requests are shown separately; background jobs are not included.', paint: () => commsReadout(false) },
+    approvals: { lbl: 'NEEDS YOU', action: 'Review waiting conversation', tip: 'Conversations waiting for your approval or answer. Use the arrow to open the first waiting conversation.', paint: () => ({ ...commsReadout(true), tone: typeof Channels !== 'undefined' && Channels.pendingIds().length ? 'warn' : null }) },
+    next: { lbl: 'NEXT ROUTINE', action: 'Open scheduled routines', tip: 'The next enabled routine on the scheduler. Use the arrow to view or change your schedule. A due time does not mean the job has started.', paint: () => nextRoutine(cron, Date.now()) },
     runs24: {
+      stats: true,
       lbl: 'RUNS · 24H',
       tip: 'Runs across the whole station in the last 24h — folded from the real run history (/api/insights), ticking live on each run end.',
       paint() {
@@ -194,6 +196,7 @@ const Widgets = (() => {
       }
     },
     queue: {
+      stats: true,
       lbl: 'QUEUE',
       tip: 'Inbound work items waiting across all agents — live queue.status backpressure events. Shows — until the first event arrives.',
       paint() {
@@ -203,6 +206,7 @@ const Widgets = (() => {
       }
     },
     cron: {
+      stats: true,
       lbl: 'ROUTINES',
       tip: 'Scheduled routines on the sidecar (/api/cron) — count + whether the scheduler is armed. The value pulses when a routine fires.',
       paint() {
@@ -212,6 +216,7 @@ const Widgets = (() => {
       }
     },
     tokens: {
+      stats: true,
       lbl: 'TOKENS',
       tip: 'Recorded tokens across station run history, including subscription runs — from the real usage fold.',
       paint() {
@@ -221,6 +226,24 @@ const Widgets = (() => {
     }
   };
   const KNOWN = Object.keys(CATALOG);
+
+  // Navigation only: review the underlying work, never approve or run it from a widget.
+  function waitingConversation() {
+    if (typeof Channels === 'undefined' || typeof Workstreams === 'undefined') return null;
+    return Channels.pendingIds().find(id => Workstreams.get(id)) || null;
+  }
+  function openWidget(id) {
+    if (id === 'next' && typeof StationUI !== 'undefined' && StationUI.openTerm) {
+      closePop(); StationUI.openTerm('routines'); return true;
+    }
+    const wsId = id === 'approvals' ? waitingConversation() : null;
+    if (wsId && typeof App !== 'undefined' && App.openWorkstream) {
+      closePop(); App.openWorkstream(wsId);
+      if (typeof StationUI !== 'undefined' && StationUI.h?.workConversation) StationUI.h.workConversation('widgets');
+      return true;
+    }
+    return false;
+  }
 
   // resolve an id to its definition — the static catalog, or a dynamic agent-fed def.
   // paint() for a feed widget returns {tick} (ticker line) OR {val,sub}, plus {prov} — the
@@ -306,7 +329,13 @@ const Widgets = (() => {
       '<span class="wg-meta"><span class="wg-lbl"></span>'
       + '<span class="wg-src"><i class="wg-dot' + (def.fed ? ' wg-dot-fed' : '') + '" aria-hidden="true"></i><span class="wg-srctext"></span></span></span>'
       + '<b class="wg-val">—</b><span class="wg-sub"></span><span class="wg-sparkslot"></span>'
+      + (def.action ? '<button class="wg-open">↗</button>' : '')
       + '<button class="wg-x" title="remove widget" aria-label="Remove widget">✕</button>';
+    const open = el.querySelector('.wg-open');
+    if (open) {
+      open.setAttribute('aria-label', def.action); open.title = def.action;
+      open.addEventListener('click', e => { e.stopPropagation(); openWidget(id); });
+    }
     el.querySelector('.wg-lbl').textContent = def.lbl;
     el.querySelector('.wg-srctext').textContent = def.fed ? '…' : 'live';
     el.querySelector('.wg-x').addEventListener('click', (e) => { e.stopPropagation(); removeWidget(id); railEl('top').querySelector('.wg-add').focus(); });
@@ -321,7 +350,7 @@ const Widgets = (() => {
       }
     });
     el.addEventListener('pointerdown', (e) => {
-      if (e.target && e.target.closest('.wg-x')) return;
+      if (e.target && e.target.closest('button')) return;
       startDrag(e, id);
     });
     paintWidget(el, id);
@@ -333,13 +362,15 @@ const Widgets = (() => {
     const p = def.paint();
     const val = el.querySelector('.wg-val'), sub = el.querySelector('.wg-sub'), slot = el.querySelector('.wg-sparkslot');
     const lbl = el.querySelector('.wg-lbl'), srct = el.querySelector('.wg-srctext');
+    const open = el.querySelector('.wg-open');
+    if (open && id === 'approvals') open.disabled = !waitingConversation();
     if (lbl) lbl.textContent = def.lbl;                       // a feed label can change on any poll
     if (p.tick != null) {                                     // ticker form: one cycling line instead of a big figure
       if (val) { val.textContent = ''; val.style.display = 'none'; }
       if (sub) { sub.textContent = p.tick; sub.classList.add('wg-ticktext'); }
       el.setAttribute('data-empty', '0');
     } else {
-      if (val) { val.style.display = ''; val.textContent = p.val == null ? '—' : p.val; }
+      if (val) { val.style.display = ''; val.textContent = id === 'next' && p.val == null ? p.sub : id === 'approvals' && p.val === '0' ? 'clear' : p.val == null ? '—' : p.val; }
       if (sub) { sub.classList.remove('wg-ticktext'); sub.textContent = p.sub || ''; }
       el.setAttribute('data-empty', p.val == null ? '1' : '0');
     }
@@ -420,7 +451,7 @@ const Widgets = (() => {
 
   /* ================= widget library ================= */
   let popEl = null;
-  let popReturn = null, popRail = 'top', popFilter = 'all', popSearch = '';
+  let popReturn = null, popRail = 'top', popFilter = 'main', popSearch = '';
   function closePop() {
     if (!popEl) return;
     popEl.remove(); popEl = null;
@@ -439,7 +470,7 @@ const Widgets = (() => {
     let count = 0;
     for (const id of ids) {
       const def = defOf(id), rail = layout.top.includes(id) ? 'top' : layout.bot.includes(id) ? 'bot' : 'hidden';
-      if (popFilter === 'pinned' && rail === 'hidden' || popFilter === 'station' && def.fed || popFilter === 'feeds' && !def.fed) continue;
+      if (popFilter === 'pinned' && rail === 'hidden' || popFilter === 'main' && def.stats || popFilter === 'stats' && !def.stats || popFilter === 'feeds' && !def.fed) continue;
       if (!(def.lbl + ' ' + def.tip + ' ' + id).toLowerCase().includes(popSearch.toLowerCase())) continue;
       count++;
       const card = document.createElement('section'); card.className = 'wg-library-card' + (def.fed ? ' wg-library-card-fed' : ''); card.dataset.widget = id;
@@ -447,6 +478,7 @@ const Widgets = (() => {
       const preview = makeWidget(id); preview.classList.add('wg-preview'); preview.removeAttribute('tabindex');
       preview.setAttribute('aria-label', def.lbl + ' preview');
       preview.querySelector('.wg-x').remove();
+      preview.querySelector('.wg-open')?.remove();
       const actions = document.createElement('div'); actions.className = 'wg-library-actions';
       const action = (label, key, fn, pressed, disabled, name = label) => {
         const b = document.createElement('button'); b.className = 'wg-library-action'; b.textContent = label;
@@ -463,7 +495,7 @@ const Widgets = (() => {
     }
     if (!count) {
       const empty = document.createElement('p'); empty.className = 'wg-library-empty';
-      empty.textContent = popSearch ? 'No matching widgets.' : popFilter === 'feeds' ? 'Ask an agent to track a metric or keep a digest. Its readouts appear here.' : 'No pinned widgets. Pick one from All.';
+      empty.textContent = popSearch ? 'No matches in this category.' : popFilter === 'feeds' ? 'Ask an agent to track something you care about. Its readouts appear here.' : 'No pinned widgets. Pick one from Widgets or Stats.';
       list.appendChild(empty);
     }
     popEl.querySelector('.wg-library-count').textContent = (layout.top.length + layout.bot.length) + ' pinned';
@@ -474,14 +506,14 @@ const Widgets = (() => {
   }
   function togglePop(btn, rail) {
     if (popEl) { closePop(); return; }
-    popReturn = btn; popRail = rail; popSearch = ''; popFilter = 'all';
+    popReturn = btn; popRail = rail; popSearch = ''; popFilter = 'main';
     popEl = document.createElement('div');
     popEl.className = 'wg-pop wg-library';
     popEl.setAttribute('role', 'dialog'); popEl.setAttribute('aria-modal', 'true'); popEl.setAttribute('aria-label', 'Widget library');
     popEl.innerHTML = '<header class="wg-library-header"><h2>WIDGETS</h2><span class="wg-library-count" role="status"></span><button class="wg-library-close" aria-label="Close widget library">✕</button></header>'
       + '<input class="wg-library-search" type="search" aria-label="Search widgets" placeholder="Search widgets…">'
       + '<div class="wg-library-filters" role="group" aria-label="Widget category"></div><div class="wg-library-list"></div>';
-    for (const [key, label] of [['all', 'All'], ['station', 'Station'], ['feeds', 'Agent feeds'], ['pinned', 'Pinned']]) {
+    for (const [key, label] of [['main', 'Widgets'], ['feeds', 'Agent feeds'], ['stats', 'Stats'], ['pinned', 'Pinned']]) {
       const b = document.createElement('button'); b.textContent = label; b.setAttribute('aria-pressed', String(key === popFilter));
       b.addEventListener('click', () => {
         popFilter = key;
@@ -717,7 +749,7 @@ const Widgets = (() => {
            _staleFor: staleFor, _pollFail: pollFail, _setInsights: (v) => { insights = v; },
            _setFeed: (recs) => { feed.clear(); for (const raw of (recs || [])) { const rec = sanitizeFeedRecord(raw); if (rec) feed.set(rec.slug, rec); } },
            _sparkSvg: sparkSvg, _cronStateLabel: cronStateLabel, _nextRoutine: nextRoutine,
-           _commsReadout: commsReadout };
+           _commsReadout: commsReadout, _openWidget: openWidget };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { Widgets };

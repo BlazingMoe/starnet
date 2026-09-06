@@ -1,5 +1,19 @@
 # Widget library refresh
 
+## Usefulness revision — owner feedback
+
+Done means the default picker shows attention, the upcoming routine, and agent feeds;
+historical/diagnostic counters live in an explicit Stats category; existing pins remain
+manageable. A pinned routine opens scheduling, and attention opens a current waiting
+conversation without answering or approving it. The full fast gate must pass.
+
+New stations pin NEEDS YOU instead of RUNS · 24H. Existing v1 layouts remain unchanged.
+CREW, ACTIVE COMMS, QUEUE, ROUTINES count, RUNS · 24H, and TOKENS move to Stats.
+NEEDS YOU covers both approval and answer prompts and reads `clear` when none are pending.
+NEXT ROUTINE shows its stopped/empty state instead of an unexplained dash.
+Both have explicit rail navigation buttons; the attention shortcut is disabled when no
+current conversation can be opened. Agent feeds remain in the default picker with provenance.
+
 ## Compact picker revision — owner visual feedback
 
 The owner rejected the oversized card layout. The library now uses flat 29px instrument

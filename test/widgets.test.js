@@ -153,4 +153,20 @@ delete global.Channels;
 A.eq(Widgets._commsReadout(false).val, null, 'unavailable COMMS is unknown, not zero');
 A.eq(Widgets._sanitizeFeedRecord({ id: 'no-progress', value: '10', progress: null }).progress, null, 'null progress does not hide an actual spark behind a fake zero bar');
 A.eq(Widgets._sanitizeFeedRecord({ id: 'zero-progress', value: '10', progress: 0 }).progress, 0, 'explicit zero progress remains valid');
+
+// Attention shortcuts resolve current state at click time, skipping sessions already removed.
+const jumps = [];
+global.Channels = { pendingIds: () => ['removed', 'waiting'] };
+global.Workstreams = { get: id => id === 'waiting' ? { id } : null };
+global.App = { openWorkstream: id => jumps.push('conversation:' + id) };
+global.StationUI = { openTerm: id => jumps.push('window:' + id), h: { workConversation: () => jumps.push('reveal') } };
+A.eq(Widgets._openWidget('approvals'), true, 'waiting conversation shortcut is available');
+A.eq(jumps.join(','), 'conversation:waiting,reveal', 'shortcut opens and reveals the existing waiting conversation');
+global.Channels.pendingIds = () => [];
+A.eq(Widgets._openWidget('approvals'), false, 'resolved attention does not reopen an outdated target');
+A.eq(jumps.length, 2, 'resolved attention performs no navigation');
+A.eq(Widgets._openWidget('next'), true, 'schedule shortcut opens its real settings');
+A.eq(jumps[2], 'window:routines', 'schedule shortcut routes to routines without running a job');
+A.eq(Widgets._openWidget('tokens'), false, 'plain counters have no invented action');
+delete global.Channels; delete global.Workstreams; delete global.App; delete global.StationUI;
 A.report('widgets.test');
