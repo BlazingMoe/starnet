@@ -18,6 +18,8 @@ The full fast gate must pass.
 - Existing v1 layout storage and feed pins retained. Missing feed pins stay manageable.
 - Current roster name resolution, absent-progress handling, feed offline state, bounded and
   deduplicated HTTP polling, and drag cancellation / UI zoom handling.
+- Routine edits refresh the shared scheduler query, updating widgets immediately after
+  creating, arming, disabling, or removing a routine rather than waiting for the next poll.
 - Generated website app mirror synchronized. No backend or shared-contract changes.
 
 ## Live evidence
@@ -43,11 +45,25 @@ Isolated seeded application at `http://127.0.0.1:9186`, launched with `node dev/
   Restart retained the layout and showed the absent feed as `no signal`. Pinned filtering
   still exposed its Hide control. The temporary feed and pin were removed.
 - The next routine preview showed `disarmed` for the real disabled scheduler.
+- A disposable future routine was created through Automation. Enabling scheduling immediately
+  changed NEXT ROUTINE to its countdown; disabling scheduling immediately restored the empty
+  reading. The fixture was deleted through the two-step UI and scheduling was left off.
+- A second disposable feed appeared in the already-open library on the next poll. Changing
+  its label and value updated both the card heading and preview without reopening. It was removed.
 
 ## Validation
 
 - JS syntax checks and `git diff --check` passed.
-- Widget folds: 66 assertions; widget feed tool: 43 assertions; shared query wiring: 15 assertions.
-- Initial full fast gate: 725/725 steps, exit 0. Final stable-source gate is recorded in the merge receipt.
+- Widget folds: 66 assertions; widget feed tool: 43 assertions; shared query wiring: 16 assertions.
+- Final committed code candidate `9883624df`: `npm run test:fast` passed 725/725 steps,
+  exit 0 (`dev/widget-fast-verified.log`). Earlier full development passes also completed 725/725.
+- The first committed synchronized candidate stopped at the source-fingerprint check. The
+  normal re-lock utility refreshed only changed frontend hashes and the source SHA, preserving
+  all 37 claims and verdicts. The committed claims-authority regression passed 64 assertions.
 - No installed-desktop build or real-provider run was performed. HTTP gate is not required
   for this frontend-only change. No public deployment or release was performed.
+
+The implementation is committed on `agent/widget-refresh-0906` in its isolated worktree;
+it has not been merged to the integration branch or installed. The branch includes catalog
+changes through `c3aad9ecd`. The later voice lane on trunk is not part of this preview;
+integration must synchronize with current trunk and refresh combined source fingerprints.
