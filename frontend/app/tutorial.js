@@ -323,19 +323,30 @@ const Tutorial = (() => {
     if (!k) return beatKitReady();
     const tool = (q('.refit-tool.active') || {}).dataset;
     if (!tool || tool.tool !== 'prop')
-      return kitFocus(q('.refit-tool[data-tool="prop"]'), 'tap ⚇ PROP (key 6) up top — that opens the gear menu.', 'step-prop');
+      return kitFocus(q('.refit-tool[data-tool="prop"]'), 'tap PROPS (key 6) in the build panel — that opens the gear menu.', 'step-prop');
+    const abilities = q('[data-prop-section="abilities"]');
+    const offerReq = kitNeeded && kitNeeded.size < KIT.length && typeof Build !== 'undefined' && !!Build.requisition;
+    if (abilities) {
+      if (!abilities.classList.contains('active')) return kitFocus(abilities, 'open ABILITIES — these props add real tools.', 'step-abilities');
+      const core = q('.refit-core-card[data-prop="' + k.prop + '"]');
+      if (!core) return kitFocus(q('[data-access-cap="' + WorldModel.capForProp(k.prop) + '"]'), 'choose ' + k.power + ' in the core tool access row.', 'step-core-ability');
+      return kitFocus(core, 'choose ' + k.power + ' (' + k.label + '), then click a clear tile in my room to place it.', 'step-tile-' + k.prop + (offerReq ? '-req' : ''),
+        offerReq ? { action: { label: '⚡ requisition the rest', onClick: runRequisition } } : undefined);
+    }
     // all capability + workstation gear is on the ⚙ SYSTEMS tier; if they wandered into ✦ DECOR, bring them back
     const tierActive = q('.refit-tier.active'), tierFn = q('.refit-tier-functional');
     if (tierFn && tierActive && tierActive !== tierFn)
       return kitFocus(tierFn, 'switch to ⚙ SYSTEMS — the gear that grants powers lives here, not in DECOR.', 'step-tier');
     const catA = (q('.refit-propcat.active') || {}).dataset;
+    const categoryMenu = q('.refit-category-menu');
+    if ((!catA || catA.cat !== k.cat) && categoryMenu && !categoryMenu.open)
+      return kitFocus(q('#refit-category-trigger'), 'open CATEGORY, then choose ' + k.catLabel + ' — that’s where ' + k.label + ' lives.', 'step-category-picker');
     if (!catA || catA.cat !== k.cat)
-      return kitFocus(q('.refit-propcat[data-cat="' + k.cat + '"]'), 'open the ' + k.catLabel + ' tab — that’s where ' + k.label + ' lives.', 'step-cat-' + k.cat);
+      return kitFocus(q('.refit-propcat[data-cat="' + k.cat + '"]'), 'choose ' + k.catLabel + ' — that’s where ' + k.label + ' lives.', 'step-cat-' + k.cat);
     // right tool, right tier, right tab — light the exact tile, named with its REAL catalog label.
     // COMPRESSION: the first placement teaches the loop; reps 2–4 teach nothing new. Once one needed cap is
     // down, every remaining tile step carries a one-tap "requisition the rest" — the agent places its own
     // remaining gear through the REAL path (Build.requisition), each landing scored by the normal hook.
-    const offerReq = kitNeeded && kitNeeded.size < KIT.length && typeof Build !== 'undefined' && !!Build.requisition;
     return kitFocus(q('.refit-proptile[data-prop="' + k.prop + '"]'),
       'pick ' + k.label + ' (' + k.power + '), then click a spot in my room to drop it in.' + (offerReq ? ' — or say the word and i’ll requisition the rest myself.' : ''),
       'step-tile-' + k.prop + (offerReq ? '-req' : ''),

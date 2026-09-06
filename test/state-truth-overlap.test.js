@@ -25,7 +25,7 @@ const crewLabels = Object.fromEntries(crewIds.map(id => [id, { textContent: '', 
 const crewContext = vm.createContext({
   present: crewIds.map(id => ({ id })), runningAgents: new Map(), runSeenAt: new Map(),
   activity: () => 'talk', App: { currentAgent: () => ({ id: 'hero' }) },
-  agentLive: id => id !== 'idle', crewFilter: 'all',
+  agentLive: id => id !== 'idle', crewQuery: '',
   Channels: { pendingIds: () => ['approval-session'] },
   Workstreams: { get: () => ({ agentId: 'approval' }) },
   $: selector => selector.startsWith('#cs-') ? crewLabels[selector.slice(4)] : null
@@ -33,14 +33,14 @@ const crewContext = vm.createContext({
 vm.runInContext(A.fnBody(station, 'function crewTick()') + '\ncrewTick();', crewContext);
 A.eq(crewLabels.hero.textContent, 'IN CONVERSATION', 'the focused running agent owns the conversation label');
 A.eq(crewLabels.worker.textContent, 'WORKING', 'a background worker never inherits the conversation label');
-A.eq(crewLabels.approval.textContent, 'AWAITING APPROVAL', 'pending consent takes priority for its own agent');
+A.eq(crewLabels.approval.textContent, 'WORKING', 'crew keeps its activity summary; approval details belong to the session');
 A.eq(crewLabels.idle.textContent, 'IDLE', 'an idle agent does not inherit a different agent’s run or approval');
-crewContext.crewFilter = 'await'; vm.runInContext('crewTick()', crewContext);
-A.eq(crewIds.filter(id => !crewRows[id].hidden), ['approval'], 'Needs You shows only the owner of the pending approval');
-crewContext.crewFilter = 'active'; vm.runInContext('crewTick()', crewContext);
-A.eq(crewIds.filter(id => !crewRows[id].hidden), ['hero', 'worker', 'approval'], 'Working excludes agents with no live run');
-crewContext.crewFilter = 'all'; vm.runInContext('crewTick()', crewContext);
-A.ok(crewIds.every(id => !crewRows[id].hidden), 'All restores the entire roster');
+crewContext.crewQuery = 'work'; vm.runInContext('crewTick()', crewContext);
+A.eq(crewIds.filter(id => !crewRows[id].hidden), ['worker'], 'search narrows the roster by identity');
+crewContext.crewQuery = 'idle'; vm.runInContext('crewTick()', crewContext);
+A.eq(crewIds.filter(id => !crewRows[id].hidden), ['idle'], 'search can find an idle agent without an activity filter');
+crewContext.crewQuery = ''; vm.runInContext('crewTick()', crewContext);
+A.ok(crewIds.every(id => !crewRows[id].hidden), 'closing search restores the entire roster');
 A.ok(/const unhealthyChannels = new Set\(\)[\s\S]*?state === 'up'[\s\S]*?reconnected[\s\S]*?key: toastKey/.test(world),
   'a proven channel recovery replaces the active outage claim instead of leaving a stale red toast');
 A.ok(/const toastKey = String\(\(opts && opts\.key\)[\s\S]*?dataset\.toastKey === toastKey[\s\S]*?prior\.remove\(\)/.test(station),

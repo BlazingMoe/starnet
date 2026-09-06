@@ -4,6 +4,31 @@ Audited integration snapshot: `d107e5ef2` on `feat/harness-backend`.
 Isolated repair branch: `agent/release-ui-audit-0906`.
 Frozen repair candidate: `4f338ad8d65961602fdcecf2dd4399bc9a3c5dca`.
 
+## Authorized integration — completed September 6
+
+The owner subsequently authorized merging these repairs. The branch merged current integration
+`b8f8e8dd655a79d0f6b638a3c1d0d2087b8776d0`, including Google sign-in and simplified Abilities.
+Only generated QA records conflicted: the bug index was regenerated and the current claims
+inventory/verdicts were preserved while refreshing source fingerprints.
+
+Integration fast-forwarded from that snapshot to the exact verified candidate
+`f4baf0d2038b3e8b668959634e8e13fac6d53c85`:
+
+- Full fast gate: 724/724 before merge and 724/724 after merge, both exit 0.
+- Full live journeys: 130/130, exit 0, `fullSuite:true`, zero soft failures, same candidate SHA.
+- Real seeded app: export/change/import restored ANDROMEDA, HIGH lighting, 130% text and inbox
+  rows; sidecar restart and reload retained them. Merged extension editors opened and cancelled
+  with focus restored; catalog sign-in filter worked. No uncaught JavaScript exceptions.
+- Existing integration-tree QA notes and Rooms handoff were hash-verified unchanged by the merge.
+
+Local receipts: `premerge-fast.log`, `premerge-live.log`, `premerge-journeys.log`,
+`postmerge-fast.log`, their `.exit` files, and `merge-snapshot.json`, under
+`.bugloops/release-ui-audit-0906/`. The follow-up receipt commit changes documentation only.
+The integration delta contains frontend/QA repairs, so no full HTTP suite was owed or claimed.
+Seven P1 findings remain open, including incomplete Workshop output. This integration does not
+certify release readiness, installed-desktop behavior, or production Google sign-in. No push,
+installer rebuild, publication, or deployment was performed. The original audit below is historical.
+
 ## Findings
 
 1. **P1, open: incomplete Workshop output can still be reported as built.** The full
