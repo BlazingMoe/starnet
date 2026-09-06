@@ -8472,6 +8472,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   }
 
   function buildQuests(body) {
+    const detailKey = el => (el.closest('[data-qid]')?.dataset.qid || '') + ':' + el.className + ':' + (el.querySelector('summary')?.textContent || '');
+    const expanded = new Set(Array.from(body.querySelectorAll('details[open]')).map(detailKey));
+    const listScroll = body.querySelector('.q-mission-list')?.scrollTop || 0;
+    const questDrafts = body._questDrafts || (body._questDrafts = new Map());
+    body.querySelectorAll('.q-life-quest').forEach(row => {
+      questDrafts.set(row.dataset.qid, {
+        reason: row.querySelector('.q-disposition-reason')?.value || '',
+        evidence: row.querySelector('.q-quest-evidence')?.value || ''
+      });
+    });
     const QSS = (typeof QuestStateStore !== 'undefined') ? QuestStateStore : null;
     const SQS = (typeof StationQuestStore !== 'undefined') ? StationQuestStore : null;
     const WQS = (typeof WorkQuestStore !== 'undefined') ? WorkQuestStore : null;
@@ -8556,7 +8566,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const goBtn = goDest ? '<button class="q-go" data-dest="' + esc(goDest) + '" data-qid="' + esc(q.id) + '" title="Open where you do this next">' + esc(q.executionMode === 'commander' || q.executionMode === 'together' ? '▶ HELP ME PREPARE' : (GO_LABEL[goDest] || 'GO')) + '</button>' : '';
       // §C — EVERY open row answers "what do I do next": the honest completion condition in words.
       const cw = q.status !== 'done' ? questCompletesWhen(q) : '';
-      const cwHtml = cw ? '<div class="sub q-cw">✓ completes when: ' + esc(cw) + '</div>' : '';
+      const cwHtml = cw ? '<div class="sub q-cw"><span class="q-field-label">OBJECTIVE</span><span class="q-objective-mark" aria-hidden="true">◇</span> ' + esc(cw) + '</div>' : '';
       // §C — a pending attest (an agent proposed completion with evidence): the awaiting-confirmation badge + the
       // inline Commander verdict. Confirm is single-click (→ done + the QuestState celebration); Not yet declines
       // (→ the quest stays open, a declineNote the agent sees next run). Truthful: only a real pending attest shows.
@@ -8579,21 +8589,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
          alone in the header, where a misclick cannot land on it while reaching for START. */
       const kindTag = QUEST_KIND_TAG[q.kind] || '';
       const kindHtml = kindTag ? '<span class="q-kind q-kind-' + esc(q.kind) + '">' + esc(kindTag) + '</span>' : '';
-      const rewardHtml = q.reward ? '<div class="sub q-reward">&#9670; ' + esc(q.reward) + '</div>' : '';
+      const rewardHtml = q.reward ? '<div class="sub q-reward"><span class="q-field-label">REWARD</span>&#9670; ' + esc(q.reward) + '</div>' : '';
       const actionRow = (goBtn || queueBtn) ? '<div class="q-actions">' + goBtn + queueBtn + '</div>' : '';
       const lifeActions = q.kind === 'ledger' && q.status !== 'done' ? '<div class="q-life-quest" data-qid="' + esc(q.id) + '">'
         + '<div class="sub q-owner">' + esc(q.executionMode === 'commander' ? 'YOUR ACTION' : q.executionMode === 'together' ? 'YOU + STARNET' : 'STARNET CAN HELP') + '</div>'
         + (q.whyNow ? '<div class="sub">Why now: ' + esc(q.whyNow) + '</div>' : '')
         + (isPaused(q) ? '<div class="sub">' + esc(q.disposition.type === 'later' ? 'Saved for tomorrow' : q.disposition.type === 'too_big' ? 'Needs a smaller step' : 'Blocked') + (q.disposition.reason ? ': ' + esc(q.disposition.reason) : '') + '</div><button class="consent-btn q-quest-disposition" data-action="resume">RESUME</button>'
-          : '<details><summary>CHANGE THIS RECOMMENDATION</summary><label>What needs to change?<input class="q-disposition-reason" maxlength="240" placeholder="For example: waiting for a reply, or only 15 minutes available"></label>'
+          : '<details><summary>CHANGE THIS RECOMMENDATION</summary><label>What needs to change?<input id="q-reason-' + esc(q.id) + '" class="q-disposition-reason" value="' + esc(questDrafts.get(q.id)?.reason || '') + '" maxlength="240" placeholder="For example: waiting for a reply, or only 15 minutes available"></label>'
             + '<div class="consent-btns"><button class="consent-btn q-quest-disposition" data-action="later">TOMORROW</button><button class="consent-btn q-quest-disposition" data-action="blocked">BLOCKED</button><button class="consent-btn q-quest-disposition" data-action="too_big">TOO BIG</button></div></details>')
-        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea class="q-quest-evidence" maxlength="2000" placeholder="Describe your action and its result"></textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
+        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea id="q-evidence-' + esc(q.id) + '" class="q-quest-evidence" maxlength="2000" placeholder="Describe your action and its result">' + esc(questDrafts.get(q.id)?.evidence || '') + '</textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
         + '</div>' : '';
       return '<div class="gx-tro q-card ' + (q.status === 'done' ? 'on' : 'off') + (glow ? ' q-celebrate' : '') + '" style="--ci:' + (i || 0) + '">'
-        + '<div class="q-hd"><span class="gl">' + (q.status === 'done' ? '&#9733;' : '&#9675;') + '</span><span class="nm">' + esc(q.title) + '</span>'
-        + kindHtml
+        + '<div class="q-card-meta">' + kindHtml + '<span class="q-card-state">' + (q.status === 'done' ? '✓ COMPLETED' : isPaused(q) ? 'SAVED / BLOCKED' : 'AVAILABLE QUEST') + '</span>'
         + (dis ? '<button class="q-dismiss" data-qid="' + esc(q.id) + '" title="Dismiss — the station will never raise this again">&#10005;</button>' : '')
         + '</div>'
+        + '<div class="q-hd"><span class="gl" aria-hidden="true">' + (q.status === 'done' ? '&#9733;' : '&#9671;') + '</span><h3 class="nm">' + esc(q.title) + '</h3></div>'
         + '<div class="sub">' + esc(q.status === 'done' ? ('▸ ' + q.reward) : q.desc) + '</div>'
         + cwHtml + (q.status === 'done' ? '' : rewardHtml) + attestHtml + declineHtml + actionRow + lifeActions + '</div>';
     };
@@ -8621,29 +8631,64 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       ? '<details class="q-milestones"><summary>MILESTONES <span class="gx-tag">' + milestoneDone + ' / ' + milestones.length + '</span><span class="dim">long-term station history</span></summary>'
         + '<div class="gx-tros q-grid q-milestone-grid">' + milestones.map(tro).join('') + '</div></details>'
       : '';
-    /* ORDER OF THE PANEL (2026-08-13). This window is opened to answer ONE question — what should I do next —
-       and it used to answer it fourth: the agent-growth meter, the direction card, and the whole Commander
-       Journey console (metrics, mastery, adaptation receipts, station evolution) all sat above the first
-       quest, so an ordinary window opened with ZERO quests on screen. Nothing has been removed or collapsed;
-       the bookkeeping simply now sits UNDER the quests it describes. DIRECTION stays on top because the north
-       star and REFRESH QUESTS are what the quest list is derived from — it is the header of this list, not a
-       separate console. */
+    // Selection is presentation state only. Keep it on the stable window body across background data pokes;
+    // if a selected quest completes/disappears, fall back to the first remaining quest in this category.
+    const categories = [
+      ['all', 'All quests', () => true],
+      ['missions', 'Missions', q => ['ledger', 'work', 'idea'].includes(q.kind)],
+      ['station', 'Station', q => ['station', 'station-gap', 'maintenance'].includes(q.kind)],
+      ['commander', 'About you', q => q.kind === 'dossier']
+    ];
+    const category = categories.find(c => c[0] === body.dataset.questCategory) || categories[0];
+    const listed = open.filter(category[2]);
+    const selected = listed.find(q => q.id === body.dataset.questSelected) || listed[0];
+    body.dataset.questSelected = selected ? selected.id : '';
+    const commanderJourney = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+    const commanderLevel = commanderJourney && commanderJourney.progression && commanderJourney.progression.level;
+    const journalCount = Number.isFinite(commanderLevel)
+      ? '<div class="q-journal-count"><strong>' + commanderLevel + '</strong><span>Commander<br>level</span></div>'
+      : '<div class="q-journal-count"><strong>' + open.length + '</strong><span>available quests</span></div>';
+    const filtersHtml = '<nav class="q-filters" aria-label="Quest categories">' + categories.map(c =>
+      '<button class="q-filter" data-category="' + c[0] + '" aria-pressed="' + (c === category) + '">' + c[1]
+      + ' <span>' + open.filter(c[2]).length + '</span></button>').join('') + '</nav>';
+    const journalHtml = '<div class="q-journal q-open"><nav class="q-mission-list" aria-label="Available quests">'
+      + listed.map((q, i) => '<button class="q-mission' + (q === selected ? ' selected' : '') + '" data-quest-select="' + esc(q.id)
+        + '" aria-pressed="' + (q === selected) + '" aria-controls="quest-briefing">'
+        + '<span class="q-mission-number" aria-hidden="true">' + String(i + 1).padStart(2, '0') + '</span><span class="q-mission-copy">'
+        + '<span class="q-mission-kind">' + esc(QUEST_KIND_TAG[q.kind] || 'QUEST') + '</span><span class="q-mission-title">'
+        + esc(q.title) + '</span></span><span class="q-mission-arrow" aria-hidden="true">›</span></button>').join('')
+      + '</nav><section class="q-briefing q-grid" id="quest-briefing" aria-label="Quest briefing">'
+      + (selected ? tro(selected, 0) : '<div class="q-journal-empty"><span aria-hidden="true">◇</span><h3>'
+        + (open.length ? 'No quests in this category' : 'All caught up') + '</h3><p>'
+        + (open.length ? 'Choose another category to find your next action.' : 'Set a direction or refresh your quests when you are ready for what comes next.') + '</p></div>')
+      + '</section></div>';
     body.innerHTML = '<div class="gx gx-quests">'
-      + questTrackHtml(arcs)
-      + lifeGoalsHtml()
-      + questRefreshHtml()
+      + '<header class="q-journal-header"><div><span class="q-journal-eyebrow">COMMANDER’S JOURNAL</span><h2>Your next chapter</h2></div>'
+      + journalCount + '</header>'
+      + '<details class="q-journal-planning"><summary>YOUR GOAL &amp; QUEST SETTINGS</summary>'
+      + questTrackHtml(arcs) + lifeGoalsHtml() + questRefreshHtml() + '</details>'
       + proposalsHtml
-      + '<div class="gx-sec"><span class="gx-title">OPEN</span> <span class="gx-tag">' + open.length + '</span></div>'
-      + '<div class="dim q-lede">choose a next action that helps your goal. Your recorded progress builds your Commander history.</div>'
-      + '<div class="gx-tros q-grid q-open">' + (open.map(tro).join('') || '<p class="dim">all caught up.</p>') + '</div>'
+      + filtersHtml + journalHtml
       + (deferred.length ? '<details class="q-deferred"><summary>SAVED FOR LATER / BLOCKED (' + deferred.length + ')</summary><div class="gx-tros q-grid">' + deferred.map(tro).join('') + '</div></details>' : '')
       + (otherGoals.length ? '<details class="q-other-goals"><summary>OTHER GOALS (' + otherGoals.length + ')</summary><div class="gx-tros q-grid">' + otherGoals.map(tro).join('') + '</div></details>' : '')
-      + '<div class="gx-sec"><span class="gx-title">DONE</span> <span class="gx-tag">' + done.length + '</span></div>'
-      + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">nothing yet.</p>') + '</div>'
+      + '<details class="q-journal-history"><summary>COMPLETED QUESTS <span class="gx-tag">' + done.length + '</span></summary>'
+      + '<div class="gx-tros q-grid q-done">' + (done.map(tro).join('') || '<p class="dim">Completed quests will be recorded here.</p>') + '</div></details>'
       + milestonesHtml
       + meterHtml
       + journeyHtml()
       + '</div>';
+    body.querySelectorAll('details').forEach(el => { if (expanded.has(detailKey(el))) el.open = true; });
+    if (body.querySelector('.q-mission-list')) body.querySelector('.q-mission-list').scrollTop = listScroll;
+    body.querySelectorAll('.q-filter').forEach(b => b.addEventListener('click', () => {
+      body.dataset.questCategory = b.dataset.category;
+      rerender('quests', false);
+      Array.from(body.querySelectorAll('.q-filter')).find(el => el.dataset.category === b.dataset.category)?.focus();
+    }));
+    body.querySelectorAll('.q-mission').forEach(b => b.addEventListener('click', () => {
+      body.dataset.questSelected = b.dataset.questSelect;
+      rerender('quests', false);
+      Array.from(body.querySelectorAll('.q-mission')).find(el => el.dataset.questSelect === b.dataset.questSelect)?.focus();
+    }));
     // COMMANDER JOURNEY writes are explicit. Empty/invalid numeric fields are rejected in the panel before the
     // request, and every successful response re-renders from the backend's returned proof snapshot.
     const journeyFail = r => notify((r && r.error) || 'journey update was not recorded', 'bad');

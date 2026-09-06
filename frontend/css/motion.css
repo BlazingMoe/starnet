@@ -660,16 +660,93 @@ button:active {
 /* STRETCH, not start: cards in a row share one height so every primary action lands on the same
    baseline. Ragged card bottoms put START QUEST, OPEN REFIT and ANSWER IT at three different heights
    across a single row, which is what made the grid read as unaligned. */
-.gx-quests .q-grid { grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 9px; align-items: stretch; }
-.gx-quests .q-grid .gx-tro { padding: 11px 12px; }
-.gx-quests .q-grid .gx-tro .nm { font-size: 12.5px; margin-top: 0; }
-.gx-quests .q-grid .gx-tro .sub { font-size: 11px; margin-top: 5px; line-height: 1.4; }
+.gx-quests .q-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 16px; align-items: stretch; }
+.gx-quests .q-grid .gx-tro { padding: 22px; }
+.gx-quests .q-grid .gx-tro .nm { font-size: 25px; margin: 0; font-weight: normal; line-height: 1.15; color: var(--ph-bright); }
+.gx-quests .q-grid .gx-tro .sub { font-size: 18px; margin-top: 8px; line-height: 1.3; opacity: 1; color: var(--ph-bright); }
 /* DONE column reads as settled history — dimmer, so OPEN stays the focus.
    (Keeps the gold "earned" accent; just drops overall emphasis.) */
-.gx-quests .q-done .gx-tro { opacity: 0.72; }
+.gx-quests .q-done .gx-tro { opacity: 1; }
 .gx-quests .q-done .gx-tro:hover { opacity: 1; }
 /* give the OPEN/DONE dividers a touch more air in the log */
 .gx-quests .gx-sec { margin-top: 15px; }
+
+/* Commander journal: a mission index and one generous briefing. Counts and state come from
+   the existing quest projection; the visual hierarchy adds no rewards or progression rules. */
+.quests-win .term-body { container-type: inline-size; }
+.gx-quests { color: var(--ph-bright); }
+.q-journal-header { display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 0 0 12px; border-bottom: 1px solid var(--ph-dim); margin-bottom: 10px; }
+.q-journal-eyebrow { color: var(--gold); font-size: 14px; letter-spacing: .14em; }
+.q-journal-header h2 { margin: 4px 0 0; font-size: 32px; font-weight: normal; line-height: 1; }
+.q-journal-count { display: flex; align-items: center; gap: 12px; color: var(--gold); }
+.q-journal-count strong { font-size: 44px; font-weight: normal; line-height: 1; }
+.q-journal-count span { max-width: 75px; font-size: 16px; line-height: 1.15; }
+.gx-quests .q-track { padding: 16px; }
+.gx-quests .q-track .sub, .gx-quests .q-track-goal, .gx-quests .q-ns-text { font-size: 20px; opacity: 1; }
+.gx-quests .q-track .q-go { font-size: 16px; padding: 10px 14px; }
+.q-journal-planning { margin: 10px 0 12px; }
+.gx-quests summary { cursor: pointer; font-size: 16px; line-height: 1.4; color: var(--ph-bright); }
+.gx-quests summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.q-filters { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 12px; }
+.q-filter { font: inherit; font-size: 18px; padding: 9px 14px; color: var(--ph-bright);
+  border: 1px solid var(--ph-dim); background: var(--ink); border-radius: var(--r-sm); cursor: pointer; }
+.q-filter span { margin-left: 8px; color: var(--gold); }
+.q-filter[aria-pressed="true"] { border-color: var(--gold); background: rgba(var(--gold-rgb), .12); color: var(--gold); }
+.q-filter:hover { border-color: var(--gold); }
+.q-journal { display: grid; grid-template-columns: minmax(230px, .85fr) minmax(0, 1.65fr); gap: 20px; align-items: start; }
+.q-mission-list { display: flex; flex-direction: column; gap: 8px; max-height: 470px; overflow-y: auto; padding: 2px; }
+.q-mission { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 15px 12px;
+  background: rgba(0,0,0,.3); color: var(--ph-bright); border: 1px solid var(--ph-glow2);
+  border-left: 3px solid var(--ph-dim); border-radius: var(--r-sm); cursor: pointer; font: inherit;
+  transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }
+.q-mission:hover { border-color: var(--ph); background: var(--ph-faint); }
+.q-mission.selected { border-color: var(--gold); background: rgba(var(--gold-rgb), .09); }
+.q-mission-number { font-size: 22px; color: var(--gold); flex-shrink: 0; }
+.q-mission-copy { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.q-mission-kind { font-size: 12px; letter-spacing: .1em; color: var(--gold); }
+.q-mission-title { font-size: 20px; line-height: 1.15; overflow-wrap: anywhere; }
+.q-mission-arrow { margin-left: auto; font-size: 25px; color: var(--gold); }
+.gx-quests .q-briefing { display: block; min-width: 0; }
+.gx-quests .q-briefing .q-card { min-height: 360px; height: auto; padding: 18px 22px; gap: 4px;
+  border-color: var(--gold); background: linear-gradient(135deg, rgba(var(--gold-rgb), .08), rgba(0,0,0,.5) 65%); }
+.gx-quests .q-briefing .q-card::before { background: var(--gold); width: 3px; }
+.gx-quests .q-briefing .q-card:hover { translate: none; }
+.q-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.q-card-meta .q-kind { margin: 0; font-size: 13px; padding: 4px 7px; color: var(--gold); opacity: 1; }
+.q-card-state { font-size: 12px; letter-spacing: .08em; color: var(--ph-bright); }
+.q-card-meta .q-dismiss { margin-left: auto; min-width: 32px; min-height: 32px; font-size: 16px; opacity: 1; }
+.gx-quests .q-briefing .q-hd { gap: 14px; }
+.gx-quests .q-briefing .q-hd .gl { color: var(--gold); font-size: 34px; line-height: 1; }
+.gx-quests .q-grid .q-hd .nm { padding: 0; border: 0; background: none; box-shadow: none; }
+.gx-quests .q-briefing .q-hd .nm { font-size: 30px; overflow-wrap: anywhere; }
+.gx-quests .q-grid .q-card .q-cw { border-top: 1px solid var(--ph-dim); padding: 12px 0 0; text-indent: 0; }
+.q-field-label { display: block; font-size: 13px; line-height: 1; letter-spacing: .12em; color: var(--gold); margin-bottom: 7px; }
+.q-objective-mark { color: var(--gold); }
+.gx-quests .q-grid .q-card .q-reward { color: var(--gold); background: rgba(var(--gold-rgb), .07);
+  border: 1px solid rgba(var(--gold-rgb), .25); padding: 10px 14px; text-indent: 0; margin: 10px 0 0; }
+.gx-quests .q-grid .q-card .q-actions { padding-top: 10px; }
+.gx-quests .q-actions .q-go { font-size: 18px; line-height: 1.2; min-height: 46px; padding: 12px 16px;
+  background: rgba(var(--gold-rgb), .12); color: var(--gold); border-color: var(--gold); letter-spacing: .06em; }
+.gx-quests .q-actions .q-queue { min-height: 46px; min-width: 44px; font-size: 22px; }
+.gx-quests .consent-btn, .gx-quests input, .gx-quests textarea { font-size: 17px; }
+.gx-quests .q-life-quest label, .gx-quests .q-life-goal label { color: var(--ph-bright); font-size: 17px; }
+.gx-quests .q-journey-card .sub, .gx-quests .q-refresh-card .sub { font-size: 17px; line-height: 1.4; }
+.q-journal-history { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--ph-dim); }
+.q-journal-history > summary { color: var(--gold); }
+.q-journal-empty { padding: 44px 24px; border: 1px solid var(--ph-dim); text-align: center; }
+.q-journal-empty > span { color: var(--gold); font-size: 50px; }
+.q-journal-empty h3 { font-size: 28px; font-weight: normal; }
+.q-journal-empty p { font-size: 19px; line-height: 1.4; }
+@container (max-width: 640px) {
+  .q-journal { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .q-mission-list { max-height: 190px; }
+  .gx-quests .q-briefing .q-card { min-height: 0; padding: 20px; }
+  .q-journal-header h2 { font-size: 30px; }
+  .q-journal-count { gap: 6px; }
+  .q-filter { flex: 1 1 auto; padding: 9px; }
+  .gx-quests .q-track-empty { flex-wrap: wrap; }
+}
 
 /* ============================================================
    18 · MINIMIZE-TO-STRIP — a dock strip of minimized-window chips. Built by
