@@ -33,5 +33,18 @@ const A = require('./_assert.js'), S = require('../frontend/app/starters.js'), {
   A.eq((await forgetting).status, 'cancelled', 'Forget blocks late resurrection'); A.eq(Store.peek(ctx).status, 'empty', 'Forget removes cache');
   Store.init({ ...deps, generate: async () => ({ error: 'offline' }) }); A.eq((await Store.request(ctx)).status, 'error', 'Provider failure explicit'); A.eq(Store.peek({ ...ctx, projectRoot: '/changed' }).status, 'cooldown', 'New context rate limited without stale ideas');
   Store.reset(); memory[Store.KEY] = JSON.stringify({ version: 1, cache: [null, { key: 'x', ideas: null }], declined: [null], accepted: [null] }); Store.init(deps); A.notThrows(() => Store.peek(ctx), 'Corrupt saved cache harmless');
-  await Store._flush(); A.report('starterstore');
+  await Store._flush();
+  // Production UI waits for durable feedback before asking the model (boot initially reads zero weights).
+  const fs = require('node:fs'), vm = require('node:vm'); let hydrate, generated = null;
+  const fresh = { ...ctx, preferences: { continue: -0.5 } }, options = { system: 'NOVA', modelKey: 'test' };
+  const scope = vm.createContext({ d: { isConnected: true }, hint: {}, activeWs: { id: 'blank', history: [] },
+    renderStarterIdeas() {}, RecLedger: { refresh: () => new Promise(r => { hydrate = r; }) },
+    starterContext: () => fresh, starterOptions: () => options, isBusy: () => false,
+    StarterStore: { request: async c => { generated = c; return { status: 'ready', ideas: [] }; } } });
+  const code = fs.readFileSync(require('node:path').join(__dirname, '../frontend/app/chat.js'), 'utf8');
+  vm.runInContext('async ' + A.fnBody(code, 'function requestStarterIdeas('), scope);
+  const waiting = vm.runInContext('requestStarterIdeas(d, hint, {}, {}, false)', scope);
+  A.eq(generated, null, 'No inference before feedback hydration'); hydrate(); await waiting;
+  A.eq(generated.preferences.continue, -0.5, 'Generation reads hydrated preferences rather than stale zero weights');
+  A.report('starterstore');
 })().catch(e => { console.error(e); process.exit(1); });

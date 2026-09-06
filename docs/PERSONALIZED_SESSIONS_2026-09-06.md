@@ -13,10 +13,10 @@ Verified in the seeded running app on port 9296 with a local deterministic provi
 - All three defaults appear as compact vertical cards. Selecting Build a working tool creates a named session and prepares its full brief without sending it.
 - A concrete revenue-dashboard request reaches the internal evidence-generation route. Its returned cohort-validation suggestion shows the reason and deliverable, and selecting it restores the original conversation and its full cited request in the composer.
 - Dismissing the personalized suggestion restores the three general defaults; reload preserves the dismissal.
-- New request content invalidates the cached context. The generator receives the newer cookbook priority separately from the previous dashboard request.
+- New request content invalidates the cached context. The generator receives the newer cookbook priority separately from the previous dashboard request; the live UI changes to Create the cookbook print-ready layout. Saved feedback is hydrated before generation, preventing an initial zero-weight request from being immediately invalidated during boot.
 - Live testing exposed internal recommendation runs being crated as unattended user work. Returns now excludes the existing internal flag; contextpack also excludes it from evidence about the user. Both have regressions.
 
-Focused checks passed: starters (37 assertions), starterstore (26), contextpack (35), returns (29), profile (61), recommendation ledger (26), source/release mirror (35), bug-register validation, and git diff --check. The website mirror is synchronized.
+Focused checks passed: starters (37 assertions), starterstore (28), contextpack (35), returns (29), profile (61), recommendation ledger (26), source/release mirror (35), bug-register validation, and git diff --check. The website mirror is synchronized.
 
 Limits: generated wording in the live test was a deterministic fixture, not a real model quality evaluation. The mock catalog initially lacked task-tool metadata, so the test task attempts failed before execution; no delivered task or successful real-provider run is claimed. Full test:fast and test:http gates, installed desktop verification, and merge remain pending.
 

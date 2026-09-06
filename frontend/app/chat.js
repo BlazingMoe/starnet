@@ -1605,9 +1605,14 @@ const Chat = (() => {
     }
     d.appendChild(chips);
   }
-  function requestStarterIdeas(d, hint, ctx, options, force) {
+  async function requestStarterIdeas(d, hint, ctx, options, force) {
     d.forcePending = !!force;
     renderStarterIdeas(d, hint, { status: 'loading', ideas: [] });
+    // Hydrate durable feedback before spending a generation on boot's temporary zero weights.
+    try { if (typeof RecLedger !== 'undefined') await RecLedger.refresh(); } catch (_) {}
+    if (!d.isConnected) return;
+    ctx = starterContext(); options = starterOptions();
+    d.starterKey = JSON.stringify([ctx, options]);
     const origin = activeWs && activeWs.id, key = JSON.stringify([ctx, options]);
     StarterStore.request(ctx, { ...options, force: !!force }).then(result => {
       if (!d.isConnected || !activeWs || activeWs.id !== origin || activeWs.history.length || isBusy()) return;
