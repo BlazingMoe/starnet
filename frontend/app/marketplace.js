@@ -253,30 +253,26 @@ const Marketplace = (() => {
     focusAgent = (ctx.currentSpecialtyId && Specialties.get(ctx.currentSpecialtyId)) ? ctx.currentSpecialtyId : (builtins[0] && builtins[0].id) || null;
     focusRecipe = hasRecipes() ? ((Recipes.builtins()[0] && Recipes.builtins()[0].id) || null) : null;
 
-    root = mkEl('div', 'mkt-scrim');
+    root = mkEl('div', 'mkt-host');
     root.innerHTML =
-      '<div class="mkt" role="dialog" aria-modal="true" aria-labelledby="mkt-title" aria-describedby="mkt-sub" tabindex="-1">' +
-        '<span class="mkt-screw tl"></span><span class="mkt-screw tr"></span><span class="mkt-screw bl"></span><span class="mkt-screw br"></span>' +
-        '<span class="mkt-brk tl"></span><span class="mkt-brk tr"></span><span class="mkt-brk bl"></span><span class="mkt-brk br"></span>' +
+      '<div class="mkt" tabindex="-1">' +
         '<div class="mkt-head">' +
-          '<div class="mkt-nameplate"><span class="mkt-title" id="mkt-title">' + esc(title()) + '</span>' +
-            '<span class="mkt-sub" id="mkt-sub">' + esc(subtitle()) + '</span></div>' +
-          '<div class="mkt-search">⌕ <input id="mkt-q" type="text" autocomplete="off" spellcheck="false" placeholder="search classes…" aria-label="Search classes"></div>' +
-          '<button class="mkt-x x-btn" id="mkt-x" aria-label="' + esc('Close ' + plainTitle().toLowerCase()) + '" title="close">✕</button>' +
+          '<div class="mkt-nameplate"><span class="mkt-sub" id="mkt-sub">' + esc(subtitle()) + '</span></div>' +
+          '<div class="mkt-search">⌕ <input id="mkt-q" type="text" autocomplete="off" spellcheck="false" placeholder="Find a class…" aria-label="Search classes"></div>' +
         '</div>' +
         '<div class="mkt-bar" id="mkt-bar"></div>' +
         '<div class="mkt-stage" id="mkt-stage"></div>' +
-        '<div class="mkt-foot">' +
-          '<span id="mkt-foot-legend">' + footLegendHTML() + '</span>' +
-          '<span class="reg"><span class="dot"></span> LOCAL REGISTRY · 0 BYTES OFF-MACHINE</span>' +
-        '</div>' +
       '</div>';
-    document.body.appendChild(root);
-    root.addEventListener('mousedown', e => { if (e.target === root) close(); });
-    root.querySelector('.mkt-x').addEventListener('click', () => { sfx('close'); close(); });
+    // The normal window manager owns the frame, focus, drag, resize, minimize and saved geometry.
+    // Keep this mounted host intact when it is minimized so recipe/summon drafts survive restore.
+    const mounted = root;
+    StationUI.toggleTerm('marketplace', plainTitle(), body => {
+      body.classList.add('mkt-window-body');
+      if (!body.contains(mounted)) body.appendChild(mounted);
+    }, { wide: true, className: 'mkt-window', onClose: () => release(mounted) });
     const q = root.querySelector('#mkt-q');
     if (q) q.addEventListener('input', () => { query = (q.value || '').toLowerCase().trim(); renderStage(); restoreSearchFocus(); });
-    document.addEventListener('keydown', onKey, true);
+    root.addEventListener('keydown', onKey);
     sfx('open');
     pendingCardAnim = true;   // the first paint gets the staggered card entrance
     renderBar();
@@ -346,9 +342,12 @@ const Marketplace = (() => {
     renderBar(); renderStage();
   }
   function close() {
+    if (root) StationUI.closeTerm('marketplace');
+  }
+  function release(mounted) {
+    if (root !== mounted) return;
     if (firstValueForm) { firstValueForm.destroy(); firstValueForm = null; }
     if (!root) return;
-    document.removeEventListener('keydown', onKey, true);
     root.remove(); root = null; ctx = null; view = 'grid';
     editingId = null; editingRecipeId = null; launchId = null; pendingMintKey = null; pendingMintTemplate = null; pendingScoutRecipeId = null; scoutSeedDraft = null;
     const o = opener; opener = null;
@@ -368,7 +367,7 @@ const Marketplace = (() => {
   function isNarrowBay() {
     try {
       const panel = root && root.querySelector('.mkt');
-      return (tab === 'agents' && panel && panel.clientWidth <= 660) ||
+      return (panel && panel.clientWidth <= 660) ||
         (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 820px)').matches);
     } catch (_) { return false; }
   }
@@ -385,6 +384,7 @@ const Marketplace = (() => {
   function onKey(e) {
     if (!root) return;
     if (e.key === 'Escape') {
+      if (isTypingTarget(e.target)) return; // the shared window first leaves a text field
       // Esc is a STEP-BACK, not an instant bay-close, whenever there's somewhere to step back to (stranded-user
       // law): (1) a full-width form view routes through its own BACK (which resets the right editor state, never
       // discards silently mid-bay); (2) the narrow dossier-only sheet returns to the roster. Only at the top-level
@@ -392,16 +392,7 @@ const Marketplace = (() => {
       if (view !== 'grid') { const back = root.querySelector('.mkt-cancel'); if (back) { e.preventDefault(); e.stopPropagation(); back.click(); return; } }
       const mkt = root.querySelector('.mkt');
       if (mkt && mkt.classList.contains('show-dossier') && isNarrowBay()) { e.preventDefault(); e.stopPropagation(); closeDossierSheet(); return; }
-      sfx('close'); close(); return;
-    }
-    if (e.key === 'Tab') {
-      const f = focusables();
-      if (!f.length) { e.preventDefault(); const p = root.querySelector('.mkt'); if (p) p.focus(); return; }
-      const first = f[0], last = f[f.length - 1], act = document.activeElement;
-      if (!root.contains(act)) { e.preventDefault(); first.focus(); }
-      else if (e.shiftKey && act === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
-      return;
+      return; // top-level Escape uses the shared close/draft guard
     }
     // "/" jumps to the search box from anywhere in the bay (unless already typing) — the discovery shortcut.
     if (e.key === '/' && !isTypingTarget(e.target)) {
@@ -511,8 +502,10 @@ const Marketplace = (() => {
   }
   // the nameplate + the close button's aria-label follow the tab, exactly like syncSub does for the subtitle.
   function syncTitle() {
-    const t = root && root.querySelector('#mkt-title'); if (t) t.textContent = title();
-    const x = root && root.querySelector('#mkt-x'); if (x) x.setAttribute('aria-label', 'Close ' + plainTitle().toLowerCase());
+    const win = root && root.closest('.term'); if (!win) return;
+    win.querySelector('.term-title').textContent = plainTitle();
+    win.querySelector('.term-x').setAttribute('aria-label', 'Close ' + plainTitle());
+    win.querySelector('.term-foot-k').textContent = plainTitle();
   }
   function syncSub() { const s = root && root.querySelector('#mkt-sub'); if (s) s.textContent = subtitle(); }
   // the footer legend explains the CARD glyphs of the CURRENT tab — clearance pips on AGENTS, setup marks on
@@ -566,7 +559,7 @@ const Marketplace = (() => {
       else wireLaunchForm(stage);
       return;
     }
-    stage.className = 'mkt-stage' + (tab === 'agents' ? ' mkt-recruit' : '');
+    stage.className = 'mkt-stage mkt-recruit' + (tab === 'recipes' ? ' mkt-recipes' : '');
     // a fresh grid render (open / tab / filter / search) always returns to the ROSTER view on a narrow bay — the
     // dossier SHEET is only entered by an explicit card click, never left stuck over a rebuilt roster.
     const mkt0 = root.querySelector('.mkt'); if (mkt0) mkt0.classList.remove('show-dossier');
@@ -950,9 +943,9 @@ const Marketplace = (() => {
         '<div class="mkt-tag">' + esc(r.tagline) + '</div>' +
       '</div>' +
       '<div class="mkt-card-side">' +
-        '<div class="mkt-meta"><span class="mkt-chip lane">' + esc(laneLabelOf(r)) + '</span>' +
+        '<div class="mkt-meta"><span class="mkt-chip lane">' + esc(CAT_LABEL[railBucket(r)] || 'GENERAL') + '</span>' +
           '<span class="mkt-chip">' + setup + '</span>' + sop + drift + recipeLifeChip(r) + '</div>' +
-        '<span class="mkt-card-code">' + esc(codeOf(r)) + '</span>' +
+        '<span class="mkt-card-code">' + setup + '</span>' +
       '</div>' +
     '</button>';
   }
@@ -986,7 +979,7 @@ const Marketplace = (() => {
   // narrow-viewport escape hatch: at <=820px the dossier is a full-width sheet OVER the roster, so it needs a
   // visible way back (the stranded-state fix). Hidden at wide widths by CSS (both panes show side by side).
   function dossierBackHTML() {
-    return '<button type="button" class="mkt-dos-back" aria-label="back to the class roster">‹ ROSTER</button>';
+    return '<button type="button" class="mkt-dos-back" aria-label="back to the library">‹ LIBRARY</button>';
   }
   function dossierHTML() {
     return dossierBackHTML() + ((tab === 'recipes' && hasRecipes()) ? recipeDossierHTML() : agentDossierHTML());
@@ -1242,7 +1235,7 @@ const Marketplace = (() => {
     const n = (r.params || []).length;
     // INPUTS names the KIND of each fill-in too, so the dossier tells you what the launch form will ask for
     // (a file chooser, a pick-one, the live connector list) before you commit to opening it.
-    const inputs = n ? '<div class="mkt-block"><div class="bh">INPUTS</div><ul class="mkt-starters">' +
+    const inputs = n ? '<div class="mkt-block"><div class="bh">WHAT YOU’LL PROVIDE</div><ul class="mkt-starters">' +
       r.params.map(p => '<li>' + esc(p.label) + paramKindHTML(p) + (p.required ? '' : ' <i>(optional)</i>') + '</li>').join('') + '</ul></div>' : '';
     // SOP: the procedure the agent is told to follow, and the acceptance checks the HOST evaluates at run end.
     const steps = (r.steps && r.steps.length) ? '<div class="mkt-block"><div class="bh">PROCEDURE — in this order</div><ol class="mkt-starters mkt-sop-steps">' +
@@ -1263,17 +1256,19 @@ const Marketplace = (() => {
         '<button class="bb sm mkt-recipe-edit" data-id="' + esc(r.id) + '">✐ EDIT</button>' + exportBtn +
         '<button class="bb sm danger mkt-recipe-del" data-id="' + esc(r.id) + '">⌫ DELETE</button></div>'
       : '<div class="mkt-cta-row">' + tweakBtn + exportBtn + '</div>';
-    return '<div class="mkt-dos-label">▮ RECIPE DOSSIER</div>' +
+    return '<div class="mkt-dos-scroll"><div class="mkt-dos-label">RECIPE BRIEF</div>' +
       '<div class="mkt-dos-hero">' + sealHTML(r, true) +
         '<div class="mkt-dos-hi"><div class="mkt-dos-name">' + esc(r.name) + (r.custom ? ' <span class="mkt-badge">CUSTOM</span>' : '') + '</div>' +
           '<div class="mkt-dos-tag">' + esc(r.tagline) + '</div>' +
           '<div class="mkt-meta"><span class="mkt-chip lane">' + esc(CAT_LABEL[railBucket(r)] || 'GENERAL') + '</span>' + recipeLifeChip(r) + '</div></div></div>' +
       lastRunHTML(r) + driftHTML(r) + liveRoutineBadgeHTML(r) + forkLine + cadHint +
-      '<div class="mkt-block"><div class="bh">WHAT IT SENDS</div><pre>' + esc(r.task) + '</pre></div>' +
-      inputs + steps + accept +
-      recipeGearHTML(r) +
-      recipeSkillsHTML(r) +
-      '<div class="mkt-dos-cta">' + custActs +
+      '<div class="mkt-about"><div class="bp lead">' + esc(r.blurb || r.tagline) + '</div></div>' +
+      inputs +
+      '<details class="mkt-brief"><summary>INSTRUCTIONS &amp; CHECKS</summary>' +
+        '<div class="mkt-block"><div class="bh">WHAT IT SENDS</div><pre>' + esc(r.task) + '</pre></div>' + steps + accept + '</details>' +
+      '<details class="mkt-brief"><summary>TOOLS &amp; SKILLS</summary>' + recipeGearHTML(r) + recipeSkillsHTML(r) + '</details>' +
+      '<details class="mkt-brief"><summary>CUSTOMIZE &amp; SHARE</summary>' + custActs + '</details></div>' +
+      '<div class="mkt-dos-cta">' +
         '<button class="mkt-cta-main mkt-launch" data-id="' + esc(r.id) + '">' + (n ? '▸ SET UP &amp; LAUNCH' : '▸ LAUNCH RECIPE') + '</button>' +
         '<div class="mkt-cta-sub">run it now · or put it on a schedule</div>' +
       '</div>';

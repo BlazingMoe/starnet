@@ -64,7 +64,6 @@ A.ok(/--cz:\s*var\(--sn-unzoom,\s*1\)/.test(styleCss),
 // so they are gated together by that same rule.
 const LAYERS = [
   { what: 'style.css body::after (the station glass)', css: styleCss, sel: 'body::after' },
-  { what: 'marketplace.css .mkt-scrim::after (the bay glass)', css: marketCss, sel: '.mkt-scrim::after' },
 ];
 
 // every rule in the sheet whose selector ENDS in this exact selector (base rule + @media overrides)
@@ -294,13 +293,13 @@ for (const r of OVERLAY_RULES) {
     `size off the fixed inset:0 parent with %, or write calc(<n>vh * var(--sn-unzoom, 1)). ` +
     `Not riding either: ${unzoomed(body).join(', ')}`));
 }
-// …and the bay specifically must still be sized off its scrim, not left uncapped.
+// Recruitment and Recipes now inherit the normal terminal's zoom-aware geometry and glass.
+const marketJs = require('fs').readFileSync(require('path').join(__dirname, '../frontend/app/marketplace.js'), 'utf8');
+A.ok(/StationUI\.toggleTerm\('marketplace'/.test(marketJs), 'the catalog uses the shared terminal manager');
+A.ok(/wide: true/.test(marketJs), 'the catalog uses the standard wide tier');
+A.ok(!/mkEl\('div', 'mkt-scrim'\)/.test(marketJs), 'no independent viewport overlay is mounted');
 const mkt = rulesFor(marketCss, '.mkt').join('\n');
-A.ok(/max-height:\s*\d+%/.test(mkt), '.mkt caps its height against the scrim (a % of a fixed inset:0 layer)');
-A.ok(/width:\s*min\([^;]*\d+%\)/.test(mkt), '.mkt caps its width against the scrim too, so a narrow frame still fits it');
-// The scrim it measures against has to STAY the viewport-exact layer that makes those % true.
-const scrim = rulesFor(marketCss, '.mkt-scrim').join('\n');
-A.ok(/position:\s*fixed/.test(scrim) && /inset:\s*0/.test(scrim),
-  '.mkt-scrim is still position:fixed; inset:0 — that is what makes a % of it equal the glass under zoom');
+A.ok(/width:\s*100%/.test(mkt) && /min-height:\s*0/.test(mkt), 'the inner catalog fits its resizable parent');
+A.ok(!/\.mkt-scrim\s*::after/.test(marketCss), 'no extra scanline layer doubles the shared window glass');
 
 A.report('textsize-screen-space.test');
