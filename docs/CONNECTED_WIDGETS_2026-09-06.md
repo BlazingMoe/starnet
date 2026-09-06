@@ -61,6 +61,32 @@ or a model-quality evaluation. The normal preview is :9186; the disposable proof
 - Deleted the widget through its UI. Both widget inventory and its linked cron-job count became
   zero. Source-data configuration and other app data were not modified.
 
-Focused checks: widgets 78, widgetfeed 68, capgate 54, harness integration 182, toolprops 145,
-query-spine wiring 16 assertions passed. Full-gate and final visual receipts follow after the
-candidate is committed. No merge, install, or release is claimed by this source receipt.
+Focused checks: widgets 78, widgetfeed 70, capgate 54, harness integration 182, toolprops 145,
+query-spine wiring 16, and fail-open ratchet 156 assertions passed. Malformed optional source
+links are omitted without discarding a valid reading.
+
+## Final visual receipt
+
+- Created the Tasks due list preset through the UI and observed both source-returned items in
+  details. The pinned list ticker remained visible at the 1049px viewport (14.625px height).
+- At 600x500, widget details measured 340px wide, stayed within the viewport horizontally,
+  and scrolled internally. The empty library measured 340x255.625 with only three presets.
+- The Name, What should it show?, and Display fields have working accessible labels. Selecting
+  a display and pressing Escape returned focus to Add widget. No white native controls or
+  browser warnings/errors were observed.
+- Deleted the disposable fixture widgets and their linked schedule, then stopped the proof
+  services on ports 9190/9191. The normal seeded preview remains available on port 9186 with
+  Your widgets open. The fixture supplied no production-account data.
+
+## Gate receipt
+
+Code candidate: `4d7b346a2ff88465a162aa69140adfc0f1ecf2f9`.
+`npm run test:fast` passed all 725 steps and `npm run test:http` passed all 101 steps
+on 2026-09-06. Both completed with exit code 0. Syntax checks on changed JavaScript and
+`git diff --check` passed; the website mirrors match the frontend sources. The final
+source-link parser fix also passed widgetfeed (70) and fail-open ratchet (156) assertions.
+
+Local logs: `dev/widget-studio-fast.log` and `dev/widget-studio-http.log` (ignored).
+The subsequent commit only records this verification receipt.
+
+No merge, install, or release is claimed by this source receipt.
