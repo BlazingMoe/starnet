@@ -13,6 +13,12 @@ Live measurements: 340 x 338px for all eight built-ins, with no scrolling (previ
 Search -> Top -> Bottom -> remove and Escape passed in the running app, with zero white
 controls. This revision supersedes the original card-layout measurements below.
 
+Compact revision verification: `npm run test:fast` passed all 725 steps at candidate
+`91bf8eba5`. The picker stayed within the 600 x 500 viewport; a temporary production-path
+feed retained NOVA attribution, and nine rows scrolled within the 360px height cap.
+The fixture was removed, all eight built-ins restored, and the browser reported no warnings
+or errors. Syntax, mirror generation, and diff whitespace checks also passed.
+
 Owner request: update the outdated widget system.
 
 Done means opening the live widget library, finding and pinning an instrument, moving and
