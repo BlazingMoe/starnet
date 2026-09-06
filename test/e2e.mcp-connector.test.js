@@ -354,7 +354,7 @@ async function readNdjson(res) {
     const gmail = cat.connectors.find(c => c.id === 'gmail');
     A.ok(dw && dw.installable === true, 'a no-auth connector (deepwiki) is installable today');
     A.ok(notion && notion.installable === false, 'an oauth connector (notion) is listed but NOT installable yet');
-    A.ok(gmail && gmail.url === 'https://gmailmcp.googleapis.com/mcp/v1' && gmail.needsClient === true, 'direct Gmail is listed and truthfully needs one-time OAuth client setup');
+    A.ok(gmail && gmail.url === 'https://gmail.googleapis.com/gmail/v1/users/me' && gmail.needsClient === true, 'direct Gmail is listed and truthfully needs one-time OAuth client setup');
     A.ok(cat.connectors.every(c => !('token' in c)), 'catalog entries never carry a token');
     A.ok(cat.connectors.every(c => c.installed === false), 'nothing marked installed before we add a catalog id');
 
@@ -363,9 +363,9 @@ async function readNdjson(res) {
     const googleBeforeSetup = await fetch(B + '/api/connectors/oauth/start', {
       method: 'POST', headers, body: JSON.stringify({ id: 'gmail', attemptId: 'google-before-setup' })
     });
-    A.eq(googleBeforeSetup.status, 428, 'direct Google sign-in refuses before the one-time app client exists');
+    A.eq(googleBeforeSetup.status, 503, 'direct Google sign-in refuses before the one-time app client exists');
     const googleBeforeBody = await googleBeforeSetup.json();
-    A.ok(googleBeforeBody.needsClient === true && googleBeforeBody.redirectUri === B + '/api/connectors/oauth/callback', 'Google setup response returns the exact loopback redirect without probing the remote server');
+    A.ok(googleBeforeBody.signInAvailable === false && googleBeforeBody.code === 'google_signin_unavailable', 'unconfigured builds assign setup responsibility to StarNet, not the customer');
 
     const googleMissingSecret = await fetch(B + '/api/connectors/oauth/client', {
       method: 'POST', headers, body: JSON.stringify({ id: 'gmail', clientId: 'fake-client.apps.googleusercontent.com' })

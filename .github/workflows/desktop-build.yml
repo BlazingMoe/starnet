@@ -104,6 +104,11 @@ jobs:
         shell: bash
         run: bash scripts/hydrate-sharp-macos-x64.sh
 
+      - name: Stage StarNet Google sign-in registration
+        env:
+          STARNET_GOOGLE_DESKTOP_CLIENT_JSON: ${{ secrets.STARNET_GOOGLE_DESKTOP_CLIENT_JSON }}
+        run: node scripts/stage-google-client.mjs --optional
+
       - name: Stage bundled Node sidecar runtime
         run: |
           node scripts/prepare-node.mjs ${{ matrix.target }}
