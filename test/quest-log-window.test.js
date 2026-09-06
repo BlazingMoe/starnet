@@ -198,4 +198,10 @@ A.ok(rendered.includes('First quest evidence'), 'returning to a quest restores i
 ctx.JourneyStore = { status: () => ({ progression: { level: 7 } }) };
 ctx.buildQuests(body);
 A.ok(rendered.includes('<strong>7</strong><span>Commander'), 'journal level reads Commander progression, not crew XP or a fabricated score');
+vm.runInContext(station.slice(station.indexOf('  function windowDirty(w)'), station.indexOf('  function requestCloseTerm')), ctx);
+const draftWindow = { querySelector: selector => selector === '.term-body' ? body : null };
+body._questDrafts.set('q:first', { evidence: 'Unsaved result', dirty: true });
+A.eq(ctx.windowDirty(draftWindow), true, 'a draft in another mission still triggers the existing unsaved-close guard');
+body._questDrafts.set('q:first', { evidence: '', dirty: false });
+A.eq(ctx.windowDirty(draftWindow), false, 'recorded or clean cached fields do not block closing');
 A.report('quest-log-window.test');

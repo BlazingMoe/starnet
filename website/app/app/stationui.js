@@ -871,7 +871,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // 3s "close anyway" state with a visible banner; a second close within the window discards. Clean windows just
   // close. A field marks itself dirty via the delegated input listener in toggleTerm (sets data-dirty on typing);
   // saving/cancelling rerenders the pane, destroying the dirty textarea, so the flag can never go stale.
-  function windowDirty(w) { return !!(w && w.querySelector && w.querySelector('textarea[data-dirty="1"]')); }
+  function windowDirty(w) {
+    const drafts = w && w.querySelector && w.querySelector('.term-body')?._questDrafts;
+    return !!(w && w.querySelector && w.querySelector('textarea[data-dirty="1"]'))
+      || !!(drafts && Array.from(drafts.values()).some(d => d.dirty));
+  }
   function requestCloseTerm(key) {
     const w = open[key]; if (!w || w._closing) return;
     if (w._closeArmed || !windowDirty(w)) { closeTerm(key); return; }
@@ -8479,7 +8483,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelectorAll('.q-life-quest').forEach(row => {
       questDrafts.set(row.dataset.qid, {
         reason: row.querySelector('.q-disposition-reason')?.value || '',
-        evidence: row.querySelector('.q-quest-evidence')?.value || ''
+        evidence: row.querySelector('.q-quest-evidence')?.value || '',
+        dirty: row.querySelector('.q-quest-evidence')?.dataset.dirty === '1'
       });
     });
     const QSS = (typeof QuestStateStore !== 'undefined') ? QuestStateStore : null;
@@ -8597,7 +8602,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         + (isPaused(q) ? '<div class="sub">' + esc(q.disposition.type === 'later' ? 'Saved for tomorrow' : q.disposition.type === 'too_big' ? 'Needs a smaller step' : 'Blocked') + (q.disposition.reason ? ': ' + esc(q.disposition.reason) : '') + '</div><button class="consent-btn q-quest-disposition" data-action="resume">RESUME</button>'
           : '<details><summary>CHANGE THIS RECOMMENDATION</summary><label>What needs to change?<input id="q-reason-' + esc(q.id) + '" class="q-disposition-reason" value="' + esc(questDrafts.get(q.id)?.reason || '') + '" maxlength="240" placeholder="For example: waiting for a reply, or only 15 minutes available"></label>'
             + '<div class="consent-btns"><button class="consent-btn q-quest-disposition" data-action="later">TOMORROW</button><button class="consent-btn q-quest-disposition" data-action="blocked">BLOCKED</button><button class="consent-btn q-quest-disposition" data-action="too_big">TOO BIG</button></div></details>')
-        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea id="q-evidence-' + esc(q.id) + '" class="q-quest-evidence" maxlength="2000" placeholder="Describe your action and its result">' + esc(questDrafts.get(q.id)?.evidence || '') + '</textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
+        + (q.contract && q.contract.type === 'attest' ? '<details><summary>I COMPLETED THIS</summary><label>What happened?<textarea id="q-evidence-' + esc(q.id) + '" class="q-quest-evidence" data-dirty="' + (questDrafts.get(q.id)?.dirty ? '1' : '0') + '" maxlength="2000" placeholder="Describe your action and its result">' + esc(questDrafts.get(q.id)?.evidence || '') + '</textarea></label><button class="consent-btn q-quest-report">RECORD MY RESULT</button></details>' : '')
         + '</div>' : '';
       return '<div class="gx-tro q-card ' + (q.status === 'done' ? 'on' : 'off') + (glow ? ' q-celebrate' : '') + '" style="--ci:' + (i || 0) + '">'
         + '<div class="q-card-meta">' + kindHtml + '<span class="q-card-state">' + (q.status === 'done' ? '✓ COMPLETED' : isPaused(q) ? 'SAVED / BLOCKED' : 'AVAILABLE QUEST') + '</span>'
@@ -8707,7 +8712,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     body.querySelectorAll('.q-quest-report').forEach(b => b.addEventListener('click', async () => {
       const row = b.closest('.q-life-quest'); b.disabled = true;
       const r = await QLS.report(row.dataset.qid, row.querySelector('.q-quest-evidence').value);
-      if (r && r.ok) { sfx('quest'); rerender('quests'); } else { b.disabled = false; journeyFail(r); }
+      if (r && r.ok) {
+        const evidence = row.querySelector('.q-quest-evidence');
+        evidence.value = ''; evidence.dataset.dirty = '0'; questDrafts.delete(row.dataset.qid);
+        sfx('quest'); rerender('quests');
+      } else { b.disabled = false; journeyFail(r); }
     }));
     body.querySelectorAll('.q-success-save').forEach(b => b.addEventListener('click', async () => {
       const row = b.closest('.q-life-goal'); b.disabled = true;
