@@ -13,11 +13,12 @@ const { spawnSync } = require('child_process');
 const { makeProcessFaultHandler, isBenign, summarize } = require('../sidecar/process-fault.js');
 
 function harness(extra) {
-  const calls = { surface: [], exits: [], scheduled: [], released: 0, logs: [] };
+  const calls = { surface: [], exits: [], scheduled: [], quiesced: 0, released: 0, logs: [] };
   const h = makeProcessFaultHandler(Object.assign({
     surface: (kind, e) => calls.surface.push([kind, e]),
     exit: code => calls.exits.push(code),
     schedule: (fn, ms) => { calls.scheduled.push({ fn, ms }); return 1; },
+    quiesce: () => { calls.quiesced++; },
     release: () => { calls.released++; },
     log: m => calls.logs.push(m),
     now: () => 1234,
@@ -39,6 +40,7 @@ function harness(extra) {
     A.ok(h.fault() && h.fault().message === 'torn state', 'fault() exposes the summary for /api/health + diagnostics');
     A.eq(h.fault().at, 1234, 'fault carries the injected clock');
     A.eq(h.fault().exiting, true, 'fault says the process is exiting');
+    A.eq(calls.quiesced, 1, 'background work is quiesced immediately while the degraded window is observable');
     A.eq(calls.exits.length, 0, 'exit is NOT immediate — the degraded window is observable');
     A.eq(calls.scheduled.length, 1, 'exactly one timer armed');
     A.eq(calls.scheduled[0].ms, 500, 'timer uses the configured delay');
@@ -54,6 +56,7 @@ function harness(extra) {
     A.eq(r2.action, 'already-faulted', 'second fault does not re-schedule');
     A.eq(calls.surface.length, 2, 'but it IS still surfaced');
     A.eq(calls.scheduled.length, 1, 'still one timer');
+    A.eq(calls.quiesced, 1, 'second fault does not repeat the quiesce hook');
     A.eq(h.fault().message, 'first', 'first fault wins');
   }
   // ---- C. benign allowlist: stdio EPIPE / destroyed stream is surface-only, never a fault ----
@@ -65,6 +68,7 @@ function harness(extra) {
     A.eq(h.onUncaught(e2).action, 'benign', 'ERR_STREAM_DESTROYED is benign');
     A.eq(calls.surface.length, 2, 'both still surfaced to the diag ring');
     A.eq(h.fault(), null, 'no fault recorded');
+    A.eq(calls.quiesced, 0, 'benign stream errors do not quiesce the process');
     A.eq(calls.scheduled.length, 0, 'no exit armed');
     A.eq(isBenign({ code: 'ENOENT' }), false, 'an ordinary errno is not benign');
     A.eq(isBenign(null), false, 'null is not benign');
@@ -76,19 +80,32 @@ function harness(extra) {
     A.eq(r.action, 'degraded-kept-alive', 'keepAlive path');
     A.ok(!!h.fault(), 'fault still recorded (health honestly degraded)');
     A.eq(h.fault().exiting, false, 'fault says NOT exiting');
+    A.eq(calls.quiesced, 1, 'even the test-only keepAlive process is quiesced');
     A.eq(calls.scheduled.length, 0, 'no exit timer');
     A.eq(calls.exits.length, 0, 'no exit');
   }
   // ---- D2. containment: a throwing surface or release hook never masks the policy ----
   {
-    const { h, calls } = harness({ surface: () => { throw new Error('surface broke'); }, release: () => { throw new Error('release broke'); } });
+    const { h, calls } = harness({ surface: () => { throw new Error('surface broke'); }, quiesce: () => { throw new Error('quiesce broke'); }, release: () => { throw new Error('release broke'); } });
     A.notThrows(() => h.onUncaught(new Error('x')), 'a broken surface does not throw out of the handler');
     A.eq(calls.scheduled.length, 1, 'exit still scheduled');
     A.notThrows(() => calls.scheduled[0].fn(), 'a broken release hook does not throw');
     A.eq(calls.exits[0], 1, 'exit still happens after a broken release hook');
+    A.ok(calls.logs.some(m => /quiesce hook failed/.test(m)), 'quiesce failure is logged');
     A.ok(calls.logs.some(m => /release hook failed/.test(m)), 'release failure is logged');
   }
-  // ---- D3. summarize: one line, bounded, never throws ----
+  // ---- D3. crash-loop hold: the process stays alive only after the immediate quiesce hook ----
+  {
+    const breaker = { record: () => ({ tripped: true, count: 3 }), state: () => ({ tripped: true, count: 3, windowMs: 600000 }) };
+    const { h, calls } = harness({ breaker });
+    const r = h.onUncaught(new Error('repeatable boot fault'));
+    A.eq(r.action, 'crash-loop-held', 'breaker holds the third fault instead of respawning forever');
+    A.eq(calls.quiesced, 1, 'held process was quiesced before returning');
+    A.eq(calls.scheduled.length, 0, 'held process does not schedule another exit');
+    A.eq(calls.released, 0, 'held process keeps its ownership claims');
+    A.ok(h.fault().loop && h.fault().loop.tripped, 'held fault exposes crash-loop diagnostics');
+  }
+  // ---- D4. summarize: one line, bounded, never throws ----
   {
     A.eq(summarize(new Error('a\n  b   c')), 'a b c', 'whitespace collapsed to one line');
     A.eq(summarize('x'.repeat(300)).length, 201, 'bounded at 200 chars + ellipsis');
@@ -136,6 +153,11 @@ function harness(extra) {
     A.ok(/process\.on\('unhandledRejection',\s*e\s*=>\s*surfaceProcessError\('unhandledRejection',\s*e\)\)/.test(src), 'unhandledRejection stays log-only');
     A.ok(/ENV\('UNCAUGHT_KEEP_SERVING'\)/.test(src), 'test opt-out env is honoured');
     A.ok(/const f = processFault\.fault\(\);\s*if \(f\) \{ res\.writeHead\(503/.test(src), '/api/health answers 503 while faulted');
+    A.ok(/if \(rejectProcessFaultRequest\(req, res\)\) return;[\s\S]*if \(openaiCompat\.handle/.test(src), 'fault gate runs before the external /v1 compatibility API');
+    A.ok(/function quiesceForProcessFault\(\)[\s\S]*killAll\(runs,[\s\S]*connectors\.close/.test(src), 'fault quiesce aborts browser and channel runs and closes background connectors');
+    A.ok(/function quiesceForProcessFault\(\)[\s\S]*groupSessions\.halt/.test(src), 'fault quiesce halts group sessions');
+    A.ok(/function quiesceForProcessFault\(\)[\s\S]*for \(const id of GENERIC_CHANNEL_IDS\) stopGenericChannel\(id\)/.test(src), 'fault quiesce disconnects generic channels');
+    A.ok(/function quiesceForProcessFault\(\)[\s\S]*clearInterval\(livePricesRefreshTimer\)/.test(src), 'fault quiesce stops the live-price refresh timer');
     const bump = A.fnBody(src, 'function bumpQueue(agentId, d)');
     A.ok(/queueDepth\.delete\(agentId\)/.test(bump), 'bumpQueue deletes a drained entry (bounded Map)');
     const cap = A.fnBody(src, 'function devCaptureReply(chatId, text)');
