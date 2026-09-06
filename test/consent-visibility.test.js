@@ -89,8 +89,8 @@ const F = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
 /* ---------- FIX 2 · E-STOP: copy told users to "press E-STOP" while no control existed on screen ---------- */
 {
   const safety = F('frontend/app/safety.js');
-  A.ok(/estop/.test(safety) && /#topbar|tb-status/.test(safety),
-    'safety.js: a visible E-STOP control is built into the topbar chrome (was hotkey-only, never in the DOM)');
+  A.ok(/getElementById\('estop-btn'\)/.test(safety) && /data-group="system"[\s\S]*id="estop-btn"/.test(F('frontend/index.html')),
+    'safety.js: E-STOP is wired to an actual SYSTEM menu control, not a hidden hotkey-only action');
   A.ok(/Alt\+H/.test(safety), 'safety.js: the control itself teaches the Alt+H hotkey');
   const fe = F('frontend/app/friendlyerror.js');
   const estopMsgs = (fe.match(/msg:\s*'[^']*E-STOP[^']*'/g) || []);
