@@ -1,5 +1,18 @@
 # Widget library refresh
 
+## Compact picker revision — owner visual feedback
+
+The owner rejected the oversized card layout. The library now uses flat 29px instrument
+rows, one label per widget, inline TOP / BTM / remove controls, and hover help. The intro,
+descriptive paragraphs, nested preview panels, reorder button rows, and footer are removed.
+Search, filters, live values, feed attribution, rail dragging, and keyboard arrangement remain.
+An opaque theme background and compact search field replace the large translucent panel.
+
+Live measurements: 340 x 338px for all eight built-ins, with no scrolling (previously
+540 x 845px on the same preview). The popup is capped at 360px high for longer feed lists.
+Search -> Top -> Bottom -> remove and Escape passed in the running app, with zero white
+controls. This revision supersedes the original card-layout measurements below.
+
 Owner request: update the outdated widget system.
 
 Done means opening the live widget library, finding and pinning an instrument, moving and

@@ -442,35 +442,31 @@ const Widgets = (() => {
       if (popFilter === 'pinned' && rail === 'hidden' || popFilter === 'station' && def.fed || popFilter === 'feeds' && !def.fed) continue;
       if (!(def.lbl + ' ' + def.tip + ' ' + id).toLowerCase().includes(popSearch.toLowerCase())) continue;
       count++;
-      const card = document.createElement('section'); card.className = 'wg-library-card'; card.dataset.widget = id;
-      const title = document.createElement('h3'); title.textContent = def.lbl;
-      const description = document.createElement('p'); description.textContent = def.tip;
+      const card = document.createElement('section'); card.className = 'wg-library-card' + (def.fed ? ' wg-library-card-fed' : ''); card.dataset.widget = id;
+      card.title = def.tip;
       const preview = makeWidget(id); preview.classList.add('wg-preview'); preview.removeAttribute('tabindex');
       preview.setAttribute('aria-label', def.lbl + ' preview');
       preview.querySelector('.wg-x').remove();
       const actions = document.createElement('div'); actions.className = 'wg-library-actions';
-      const action = (label, key, fn, pressed, disabled) => {
+      const action = (label, key, fn, pressed, disabled, name = label) => {
         const b = document.createElement('button'); b.className = 'wg-library-action'; b.textContent = label;
-        b.dataset.wgControl = id + ':' + key; b.setAttribute('aria-label', label + ' ' + def.lbl);
+        b.dataset.wgControl = id + ':' + key; b.setAttribute('aria-label', name + ' ' + def.lbl);
+        b.title = name + ' ' + def.lbl;
         if (pressed !== undefined) b.setAttribute('aria-pressed', String(pressed));
         b.disabled = !!disabled;
         b.addEventListener('click', () => { fn(); libraryCards(); }); actions.appendChild(b);
       };
-      action('Top', 'top', () => placeWidget(id, 'top'), rail === 'top');
-      action('Bottom', 'bot', () => placeWidget(id, 'bot'), rail === 'bot');
-      action('Hide', 'hidden', () => placeWidget(id, 'hidden'), rail === 'hidden');
-      if (rail !== 'hidden') {
-        action('←', 'earlier', () => reorderWidget(id, -1), undefined, layout[rail].indexOf(id) === 0);
-        action('→', 'later', () => reorderWidget(id, 1), undefined, layout[rail].indexOf(id) === layout[rail].length - 1);
-      }
-      card.append(title, preview, description, actions); list.appendChild(card);
+      action('TOP', 'top', () => placeWidget(id, 'top'), rail === 'top', false, 'Top');
+      action('BTM', 'bot', () => placeWidget(id, 'bot'), rail === 'bot', false, 'Bottom');
+      action('×', 'hidden', () => placeWidget(id, 'hidden'), undefined, rail === 'hidden', 'Hide');
+      card.append(preview, actions); list.appendChild(card);
     }
     if (!count) {
       const empty = document.createElement('p'); empty.className = 'wg-library-empty';
-      empty.textContent = popSearch ? 'No matching widgets. Try another search.' : popFilter === 'feeds' ? 'Ask an agent to track a metric or keep a news digest. Published readouts appear here with their author and update time.' : 'No widgets pinned yet. Choose Station or Agent feeds to add one.';
+      empty.textContent = popSearch ? 'No matching widgets.' : popFilter === 'feeds' ? 'Ask an agent to track a metric or keep a digest. Its readouts appear here.' : 'No pinned widgets. Pick one from All.';
       list.appendChild(empty);
     }
-    popEl.querySelector('.wg-library-count').textContent = layout.top.length + ' top · ' + layout.bot.length + ' bottom';
+    popEl.querySelector('.wg-library-count').textContent = (layout.top.length + layout.bot.length) + ' pinned';
     if (focused) {
       const next = Array.from(list.querySelectorAll('button')).find(b => b.dataset.wgControl === focused && !b.disabled);
       (next || list.querySelector('button'))?.focus();
@@ -482,11 +478,9 @@ const Widgets = (() => {
     popEl = document.createElement('div');
     popEl.className = 'wg-pop wg-library';
     popEl.setAttribute('role', 'dialog'); popEl.setAttribute('aria-modal', 'true'); popEl.setAttribute('aria-label', 'Widget library');
-    popEl.innerHTML = '<header class="wg-library-header"><div><h2>WIDGET LIBRARY</h2><span class="wg-library-count" role="status"></span></div><button class="wg-library-close" aria-label="Close widget library">✕</button></header>'
-      + '<p class="wg-library-intro">Your station, at a glance. Pin instruments to either rail.</p>'
+    popEl.innerHTML = '<header class="wg-library-header"><h2>WIDGETS</h2><span class="wg-library-count" role="status"></span><button class="wg-library-close" aria-label="Close widget library">✕</button></header>'
       + '<input class="wg-library-search" type="search" aria-label="Search widgets" placeholder="Search widgets…">'
-      + '<div class="wg-library-filters" role="group" aria-label="Widget category"></div><div class="wg-library-list"></div>'
-      + '<footer>Drag to arrange · Alt + arrows to move a focused widget</footer>';
+      + '<div class="wg-library-filters" role="group" aria-label="Widget category"></div><div class="wg-library-list"></div>';
     for (const [key, label] of [['all', 'All'], ['station', 'Station'], ['feeds', 'Agent feeds'], ['pinned', 'Pinned']]) {
       const b = document.createElement('button'); b.textContent = label; b.setAttribute('aria-pressed', String(key === popFilter));
       b.addEventListener('click', () => {
@@ -512,9 +506,10 @@ const Widgets = (() => {
     const uz = uiZoom();
     const r = btn.getBoundingClientRect();
     const below = r.top < window.innerHeight / 2;   // top rail → open downward; bottom rail → upward
-    popEl.style.width = Math.min(540, window.innerWidth / uz - 16) + 'px';
-    popEl.style.left = Math.max(8, Math.min(window.innerWidth / uz - Math.min(540, window.innerWidth / uz - 16) - 8, r.left / uz - 40)) + 'px';
-    popEl.style.maxHeight = Math.max(100, (below ? window.innerHeight - r.bottom : r.top) / uz - 14) + 'px';
+    const width = Math.min(340, window.innerWidth / uz - 16);
+    popEl.style.width = width + 'px';
+    popEl.style.left = Math.max(8, Math.min(window.innerWidth / uz - width - 8, r.left / uz)) + 'px';
+    popEl.style.maxHeight = Math.min(360, Math.max(100, (below ? window.innerHeight - r.bottom : r.top) / uz - 14)) + 'px';
     if (below) popEl.style.top = (r.bottom / uz + 6) + 'px';
     else popEl.style.bottom = ((window.innerHeight - r.top) / uz + 6) + 'px';
     popEl.addEventListener('click', e => e.stopPropagation());
