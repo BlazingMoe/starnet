@@ -8805,7 +8805,7 @@ function rejectProcessFaultRequest(req, res) {
     pathname.indexOf('/workshop-run/') !== 0;
   if (diagnosticRead || staticRead) return false;
   if (pathname.indexOf('/api') === 0) {
-    try { applyApiCors(req, res); } catch (_) {}
+    try { applyApiCors(req, res); } catch (e) { failNote('process-fault.reply-cors', e); }
   }
   const message = processFault.healthLine();
   res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '5' });
@@ -9606,15 +9606,21 @@ function quiesceForProcessFault() {
   if (processFaultQuiesced) return false;
   processFaultQuiesced = true;
   console.error('[process-fault] quiescing background work and refusing non-diagnostic requests');
-  try { disarmCron(); } catch (_) {}
-  try { disarmNightshift(); } catch (_) {}
-  try { disarmLoops(); } catch (_) {}
-  try { if (discoveryTimer) clearInterval(discoveryTimer); discoveryTimer = null; } catch (_) {}
-  try { if (questRefreshTimer) clearInterval(questRefreshTimer); questRefreshTimer = null; } catch (_) {}
-  try { if (executionCleanupTimer) clearInterval(executionCleanupTimer); executionCleanupTimer = null; } catch (_) {}
-  try { if (connectorLifecycleTimer) clearInterval(connectorLifecycleTimer); connectorLifecycleTimer = null; } catch (_) {}
-  try { if (livePricesRefreshTimer) clearInterval(livePricesRefreshTimer); livePricesRefreshTimer = null; } catch (_) {}
-  try {
+  const contain = (tag, fn) => {
+    try {
+      const pending = fn();
+      if (pending && typeof pending.then === 'function') pending.catch(e => failNote('process-fault.quiesce.' + tag, e));
+    } catch (e) { failNote('process-fault.quiesce.' + tag, e); }
+  };
+  contain('cron', () => disarmCron());
+  contain('nightshift', () => disarmNightshift());
+  contain('loops', () => disarmLoops());
+  contain('discovery-timer', () => { if (discoveryTimer) clearInterval(discoveryTimer); discoveryTimer = null; });
+  contain('quest-refresh-timer', () => { if (questRefreshTimer) clearInterval(questRefreshTimer); questRefreshTimer = null; });
+  contain('execution-cleanup-timer', () => { if (executionCleanupTimer) clearInterval(executionCleanupTimer); executionCleanupTimer = null; });
+  contain('connector-lifecycle-timer', () => { if (connectorLifecycleTimer) clearInterval(connectorLifecycleTimer); connectorLifecycleTimer = null; });
+  contain('live-prices-timer', () => { if (livePricesRefreshTimer) clearInterval(livePricesRefreshTimer); livePricesRefreshTimer = null; });
+  contain('runs', () => {
     const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
     const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
     const genericInflights = GENERIC_CHANNEL_IDS.map((id) => {
@@ -9624,18 +9630,18 @@ function quiesceForProcessFault() {
     const tgBotInflights = [...telegramBots.values()].map((w) => (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null);
     const devInflight = (devHub && devHub._internals) ? devHub._internals.inflight : null;
     killAll(runs, tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight);
-  } catch (_) {}
-  try { if (groupSessions && groupSessions.halt) Promise.resolve(groupSessions.halt()).catch(() => {}); } catch (_) {}
-  try { if (subagents && subagents.interruptAll) subagents.interruptAll(); } catch (_) {}
-  try { if (shellBg && shellBg.killAll) shellBg.killAll(); } catch (_) {}
-  try { if (terminalSessions && terminalSessions.stopAll) terminalSessions.stopAll(); } catch (_) {}
-  try { if (executionEnvironment && executionEnvironment.killAllBackground) executionEnvironment.killAllBackground(); } catch (_) {}
-  try { if (lspManager && lspManager.closeAll) Promise.resolve(lspManager.closeAll()).catch(() => {}); } catch (_) {}
-  try { if (connectors && connectors.close) Promise.resolve(connectors.close()).catch(() => {}); } catch (_) {}
-  try { stopTelegram(); } catch (_) {}
-  try { stopAllTelegramBots(); } catch (_) {}
-  try { stopDiscord(); } catch (_) {}
-  try { for (const id of GENERIC_CHANNEL_IDS) stopGenericChannel(id); } catch (_) {}
+  });
+  contain('groups', () => groupSessions && groupSessions.halt && groupSessions.halt());
+  contain('subagents', () => subagents && subagents.interruptAll && subagents.interruptAll());
+  contain('shell-background', () => shellBg && shellBg.killAll && shellBg.killAll());
+  contain('terminals', () => terminalSessions && terminalSessions.stopAll && terminalSessions.stopAll());
+  contain('execution-background', () => executionEnvironment && executionEnvironment.killAllBackground && executionEnvironment.killAllBackground());
+  contain('lsp', () => lspManager && lspManager.closeAll && lspManager.closeAll());
+  contain('connectors', () => connectors && connectors.close && connectors.close());
+  contain('telegram', () => stopTelegram());
+  contain('telegram-bots', () => stopAllTelegramBots());
+  contain('discord', () => stopDiscord());
+  contain('generic-channels', () => { for (const id of GENERIC_CHANNEL_IDS) stopGenericChannel(id); });
   // Keep workspaceOwner + cronLock claimed while this diagnostic shell is alive. Releasing them here would let a
   // fresh process write beside a still-running, faulted process; the normal delayed-exit path releases at exit.
   return true;
