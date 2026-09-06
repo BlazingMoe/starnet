@@ -90,3 +90,12 @@ Local logs: `dev/widget-studio-fast.log` and `dev/widget-studio-http.log` (ignor
 The subsequent commit only records this verification receipt.
 
 No merge, install, or release is claimed by this source receipt.
+
+## Button polish follow-up
+
+At the owner's request, `0dd85745068e6776fcbc942dcc30c4e5555aaa8c` gives only the empty-rail
+Pin a widget button a quiet inset finish and tighter lettering through the shared action-surface
+tokens. Live computed styles on both rails confirmed 22px height, solid border, 4% phosphor
+fill, and a single inset hairline. Clicking opened the library; Escape closed it and restored
+button focus. Website mirror synced. Widgets passed 78 assertions and the full fast gate
+passed all 725 steps on `3f9b8894c` (source fingerprint follow-up). No backend code changed.
