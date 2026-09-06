@@ -56,3 +56,5 @@ inbox:true, lighting:0.62`. A real sidecar stop, `node dev/seed.js --keep` resta
 page reload retained exactly those values. Evidence: audit artifacts
 `release-audit-backup-all-after.log` and `release-audit-restarted.json`.
 The generated website mirror is synchronized. Installed-desktop behavior is unverified.
+Frozen candidate `4f338ad8d` passed the complete fast gate (723/723, exit 0) and
+complete live journeys (130/130, exit 0).

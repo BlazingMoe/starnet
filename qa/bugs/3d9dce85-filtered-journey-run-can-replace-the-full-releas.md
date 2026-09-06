@@ -64,3 +64,6 @@ under the audit artifact directory. This QA-only change does not require an inst
 The complete live run exposed a null-filter error in the first writer patch; an
 executable producer test now verifies both actual argument-parser paths, including
 the unfiltered null value, before the final full-run receipt is accepted.
+Final full live rerun on `4f338ad8d` passed 130/130 and saved `fullSuite:true`,
+`exitCode:0`, and the exact candidate SHA in `qa/journeys-last-run.json`.
+The exact candidate also passed all 723 fast-gate steps, exit 0.
