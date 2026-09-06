@@ -80,4 +80,10 @@ release inventory still hashed the pre-journal stationui.js, app.css and motion.
 Reviewed the candidate diff against that inventory: those are the only changed release
 surface files, the path set is unchanged, and the journal still projects real store state.
 Refreshed the inventory to source commit 8ba29be8d, with no changes to claim verdicts,
-dispositions, proof statuses or locators. The full gate is being rerun on that candidate.
+dispositions, proof statuses or locators.
+
+Final candidate 204db44c5: `npm run test:fast` passed all 723 steps, including
+qa-product-perfect-claims (64 assertions) and quest-log-window (74 assertions).
+Receipt: `dev/quest-style-fast-final.log` (local ignored log). This supersedes the earlier
+fast-gate blockers for this lane. The earlier journey-suite finding was not re-tested.
+No merge or installed-build change; trunk has a separately claimed release integration.
