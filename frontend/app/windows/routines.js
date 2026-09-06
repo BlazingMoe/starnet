@@ -301,7 +301,10 @@
     }
     async function refresh() {
       try {
-        const j = await Harness.api.get('/api/cron');
+        // Publish the same read-back to the widget rail and every scheduler consumer.
+        // Otherwise create/arm/pause updates this panel while NEXT ROUTINE lags a full poll.
+        const j = typeof QuerySpine !== 'undefined' && QuerySpine.refresh
+          ? (await QuerySpine.refresh('cron')).data : await Harness.api.get('/api/cron');
         const jobs = (j && j.jobs) || [];
         // the live cronArmed — feeds the create-confirm's honest arm-state line. A HALTED scheduler is not armed no
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.
