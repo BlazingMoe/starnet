@@ -383,3 +383,11 @@ This adds no timers, animation loops, network requests or world-render work.
 `dev/header-instruments-probe.mjs` exercises layout from 320 to 1440 pixels, enlarged text,
 theme changes, real E-STOP requests and connection loss/recovery on a disposable seeded server.
 Evidence lives in `.worldshots/header-instruments/`. The custom station at port 9177 is preserved.
+
+### September 6: E-STOP moved to SYSTEM
+
+Per user feedback, the header now keeps only station level and the connection readout.
+E-STOP is the last SYSTEM menu item, labeled "halt all runs · Alt+H". The menu's existing
+keyboard navigation and close-on-selection behavior apply. The halt handler and global Alt+H
+shortcut are unchanged. Updated header verification checks the menu action at narrow widths
+and sends real halt requests only to the disposable test server.

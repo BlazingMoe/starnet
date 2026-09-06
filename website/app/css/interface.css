@@ -19,15 +19,6 @@ body {
 #topbar #tb-station .tb-xp { position: absolute; left: 12px; right: 12px; bottom: 3px; width: auto; min-width: 0; height: 2px; border-radius: 0; background: rgba(var(--gold-rgb),.08); box-shadow: none; }
 #topbar #tb-station .tb-xp-fill { box-shadow: none; }
 #topbar .tb-status { padding: 0; gap: 7px; align-items: stretch; }
-#topbar #estop-btn { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 48px; min-width: 96px; margin: 0; padding: 7px 11px; border: 1px solid color-mix(in srgb,var(--bad) 45%,transparent); border-radius: 4px; color: var(--bad); background: linear-gradient(145deg,color-mix(in srgb,var(--bad) 9%,transparent),transparent),var(--panel); box-shadow: inset 0 1px 0 color-mix(in srgb,var(--bad) 12%,transparent); text-shadow: none; opacity: 1; }
-.tb-stop-mark { width: 19px; height: 19px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid currentColor; border-radius: 3px; }
-.tb-stop-mark::before { content: ''; width: 7px; height: 7px; background: currentColor; }
-.tb-stop-copy { display: flex; flex-direction: column; gap: 4px; text-align: left; }
-.tb-stop-copy b { font-size: 15px; font-weight: 400; letter-spacing: .6px; line-height: 1; }
-.tb-stop-copy small { font-size: 9px; letter-spacing: 1.1px; opacity: .65; line-height: 1; }
-#topbar #estop-btn:hover, #topbar #estop-btn:focus-visible { border-color: var(--bad); background: color-mix(in srgb,var(--bad) 13%,var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb,var(--bad) 18%,transparent); }
-#topbar #estop-btn:focus-visible { outline: 2px solid var(--bad); outline-offset: 2px; }
-#topbar #estop-btn:active { background: color-mix(in srgb,var(--bad) 22%,var(--panel)); }
 .tb-connection { position: relative; display: flex; align-items: center; gap: 10px; min-width: 137px; min-height: 48px; padding: 7px 18px 7px 11px; border: 1px solid var(--ui-edge); border-radius: 4px; background: var(--ui-face),var(--panel); box-shadow: inset 0 1px 0 var(--ui-highlight); }
 .tb-link-mark { width: 22px; height: 24px; flex: 0 0 auto; fill: none; stroke: var(--ph); stroke-width: 1.2; opacity: .8; }
 .tb-link-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -45,17 +36,12 @@ body {
   #topbar .tb-stat.station { padding-inline: 9px; grid-template-columns: minmax(50px,auto); }
   .tb-station-mark { display: none; }
   #topbar #tb-station .tb-val { font-size: 21px; }
-  #topbar #estop-btn { min-width: 84px; padding-inline: 8px; gap: 6px; }
   .tb-connection { min-width: 115px; padding-inline: 9px 15px; gap: 7px; }
   .tb-link-mark { width: 18px; }
 }
 @media (max-width: 720px) {
   #topbar .tb-stats, #topbar .tb-status { gap: 4px; }
   #topbar .tb-stat.station { min-height: 42px; padding: 6px 8px; }
-  #topbar #estop-btn { min-width: 69px; min-height: 42px; padding: 6px 8px; }
-  .tb-stop-mark { display: none; }
-  .tb-stop-copy b { font-size: 14px; }
-  .tb-stop-copy small { font-size: 8px; }
   .tb-connection { min-width: 92px; min-height: 42px; padding: 6px 13px 6px 8px; }
   .tb-link-mark { display: none; }
   #topbar #status-pill { font-size: 16px; letter-spacing: .5px; }
@@ -68,7 +54,6 @@ body {
 @media (max-width: 390px) {
   #topbar .tb-stats { padding: 2px; }
   #topbar .tb-status { gap: 3px; }
-  #topbar #estop-btn { min-width: 58px; padding-inline: 5px; }
   .tb-connection { min-width: 76px; padding-inline: 6px; }
   #topbar #status-pill { font-size: 14px; letter-spacing: 0; }
   #topbar #sig { font-size: 8px; letter-spacing: .5px; }

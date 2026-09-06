@@ -18,7 +18,7 @@ const run=s=>evalJS(cdp,s);
 async function until(s){for(let i=0;i<150;i++){if(await run(s))return;await sleep(200);}throw Error('Timed out: '+s);}
 async function check(name,s){assert.ok(await run(s),name);report.checks.push(name);}
 async function shot(name){await sleep(200);await capture(cdp,out,name);const clip=await run(`(()=>{const r=document.querySelector('#topbar .tb-stats').getBoundingClientRect();return{x:Math.max(0,r.x-5),y:Math.max(0,r.y-5),width:r.width+10,height:r.height+10,scale:2}})()`);const r=await cdp.send('Page.captureScreenshot',{format:'png',clip,captureBeyondViewport:false});writeFileSync(join(out,name+'-detail.png'),Buffer.from(r.data,'base64'));}
-const fits=`(()=>{const bar=document.querySelector('#topbar').getBoundingClientRect();return ['#estop-btn','.tb-connection','#tb-station'].every(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return !r.width||(r.left>=bar.left&&r.right<=bar.right+1&&r.top>=bar.top&&r.bottom<=bar.bottom+1&&e.scrollWidth<=e.clientWidth+1)})})()`;
+const fits=`(()=>{const bar=document.querySelector('#topbar').getBoundingClientRect();return ['.tb-connection','#tb-station'].every(s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return !r.width||(r.left>=bar.left&&r.right<=bar.right+1&&r.top>=bar.top&&r.bottom<=bar.bottom+1&&e.scrollWidth<=e.clientWidth+1)})})()`;
 try{
   side=boot();assert.ok(await waitUp('http://127.0.0.1:9490/'));
   chrome=spawn(findChrome(),['--headless=new','--enable-gpu','--no-first-run','--no-default-browser-check','--hide-scrollbars','--mute-audio','--remote-debugging-port=9491','--window-size=1440,1000','--user-data-dir='+join(scratch,'chrome'),'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -29,13 +29,15 @@ try{
   await until(`document.querySelector('#status-pill').textContent==='ONLINE'&&!World.linkState().down`);
   await until(`document.querySelector('.tb-xp-fill').style.width!==''`);
   await check('Station level and progress use the existing measured XP data',`(()=>{const g=Xp.compute(XpStore.stationStats());return document.querySelector('#gt-station').textContent==='Lv '+g.level&&document.querySelector('.tb-xp-fill').style.width===Math.round(g.frac*100)+'%'})()`);
-  await check('The emergency control has a clear label and larger click area',`document.querySelector('#estop-btn b').textContent==='E-STOP'&&document.querySelector('#estop-btn').getBoundingClientRect().height>=44&&document.querySelector('#estop-btn').getAttribute('aria-label').includes('halt all runs')`);
+  await check('E-STOP moved out of the header into SYSTEM',`!document.querySelector('#topbar #estop-btn')&&document.querySelector('[data-group=system] #estop-btn small').textContent==='halt all runs · Alt+H'`);
   await check('The connection display replaces the old signal glyph and rounded pill',`getComputedStyle(document.querySelector('#sig b')).display==='none'&&getComputedStyle(document.querySelector('#status-pill')).borderRadius==='0px'&&document.querySelector('.tb-link-mark')`);
   await check('Desktop instruments fit within the top bar',fits);await shot('01-online');
   for(const width of [1150,1049,860,698,600,475,390,320]){
     await cdp.send('Emulation.setDeviceMetricsOverride',{width,height:912,deviceScaleFactor:1,mobile:false});await sleep(200);
     await check('Header controls fit at '+width+'px',fits);
-    await check('E-STOP stays reachable at '+width+'px',`(()=>{const r=document.querySelector('#estop-btn').getBoundingClientRect(),e=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e?.closest('#estop-btn')&&r.height>=40})()`);
+    await run(`document.querySelector('[data-group=system] .bb-grp').click()`);await sleep(300);
+    await check('SYSTEM E-STOP stays reachable at '+width+'px',`(()=>{const r=document.querySelector('#estop-btn').getBoundingClientRect(),e=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e?.closest('#estop-btn')&&r.height>=43.9&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()`);
+    await run(`document.querySelector('[data-group=system] .bb-grp').click()`);
     if(width===698||width===390)await shot('responsive-'+width);
   }
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -47,7 +49,9 @@ try{
     await check('Instruments keep theme-derived colors in '+theme,`getComputedStyle(document.querySelector('#status-pill')).color===getComputedStyle(document.querySelector('#gt-station')).color&&getComputedStyle(document.querySelector('#estop-btn')).color!==getComputedStyle(document.querySelector('#status-pill')).color`);
     if(theme==='blue')await shot('03-blue-theme');
   }
+  await run(`document.querySelector('[data-group=system] .bb-grp').click()`);await shot('system-menu');
   await run(`document.querySelector('#estop-btn').click()`);
+  await check('Choosing E-STOP closes the SYSTEM menu',`!document.querySelector('[data-group=system]').classList.contains('open')`);
   await until(`document.body.textContent.includes('HALT — stopped 0 runs')`);
   await check('Clicking E-STOP reaches the isolated server and halts its loop scheduler',`fetch('/api/loops').then(r=>r.json()).then(j=>j.halted===true)`);
   assert.equal(haltRequests,1);
