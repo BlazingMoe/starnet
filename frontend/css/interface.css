@@ -206,7 +206,7 @@ body {
   .nav-coach-x, .cam-cine, .ws-tab, .ws-kind-filter button, .crew-filters button, .work-path button,
   .con-rail-item, .con-intent, .cf-nav-b, .fm-tab, .mkt-tab, .mkt-lane,
   .mkt-cta-alt, .mkt-build, .mkt-rec, .es-cta, .q-go, .ts-more,
-  .ag-setup-row, .ch-sum-row, .prov-select, .lb-tab, .mc-seg-btn, .set-theme:not([data-theme]),
+  .ag-setup-row, .ch-sum-row, .prov-select, .lb-tab, .mc-seg-btn, .set-theme:not([data-t]),
   .key-cta-alt, .key-cta-free, .lb-tx-btn, .sp-mode, .rt-agent-btn, .cc-filter, .sk-expand,
   #ws-new, #ws-addproject, #estop-btn
 ):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
