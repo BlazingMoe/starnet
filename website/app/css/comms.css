@@ -267,11 +267,33 @@
 .tool-chip .tc-d-res.err { color: var(--bad); }
 @keyframes comms-blink { 50% { opacity: .25; } }
 
-/* STARTER-CHIP EMPTY STATE — the first-run hint gains a couple of tappable openers (chat.js maybeEmptyState).
-   The line keeps its dim centered treatment; the chips sit under it, reusing the .choice vocabulary. */
-.cmsg-empty-line { margin-bottom: 10px; }
-.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
-.cmsg-empty .cmsg-starter { font-size: 13px; }
+/* Starter actions stay readable over the CRT; quiet filled surfaces brighten on intent. */
+.cmsg-empty { padding: 24px 12px; opacity: 1; text-shadow: none; }
+.cmsg-empty-line { margin-bottom: 16px; color: var(--text); font-size: 15px; }
+.cmsg-empty-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.cmsg-empty .cmsg-starter {
+  min-height: 38px; max-width: 100%; padding: 9px 13px;
+  font-size: 15px; line-height: 1.2; letter-spacing: .2px;
+  white-space: normal; overflow-wrap: anywhere;
+  color: var(--text); text-shadow: none;
+  background: rgba(var(--ph-rgb), .065);
+  border: 1px solid rgba(var(--ph-rgb), .22); border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .04);
+  transition: background-color var(--t-fast) var(--ease-soft),
+    border-color var(--t-fast) var(--ease-soft), color var(--t-fast) var(--ease-soft),
+    box-shadow var(--t-fast) var(--ease-soft), transform var(--t-fast) var(--ease-out);
+}
+.cmsg-empty .cmsg-starter:hover,
+.cmsg-empty .cmsg-starter:focus-visible {
+  color: var(--ph-bright); background: rgba(var(--ph-rgb), .13);
+  border-color: rgba(var(--ph-rgb), .55);
+  box-shadow: 0 3px 10px rgba(0,0,0,.18), inset 0 1px 0 rgba(var(--ph-bright-rgb), .08);
+  transform: translateY(-1px);
+}
+.cmsg-empty .cmsg-starter:active { transform: translateY(0); box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .cmsg-empty .cmsg-starter { transition: none; transform: none; }
+}
 
 /* the legacy plain tool line (replay / stop-reason) keeps app.css's dim treatment, just tightened here */
 .cmsg.tool { margin-left: 0; }
