@@ -202,37 +202,55 @@
        The PENDING rows are the reason this panel exists at all. Both gates are opt-in by design, so an
        unapproved extension is silently inert — and an extension you wrote that never ran, with nothing on
        screen saying why, is the worst failure this design can produce. */
-    const secExt =
-      '<p class="set-about">Your own code, run by the station at fixed moments — after a file is written, before a tool runs, when a session ends. ' +
-        'A <b>hook</b> is a script the station calls; a <b>plugin</b> is a folder of code it loads. ' +
-        '<span class="dim">(Both run OUTSIDE the agent sandbox, with your permissions — which is why nothing runs until you approve it here.)</span></p>' +
-      '<div class="sec"><span class="sec-l">HOOKS</span><span class="sec-r"></span><span class="sec-nd"></span></div>' +
-      '<div id="hk-list" class="mc-list"><span class="loading pulse">loading hooks…</span></div>' +
-      // The AUTHORING form. Its absence is what made the whole feature unreachable: "create a hook" used to
-      // mean "find a folder and hand-write JSON". The event is a picker, not free text, because a typo there
-      // fails silently — the hook simply never fires, with nothing on screen to say why.
-      '<div class="mc-form" id="hk-form">' +
-        '<div class="ext-pair">' +
-          '<select id="hk-event" class="key-input fbc-sel" aria-label="When should this run"></select>' +
-          '<input id="hk-name" class="key-input" placeholder="name (optional) — e.g. format-on-write" autocomplete="off" spellcheck="false" maxlength="60">' +
-        '</div>' +
-        '<input id="hk-cmd" class="key-input" placeholder="command — e.g. npx prettier --write ." autocomplete="off" spellcheck="false">' +
-        '<div class="mc-hint">Runs as a separate process with your permissions. It is handed the event as JSON on stdin; to STOP an action, print ' +
-          '<code>{"decision":"block","reason":"why"}</code>. No shell — quote arguments, and put pipes in a script.</div>' +
-        '<div class="mc-acts"><button class="bb sm" id="hk-add">+ ADD HOOK</button></div>' +
-      '</div>' +
-      '<div class="sec"><span class="sec-l">PLUGINS</span><span class="sec-r"></span><span class="sec-nd"></span></div>' +
-      '<div id="pl-list" class="mc-list"><span class="loading pulse">loading plugins…</span></div>' +
-      '<div class="mc-form" id="pl-form">' +
-        '<div class="ext-pair">' +
-          '<input id="pl-id" class="key-input" placeholder="id — e.g. run-auditor (a-z 0-9 _ -)" autocomplete="off" spellcheck="false" maxlength="64">' +
-          '<input id="pl-name" class="key-input" placeholder="name (optional) — e.g. Run Auditor" autocomplete="off" spellcheck="false" maxlength="60">' +
-        '</div>' +
-        '<input id="pl-desc" class="key-input" placeholder="what it does (optional)" autocomplete="off" spellcheck="false" maxlength="140">' +
-        '<div class="mc-hint">Creates a WORKING plugin you can edit — it already counts tool calls and logs them at the end of a run. Unlike a hook it stays loaded, so it can remember things between events.</div>' +
-        '<div class="mc-acts"><button class="bb sm" id="pl-add">+ CREATE PLUGIN</button><button class="bb xs" id="pl-where">⧉ COPY FOLDER PATH</button></div>' +
-      '</div>' +
-      '<div id="ext-msg" class="msg" role="status" aria-live="polite"></div>';
+    const secExt = `
+      <div class="ext-workspace">
+        <div class="ext-choices" aria-label="Add an extension">
+          <button class="ext-choice" data-ext-editor="hook" aria-controls="hk-form" aria-expanded="false">
+            <span class="ext-choice-icon" aria-hidden="true">⌁</span>
+            <span><b>Run a command automatically</b><small>Choose when StarNet runs your script.</small></span><span aria-hidden="true">＋</span>
+          </button>
+          <button class="ext-choice" data-ext-editor="plugin" aria-controls="pl-form" aria-expanded="false">
+            <span class="ext-choice-icon" aria-hidden="true">⌘</span>
+            <span><b>Create a plugin</b><small>Start with working code you can customize.</small></span><span aria-hidden="true">＋</span>
+          </button>
+        </div>
+        <div id="ext-msg" class="msg" role="status" aria-live="polite"></div>
+        <section class="ext-editor mc-form" id="hk-form" aria-label="Run a command automatically" hidden>
+          <div class="ext-editor-head"><b>Run a command automatically</b><button class="bb xs" data-ext-editor="">CANCEL</button></div>
+          <label for="hk-event">When to run</label>
+          <select id="hk-event" class="key-input fbc-sel"></select>
+          <label for="hk-cmd">Command</label>
+          <input id="hk-cmd" class="key-input" placeholder="e.g. node scripts/run-summary.js" autocomplete="off" spellcheck="false">
+          <details class="ext-details"><summary>Name &amp; technical details</summary>
+            <label for="hk-name">Name <span class="dim">(optional)</span></label>
+            <input id="hk-name" class="key-input" placeholder="e.g. Run summary" autocomplete="off" maxlength="60">
+            <p class="mc-hint">This is a hook. The event arrives as JSON on stdin. Commands run without a shell; put pipes and redirects in a script. Before-tool hooks can block a tool by printing <code>{"decision":"block","reason":"why"}</code>.</p>
+          </details>
+          <p class="mc-hint">Runs with your computer’s permissions. Enable only commands you trust.</p>
+          <div class="mc-acts"><button class="bb sm" id="hk-add">+ ADD &amp; ENABLE</button></div>
+        </section>
+        <section class="ext-editor mc-form" id="pl-form" aria-label="Create a plugin" hidden>
+          <div class="ext-editor-head"><b>Create a plugin</b><button class="bb xs" data-ext-editor="">CANCEL</button></div>
+          <p class="mc-hint">Your starter counts tool calls and logs a total after each run. Edit its code to make it do more.</p>
+          <label for="pl-name">Plugin name</label>
+          <input id="pl-name" class="key-input" placeholder="e.g. Run counter" autocomplete="off" maxlength="60">
+          <details class="ext-details" id="pl-options"><summary>Optional settings</summary>
+            <label for="pl-desc">Description</label>
+            <input id="pl-desc" class="key-input" placeholder="A short note about this plugin" autocomplete="off" maxlength="140">
+            <label for="pl-id">Folder ID <span class="dim">(filled from the name)</span></label>
+            <input id="pl-id" class="key-input" autocomplete="off" spellcheck="false" maxlength="64" aria-describedby="pl-id-hint">
+            <p id="pl-id-hint" class="mc-hint">Letters, numbers, dots, dashes or underscores. Use a different ID if this name is already taken.</p>
+          </details>
+          <p class="mc-hint">Runs with your computer’s permissions. Creating it enables the starter code.</p>
+          <div class="mc-acts"><button class="bb sm" id="pl-add">+ CREATE &amp; ENABLE</button></div>
+        </section>
+        <div class="sec"><span class="sec-l">YOUR EXTENSIONS</span><span class="sec-r"></span><span class="sec-nd"></span></div>
+        <div class="ext-list-heading">AUTOMATIC COMMANDS <span class="dim">/ hooks</span></div>
+        <div id="hk-list" class="mc-list"><span class="loading pulse">Loading commands…</span></div>
+        <div class="ext-list-heading">PLUGINS</div>
+        <div id="pl-list" class="mc-list"><span class="loading pulse">Loading plugins…</span></div>
+        <button class="bb xs" id="pl-where">COPY PLUGINS FOLDER PATH</button>
+      </div>`;
 
     const frag = h => (el => { el.innerHTML = h; });
     // NAV CONDENSE 2 (2026-08-04): the standalone SKILLS window merged in here — one window owns
@@ -289,10 +307,7 @@
       { id: 'keys', label: 'SAVED API CONNECTIONS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
       { id: 'mcp', label: 'CONNECTED SERVICES', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
       { id: 'custom', label: 'CREATE / ADVANCED', glyph: '＋', desc: 'Configure a custom server, API, skill package, hook or plugin.', build: frag('<div class="ab-router-grid"><button class="ab-route" data-ab-to="mcp">Add a custom MCP server</button><button class="ab-route" data-ab-to="keys">Add a custom API key</button><button class="ab-route" data-ab-to="exchange">Import a skill package</button><button class="ab-route" data-ab-to="extensions">Create hooks and plugins</button></div>') },
-      // shortened: the pane's own opening paragraph is the RICHER copy here (concrete moments, the
-      // hook-vs-plugin distinction, the sandbox reason) — unusually, this is the one pane where the
-      // lead earns its place and the `desc` was the redundant half. So the desc yields instead.
-      { id: 'extensions', label: 'EXTENSIONS', glyph: '⌥', desc: 'Your own hooks and plugins — the code you write, run by the station.', build: frag(secExt) }
+      { id: 'extensions', label: 'EXTENSIONS', glyph: '⌥', desc: 'Automate a step or extend StarNet with your own code.', build: frag(secExt) }
     ].concat(lanes.reduce((acc, l) => acc.concat(l.sections), [])), {
       search: true,
       groups: [
@@ -401,10 +416,10 @@
 
     function extBadge(state) {
       return ({
-        active: ['var(--ok)', '● active'],
-        pending: ['var(--gold)', '⚠ awaiting your approval'],
+        active: ['var(--ok)', '● On'],
+        pending: ['var(--gold)', '○ Off · needs approval'],
         error: ['var(--bad)', '✕ error']
-      })[state] || ['var(--ph-dim)', '○ inert'];
+      })[state] || ['var(--ph-dim)', '○ Off'];
     }
     // A findings block is DISCLOSURE at the approval moment — the guard is not a boundary, so the Commander
     // has to be able to see what they are about to say yes to.
@@ -414,78 +429,100 @@
       return '<div class="mc-hint">scanner: <b>' + esc(String(f.level)) + '</b>' + hits + '</div>';
     }
 
+    // Keep drafts in the DOM while changing editors; never ask for two setups at once.
+    function extEditor(kind, focus = true) {
+      body.querySelector('#hk-form').hidden = kind !== 'hook';
+      body.querySelector('#pl-form').hidden = kind !== 'plugin';
+      body.querySelectorAll('.ext-choice').forEach(btn => {
+        btn.setAttribute('aria-expanded', String(btn.dataset.extEditor === kind));
+      });
+      if (focus && kind) body.querySelector(kind === 'hook' ? '#hk-event' : '#pl-name').focus();
+    }
+    body.querySelectorAll('[data-ext-editor]').forEach(btn => btn.addEventListener('click', () => {
+      const kind = btn.dataset.extEditor;
+      const prior = body.querySelector('#hk-form').hidden ? 'plugin' : 'hook';
+      extEditor(kind);
+      extSay('');
+      if (!kind) body.querySelector('[data-ext-editor="' + prior + '"]').focus();
+    }));
+    const pluginName = body.querySelector('#pl-name'), pluginId = body.querySelector('#pl-id');
+    let pluginIdEdited = false;
+    function suggestedPluginId(name) {
+      return name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'my-plugin';
+    }
+    pluginName.addEventListener('input', () => {
+      if (!pluginIdEdited) pluginId.value = suggestedPluginId(pluginName.value);
+    });
+    pluginId.addEventListener('input', () => { pluginIdEdited = !!pluginId.value.trim(); });
+
     async function renderExtensions() {
-      const hkEl = body.querySelector('#hk-list');
-      const plEl = body.querySelector('#pl-list');
-      if (!hkEl || !plEl) return;
-      let hooks = null, plugins = null;
-      try {
-        const [a, b2] = await Promise.all([fetch('/api/hooks'), fetch('/api/plugins')]);
-        hooks = await a.json(); plugins = await b2.json();
-      } catch (e) {
-        hkEl.innerHTML = '<div class="mc-hint">could not read hooks — the station may still be starting.</div>';
-        plEl.innerHTML = '';
-        return;
-      }
-      // The folder path is REMEMBERED, never PRINTED. An absolute path in the chrome is noise for the many
-      // (the form writes the files now) and a leak for the few (it exposes the host's directory layout on
-      // every screenshot). It is available on demand from the COPY FOLDER PATH control instead.
-      extPluginDir = plugins.dir || '';
-      // Fill the event picker once, from the sidecar's OWN list — a hard-coded copy here would rot the day a
-      // new event ships and would fail SILENTLY, which is the one failure mode a hook must never have.
+      const hkEl = body.querySelector('#hk-list'), plEl = body.querySelector('#pl-list');
+      if (!hkEl || !plEl) return false;
+      // A failed read is unavailable state, never an empty list. Keep the other list usable.
+      const read = async (url, key) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (!Array.isArray(data[key])) throw new Error('Invalid extension response');
+        return data;
+      };
+      const results = await Promise.allSettled([read('/api/hooks', 'hooks'), read('/api/plugins', 'plugins')]);
+      const hooks = results[0].status === 'fulfilled' ? results[0].value : null;
+      const plugins = results[1].status === 'fulfilled' ? results[1].value : null;
+      extPluginDir = plugins ? plugins.dir || '' : '';
+      body.querySelector('#pl-where').hidden = !extPluginDir || !plugins.plugins.length;
+      const unavailable = label => '<div class="mc-hint">Could not load ' + label + '. <button class="bb xs" data-ext="retry">TRY AGAIN</button></div>';
       const evSel = body.querySelector('#hk-event');
-      if (evSel && !evSel.options.length && Array.isArray(hooks.events)) {
+      if (hooks && evSel && !evSel.options.length && Array.isArray(hooks.events)) {
         evSel.innerHTML = hooks.events.map(e => '<option value="' + esc(e) + '">' + esc(EVENT_LABEL[e] || e) + '</option>').join('');
+        if (hooks.events.includes('on_session_end')) evSel.value = 'on_session_end';
       }
-
-      const hkRows = (hooks.hooks || []).map((h, i) => {
-        const state = h.active ? 'active' : 'pending';
-        const b3 = extBadge(state);
-        // TWO different verbs, and the difference is the point: REVOKE stops it running and keeps the line so
-        // you can turn it back on; DELETE removes the line entirely.
+      body.querySelector('#hk-add').disabled = !hooks || !evSel.options.length;
+      hkEl.innerHTML = !hooks ? unavailable('commands') : hooks.hooks.map(h => {
+        const badge = extBadge(h.active ? 'active' : 'pending');
         const dat = ' data-event="' + esc(h.event) + '" data-command="' + esc(h.command) + '"';
-        const act = (h.active
-          ? '<button class="bb xs danger" data-ext="hook-revoke"' + dat + '>✕ REVOKE</button>'
-          : '<button class="bb sm" data-ext="hook-allow"' + dat + '>✓ APPROVE</button>')
-          + '<button class="bb xs danger" data-ext="hook-delete"' + dat + '>🗑 DELETE</button>';
-        return '<div class="mc-row" style="--ci:' + i + '">' +
-          '<div class="mc-top"><b>' + esc(h.name || h.command) + '</b> <span class="mc-tag">' + esc(h.event) + '</span>' +
-            '<span class="mc-state" style="color:' + b3[0] + '">' + b3[1] + '</span></div>' +
-          '<div class="mc-url dim"><code>' + esc(h.command) + '</code></div>' +
-          '<div class="mc-acts">' + act + '</div>' +
-        '</div>';
+        return '<div class="mc-row ext-row"><div class="mc-top"><b>' + esc(h.name || h.command) + '</b>' +
+          '<span class="mc-state" style="color:' + badge[0] + '">' + badge[1] + '</span></div>' +
+          '<div class="mc-hint">' + esc(EVENT_LABEL[h.event] || h.event) + '</div>' +
+          '<div class="mc-acts"><button class="bb xs" data-ext="hook-' + (h.active ? 'revoke' : 'allow') + '"' + dat + '>' +
+          (h.active ? 'TURN OFF' : 'APPROVE &amp; ENABLE') + '</button></div>' +
+          '<details class="ext-details"><summary>Details</summary><code class="ext-command">' + esc(h.command) + '</code>' +
+          (!h.active ? '<p class="mc-hint">Runs with your computer’s permissions when enabled.</p>' : '') +
+          '<button class="bb xs danger" data-ext="hook-delete"' + dat + '>REMOVE COMMAND</button></details></div>';
+      }).join('') || '<div class="ext-empty">No automatic commands yet.</div>';
+      plEl.innerHTML = !plugins ? unavailable('plugins') : plugins.plugins.map(p => {
+        const badge = extBadge(p.active ? 'active' : (p.pending ? 'pending' : 'inert'));
+        return '<div class="mc-row ext-row"><div class="mc-top"><b>' + esc(p.name || p.id) + '</b>' +
+          '<span class="mc-state" style="color:' + badge[0] + '">' + badge[1] + '</span></div>' +
+          (p.description ? '<div class="mc-hint">' + esc(p.description) + '</div>' : '') +
+          (!p.active ? extFindings(p.findings) : '') +
+          '<div class="mc-acts"><button class="bb xs" data-ext="plugin-' + (p.active ? 'revoke' : 'allow') + '" data-id="' + esc(p.id) + '" data-digest="' + esc(p.digest || '') + '">' +
+          (p.active ? 'TURN OFF' : 'APPROVE &amp; ENABLE') + '</button></div>' +
+          '<details class="ext-details"><summary>Details &amp; code</summary>' +
+          '<p class="mc-hint">Folder: <code>' + esc(p.id) + '</code> · Version ' + esc(p.version || '0') +
+          '<br>Open its folder to edit the code. Starters use <code>index.js</code>.</p>' +
+          (p.active ? extFindings(p.findings) : '<p class="mc-hint">Enabling loads this code with your computer’s permissions.</p>') +
+          '<div class="mc-acts"><button class="bb xs" data-ext="plugin-where" data-id="' + esc(p.id) + '">COPY FOLDER PATH</button>' +
+          '<button class="bb xs danger" data-ext-remove="' + esc(p.id) + '">DELETE PLUGIN</button></div>' +
+          '<p class="mc-hint">Deleting also removes its code from disk.</p></details></div>';
+      }).join('') || '<div class="ext-empty">No plugins yet.</div>';
+      plEl.querySelectorAll('[data-ext-remove]').forEach(btn => {
+        ArmConfirm.wire(btn, {
+          armedLabel: 'SURE? DELETE CODE', restLabel: 'DELETE PLUGIN', timeoutMs: 4000,
+          onArm: () => sfx('bad'),
+          onConfirm: async () => {
+            if (await extPost('/api/plugins/delete', { id: btn.dataset.extRemove }, btn)) {
+              const refreshed = await renderExtensions();
+              if (refreshed) extSay('Plugin deleted.');
+            }
+          }
+        });
       });
-      hkEl.innerHTML = hkRows.length ? hkRows.join('')
-        // The empty state TEACHES by pointing at the form directly below it. It must never send anyone to a
-        // file on disk now that the form exists — that was true for about a day and would age into a lie.
-        : '<div class="mc-hint">No hooks yet. A hook runs your own command at a fixed moment — ' +
-          '<i>after the agent writes a file, run <code>npx prettier --write .</code></i>, or ' +
-          '<i>before it uses a tool, block anything touching <code>main</code></i>. Add one below.</div>';
-
-      const plRows = (plugins.plugins || []).map((p, i) => {
-        const state = p.active ? 'active' : (p.pending ? 'pending' : 'inert');
-        const b3 = extBadge(state);
-        const act = (p.active
-          ? '<button class="bb xs danger" data-ext="plugin-revoke" data-id="' + esc(p.id) + '">✕ REVOKE</button>'
-          : '<button class="bb sm" data-ext="plugin-allow" data-id="' + esc(p.id) + '" data-digest="' + esc(p.digest || '') + '">✓ APPROVE</button>')
-          // DELETE removes a folder of code. It asks first — this is the one action here with no undo.
-          + '<button class="bb xs danger" data-ext="plugin-delete" data-id="' + esc(p.id) + '" data-name="' + esc(p.name || p.id) + '">🗑 DELETE</button>';
-        return '<div class="mc-row" style="--ci:' + i + '">' +
-          '<div class="mc-top"><b>' + esc(p.name || p.id) + '</b> <span class="dim">' + esc(p.id) + '</span>' +
-            '<span class="mc-tag">v' + esc(p.version || '0') + '</span>' +
-            '<span class="mc-state" style="color:' + b3[0] + '">' + b3[1] + '</span></div>' +
-          (p.description ? '<div class="mc-url dim">' + esc(p.description) + '</div>' : '') +
-          extFindings(p.findings) +
-          '<div class="mc-acts">' + act + '</div>' +
-        '</div>';
-      });
-      plEl.innerHTML = plRows.length ? plRows.join('')
-        : '<div class="mc-hint">No plugins yet. A plugin listens to the same moments as a hook, but stays loaded — ' +
-          'so it can <b>remember between them</b> (count today\'s tool calls, warn you at fifty). ' +
-          'Create one below and it arrives working, ready to edit.</div>';
-
-      const errs = (hooks.errors || []).concat(plugins.errors || []);
-      if (errs.length) extSay(errs[0], true); else extSay('');
+      const errors = (hooks ? hooks.errors || [] : ['Could not load commands. Try again.'])
+        .concat(plugins ? plugins.errors || [] : ['Could not load plugins. Try again.']);
+      extSay(errors[0] || '', !!errors.length);
+      return !errors.length;
     }
 
     // The three form buttons carry no data-ext of their own (they live in the markup, not in a rendered row),
@@ -494,42 +531,46 @@
     body.addEventListener('click', async (ev) => {
       const formBtn = ev.target.closest('#hk-add, #pl-add, #pl-where');
       const btn = formBtn || ev.target.closest('[data-ext]');
-      if (!btn || !body.contains(btn)) return;
+      if (!btn || !body.contains(btn) || btn.disabled) return;
       const kind = formBtn ? EXT_FORM_BTNS[formBtn.id] : btn.getAttribute('data-ext');
       let ok = false;
       // Set AFTER the re-render, never before: renderExtensions() clears the message line to drop stale
       // errors, so a success set inline is wiped the instant it is written (caught live).
       let done = '';
+      if (kind === 'retry') { await renderExtensions(); return; }
       if (kind === 'hook-allow') ok = await extPost('/api/hooks/allow', { event: btn.dataset.event, command: btn.dataset.command }, btn);
       else if (kind === 'hook-revoke') ok = await extPost('/api/hooks/revoke', { event: btn.dataset.event, command: btn.dataset.command }, btn);
       else if (kind === 'hook-delete') ok = await extPost('/api/hooks/delete', { event: btn.dataset.event, command: btn.dataset.command }, btn);
       else if (kind === 'plugin-allow') ok = await extPost('/api/plugins/allow', { id: btn.dataset.id, digest: btn.dataset.digest }, btn);
       else if (kind === 'plugin-revoke') ok = await extPost('/api/plugins/revoke', { id: btn.dataset.id }, btn);
-      else if (kind === 'plugin-delete') {
-        // The only irreversible control on this panel, so it is the only one that asks.
-        if (!confirm('Delete the plugin "' + (btn.dataset.name || btn.dataset.id) + '" and its folder?\n\nThis removes the code from disk and cannot be undone.')) return;
-        ok = await extPost('/api/plugins/delete', { id: btn.dataset.id }, btn);
-      }
       else if (kind === 'hook-add') {
         const ev = body.querySelector('#hk-event'), cmd = body.querySelector('#hk-cmd'), nm = body.querySelector('#hk-name');
-        if (!cmd.value.trim()) { extSay('a hook needs a command to run', true); cmd.focus(); return; }
+        if (!cmd.value.trim()) { extSay('Enter the command you want to run.', true); cmd.focus(); return; }
         ok = await extPost('/api/hooks/create', { event: ev.value, command: cmd.value.trim(), name: nm.value.trim() }, btn);
-        if (ok) { cmd.value = ''; nm.value = ''; done = 'hook added — it is running now'; }
+        if (ok) { cmd.value = ''; nm.value = ''; done = 'Command added.'; extEditor('', false); }
       }
       else if (kind === 'plugin-add') {
         const id = body.querySelector('#pl-id'), nm = body.querySelector('#pl-name'), ds = body.querySelector('#pl-desc');
-        if (!id.value.trim()) { extSay('a plugin needs an id', true); id.focus(); return; }
+        if (!nm.value.trim()) { extSay('Give your plugin a name.', true); nm.focus(); return; }
+        if (!pluginIdEdited) id.value = suggestedPluginId(nm.value);
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id.value.trim())) {
+          body.querySelector('#pl-options').open = true;
+          extSay('Use letters or numbers at the start of the folder ID, then letters, numbers, dots, dashes or underscores.', true);
+          id.focus(); return;
+        }
         ok = await extPost('/api/plugins/create', { id: id.value.trim(), name: nm.value.trim(), description: ds.value.trim() }, btn);
-        if (ok) { done = 'plugin created and loaded — edit its index.js to make it yours'; id.value = ''; nm.value = ''; ds.value = ''; }
+        if (!ok) body.querySelector('#pl-options').open = true;
+        if (ok) { done = 'Plugin created. Find its code under Details & code.'; id.value = ''; nm.value = ''; ds.value = ''; pluginIdEdited = false; extEditor('', false); }
       }
       else if (kind === 'plugin-where') {
         if (!extPluginDir) { extSay('the station has not reported a plugins folder yet', true); return; }
-        try { await navigator.clipboard.writeText(extPluginDir); extSay('folder path copied to your clipboard'); }
-        catch (_) { extSay(extPluginDir); }   // no clipboard permission — show it rather than fail silently
+        const path = extPluginDir + (btn.dataset.id ? '/' + btn.dataset.id : '');
+        try { await navigator.clipboard.writeText(path); extSay('Path copied to your clipboard.'); }
+        catch (_) { extSay(path); }   // no clipboard permission — show it rather than fail silently
         return;
       }
       else return;
-      if (ok) { try { sfx('ok'); } catch (_) {} await renderExtensions(); if (done) extSay(done); }
+      if (ok) { try { sfx('ok'); } catch (_) {} const refreshed = await renderExtensions(); if (done && refreshed) extSay(done); }
     });
     renderExtensions();
 
@@ -998,20 +1039,18 @@
       const cardId = e.catalogId || e.id;
       const chip = e.platformApi && e.unattendedSupported === false
         ? ['', 'manual setup', 'var(--gold)']
-        : (e.needsClient ? ['', 'app setup, then sign in', 'var(--gold)'] : (CC_CHIP[e.authType] || CC_CHIP.none));
-      const origin = e.platformApi
+        : (e.signInAvailable === false ? ['', 'sign-in unavailable', 'var(--gold)'] : (CC_CHIP[e.authType] || CC_CHIP.none));
+      const origin = e.googleApi ? '<span class="cc-badge cc-official" title="StarNet connector using Google’s APIs">STARNET · GOOGLE API</span>' : e.platformApi
         ? '<span class="cc-badge cc-official" title="first-party REST API documented by the vendor">✓ official API</span>'
         : (e.official ? '<span class="cc-badge cc-official" title="first-party server, run by the vendor">✓ official</span>'
                       : '<span class="cc-badge cc-community" title="community-run server">community</span>');
       let action;
       if (e.installed) action = '<button class="bb xs" data-cc-act="manage" data-id="' + esc(cardId) + '">MANAGE SERVICE</button>';
       else if (e.platformApi) action = '<button class="bb xs" data-cc-act="platform" data-id="' + esc(cardId) + '">+ ADD KEY</button>';
-      // staticOauth entry still missing its pre-registered app client (Google): a SET UP reveal, never a
-      // SIGN IN that can only 428. Once the client is saved, needsClient flips and the card renders SIGN IN.
-      else if (e.authType === 'oauth' && e.staticOauth && e.needsClient) action =
-        '<button class="bb xs" data-cc-act="oclient" data-id="' + esc(cardId) + '" title="one-time app setup, then sign-in">▸ SET UP</button>';
+      else if (e.googleApi && e.signInAvailable === false) action =
+        '<button class="bb xs" disabled>GOOGLE SIGN-IN UNAVAILABLE</button>';
       else if (e.authType === 'oauth') action = e.url
-        ? '<button class="bb xs" data-cc-act="signin" data-id="' + esc(cardId) + '" title="opens a secure browser sign-in (OAuth)">▸ SIGN IN</button>'
+        ? '<button class="bb xs" data-cc-act="signin" data-id="' + esc(cardId) + '" title="opens a secure browser sign-in (OAuth)">' + (e.googleApi ? 'SIGN IN WITH GOOGLE' : '▸ SIGN IN') + '</button>'
         : (e.via
           // url-less oauth entry reachable through an aggregator: a LIVE jump to that card, never a mute dead button.
           ? '<button class="bb xs" data-cc-act="via" data-id="' + esc(cardId) + '" data-via="' + esc(e.via) + '" title="no direct endpoint — jump to the connector that reaches it">▸ VIA ' + esc(e.via.toUpperCase()) + '</button>'
@@ -1025,24 +1064,8 @@
         ? '<div class="cc-key" style="display:none"><input type="password" class="key-input" data-cc-key="' + esc(cardId) + '" placeholder="' + esc(e.name) + ' API key / token" autocomplete="off" spellcheck="false">' +
             '<div class="mc-hint">Stored locally by the sidecar, sent as ' + keyDelivery + ', never displayed again.</div></div>'
         : '';
-      /* The one-time app-client setup for staticOauth entries (Google has no automatic app registration).
-         Plain language, the exact redirect URI to paste, and two fields. Saved once per vendor — every other
-         card for that vendor flips straight to SIGN IN. */
-      const redirectUri = 'http://127.0.0.1:' + (location.port || '8787') + '/api/connectors/oauth/callback';
-      const clientField = (e.authType === 'oauth' && e.staticOauth && e.needsClient)
-        ? '<div class="cc-key cc-oclient" style="display:none">' +
-            '<div class="mc-hint">Advanced setup, shared by every Google card. Google Workspace MCP is a developer preview; access must be enabled before sign-in can work.</div>' +
-            '<ol class="cc-steps">' +
-              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a>, enroll in the preview, and enable the service’s MCP API in your Google Cloud project.</li>' +
-              '<li>Configure the consent screen and create an OAuth <b>Web application</b> client. In testing mode, add your Google account as a test user.</li>' +
-              '<li>Add this redirect URI: <span class="cc-uri"><code>' + esc(redirectUri) + '</code><button type="button" class="cc-copy" data-cc-copy="' + esc(redirectUri) + '">COPY</button></span></li>' +
-              '<li>Paste the client ID and secret below.</li>' +
-            '</ol>' +
-            '<input type="text" class="key-input" data-cc-oclientid="' + esc(cardId) + '" placeholder="client ID" autocomplete="off" spellcheck="false">' +
-            '<input type="password" class="key-input" data-cc-oclientsecret="' + esc(cardId) + '" placeholder="client secret" autocomplete="off" spellcheck="false">' +
-            '<div class="mc-hint">Stored locally, never shown again.</div>' +
-          '</div>'
-        : '';
+      const clientField = e.googleApi && e.signInAvailable === false
+        ? '<div class="mc-hint">' + esc(e.signInMessage || 'Google sign-in is not available in this build. StarNet needs to finish enabling it. No account setup is required from you.') + '</div>' : '';
       const home = e.homepage ? ' <a class="cc-home dim" href="' + esc(e.homepage) + '" target="_blank" rel="noopener">site ↗</a>' : '';
       // data-search: the console search box (stationui.js doFilter) matches textContent + this attribute, so a
       // Commander typing "google drive" reaches the Google Workspace card even though those words are only in
@@ -1318,30 +1341,6 @@
         btn.disabled = true; await ccInstall(id, token);
       }
       else if (act === 'signin') { btn.disabled = true; await ccSignIn(id); btn.disabled = false; }
-      else if (act === 'oclient') {
-        // first tap reveals the one-time app-client setup; the second (now ▶ SAVE & SIGN IN) stores the
-        // client with the sidecar and rolls straight into the normal browser sign-in.
-        const card = ev.target.closest('.cc-card');
-        const wrap = card && card.querySelector('.cc-oclient');
-        const idIn = wrap && wrap.querySelector('input[data-cc-oclientid]');
-        const secIn = wrap && wrap.querySelector('input[data-cc-oclientsecret]');
-        if (wrap && wrap.style.display === 'none') { wrap.style.display = ''; btn.textContent = '▶ SAVE & SIGN IN'; if (idIn) idIn.focus(); sfx('tick'); return; }
-        const cid = ((idIn && idIn.value) || '').trim();
-        const secret = ((secIn && secIn.value) || '').trim();
-        if (!cid) { sfx('bad'); ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = 'paste the client ID first'; return; }
-        const entry = ccEntry(id);
-        if (entry && entry.staticOauth && entry.staticOauth.clientSecretRequired && !secret) { sfx('bad'); ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = 'paste the client secret too'; return; }
-        btn.disabled = true;
-        try {
-          const j = await (await postJSON('/api/connectors/oauth/client', { id: id, clientId: cid, clientSecret: secret })).json().catch(() => ({}));
-          if (j.error) { ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = '✕ ' + j.error; sfx('bad'); btn.disabled = false; return; }
-          // update the local cache so ccSignIn sees the flipped state, then sign in right away.
-          ccCache.forEach(x => { if (x.staticOauth && x.staticOauth.authorizationServer === j.authorizationServer) x.needsClient = false; });
-          await ccSignIn(id);
-        } catch (err) { ccMsgEl.classList.remove('ok'); ccMsgEl.textContent = '✕ ' + ((err && err.message) || 'failed to save'); sfx('bad'); }
-        btn.disabled = false;
-        ccRefresh();   // sibling cards on the same vendor flip from SET UP to SIGN IN
-      }
       else if (act === 'signin-cancel') { ccCancelSignIn(id); }
       else if (act === 'via') {
         // Jump to the aggregator card that actually reaches this platform (e.g. Atlassian -> Zapier).

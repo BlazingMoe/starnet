@@ -192,7 +192,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
     const e = C.get(id);
     A.ok(e, id + ' is in the catalog');
     A.eq(e.authType, 'oauth', id + ' is an oauth connector');
-    A.ok(/^https:\/\/\w+mcp\.googleapis\.com\/mcp\/v1$/.test(e.url), id + ' rides Google\'s official MCP endpoint (' + e.url + ')');
+    A.eq(require('../sidecar/mcp/transport.google.js').ENDPOINTS[id], e.url, id + ' uses the stable Google API adapter');
     A.ok(!e.via, id + ' needs no aggregator detour');
     A.ok(e.staticOauth, id + ' carries staticOauth (Google has no dynamic client registration)');
     A.eq(e.staticOauth.authorizationServer, 'https://accounts.google.com', id + ' shares the ONE Google authorization server (client pasted once)');
@@ -203,10 +203,10 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
     // Google never issues a refresh token without these — a connector that dies in an hour is a lie.
     A.eq(e.staticOauth.extraAuthParams.access_type, 'offline', id + ' requests offline access (refresh token)');
     A.eq(e.staticOauth.extraAuthParams.prompt, 'consent select_account', id + ' asks which account and requests consent');
-    A.eq(e.staticOauth.clientSecretRequired, true, id + ' requires the Web application client secret Google issues');
-    A.eq(e.staticOauth.developerPreview, true, id + ' is honestly marked as Google Developer Preview');
-    A.ok(/^https:\/\/developers\.google\.com\/workspace\//.test(e.staticOauth.setupUrl), id + ' links the official complete setup guide');
-    A.ok(/enable the product API and MCP API/i.test(e.staticOauth.setupNote), id + ' states the required Google Cloud enablement step');
+    A.eq(e.staticOauth.clientSecretRequired, false, id + ' does not require a customer client secret');
+    A.eq(e.staticOauth.developerPreview, false, id + ' does not depend on Developer Preview');
+    A.ok(/^https:\/\/developers\.google\.com\/identity\//.test(e.staticOauth.setupUrl), id + ' links the official complete setup guide');
+    A.ok(/StarNet supplies the Google application registration/i.test(e.staticOauth.setupNote), id + ' states the required Google Cloud enablement step');
     A.eq(C.installConfig(id), null, id + ' is not one-click-upsert installable (sign-in flow owns it)');
     A.ok(e.aliases.indexOf('google') >= 0 && e.aliases.indexOf('google workspace') >= 0, id + ' is findable by the google names');
   }
