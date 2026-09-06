@@ -4,9 +4,9 @@
           straight through Chat.send — identical to typing — so all of chat.js's
           busy / purpose / task-vs-talk logic is reused with zero duplication.
    OUTPUT (agent voice): when an agent speaks a conversational reply (the same moment
-          it shows a speech bubble via World.say), it is spoken ALOUD in the ONE locked
-          station voice (Personas.STATION_VOICE — Ultron); personality changes what the
-          agent SAYS, never how it sounds.
+          it shows a speech bubble via World.say), it is spoken aloud using the agent's
+          assigned built-in voice, or the existing station recipe when unassigned.
+          Personality controls the words independently of the chosen voice.
 
    STT prefers the recorder → /api/stt (server Whisper) wherever the mic can be recorded — Chrome's
    browser-native SpeechRecognition is Google-served and CENSORS profanity to asterisks with no opt-out,
@@ -612,26 +612,62 @@ const Voice = (() => {
   /* Which built-in voice speaks. Saved per station; empty falls back to the engine's default (male).
      Read at SPEAK time, not cached, so changing it in Settings takes effect on the very next line. */
   const LOCAL_VOICE_KEY = 'starnet.liveVoice.localVoice.v1';
-  function localVoiceId() {
-    try { return String(localStorage.getItem(LOCAL_VOICE_KEY) || '').trim(); } catch (_) { return ''; }
+  const AGENT_VOICE_KEY = 'starnet.liveVoice.agentVoice.v1:';
+  function currentAgentId() {
+    try {
+      const bound = typeof VoiceLive !== 'undefined' && VoiceLive.boundSessionId ? VoiceLive.boundSessionId() : null;
+      const ws = typeof Workstreams !== 'undefined' ? (bound ? Workstreams.get(bound) : Workstreams.active()) : null;
+      return String(ws && ws.agentId || 'agent');
+    } catch (_) { return 'agent'; }
   }
-  // A Live Voice room has ONE speaker. Snapshot the selected identity when it opens, then pin whichever
+  function voiceChoice(agentId) {
+    try { return String(localStorage.getItem(agentId ? AGENT_VOICE_KEY + encodeURIComponent(agentId) : LOCAL_VOICE_KEY) || '').trim(); } catch (_) { return ''; }
+  }
+  function localVoiceId(agentId) {
+    return voiceChoice(agentId) || voiceChoice('');
+  }
+  function setVoiceChoice(id, agentId) {
+    const want = String(id || '').trim();
+    const key = agentId ? AGENT_VOICE_KEY + encodeURIComponent(agentId) : LOCAL_VOICE_KEY;
+    // Storage failures must reach the picker; never paint an assignment that was not saved.
+    if (want) localStorage.setItem(key, want); else localStorage.removeItem(key);
+    return { voice: want, appliesOn: 'the next spoken reply or new Live Voice session' };
+  }
+  function microphoneHelp() {
+    const desktop = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+    const mac = /Mac/i.test(navigator.platform || navigator.userAgent || '');
+    return desktop && mac
+      ? 'Microphone blocked — enable StarNet in System Settings → Privacy & Security → Microphone, then quit and reopen StarNet. If it is missing or still blocked, install the latest StarNet build.'
+      : desktop ? 'Microphone blocked — allow microphone access for desktop apps in your system privacy settings, then try again.'
+        : 'Microphone blocked — allow microphone access for this page in your browser, then try again.';
+  }
+  // A Live Voice room pins each agent's identity when it first joins the conversation, then pins whichever
   // engine actually serves the first audible chunk (Kokoro or its mapped Edge floor). Without both locks,
   // every streamed sentence independently reread Settings and retried the ladder, so one transient model
   // failure could make the same reply alternate between two people. A locked engine may miss a chunk, but
   // it may never impersonate another speaker mid-session.
-  let sessionLocalVoiceId = '';
-  let sessionVoiceEngine = '';
+  let sessionDefaultVoice = '';
+  let sessionVoices = new Map();
+  let replyVoice = null;
+  function speechVoice(agentId) {
+    if (preferLocalTts && sessionVoices.has(agentId)) return sessionVoices.get(agentId);
+    const override = voiceChoice(agentId);
+    const selected = { agentId, local: preferLocalTts || !!override,
+      id: override || (preferLocalTts ? sessionDefaultVoice : localVoiceId()), engine: '' };
+    if (preferLocalTts) sessionVoices.set(agentId, selected);
+    return selected;
+  }
   function setLocalTts(value) {
     const next = !!value;
     if (next && !preferLocalTts) {
-      sessionLocalVoiceId = localVoiceId();
-      sessionVoiceEngine = '';
+      sessionDefaultVoice = localVoiceId();
+      sessionVoices.clear();
     } else if (!next) {
-      sessionLocalVoiceId = '';
-      sessionVoiceEngine = '';
+      sessionDefaultVoice = '';
+      sessionVoices.clear();
     }
     preferLocalTts = next;
+    if (next) speechVoice(currentAgentId());
   }
   let playIdx = 0;        // next job to PLAY
   let synthIdx = 0;       // next job to begin SYNTHESIZING (runs ahead of playIdx for prefetch)
@@ -644,7 +680,7 @@ const Voice = (() => {
   const MAX_INFLIGHT = 2;        // synth at most this many chunks ahead of playback
   const TTS_CHUNK_MAX = 1000;    // keep each synth call under the sidecar's 1200-char cap
 
-  function resetQueue() { jobs = []; playIdx = 0; synthIdx = 0; draining = false; playing = false; replyClosed = true; replyFails = 0; replyTried = false; }
+  function resetQueue() { jobs = []; replyVoice = null; playIdx = 0; synthIdx = 0; draining = false; playing = false; replyClosed = true; replyFails = 0; replyTried = false; }
 
   // begin synthesizing one job → resolves to {kind:'neural',blob} | {kind:'silent'} | {kind:'skip'}.
   // 'neural' plays; 'silent' means "no neural audio for this chunk — advance the queue, stay quiet" (there
@@ -660,17 +696,17 @@ const Voice = (() => {
       body: JSON.stringify({
         key: cred.key, keyProvider: cred.provider, preferProvider: runProvider(),
         text: job.text, model: cfg.model, voice: cfg.voice, style: cfg.style,
-        local: preferLocalTts,
-        localVoice: preferLocalTts ? sessionLocalVoiceId : localVoiceId(),
-        localEngine: preferLocalTts ? sessionVoiceEngine : '',
+        local: job.voice.local,
+        localVoice: job.voice.id,
+        localEngine: job.voice.engine,
         speed: cfg.speed
       })
     }).then(async r => {
-      if (preferLocalTts && job.seq === speakSeq && !sessionVoiceEngine) {
+      if (job.voice.local && job.seq === speakSeq && !job.voice.engine) {
         const servedBy = String(r.headers.get('X-Voice-Provider') || '').toLowerCase();
         const engine = servedBy === 'local-kokoro' ? 'local-kokoro' : (servedBy.indexOf('edge:') === 0 ? 'edge' : '');
         if (engine) {
-          sessionVoiceEngine = engine;
+          job.voice.engine = engine;
           // The first request runs alone until it establishes the speaker. Resume normal prefetch now.
           pumpSynth();
         }
@@ -716,7 +752,8 @@ const Voice = (() => {
       });
   }
   function pumpSynth() {
-    const limit = preferLocalTts && !sessionVoiceEngine ? 1 : MAX_INFLIGHT;
+    const next = jobs[synthIdx];
+    const limit = next && next.voice.local && !next.voice.engine ? 1 : MAX_INFLIGHT;
     while (synthIdx < jobs.length && (synthIdx - playIdx) < limit) startSynth(jobs[synthIdx++]);
   }
 
@@ -782,6 +819,8 @@ const Voice = (() => {
     let body = opts.mutter ? clean.slice(0, 80) : clean;
     if (!body.trim()) return;
     const opening = (jobs.length === 0);   // FIRST chunk of this reply → eligible for the fast-path lead split
+    const agentId = String(opts.agentId || currentAgentId());
+    if (!replyVoice || replyVoice.agentId !== agentId) replyVoice = speechVoice(agentId);
     if (!opts.mutter) coordinatorEvent('onAssistant', { text: body, opening });
     replyClosed = false; draining = true;
     // on the opening chunk, peel a short lead so the first synth call (and thus first audio) is fast.
@@ -792,7 +831,7 @@ const Voice = (() => {
     } else {
       pieces = splitForTts(body, TTS_CHUNK_MAX);
     }
-    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, seq: speakSeq, queuedAt: Date.now(), result: null, ac: null }); }
+    for (const seg of pieces) { if (seg && seg.trim()) jobs.push({ text: seg, opts, voice: replyVoice, seq: speakSeq, queuedAt: Date.now(), result: null, ac: null }); }
     pumpSynth(); pumpPlay();
   }
   // signal end-of-reply; the heartbeat (default: re-arm the hands-free loop) fires once the LAST chunk ends.
@@ -1418,7 +1457,7 @@ const Voice = (() => {
           listening = false; setMicState(false);
           clearTimeout(rearmTimer); rearmTimer = null;
           stopConvo();
-          setStatus('mic blocked — allow microphone access in your browser, then click 🎤');
+          setStatus(microphoneHelp());
           return;
         }
         endListening();
@@ -1671,7 +1710,7 @@ const Voice = (() => {
     toggleVoiceMode, stopConvo, onTurnEnd,
     canListen, canSpeak, startCoordinator, stopCoordinator, pauseCoordinator, resumeCoordinator, attachCoordinator, detachCoordinator,
     canOAuthLive: () => !!SR || typeof fetch !== 'undefined', personaId: () => activePersonaId,
-    setLocalTts,
+    setLocalTts, voiceChoice, localVoiceId, setVoiceChoice, currentAgentId, microphoneHelp,
     /* LIVE VOICE MUST ARRIVE AUDIBLE. Opening a hands-free session with the speaker muted is a room where you
        talk and nothing answers — the Commander then has to find a toggle to make the feature work at all.
        Classic voice mode already force-enables the speaker in toggleVoiceMode(); the Local Live panel does not

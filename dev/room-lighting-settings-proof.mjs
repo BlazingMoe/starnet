@@ -48,7 +48,7 @@ try {
     await evalJS(cdp, `document.querySelector('[data-lighting="${level}"]').click(); true`);
     const state = await read();
     assert.equal(state.ambient, ambient);
-    assert.equal(state.glow, .06);
+    assert.equal(state.glow, .13);
     assert.deepEqual(state.selected, [level]);
     assert.equal(state.buttons.length, 3);
     assert.ok(state.buttons.every(b => !['rgb(255, 255, 255)', 'rgb(239, 239, 239)'].includes(b.bg) && b.border !== 'rgb(118, 118, 118)'));

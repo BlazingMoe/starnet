@@ -114,7 +114,7 @@ function boot(opts) {
     document: { getElementById: id => nodes[id] || null, addEventListener() {} },
     navigator: hasRecorder ? { mediaDevices: { getUserMedia: makeGum() } } : { mediaDevices: undefined },
     location: { search: opts.recorder ? '?stt=recorder' : '' },
-    localStorage: (() => { const m = {}; return { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => m[k] = String(v), removeItem: k => delete m[k] }; })(),
+    localStorage: opts.localStorage || (() => { const m = {}; return { getItem: k => (k in m ? m[k] : null), setItem: (k, v) => m[k] = String(v), removeItem: k => delete m[k] }; })(),
     SpeechRecognition: hasRecorder ? undefined : MockSR,
     MediaRecorder: hasRecorder ? MockMR : undefined,
     AudioContext: MockAC,
@@ -530,6 +530,56 @@ async function opensWithin(t, ms) {
     await until(()=>timings.length > 0,1000);
     A.ok(timings.length > 0 && timings.every(v=>Number.isFinite(v.audioStartMs) && v.audioStartMs >= 0), 'latency is emitted only when actual audio playback starts');
     A.ok(requests.every(r => r.local === true), 'the stable-voice requests remain on the built-in Live Voice path');
+  }
+
+  // Stable agent IDs own assignments; queued speech and live calls keep their selected identity.
+  {
+    const requests = [];
+    const fetch = (url, o) => {
+      if (url !== '/api/tts') return Promise.resolve({ok:true, json:async()=>({})});
+      requests.push(JSON.parse(o.body));
+      return Promise.resolve({ok:true, status:200,
+        headers:{get:n=>n.toLowerCase()==='content-type' ? 'audio/wav' : 'local-kokoro'},
+        blob:async()=>({size:128})});
+    };
+    const t = boot({audio:true, Audio:AutoEndAudio, fetch});
+    t.Voice.setVoiceChoice('am_onyx');
+    t.Voice.setVoiceChoice('af_nova', 'scout');
+    t.Voice.setVoiceChoice('bm_george', 'builder');
+    t.Voice.setSpeakReplies(true);
+    const say = async (agentId, name) => {
+      const count = requests.length;
+      t.Voice.speakChunk('This is a short reply.', name, {agentId});
+      t.Voice.endReply();
+      await until(()=>requests.length > count && !t.Voice.isReplyPending(), 1000);
+      return requests[count];
+    };
+    A.eq((await say('scout', 'SCOUT')).localVoice, 'af_nova', 'scout speaks with its assigned voice');
+    A.eq((await say('builder', 'BUILDER')).localVoice, 'bm_george', 'builder has a distinct assigned voice');
+    A.eq((await say('scout', 'RENAMED')).localVoice, 'af_nova', 'renaming cannot change the stable agent voice');
+    A.ok(requests.every(r=>r.local), 'assigned voices use the built-in engine even outside hands-free');
+    const reloaded = boot({localStorage:t.sandbox.localStorage});
+    A.eq(reloaded.Voice.localVoiceId('scout'), 'af_nova', 'assignment survives frontend reinitialization');
+    t.Voice.setLocalTts(true);
+    await say('scout', 'SCOUT');
+    t.Voice.setVoiceChoice('af_heart', 'scout');
+    A.eq((await say('scout', 'SCOUT')).localVoice, 'af_nova', 'live agent voice remains pinned after a settings change');
+    A.eq((await say('builder', 'BUILDER')).localVoice, 'bm_george', 'switching live agents uses the new speaker assignment');
+    t.Voice.setLocalTts(false); t.Voice.setLocalTts(true);
+    A.eq((await say('scout', 'SCOUT')).localVoice, 'af_heart', 'new live call adopts the saved change');
+    t.Voice.setLocalTts(false);
+    t.Voice.setVoiceChoice('', 'scout');
+    A.eq(t.Voice.localVoiceId('scout'), 'am_onyx', 'clearing an assignment restores station inheritance');
+    t.sandbox.Workstreams = {active:()=>({agentId:'builder'}),get:()=>({agentId:'scout'})};
+    A.eq(t.Voice.currentAgentId(), 'builder', 'ordinary voice follows the active session agent');
+    t.sandbox.VoiceLive = {boundSessionId:()=> 'bound'};
+    A.eq(t.Voice.currentAgentId(), 'scout', 'live voice follows its bound session despite browsing elsewhere');
+    t.sandbox.window.__TAURI__ = {}; t.sandbox.navigator.platform = 'MacIntel';
+    A.ok(t.Voice.microphoneHelp().includes('Privacy & Security'), 'desktop Mac recovery directs to system microphone settings');
+    t.sandbox.localStorage.setItem = () => { throw new Error('storage full'); };
+    let refused = false;
+    try { t.Voice.setVoiceChoice('af_nova', 'scout'); } catch (_) { refused = true; }
+    A.ok(refused, 'failed storage never returns a false saved acknowledgement');
   }
 
   // --- a transient failure is RETRIED once, so a one-shot blip loses NOTHING -------------------

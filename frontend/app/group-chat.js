@@ -19,7 +19,10 @@ const GroupChat = (() => {
   async function api(body, query = '') {
     const r = await fetch('/api/groups' + query, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' });
     if (r.status === 401 || r.status === 403) throw new Error('Reconnect to this station by refreshing the page. Your conversation is saved.');
-    const out = await r.json(); if (!r.ok || !out.ok) throw new Error(out.error || 'Group request failed'); return out.result;
+    if (r.status === 404 && !body && !query) throw new Error('Group chat is unavailable on this server. Run the current StarNet backend, then try again.');
+    let out;
+    try { out = await r.json(); } catch (_) { throw new Error('The server could not load group chat. Try again.'); }
+    if (!r.ok || !out?.ok) throw new Error(out?.error || 'Group request failed'); return out.result;
   }
   function save() { if (typeof App !== 'undefined') { App.persist(); App.refreshRail(); } }
   function adopt(g) {
@@ -328,69 +331,78 @@ const GroupChat = (() => {
   }
   async function picker(convert) {
     if ($('gc-picker')) return;
-    if (App.pushRoster) await App.pushRoster();
-    const info = await api(); roster = info.roster;
-    const origin = convert ? active : null, existing = origin?.conversationMode === 'group' ? await api(null, '?id=' + origin.id) : null;
-    /* Two lists, one verb each. IN THIS CHAT (remove with ✕) and ADD TO THIS CHAT (+ ADD moves the
-       row up instantly). Nothing is a toggle you have to decode; the footer says exactly what SAVE
-       will do ("+2 · −1"). The lead is marked and cannot be removed — someone must answer an
-       unaddressed message. Search appears only when the crew is big enough to need it. */
+    const origin = convert ? active : null;
     const dialog = h('div', { id: 'gc-picker', class: 'gc-picker' });
     const close = () => StationUI.closeTerm('group-agents');
-    const initial = new Set(existing ? existing.members : [origin?.agentId || 'agent']);
-    const chosen = new Set(initial);
-    const leadId = existing?.leadId || origin?.agentId || 'agent';
-    const dup = id => roster.filter(r => r.name === roster.find(a => a.id === id)?.name).length > 1;
-    const label = id => name(id) + (dup(id) ? ' (' + id + ')' : '');
-    const search = roster.length > 6 ? h('input', { type: 'search', class: 'key-input', placeholder: 'Find an agent by name', 'aria-label': 'Find an agent by name' }) : null;
-    if (search) dialog.append(search);
-    const inHead = h('div', { class: 'gc-sect-h' }), inList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents in this chat' });
-    const outHead = h('div', { class: 'gc-sect-h' }), outList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents you can add' });
-    const outEmpty = h('div', { class: 'gc-empty' });
-    dialog.append(h('div', { class: 'gc-sect' }, null), h('div', { class: 'gc-sect' }, null));
-    dialog.children[search ? 1 : 0].append(inHead, inList); dialog.children[search ? 2 : 1].append(outHead, outList, outEmpty);
-    const hint = h('p', { class: 'gc-hint' }); dialog.append(hint);
-    const errors = h('p', { role: 'alert' }); dialog.append(errors);
-    const footer = h('div', { class: 'gc-picker-footer' }), delta = h('span', { class: 'gc-delta', 'aria-live': 'polite' });
-    const saveBtn = button('SAVE', async () => {
-      try {
-        const members = roster.filter(a => chosen.has(a.id)).map(a => a.id);
-        const data = { members, leadId: members.includes(leadId) ? leadId : members[0], title: existing?.title || origin?.title || 'Group chat' };
-        const g = await api(existing ? { op: 'configure', id: existing.id, revision: existing.revision, ...data } : { op: 'create', ...(origin ? { id: origin.id, history: origin.history, originalAgentId: origin.agentId } : {}), ...data });
-        adopt(g); save(); close(); active = null; App.openWorkstream(g.id); if (typeof Chat !== 'undefined') Chat.load(Workstreams.get(g.id));
-      } catch (e) { errors.textContent = e.message; }
-    }); saveBtn.classList.add('primary');
-    footer.append(delta, saveBtn, button('CANCEL', close)); dialog.append(footer);
-    function row(a, inChat) {
-      const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase() });
-      const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); if (colorOf(a.id)) led.style.background = colorOf(a.id);
-      const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)), h('span', { class: 'gc-tag' }, describe(a.id)));
-      r.append(led, idc);
-      if (inChat && a.id === leadId) r.append(h('span', { class: 'gc-lead', title: 'Answers when you do not @ anyone' }, 'lead'));
-      else if (inChat) { const b = button('✕ REMOVE', () => { chosen.delete(a.id); render(); }); b.setAttribute('aria-label', 'Remove ' + label(a.id) + ' from this chat'); r.append(b); }
-      else { const b = button('+ ADD', () => { chosen.add(a.id); render(); }); b.setAttribute('aria-label', 'Add ' + label(a.id) + ' to this chat'); r.append(b); }
-      return r;
+    dialog.append(h('p', { role: 'status' }, 'Loading agents…'), button('CANCEL', close));
+    StationUI.toggleTerm('group-agents', origin?.conversationMode === 'group' ? 'AGENTS IN THIS CHAT' : 'ADD AGENTS', body => body.replaceChildren(dialog), { onClose: () => dialog.remove() });
+    try {
+      if (App.pushRoster) await App.pushRoster();
+      const info = await api(); roster = info.roster;
+      const existing = origin?.conversationMode === 'group' ? await api(null, '?id=' + origin.id) : null;
+      if (!dialog.isConnected) return;
+      dialog.replaceChildren();
+      /* Two lists, one verb each. IN THIS CHAT (remove with ✕) and ADD TO THIS CHAT (+ ADD moves the
+         row up instantly). Nothing is a toggle you have to decode; the footer says exactly what SAVE
+         will do ("+2 · −1"). The lead is marked and cannot be removed — someone must answer an
+         unaddressed message. Search appears only when the crew is big enough to need it. */
+      const initial = new Set(existing ? existing.members : [origin?.agentId || 'agent']);
+      const chosen = new Set(initial);
+      const leadId = existing?.leadId || origin?.agentId || 'agent';
+      const dup = id => roster.filter(r => r.name === roster.find(a => a.id === id)?.name).length > 1;
+      const label = id => name(id) + (dup(id) ? ' (' + id + ')' : '');
+      const search = roster.length > 6 ? h('input', { type: 'search', class: 'key-input', placeholder: 'Find an agent by name', 'aria-label': 'Find an agent by name' }) : null;
+      if (search) dialog.append(search);
+      const inHead = h('div', { class: 'gc-sect-h' }), inList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents in this chat' });
+      const outHead = h('div', { class: 'gc-sect-h' }), outList = h('div', { class: 'gc-sect-list', role: 'list', 'aria-label': 'Agents you can add' });
+      const outEmpty = h('div', { class: 'gc-empty' });
+      dialog.append(h('div', { class: 'gc-sect' }, null), h('div', { class: 'gc-sect' }, null));
+      dialog.children[search ? 1 : 0].append(inHead, inList); dialog.children[search ? 2 : 1].append(outHead, outList, outEmpty);
+      const hint = h('p', { class: 'gc-hint' }); dialog.append(hint);
+      const errors = h('p', { role: 'alert' }); dialog.append(errors);
+      const footer = h('div', { class: 'gc-picker-footer' }), delta = h('span', { class: 'gc-delta', 'aria-live': 'polite' });
+      const saveBtn = button('SAVE', async () => {
+        try {
+          const members = roster.filter(a => chosen.has(a.id)).map(a => a.id);
+          const data = { members, leadId: members.includes(leadId) ? leadId : members[0], title: existing?.title || origin?.title || 'Group chat' };
+          const g = await api(existing ? { op: 'configure', id: existing.id, revision: existing.revision, ...data } : { op: 'create', ...(origin ? { id: origin.id, history: origin.history, originalAgentId: origin.agentId } : {}), ...data });
+          adopt(g); save(); close(); active = null; App.openWorkstream(g.id); if (typeof Chat !== 'undefined') Chat.load(Workstreams.get(g.id));
+        } catch (e) { errors.textContent = e.message; }
+      }); saveBtn.classList.add('primary');
+      footer.append(delta, saveBtn, button('CANCEL', close)); dialog.append(footer);
+      function row(a, inChat) {
+        const r = h('div', { class: 'gc-row' + (inChat ? ' in' : ''), role: 'listitem', 'data-agent-name': label(a.id).toLowerCase() });
+        const led = h('span', { class: 'gc-led', 'aria-hidden': 'true' }); if (colorOf(a.id)) led.style.background = colorOf(a.id);
+        const idc = h('div', { class: 'gc-id' }); idc.append(h('span', { class: 'gc-nm' }, label(a.id)), h('span', { class: 'gc-tag' }, describe(a.id)));
+        r.append(led, idc);
+        if (inChat && a.id === leadId) r.append(h('span', { class: 'gc-lead', title: 'Answers when you do not @ anyone' }, 'lead'));
+        else if (inChat) { const b = button('✕ REMOVE', () => { chosen.delete(a.id); render(); }); b.setAttribute('aria-label', 'Remove ' + label(a.id) + ' from this chat'); r.append(b); }
+        else { const b = button('+ ADD', () => { chosen.add(a.id); render(); }); b.setAttribute('aria-label', 'Add ' + label(a.id) + ' to this chat'); r.append(b); }
+        return r;
+      }
+      function render() {
+        const q = (search?.value || '').toLowerCase();
+        const ins = roster.filter(a => chosen.has(a.id)), outs = roster.filter(a => !chosen.has(a.id));
+        inHead.replaceChildren('In this chat ', h('b', {}, String(ins.length)));
+        outHead.replaceChildren('Add to this chat');
+        inList.replaceChildren(...ins.map(a => row(a, true))); outList.replaceChildren(...outs.map(a => row(a, false)));
+        for (const r of [...inList.children, ...outList.children]) r.hidden = !!q && !r.dataset.agentName.includes(q);
+        outEmpty.replaceChildren();
+        if (!outs.length) { outEmpty.append('Your whole crew is already in this chat. Recruit more under CREW.'); }
+        const lead = chosen.has(leadId) ? leadId : ins[0]?.id;
+        hint.replaceChildren('Talk to one agent with ', h('b', {}, '@name'), '. Without an @, ', h('b', {}, lead ? name(lead) : 'the lead'), ' answers. Everyone here sees the whole conversation and its shared files.');
+        const added = [...chosen].filter(id => !initial.has(id)).length, removed = [...initial].filter(id => !chosen.has(id)).length;
+        const parts = []; if (added) parts.push('+' + added + (added === 1 ? ' agent' : ' agents')); if (removed) parts.push('−' + removed + (removed === 1 ? ' agent' : ' agents'));
+        delta.textContent = parts.length ? parts.join(' · ') : 'no changes yet';
+        const changed = !!parts.length || (!existing && chosen.size > 1);
+        saveBtn.disabled = !changed || !chosen.size; saveBtn.textContent = !existing && chosen.size > 1 ? 'START GROUP CHAT' : 'SAVE';
+      }
+      if (search) search.addEventListener('input', render);
+      render();
+    } catch (e) {
+      if (!dialog.isConnected) return;
+      dialog.replaceChildren(h('p', { role: 'alert' }, e.message || String(e)), button('RETRY', () => { close(); return picker(convert); }), button('CANCEL', close));
     }
-    function render() {
-      const q = (search?.value || '').toLowerCase();
-      const ins = roster.filter(a => chosen.has(a.id)), outs = roster.filter(a => !chosen.has(a.id));
-      inHead.replaceChildren('In this chat ', h('b', {}, String(ins.length)));
-      outHead.replaceChildren('Add to this chat');
-      inList.replaceChildren(...ins.map(a => row(a, true))); outList.replaceChildren(...outs.map(a => row(a, false)));
-      for (const r of [...inList.children, ...outList.children]) r.hidden = !!q && !r.dataset.agentName.includes(q);
-      outEmpty.replaceChildren();
-      if (!outs.length) { outEmpty.append('Your whole crew is already in this chat. Recruit more under CREW.'); }
-      const lead = chosen.has(leadId) ? leadId : ins[0]?.id;
-      hint.replaceChildren('Talk to one agent with ', h('b', {}, '@name'), '. Without an @, ', h('b', {}, lead ? name(lead) : 'the lead'), ' answers. Everyone here sees the whole conversation and its shared files.');
-      const added = [...chosen].filter(id => !initial.has(id)).length, removed = [...initial].filter(id => !chosen.has(id)).length;
-      const parts = []; if (added) parts.push('+' + added + (added === 1 ? ' agent' : ' agents')); if (removed) parts.push('−' + removed + (removed === 1 ? ' agent' : ' agents'));
-      delta.textContent = parts.length ? parts.join(' · ') : 'no changes yet';
-      const changed = !!parts.length || (!existing && chosen.size > 1);
-      saveBtn.disabled = !changed || !chosen.size; saveBtn.textContent = !existing && chosen.size > 1 ? 'START GROUP CHAT' : 'SAVE';
-    }
-    if (search) search.addEventListener('input', render);
-    render();
-    StationUI.toggleTerm('group-agents', existing ? 'AGENTS IN THIS CHAT' : 'ADD AGENTS', body => body.replaceChildren(dialog), { onClose: () => dialog.remove() });
   }
   async function rename(id, title) { const state = await api(null, '?id=' + encodeURIComponent(id)); await api({ op: 'configure', id, revision: state.revision, title }); return true; }
   async function remove(id) { await api({ op: 'control', id, action: 'delete' }); }

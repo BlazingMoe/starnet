@@ -19,7 +19,14 @@ function resolveConnectorOauthTarget(id, catalog, configs) {
   const list = Array.isArray(configs) ? configs : [];
   const saved = list.find(c => c && String(c.id || '') === id) || null;
   const catalogEntry = catalog && typeof catalog.get === 'function' ? catalog.get(id) : null;
-  const savedIsCustom = !!(saved && saved.oauth === true && saved.transport === 'http' && saved.url
+  // A first-party preview connection can be re-authorized onto the stable local
+  // adapter without treating Google's old endpoint as an arbitrary custom server.
+  const legacyGoogle = !!(catalogEntry && catalogEntry.googleApi && saved && ({
+    gmail: 'https://gmailmcp.googleapis.com/mcp/v1', 'google-drive': 'https://drivemcp.googleapis.com/mcp/v1',
+    'google-calendar': 'https://calendarmcp.googleapis.com/mcp/v1', 'google-docs': 'https://docsmcp.googleapis.com/mcp/v1',
+    'google-sheets': 'https://sheetsmcp.googleapis.com/mcp/v1'
+  })[id] === saved.url);
+  const savedIsCustom = !!(!legacyGoogle && saved && saved.oauth === true && saved.transport === 'http' && saved.url
     && (!catalogEntry || !sameEndpoint(saved.url, catalogEntry.url)));
 
   if (!savedIsCustom && catalogEntry) {

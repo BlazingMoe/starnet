@@ -253,26 +253,51 @@ A.ok(canvases.every(boundedCanvas),
    this file's canvas mock resolves a gradient fillStyle to a single value, so the room-lighting
    pass flattens the whole footprint and every floor mark under it becomes invisible. */
 const matGeo = mat => { const g = makeGeo(); g.matOf = () => mat; return g; };
-for (const mat of ['grate', 'hex', 'plank', 'turf']) {
+for (const mat of ['grate', 'hex', 'plank', 'turf', 'alloy']) {
   const g = matGeo(mat);
   A.eq(pixelDiff(composeLayer(StationBake.bakeIncremental(g, null, null), 'base'), StationBake.bake(g).baseCv), 0,
     mat + ' deck bakes identically chunked and monolithic');
 }
 
-// Regression: room growth must not move fixtures against the outer walls.
-// Exercise production bake output, including the small/narrow cases whose
-// radius previously depended only on depth. Pixel contrast is checked live by
-// dev/room-lighting-proof.mjs (this canvas mock cannot represent gradients).
+// Regression: growing either room axis must add distributed, weaker fixtures.
+// Actual coverage is checked by dev/room-lighting-even-proof.mjs; this canvas
+// mock cannot represent gradients.
 for (const [w, h] of [[9, 7], [14, 9], [15, 14], [18, 18], [24, 16], [12, 24], [40, 30]]) {
   const g = makeGeo(), r = { z: 'r1', x1: 2, y1: 2, x2: w + 1, y2: h + 1 };
   g.allRects = [r]; g.zones.r1 = r; g.zoneGrid.fill(null);
   for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) g.zoneGrid[g.idx(x, y)] = 'r1';
   const lamps = StationBake.bake(g).lamps;
-  A.ok(lamps.every(l => l.x === (2 + w / 2) * 12), w + 'x' + h + ' keeps fixtures on one north-south centre line');
-  A.eq(lamps.length, 2, w + 'x' + h + ' uses the reference top and bottom lights');
-  A.ok(Math.abs(lamps[0].y - (2 + h * 1.6 / 14) * 12) < .001, w + 'x' + h + ' scales the reference top position');
-  A.ok(lamps.every(l => Math.abs(l.r - 60 * Math.min(w / 15, h / 14) * 1.3 * 1.4) < .001), w + 'x' + h + ' scales the exact reference radius');
+  const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
+  A.eq(lamps.length, cols * rows, w + 'x' + h + ' distributes fixtures on both axes');
+  A.eq(new Set(lamps.map(l => l.x)).size, cols, w + 'x' + h + ' covers the full width');
+  A.eq(new Set(lamps.map(l => l.y)).size, rows, w + 'x' + h + ' covers the full height');
+  A.ok(lamps.every(l => l.gain > 0 && l.gain <= .25), w + 'x' + h + ' keeps fixture accents below the diffuse fill');
 
 }
 
+// Raised corner faces are part of the interior, including the portion above
+// the footprint. The receiver must follow both corner shapes without lighting
+// the crown or the void above it.
+const savedUp = StationBake.WALL.up, savedN = StationBake.SHAPE.cornerN;
+for (const n of [1, 2]) {
+  StationBake.SHAPE.cornerN = n;
+  const g = makeGeo(), r = {z:'r1',x1:4,y1:6,x2:18,y2:17};
+  g.allRects=[r];g.zones.r1=r;g.zoneGrid.fill(null);
+  for(let y=r.y1;y<=r.y2;y++)for(let x=r.x1;x<=r.x2;x++)g.zoneGrid[g.idx(x,y)]='r1';
+  g.chamfers=[[r.x1,r.y1,'tl'],[r.x2,r.y1,'tr'],[r.x1,r.y2,'bl'],[r.x2,r.y2,'br']];
+  for(const up of [14,30,50]) {
+    StationBake.WALL.up=up;
+    const b=StationBake.bake(g),mask=b.interiorCv;
+    const y=r.y1*12-Math.min(10,up-10); // below the crown even on the shallow 14px wall
+    for(const x of [r.x1*12+6,(r.x2+1)*12-6]) {
+      A.ok(mask._pixels[y*mask.width+x]!==0,'corner '+n+' height '+up+' raised face receives light at '+x);
+      A.eq(mask._pixels[(r.y1*12-up-10)*mask.width+x],0,'corner '+n+' height '+up+' leaves sky outside the receiver');
+    }
+    if(up===30) {
+      const chunks=StationBake.bakeIncremental(g,null,null);
+      A.eq(pixelDiff(composeLayer(chunks,'light'),b.lightCv),0,'corner '+n+' raised wall lighting matches across chunk and full bake');
+    }
+  }
+}
+StationBake.WALL.up=savedUp;StationBake.SHAPE.cornerN=savedN;
 A.report('stationbake.chunk');

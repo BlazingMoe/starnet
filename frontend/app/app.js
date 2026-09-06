@@ -77,7 +77,7 @@ const App = (() => {
         if (typeof Chat !== 'undefined' && Chat.status && !(Chat.isBusy && Chat.isBusy())) Chat.status('online');
         const pill = el('status-pill'); if (pill) { pill.textContent = 'ONLINE'; pill.className = ''; }
         const empty = document.querySelector('.cmsg-empty-line');
-        if (empty && agent) empty.textContent = 'COMMS online. Type a task or a question to ' + agent.name + '.';
+        if (empty && agent) empty.textContent = 'What would you like to work on?';
         return;
       }
       // EventSource.CONNECTING is not a fault. Only call the link unavailable after it has failed to
@@ -3473,11 +3473,33 @@ const App = (() => {
   let railTicker = 0;
   let railShowArchived = false;   // when true the rail also lists archived (put-away) sessions, dimmed
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
+  let railAttentionOnly = false;
+  let railAttentionKey = '';
+  // Pending consent belongs to a session. Multiple sessions on one agent remain distinct;
+  // deleted/orphaned channels cannot contribute a count with nowhere to open.
+  function railPendingIds() {
+    return new Set(typeof Channels === 'undefined' ? [] : Channels.pendingIds().filter(id => Workstreams.get(id)));
+  }
+  function syncRailAttention(pending) {
+    railAttentionKey = [...pending].sort().join('\n');
+    if (!pending.size) railAttentionOnly = false;
+    const btn = el('ws-attention'); if (!btn) return;
+    const hide = !pending.size || railView !== 'sessions';
+    if (hide && document.activeElement === btn) el('ws-search')?.focus();
+    if (btn.hidden !== hide) btn.hidden = hide;
+    const pressed = String(railAttentionOnly);
+    if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
+    const label = 'Waiting for you · ' + pending.size + ' session' + (pending.size === 1 ? '' : 's') + ' waiting for your response. ' + (railAttentionOnly ? 'Show all sessions' : 'Show waiting sessions');
+    if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+    const count = el('ws-attention-count'), clear = el('ws-attention-clear');
+    if (count && count.textContent !== String(pending.size)) count.textContent = pending.size;
+    if (clear) clear.hidden = !railAttentionOnly;
+  }
   let railKind = 'all';
   const railExpanded = new Set();
   try {
     const saved = JSON.parse(localStorage.getItem('skynet.session-view') || '{}');
-    if (['all', 'conversations', 'automated'].includes(saved.kind)) railKind = saved.kind;
+    if (['all', 'automated'].includes(saved.kind)) railKind = saved.kind;
     if (Array.isArray(saved.expanded)) saved.expanded.slice(0, 200).forEach(k => { if (typeof k === 'string') railExpanded.add(k); });
   } catch (_) {}
   function saveRailView() {
@@ -3513,13 +3535,17 @@ const App = (() => {
      task board is the surface that owns it, and for a 'chat' stream (most of the rail) lane is
      inferred rather than chosen, so it was never a fact worth the loudest pixel in the row. */
   function railRowState(w) {
+    const pending = typeof Channels !== 'undefined' && Channels.pendingOf(w.id);
+    if (pending) {
+      const question = pending.tool === 'brief.ask';
+      return { dot: 'ws-dot needsyou', meta: question ? 'Reply needed' : 'Approval needed', busy: Channels.isBusy(w.id), attn: true, status: question ? 'waiting for your answer' : 'awaiting your approval' };
+    }
     if (typeof Channels !== 'undefined' && Channels.isBusy(w.id)) {
       const status = Channels.statusOf(w.id);
-      const attn = /approval/.test(status);
       const started = Channels.startedAtOf(w.id);
       // EL-11: a pending consent gets an EXPLICIT marker on its own row (not just the dot recolor) — a
       // background session's paused run must be findable at a glance before the sidecar's deny timer runs out.
-      return { dot: 'ws-dot ' + (attn ? 'needsyou' : 'working'), meta: attn ? '▣ NEEDS YOU' : (started ? railFmtElapsed(Date.now() - started) : '…'), busy: true, attn, status };
+      return { dot: 'ws-dot working', meta: started ? railFmtElapsed(Date.now() - started) : '…', busy: true, attn: false, status };
     }
     if (w.lastRunOk === false) return { dot: 'ws-dot needsyou', meta: 'FAILED', busy: false, attn: true, status: 'last run failed — open to inspect' };
     // a DELIVERY session ('workshop-<runId>' — idle-built work) that hasn't been reviewed is a decision the
@@ -3556,6 +3582,11 @@ const App = (() => {
     return (model || '—') + ' · ' + n + ' MSG';
   }
   function railModelFull(w) { return (w.lastModel || '').trim(); }
+  function railRowLabel(w, st) {
+    const title = w.title || 'General', name = railAgentName(w);
+    return title + ' session' + (name === title ? '' : ', ' + name) + (st.attn ? ', ' + st.meta : '')
+      + (Workstreams.unread(w) ? ', not seen yet' : '') + '; Enter to open; Shift+F10 for actions';
+  }
   function rowClass(w, st, activeId) {
     return 'ws-row' + (w.id === activeId ? ' sel' : '') + (st.busy ? ' busy' : '') + (st.attn ? ' attn' : '')
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
@@ -3568,8 +3599,11 @@ const App = (() => {
     const oldFocus = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.ws-row[data-id]') : null;
     const restoreFocus = !!(oldFocus && ul.contains(oldFocus));
     if (oldFocus && oldFocus.dataset.id) railFocusId = oldFocus.dataset.id;
-    const allRows = Workstreams.list({ includeArchived: railShowArchived });
-    const grouped = Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy).map(w => w.id) });
+    const pending = railPendingIds();
+    syncRailAttention(pending);
+    const allRows = Workstreams.list({ includeArchived: true }).filter(w =>
+      railAttentionOnly ? pending.has(w.id) : (!w.archived || railShowArchived || pending.has(w.id)));
+    const grouped = railAttentionOnly ? allRows.map(w => ({ type: 'session', w })) : Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
     const headers = new Map();
     const rows = grouped.flatMap(item => {
       if (item.type === 'session') return [item.w];
@@ -3577,9 +3611,10 @@ const App = (() => {
       return item.visible;
     });
     const filters = el('ws-kind-filter');
+    if (filters) filters.hidden = railAttentionOnly;
     if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.wsKind === railKind));
-      button.onclick = () => { railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
+      button.onclick = () => { railAttentionOnly = false; railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
     });
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
@@ -3598,7 +3633,7 @@ const App = (() => {
         + (w.kind === 'task' ? ' · board: ' + w.lane : '')
         + (full ? ' · last run on ' + full : '')   // the UNABBREVIATED id the row had to shorten
         + ' — Shift+F10 or right-click for actions';
-      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(title + ' session' + (railAgentName(w) === title ? '' : ', ' + railAgentName(w)) + (Workstreams.unread(w) ? ', not seen yet' : '') + (st.status ? ', ' + st.status : '') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true">' + U.esc(railAgentName(w)) + '</span>' +
@@ -3608,6 +3643,9 @@ const App = (() => {
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
         '</li>';
     }).join('');
+    if (!rows.length && railKind === 'automated' && !railAttentionOnly) {
+      ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
+    }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
       button.onclick = () => {
         const key = button.dataset.wsGroup;
@@ -3666,6 +3704,8 @@ const App = (() => {
   function updateRailLive() {
     const ul = el('workstreams'); const game = el('screen-game');
     if (!ul || typeof Workstreams === 'undefined' || !game || !game.classList.contains('active')) { stopRailTicker(); return; }
+    const pending = railPendingIds();
+    if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
     const activeId = Workstreams.activeId();
     ul.querySelectorAll('.ws-row').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -3678,6 +3718,7 @@ const App = (() => {
       const rec = li.querySelector('.ws-receipt');
       if (rec) { const next = railReceipt(w); if (rec.textContent !== next) rec.textContent = next; }
       const cls = rowClass(w, st, activeId); if (li.className !== cls) li.className = cls;
+      const label = railRowLabel(w, st); if (li.getAttribute('aria-label') !== label) li.setAttribute('aria-label', label);
     });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }
@@ -3754,8 +3795,13 @@ const App = (() => {
   function wireRailSearch() {
     const q = el('ws-search'); if (!q || q.__wired) return;
     q.__wired = true;
-    q.oninput = renderSessionSearch;
+    q.oninput = () => { if (railAttentionOnly) { railAttentionOnly = false; renderRail(); } renderSessionSearch(); };
     q.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); q.value = ''; renderSessionSearch(); q.blur(); } };
+    const attention = el('ws-attention');
+    if (attention) attention.onclick = () => {
+      railAttentionOnly = !railAttentionOnly;
+      q.value = ''; renderSessionSearch(); renderRail(); SFX.click();
+    };
   }
   // COMMS AGENT SELECTOR: put the Commander on the line with agent <agentId>. Selecting an agent must never
   // silently rebind an existing conversation to a different agent (that would corrupt whose transcript it is);
@@ -3958,6 +4004,7 @@ const App = (() => {
   function updateArchivedToggle() {
     const ul = el('workstreams'); if (!ul) return;
     const old = ul.querySelector('.ws-arch-row'); if (old) old.remove();
+    if (railAttentionOnly) return;
     let n = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived) n++;
     if (!n) { railShowArchived = false; return; }
     const li = document.createElement('li');
@@ -4015,6 +4062,7 @@ const App = (() => {
     view = (view === 'projects') ? 'projects' : 'sessions';
     if (view === railView) return;
     railView = view;
+    syncRailAttention(railPendingIds());
     SFX.click();
     const pan = (typeof Projects !== 'undefined') ? Projects.panels(view) : { sessionsList: view === 'sessions', projectsList: view === 'projects', newBtn: view === 'sessions', addBtn: view === 'projects' };
     const set = (id, show) => { const e = el(id); if (e) e.hidden = !show; };

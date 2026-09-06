@@ -12,7 +12,7 @@
  *   1. the picker is mounted and seeds a real schedule with a SERVER-computed next-fire preview;
  *   2. CERTAIN DAYS · Tue · 9:00 AM types `0 9 * * 2` into the same #trg-sched the form always posted;
  *   3. CUSTOM reveals that exact string (the graduation path, not a fallback);
- *   4. CREATE ROUTINE persists it — GET /api/cron carries `cron 0 9 * * 2`, this line's dock, runsLine;
+ *   4. SAVE SCHEDULE persists it — GET /api/cron carries `cron 0 9 * * 2`, this line's dock, runsLine;
  *   5. ON A TIMER still writes an interval (the old preset vocabulary is not lost).
  *
  *   node dev/inbox-when-picker-shots.mjs      (ports: SKYNET_SHOT_PORT / SKYNET_CDP_PORT)
@@ -70,10 +70,14 @@ async function main() {
 
     /* ---- 1. stamp a RESEARCH LINE and crew its entry dock ---- */
     const built = await evalJS(cdp, `(() => {
+      // A fresh empty workroom keeps this scheduler proof independent of the evolving demo layout.
+      const st = WorldModel.create();
+      const room = st.addRoom({ kind: 'hab', rect: { x1: 30, y1: 0, x2: 82, y2: 27 } });
+      if (!room.ok) return { err: 'fixture-room', result: room };
+      Build.init({ getStation: () => st, persist: () => {}, world: World, agents: () => App.agents() });
       if (!Build.isOpen()) Build.open();
       const card = document.querySelector('.refit-firstrun');
       if (card) { const go = card.querySelector('#refit-guide-go'); if (go) go.click(); }
-      const st = Build.__test__.station();
       for (const b of st.belts()) st.removeBelt(b.x, b.y);
       const WF = { intake:1, bay:1, outbox:1, filter:1, splitter:1, merger:1 };
       for (const p of st.props().slice()) if (WF[p.t]) st.removeProp(p.id);
@@ -123,7 +127,7 @@ async function main() {
       console.log('\n===== REPORT =====\n' + JSON.stringify(report, null, 2));
       const bad = [];
       if (!dead.before.disabled) bad.push('CREATE ROUTINE is clickable on an uncrewed line — a routine has no agent to fire at');
-      if (!dead.notes.some(n => /crew a dock first/.test(n))) bad.push('the card does not say WHY it refuses (notes: ' + JSON.stringify(dead.notes) + ')');
+      if (!dead.notes.some(n => /Assign an agent to a connected Bay first/.test(n))) bad.push('the card does not say WHY it refuses (notes: ' + JSON.stringify(dead.notes) + ')');
       if (dead.modes !== 6) bad.push('the WHEN picker did not mount on an uncrewed line (' + dead.modes + ' cadence keys)');
       if (dead.before.sched !== '0 9 * * *') bad.push('the picker did not seed a schedule on an uncrewed line (' + JSON.stringify(dead.before.sched) + ')');
       if (bad.length) throw new Error('UNCREWED PATH FAILED:\n  - ' + bad.join('\n  - '));
@@ -143,7 +147,7 @@ async function main() {
       return {
         intakeClass: g.className,
         formOpen: form.style.display !== 'none',
-        newBtnHidden: newBtn.style.display === 'none',
+        startChoiceSelected: newBtn.classList.contains('active') && newBtn.getBoundingClientRect().height > 0,
         ariaExpanded: newBtn.getAttribute('aria-expanded'),
         modes: [...g.querySelectorAll('.sp-mode')].map(b => b.textContent.trim()),
         seeded: (g.querySelector('#trg-sched') || {}).value
@@ -154,7 +158,7 @@ async function main() {
     if (opened.err) throw new Error(opened.err);
     if (opened.modes.length !== 6) fails.push('the WHEN picker did not mount on the INBOX card (cadence keys: ' + JSON.stringify(opened.modes) + ')');
     if (opened.seeded !== '0 9 * * *') fails.push('the picker did not seed a default schedule into #trg-sched (got ' + JSON.stringify(opened.seeded) + ')');
-    if (!opened.formOpen || !opened.newBtnHidden) fails.push('the ⊕ button did not hand off to the form (open=' + opened.formOpen + ' btnHidden=' + opened.newBtnHidden + ')');
+    if (!opened.formOpen || !opened.startChoiceSelected) fails.push('the schedule form does not retain its selected start choice');
 
     // the preview is the SERVER's answer to "when" (debounced 300ms + a round trip) — poll for it
     const waitPreview = async () => {
@@ -303,40 +307,28 @@ async function main() {
     console.log('FIT:', JSON.stringify(report.fit));
     if (report.fit.top < 0 || report.fit.bottom > report.fit.glassH + 1) fails.push('the INBOX card spills outside the REFIT glass (' + JSON.stringify(report.fit) + ')');
 
-    /* ---- 6. A SHORT WINDOW MUST SCROLL, NOT SWALLOW THE BUTTON. The card is the tallest in REFIT and
-       `.refit-guide` centres it in a fixed inset:0 layer, so before the max-height rule the CREATE ROUTINE
-       button fell off-screen on a laptop-height window with no way to reach it. */
+    /* ---- 6. A SHORT WINDOW MUST KEEP SAVE REACHABLE AND DONE VISIBLE. The refreshed editor scrolls
+       its body while the heading and footer stay in place. Exercise the real schedule form. */
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 820, deviceScaleFactor: 1, mobile: false });
     await sleep(900);
     report.fitShort = JSON.parse(await evalJS(cdp, `JSON.stringify((() => {
       const g = document.querySelector('.refit-flow-card'), c = g.querySelector('.refit-guide-card');
       const gr = g.getBoundingClientRect(), cr = c.getBoundingClientRect();
-      const btn = c.querySelector('#trg-create').getBoundingClientRect();
-      c.scrollTop = c.scrollHeight;
-      const btnAfter = c.querySelector ? c.querySelector('#trg-create').getBoundingClientRect() : btn;
+      const body = c.querySelector('.workflow-body'), save = c.querySelector('#trg-create');
+      save.scrollIntoView({ block: 'center' });
+      const btnAfter = save.getBoundingClientRect(), br = body.getBoundingClientRect();
+      const done = c.querySelector('#flow-ok').getBoundingClientRect();
       return { cardH: Math.round(cr.height), glassH: Math.round(gr.height), top: Math.round(cr.top), bottom: Math.round(cr.bottom),
-               scrolls: c.scrollHeight > c.clientHeight + 1,
-               createReachable: btnAfter.top >= gr.top - 1 && btnAfter.bottom <= gr.bottom + 1 };
+               scrolls: body.scrollHeight > body.clientHeight + 1,
+               createReachable: btnAfter.top >= br.top - 1 && btnAfter.bottom <= br.bottom + 1,
+               doneVisible: done.top >= gr.top && done.bottom <= gr.bottom };
     })())`));
     console.log('FIT (short window):', JSON.stringify(report.fitShort));
     if (report.fitShort.bottom > report.fitShort.glassH + 1 || report.fitShort.top < -1) fails.push('on a short window the card still spills outside the glass (' + JSON.stringify(report.fitShort) + ')');
-    if (!report.fitShort.scrolls) fails.push('the card did not become scrollable on a short window — the max-height rule is not engaging');
-    if (!report.fitShort.createReachable) fails.push('CREATE ROUTINE cannot be scrolled into view on a short window');
+    if (!report.fitShort.scrolls) fails.push('the setup body did not become scrollable on a short window');
+    if (!report.fitShort.createReachable) fails.push('SAVE SCHEDULE cannot be scrolled into view on a short window');
+    if (!report.fitShort.doneVisible) fails.push('DONE is not visible on a short window');
     report.shotShort = (await capture(cdp, OUT, 'inbox-card-short-window')).path;
-    // NEGATIVE CONTROL: lift the max-height on the SAME card at the SAME size — if the spill doesn't come
-    // back, the rule wasn't what fixed it and this proof is decoration.
-    report.fitShortNoRule = JSON.parse(await evalJS(cdp, `JSON.stringify((() => {
-      const g = document.querySelector('.refit-flow-card'), c = g.querySelector('.refit-guide-card');
-      c.style.maxHeight = 'none'; c.style.overflowY = 'visible';
-      const gr = g.getBoundingClientRect(), cr = c.getBoundingClientRect();
-      const ok = c.querySelector('#flow-ok').getBoundingClientRect();
-      const out = { cardH: Math.round(cr.height), top: Math.round(cr.top), bottom: Math.round(cr.bottom),
-                    glassH: Math.round(gr.height), gotItOffScreen: ok.bottom > gr.bottom + 1 };
-      c.style.maxHeight = ''; c.style.overflowY = '';
-      return out;
-    })())`));
-    console.log('FIT (short window, rule lifted):', JSON.stringify(report.fitShortNoRule));
-    if (report.fitShortNoRule.bottom <= report.fitShortNoRule.glassH + 1) fails.push('negative control failed: the card fits even without the max-height rule, so that rule is not carrying this fix');
     await cdp.send('Emulation.clearDeviceMetricsOverride', {});
 
     report.consoleErrors = diag.consoleMsgs.filter(m => m.level === 'error').slice(0, 10);

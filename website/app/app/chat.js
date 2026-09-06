@@ -1517,53 +1517,36 @@ const Chat = (() => {
     updateControls();   // Stop button visibility + queued pills follow the displayed stream too
   }
   function clearEmptyState() { const e = log && log.querySelector('.cmsg-empty'); if (e) e.remove(); }
-  // first-run state: an empty + idle + non-interview stream shows a single dim hint instead of a black void.
-  // gather the HONEST signals the starter engine ranks on: catalog, real launch history, whether the
-  // station has any prior life, and the local clock. Every read fails open — a missing store just means
-  // fewer signals, never a crash (the engine degrades to the classic orientation set).
+  // Derive recent-work shortcuts from real history; missing stores fall back to editable tasks.
   function pickStarters() {
     const recipes = (typeof Recipes !== 'undefined' && Recipes.list) ? (Recipes.list() || []) : [];
     let recent = [], valuesOf = () => null;
     if (typeof LaunchMemory !== 'undefined' && LaunchMemory.recent) {
       try { recent = LaunchMemory.recent(8) || []; valuesOf = id => LaunchMemory.get(id); } catch (_) {}
     }
-    // returning = any OTHER session ever had a real row, or anything was ever launched from the catalog.
-    // (maybeEmptyState only renders when the ACTIVE session is empty, so it can't vouch for itself.)
-    let returning = recent.length > 0;
-    // sessions = the OTHER titled sessions with real history, newest first — the engine's earned
-    // context for the "next step: <title>" chip. Same fail-open stance as every other signal.
     let sessions = [];
     try {
       if (typeof Workstreams !== 'undefined' && Workstreams.list) {
-        const others = (Workstreams.list() || []).filter(w => w && w !== activeWs && w.history && w.history.length > 0);
-        returning = returning || others.length > 0;
+        const others = (Workstreams.list() || []).filter(w => w && w.id !== (activeWs && activeWs.id)
+          && w.agentId === (activeWs && activeWs.agentId) && w.conversationMode !== 'group'
+          && w.history && w.history.some(r => r.role === 'user'));
         sessions = others
           .filter(w => w.title)
           .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
-          .map(w => ({ title: w.title, at: w.lastActiveAt || 0 }));
+          .map(w => ({ id: w.id, title: w.title, at: w.lastActiveAt || 0, archived: w.archived,
+            lane: w.lane, busy: typeof Channels !== 'undefined' && Channels.isBusy(w.id) }));
       }
     } catch (_) {}
     const now = new Date();
-    // V3 §6: the pitch chip is gated on the shared readiness read (fail-closed: no read → no pitch chip).
-    let ready = false;
-    try { const r = (typeof UnderstandingStore !== 'undefined' && UnderstandingStore.readiness) ? UnderstandingStore.readiness() : null; ready = !!(r && r.ready); } catch (_) {}
-    // V3 §7: below the gate, the pitch slot becomes a HUNT probe — but only when a live question actually
-    // exists (consider() honors dismissed/stop-forever/session budget, so a worn-out bank offers nothing).
-    let hunt = false;
-    try { hunt = !ready && typeof CuriosityStore !== 'undefined' && !!CuriosityStore.consider(); } catch (_) {}
-    const sig = { recipes, recent, valuesOf, returning, sessions, hour: now.getHours(), ready, hunt };
+    const sig = { recipes, recent, valuesOf, sessions, now: now.getTime() };
     if (typeof Starters !== 'undefined' && Starters.pick) {
       try { const out = Starters.pick(sig); if (out && out.length) return out; } catch (_) {}
     }
-    // engine missing/hiccuped → the classic orientation set, verbatim.
-    const fallback = [{ label: 'what can you do here', send: 'What can you do here? Give me a short tour of what you can actually do for me.' }];
-    if (recipes[0]) fallback.push({ label: String(recipes[0].name || recipes[0].id), recipe: recipes[0] });
-    fallback.push({ label: 'brief me on this station', send: 'Brief me on this station — what is around me and what I can do from here.' });
-    return fallback;
+    return [{ kind: 'draft', label: 'Plan a task', description: 'Describe the outcome you want to work toward.', send: 'Help me plan this task.\n\nThe outcome I want: ' }];
   }
 
   function maybeEmptyState() {
-    if (!log || interview) return;
+    if (!log || interview || log.querySelector('.cmsg-empty')) return;
     if (activeWs && activeWs.history && activeWs.history.length) return;
     if (busyPeerFor(activeWs)) return;   // the ALSO RUNNING IN row owns an empty busy-peer session — starter chips would fight it for attention
     if (isBusy() || log.querySelector('.cmsg')) return;
@@ -1571,24 +1554,31 @@ const Chat = (() => {
     if (s && ((s.toolEvents && s.toolEvents.length) || s.tools.length || s.acc || s.pending)) return;
     const d = document.createElement('div'); d.className = 'cmsg-empty';
     const line = document.createElement('div'); line.className = 'cmsg-empty-line';
-    line.textContent = 'COMMS online. Type a task or a question to ' + name + '.';
+    line.textContent = 'What would you like to work on?';
     d.appendChild(line);
-    // STARTER CHIPS — tappable openers so the first prompt isn't a blank void. Sandbox tone,
-    // eerie-not-cute, no exclamation marks. A chip fills the composer and sends; a recipe fills its directive
-    // (blanks left for the Commander to complete) instead of firing blind. Children of .cmsg-empty, so any real
-    // row (clearEmptyState) retires them with the hint.
-    // WHICH chips is the Starters engine's call (starters.js): fresh station → the orientation set;
-    // returning Commander → their usual recipe (prefilled from LaunchMemory), a discovery pick, a pitch ask.
+    const hint = document.createElement('div'); hint.className = 'cmsg-empty-hint';
+    hint.textContent = 'Ask ' + name + ' anything, or choose a starting point.';
+    d.appendChild(hint);
+    // Each row explains its action. Drafts and recipes remain editable; sessions reopen their context.
     const starters = pickStarters();
     const chips = document.createElement('div'); chips.className = 'cmsg-empty-chips';
     for (const st of starters.slice(0, 3)) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter'; b.textContent = st.label;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'choice cmsg-starter';
+      const title = document.createElement('span'); title.className = 'cmsg-starter-title'; title.textContent = st.label;
+      const detail = document.createElement('span'); detail.className = 'cmsg-starter-detail'; detail.textContent = st.description;
+      const arrow = document.createElement('span'); arrow.className = 'cmsg-starter-arrow'; arrow.textContent = '›'; arrow.setAttribute('aria-hidden', 'true');
+      b.append(title, detail, arrow);
       b.addEventListener('click', () => {
         if (typeof SFX !== 'undefined' && SFX.click) SFX.click();
-        if (st.kind === 'hunt') { startHuntAsk(); return; }              // V3 §7: the probe chip — the click IS the consent
+        if (st.kind === 'session') {
+          const target = Workstreams.get(st.sessionId);
+          if (!target || target.archived) { clearEmptyState(); maybeEmptyState(); return; }
+          const ws = Workstreams.switch(target.id);
+          if (ws) { load(ws); refreshWorkflowViews(); }
+          return;
+        }
         if (st.recipe) { insertRecipe(st.recipe, st.values); return; }   // fill the directive to edit, don't auto-fire
-        if (input) { input.value = st.send; autoGrowInput(); }
-        submitComposer();
+        prefill(st.send);
       });
       chips.appendChild(b);
     }
@@ -6252,7 +6242,7 @@ const Chat = (() => {
   function wiEmit(name, payload) { try { if (typeof U !== 'undefined' && U.bus) U.bus.emit(name, payload); } catch (_) {} }
 
   /* ---------- TURN CONTROLS (harness-standard): interrupt + type-ahead ---------- */
-  // INTERRUPT — a gentle, per-stream stop, distinct from safety.js's Alt+H "halt EVERYTHING + alarm". It cancels
+  // INTERRUPT — a per-stream stop. It cancels
   // only the DISPLAYED stream's in-flight run; the plumbing already exists (each stream owns an AbortController
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
@@ -8062,11 +8052,10 @@ const Chat = (() => {
     // spoken style — voiceModeRules appended below). It does NOT control the desk trip: the walk is driven
     // by REAL tool use (walkToDesk, below), so the speaker setting can't suppress it. When voice is on, a
     // task's result is also spoken — it's just no longer answered "on the spot" in place of the desk trip.
-    // VOICE OWNERSHIP: ONLY the orchestrator (the hero, id 'agent') speaks aloud. A summoned/secondary agent
-    // exists for the orchestrator to DELEGATE to — the Commander talks to the orchestrator, not to a crowd of
-    // agents — so a summoned agent's replies are never voiced (and never get the short spoken-style prompt).
-    const isOrchestrator = !ws.agentId || ws.agentId === 'agent';
-    const willSpeak = isOrchestrator && liveVoiceOwns(ws)
+    // Direct conversations can speak as any agent. Background sessions must not interrupt
+    // the conversation in view; a live call continues to own its explicitly bound session.
+    const speechOwner = () => liveVoiceCall() ? liveVoiceOwns(ws) : Workstreams.activeId() === ws.id;
+    const willSpeak = speechOwner()
       && typeof Voice !== 'undefined' && Voice.isOn && Voice.isOn();
     // REACTIVE DESK TRIP — the honest signal. We no longer pre-commit the walk on the classifier's GUESS:
     // every turn the agent first turns to face the Commander (listen), and it only gets up and walks to its
@@ -8139,11 +8128,11 @@ const Chat = (() => {
       return s;
     };
     const speechToken = typeof Voice !== 'undefined' && Voice.replyToken ? Voice.replyToken() : undefined;
-    const speechOpts = { replyToken: speechToken };
+    const speechOpts = { replyToken: speechToken, agentId: ws.agentId };
     const pushSpeech = (finalize, finalText) => {
       // Ownership is checked again for every chunk. A voice-commanded rebind can happen while an
       // older run is still streaming; none of its late words may leak into the new call owner.
-      if (typeof Voice === 'undefined' || !willSpeak || !liveVoiceOwns(ws) || !Voice.speakChunk) return;
+      if (typeof Voice === 'undefined' || !willSpeak || !speechOwner() || !Voice.speakChunk) return;
       const src = speakSafe(finalize ? (finalText || acc) : acc);
       const pending = src.slice(spokenIdx);
       if (!pending) return;
@@ -8513,7 +8502,7 @@ const Chat = (() => {
       if (titleOk && (firstTurn || (typeof Workstreams !== 'undefined' && Workstreams.needsModelTitle && Workstreams.needsModelTitle(ws.id)))) maybeRetitle(ws, text, finalReply);
       // flush any trailing spoken text and CLOSE the speech stream — the last chunk's end re-arms the
       // hands-free mic (this is the heartbeat for spoken turns; onTurnEnd covers silent/no-speech turns).
-      if (willSpeak && liveVoiceOwns(ws) && typeof Voice !== 'undefined' && Voice.endReply) {
+      if (willSpeak && speechOwner() && typeof Voice !== 'undefined' && Voice.endReply) {
         pushSpeech(true, finalReply);
         // VOICE-AWARE CHOICES: the choice itself is spoken as a natural question — question text only;
         // the 2-3 options are on-screen chips (reading them out was the "reads every option" glitch).

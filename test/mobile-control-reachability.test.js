@@ -16,13 +16,13 @@ const navSrc = fs.readFileSync(path.join(root, 'frontend', 'app', 'navdock.js'),
 
 function has(re, label, text = appCss) { A.ok(re.test(text), label); }
 
-// E-STOP: narrow chrome sheds lower-priority instruments and removes its last fixed margin.
+// Narrow chrome sheds secondary instruments while retaining connection status.
 has(/@media \(max-width: 600px\)[\s\S]*#topbar #wr-top,[\s\S]*#topbar #tb-station,[\s\S]*#topbar \.tb-sep\s*\{\s*display:\s*none/s,
-  'mobile topbar removes the widget rail, level lamp and separator before E-STOP', topCss);
+  'mobile topbar removes the widget rail, level lamp and separator', topCss);
 has(/@media \(max-width: 600px\)[\s\S]*#topbar \.tb-status\s*\{[^}]*gap:\s*4px;[^}]*padding:\s*0/s,
   'mobile status cluster spends no hidden padding around safety controls', topCss);
-has(/#topbar #estop-btn\s*\{[^}]*margin-right:\s*0;[^}]*flex:\s*0 0 auto/s,
-  'E-STOP remains an unsquashed, margin-free mobile instrument', topCss);
+has(/id="chat-stop"[^>]*aria-label="Stop the running turn"/,
+  'COMMS retains the current-conversation Stop control', fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8'));
 
 // Genesis: the tint bank owns a second row, so all six 14px switches fit even at 320px.
 has(/@media \(max-width: 600px\)[\s\S]*\.cc-titlebar\s*\{[^}]*flex-wrap:\s*wrap/s,

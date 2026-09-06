@@ -103,17 +103,13 @@
 
   // bespoke emblems for the built-in RECIPES (missions) — same matte/debossed style, keyed by recipe id.
   // Custom missions (no built-in art) fall back to their chosen emoji, exactly like custom classes.
+  // Recipe equipment shares Recruitment's shaded pixel artwork and live theme colors.
   const MISSION_ICONS = {
-    'morning-brief': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 7 a5 5 0 0 1 5 5 H7 a5 5 0 0 1 5-5 Z"/><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2.5 16 H21.5"/><path d="M5 19.5 H19"/><path d="M12 3.4 V5.2"/><path d="M5.8 5.8 L7 7"/><path d="M18.2 5.8 L17 7"/></g></svg>',
-    'deep-research': '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="8" fill="currentColor"/><path fill="currentColor" d="M16 14.2 L22 20.2 L20.2 22 L14.2 16 Z"/><g fill="none" stroke="' + D + '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8.5 L10.5 12 L14 8.5"/><path d="M7 11.8 L10.5 15.3 L14 11.8"/></g></svg>',
-    'fact-check': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2 L20 5 V11 C20 16 16.5 19.4 12 21.4 C7.5 19.4 4 16 4 11 V5 Z"/><path fill="none" stroke="' + D + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M8.2 11.4 L11 14.2 L16 8.6"/></svg>',
-    'fix-bug': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M16.7 2.6 a6 6 0 0 0 -5.2 9 L3.3 19.7 a2.3 2.3 0 0 0 3.2 3.2 l8.1-8.1 a6 6 0 0 0 7.4-7.7 l-3 3 -2.9-.8 -.8-2.9 Z"/><circle cx="5.2" cy="18.8" r="1.1" fill="' + D + '"/></svg>',
-    'code-review': '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="8" fill="currentColor"/><path fill="currentColor" d="M16 14.2 L22 20.2 L20.2 22 L14.2 16 Z"/><g fill="none" stroke="' + D + '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8.8 7.8 L6 10.5 L8.8 13.2"/><path d="M12.2 7.8 L15 10.5 L12.2 13.2"/></g></svg>',
-    'ship-feature': '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3.3" y="3.3" width="8" height="8" rx="1.4"/><rect x="12.7" y="3.3" width="8" height="8" rx="1.4"/><rect x="3.3" y="12.7" width="8" height="8" rx="1.4"/><path d="M16.7 13.2 v3 h3 v2 h-3 v3 h-2 v-3 h-3 v-2 h3 v-3 Z"/></svg>',
-    'draft-reply': '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 5.6 a2 2 0 0 1 2-2 h14 a2 2 0 0 1 2 2 v8.8 a2 2 0 0 1 -2 2 H9.5 L5 20 v-3.6 a2 2 0 0 1 -2-2 Z"/><g fill="none" stroke="' + D + '" stroke-width="1.7" stroke-linecap="round"><path d="M7 8.6 H15"/><path d="M7 11.6 H12"/></g></svg>',
-    'tighten-writing': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6.2" r="2.6"/><circle cx="6" cy="17.8" r="2.6"/><path d="M8.3 7.7 L19.5 16.8"/><path d="M8.3 16.3 L19.5 7.2"/></svg>',
-    'plan-project': '<svg viewBox="0 0 24 24"><rect x="4.5" y="3.6" width="15" height="16.8" rx="2" fill="currentColor"/><rect x="9" y="2" width="6" height="3.4" rx="1.2" fill="currentColor" stroke="' + D + '" stroke-width="1.2"/><g fill="none" stroke="' + D + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 10 L8.5 11.1 L10.1 9.2"/><path d="M12 10.2 H16.4"/><path d="M7.4 14.6 L8.5 15.7 L10.1 13.8"/><path d="M12 14.8 H16.4"/></g></svg>',
-    'summarize': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M4 5.5 H20"/><path d="M4 9.7 H20"/><path d="M4 13.9 H14"/><path d="M4 18.1 H9"/></svg>'
+    'morning-brief': ICONS.herald, 'deep-research': ICONS.researcher,
+    'fact-check': ICONS.auditor, 'fix-bug': ICONS.medic, 'code-review': ICONS.reviewer,
+    'ship-feature': ICONS.deployer, 'draft-reply': ICONS.envoy,
+    'tighten-writing': ICONS.copywriter, 'plan-project': ICONS.taskmaster,
+    'summarize': ICONS.archivist
   };
   const MISSION_CODE = {
     'morning-brief': 'BRF', 'deep-research': 'DIG', 'fact-check': 'CHK', 'fix-bug': 'FIX', 'code-review': 'CRV',
@@ -133,28 +129,10 @@
      rides the station phosphor, cut detail in the deboss colour, no <text> (that was the one seal that
      ever picked up a system font). A CUSTOM recipe still falls back to the emoji its author chose. */
   const CATEGORY_ICONS = {
-    // developer: the terminal pane with a live prompt caret — the machine you actually type at.
-    developer: '<svg viewBox="0 0 24 24"><rect x="2.2" y="3.6" width="19.6" height="16.8" rx="1.8" fill="currentColor"/><rect x="2.2" y="3.6" width="19.6" height="3.4" rx="1.8" fill="' + D + '"/><g fill="none" stroke="' + D + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.6 11 L8.4 13.6 L5.6 16.2"/><path d="M10.8 16.8 H17"/></g></svg>',
-    // code: the two angle brackets around a slash — the oldest mark for "this is source".
-    code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6.4 L2.6 12 L8 17.6"/><path d="M16 6.4 L21.4 12 L16 17.6"/><path d="M13.6 4.2 L10.4 19.8"/></svg>',
-    // research: the lens laid over ruled evidence — reading something, with the sources kept.
-    research: '<svg viewBox="0 0 24 24"><rect x="3" y="2.6" width="14.4" height="18.8" rx="1.6" fill="currentColor"/><g fill="none" stroke="' + D + '" stroke-width="1.5" stroke-linecap="round"><path d="M5.8 6.4 H14.6"/><path d="M5.8 9.4 H14.6"/><path d="M5.8 12.4 H10.2"/></g><circle cx="15.6" cy="14.6" r="4.6" fill="currentColor" stroke="' + D + '" stroke-width="1.6"/><path d="M18.8 17.8 L22 21" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
-    // writing: the nib, cut and inked — the draft itself.
-    writing: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M3.4 20.6 L5.2 14.8 L15.4 4.6 L19.4 8.6 L9.2 18.8 Z"/><path fill="' + D + '" d="M13.8 7 L17 10.2 L9.6 17.6 L6.4 14.4 Z"/><path fill="currentColor" d="M16.6 3.4 L18 2 a1.6 1.6 0 0 1 2.3 0 l1.7 1.7 a1.6 1.6 0 0 1 0 2.3 l-1.4 1.4 Z"/><path fill="currentColor" d="M2.6 22.4 L4 18.6 L6.4 21 Z"/></svg>',
-    // creator: the frame with the play mark struck into it — something made to be watched or read.
-    creator: '<svg viewBox="0 0 24 24"><rect x="2.4" y="3.6" width="19.2" height="16.8" rx="2" fill="currentColor"/><path fill="' + D + '" d="M9.6 8.2 L16.4 12 L9.6 15.8 Z"/><g fill="' + D + '"><rect x="4.4" y="5.6" width="2.2" height="2.2" rx=".5"/><rect x="4.4" y="16.2" width="2.2" height="2.2" rx=".5"/><rect x="17.4" y="5.6" width="2.2" height="2.2" rx=".5"/><rect x="17.4" y="16.2" width="2.2" height="2.2" rx=".5"/></g></svg>',
-    // planning: the board with the route stepped across it — a goal broken into moves.
-    planning: '<svg viewBox="0 0 24 24"><rect x="2.6" y="3.4" width="18.8" height="17.2" rx="1.8" fill="currentColor"/><g fill="none" stroke="' + D + '" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16.6 L10 16.6 L10 12 L14 12 L14 7.4 L18 7.4"/></g><g fill="' + D + '"><circle cx="6" cy="16.6" r="1.7"/><circle cx="14" cy="12" r="1.7"/><circle cx="18" cy="7.4" r="1.7"/></g></svg>',
-    // ops: the gear — the thing that runs on its own schedule.
-    ops: '<svg viewBox="0 0 24 24"><g fill="currentColor"><rect x="10.8" y="1.4" width="2.4" height="4.6" rx=".5"/><rect x="10.8" y="18" width="2.4" height="4.6" rx=".5"/><rect x="1.4" y="10.8" width="4.6" height="2.4" rx=".5"/><rect x="18" y="10.8" width="4.6" height="2.4" rx=".5"/><rect x="10.8" y="1.4" width="2.4" height="4.6" rx=".5" transform="rotate(45 12 12)"/><rect x="10.8" y="18" width="2.4" height="4.6" rx=".5" transform="rotate(45 12 12)"/><rect x="1.4" y="10.8" width="4.6" height="2.4" rx=".5" transform="rotate(45 12 12)"/><rect x="18" y="10.8" width="4.6" height="2.4" rx=".5" transform="rotate(45 12 12)"/><circle cx="12" cy="12" r="7"/></g><circle cx="12" cy="12" r="3.2" fill="' + D + '"/></svg>',
-    // business: the case with its clasp cut out — the client-facing job.
-    business: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M9 2.6 h6 a2 2 0 0 1 2 2 V7 h-2.4 V5 H9.4 V7 H7 V4.6 A2 2 0 0 1 9 2.6 Z"/><rect x="2" y="7" width="20" height="14.4" rx="1.8" fill="currentColor"/><path fill="' + D + '" d="M2 12.4 H10 V14.2 H2 Z"/><path fill="' + D + '" d="M14 12.4 H22 V14.2 H14 Z"/><rect x="10.2" y="11.4" width="3.6" height="4" rx=".6" fill="' + D + '"/></svg>',
-    // money: the stacked coins — what it is worth, counted.
-    money: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="5.4" rx="8.6" ry="3.4" fill="currentColor"/><path fill="currentColor" d="M3.4 8.4 v3 a8.6 3.4 0 0 0 17.2 0 v-3 a8.6 3.4 0 0 1 -17.2 0 Z"/><path fill="currentColor" d="M3.4 14.2 v3 a8.6 3.4 0 0 0 17.2 0 v-3 a8.6 3.4 0 0 1 -17.2 0 Z"/><path fill="' + D + '" d="M11.2 3.2 h1.6 v4.4 h-1.6 Z"/><path fill="' + D + '" d="M9.6 4.2 a3.4 1.4 0 0 1 4.8 0 a3.4 1.4 0 0 1 -4.8 0 Z"/></svg>',
-    // data: the drum with the bars read off it — rows turned into an answer.
-    data: '<svg viewBox="0 0 24 24"><ellipse cx="12" cy="4.6" rx="8.2" ry="3" fill="currentColor"/><path fill="currentColor" d="M3.8 7.4 v3.2 a8.2 3 0 0 0 16.4 0 V7.4 a8.2 3 0 0 1 -16.4 0 Z"/><g fill="currentColor"><rect x="4.4" y="17" width="3.4" height="4.6" rx=".5"/><rect x="10.3" y="14" width="3.4" height="7.6" rx=".5"/><rect x="16.2" y="11" width="3.4" height="10.6" rx=".5"/></g></svg>',
-    // general: the station rosette — no claim about the kind of work, just the station's own mark.
-    general: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.6" fill="currentColor"/><path fill="' + D + '" d="M12 4.4 L14 10 L19.6 12 L14 14 L12 19.6 L10 14 L4.4 12 L10 10 Z"/></svg>'
+    code: ICONS.engineer, developer: ICONS.engineer, research: ICONS.researcher, writing: ICONS.writer,
+    creator: ICONS.producer, planning: ICONS.navigator, ops: ICONS.operator,
+    business: ICONS.broker, money: ICONS.treasurer, data: ICONS.analyst,
+    general: ICONS.chief
   };
   // the 3-letter stamp for a category-sealed recipe still derives from its NAME (see `code()`), so two
   // recipes sharing a category seal are never mistaken for each other.

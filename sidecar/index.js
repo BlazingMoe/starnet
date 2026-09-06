@@ -179,6 +179,8 @@ const { makeChainRunner, effectiveLimits: chainEffectiveLimits } = require('./ro
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const { makeConnectorManager } = require('./mcp/manager.js');
 const { makeHttpTransport } = require('./mcp/transport.http.js');
+const googleApiTransport = require('./mcp/transport.google.js');
+const googleClientConfig = require('./mcp/google-client.js');
 const { makeStdioTransport } = require('./mcp/transport.stdio.js');
 const mcpSchemaCache = require('./mcp/schema-cache.js');
 const connectorCatalog = require('./mcp/catalog.js');       // curated one-click MCP connector catalog (pure data + selectors)
@@ -4068,9 +4070,11 @@ function loadConnectorState() {
 let connectorState = loadConnectorState();
 let connectorConfigs = connectorState.configs;
 let connectorOauth = connectorState.oauth;
-/* Optional app-shipped Google client. Keep it OUT of connectorOauth so an environment secret can never be
-   copied into the user's durable connector file by an unrelated later save. A Commander-pasted client wins. */
+/* Publisher-owned Desktop registration wins for new sign-ins. Keep launch configuration out of the
+   shared OAuth-client cache; old grants retain their own client for refresh. Legacy Web clients remain readable. */
 const GOOGLE_OAUTH_AS = 'https://accounts.google.com';
+const GOOGLE_DESKTOP_CLIENT = googleClientConfig.loadDesktopClient({ env: process.env,
+  readFile: () => fs.readFileSync(path.join(__dirname, 'mcp', 'google-client.json'), 'utf8') });
 const GOOGLE_OAUTH_ENV_CLIENT = (() => {
   const clientId = String(process.env.STARNET_GOOGLE_OAUTH_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.STARNET_GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
@@ -4082,6 +4086,7 @@ const GOOGLE_OAUTH_ENV_CLIENT = (() => {
     : null;
 })();
 function connectorOauthClient(authServer) {
+  if (authServer === GOOGLE_OAUTH_AS && GOOGLE_DESKTOP_CLIENT) return GOOGLE_DESKTOP_CLIENT;
   const saved = connectorOauth.clients[String(authServer || '')] || {};
   if (saved.clientId) return saved;
   return authServer === GOOGLE_OAUTH_AS && GOOGLE_OAUTH_ENV_CLIENT ? GOOGLE_OAUTH_ENV_CLIENT : {};
@@ -4194,6 +4199,7 @@ function mcpStdioIsolationError(cfg) {
 }
 const connectors = makeConnectorManager({
   makeTransport: (cfg) => {
+    if (cfg && cfg.transport === 'http' && googleApiTransport.productForUrl(cfg.url)) return googleApiTransport.makeGoogleTransport(cfg);
     if (!cfg || cfg.transport !== 'stdio') return makeHttpTransport(cfg);
     const aid = String(cfg.agentId || '');
     const issue = mcpStdioIsolationError(cfg); if (issue) throw new Error(issue);
@@ -10852,10 +10858,14 @@ function handleConnectorCatalog(req, res) {
   // pass {id,url} so `installed` is a TRUTHFUL match: a manually-added connector that merely reuses a catalog id
   // (e.g. id 'notion' pointing at a different / self-hosted URL) must NOT flip the vetted vendor card to ADDED.
   const payload = connectorCatalog.browse((connectorConfigs || []).map(c => c && { id: c.id, url: c.url || '' }));
-  // staticOauth entries: annotate whether their pre-registered client exists yet, so the card can honestly
-  // render SET UP (no client) vs SIGN IN (client present). Only a boolean crosses the wire — never the client.
+  // Only availability crosses the wire, never publisher registration values. Missing configuration
+  // is StarNet's responsibility, so the customer UI never exposes an application-credential form.
   const markNeedsClient = (e) => {
     if (e.staticOauth) e.needsClient = !connectorOauthClient(e.staticOauth.authorizationServer).clientId;
+    if (e.googleApi) {
+      e.signInAvailable = !e.needsClient;
+      if (!e.signInAvailable) e.signInMessage = googleClientConfig.UNAVAILABLE;
+    }
   };
   payload.connectors.forEach(markNeedsClient);
   payload.groups.forEach(g => g.connectors.forEach(markNeedsClient));
@@ -10874,7 +10884,7 @@ async function handleConnectorOauthClient(req, res) {
   const clientId = String(body.clientId || '').trim();
   const clientSecret = String(body.clientSecret || '').trim();
   if (!/^[\x21-\x7e]{6,256}$/.test(clientId)) return json(400, { error: 'that does not look like a client ID' });
-  if (entry.staticOauth.clientSecretRequired && !clientSecret) return json(400, { error: 'paste the client secret too' });
+  if (!clientSecret) return json(400, { error: 'legacy Web application registration requires a client secret' });
   if (clientSecret && !/^[\x21-\x7e]{6,512}$/.test(clientSecret)) return json(400, { error: 'that does not look like a client secret' });
   const client = { clientId, clientSecret, tokenEndpointAuthMethod: clientSecret ? 'client_secret_post' : 'none', at: Date.now() };
   const next = connectorStateMod.withOauthClient(connectorStateMod.envelope(connectorConfigs, connectorOauth), as, client);
@@ -11091,16 +11101,21 @@ async function handleConnectorOauthStart(req, res) {
       const cached = connectorOauthClient(as);
       if (!cached.clientId) {
         completed = true;
-        return json(428, { error: 'this connector needs a one-time app setup before sign-in', needsClient: true,
-          authorizationServer: as, redirectUri: CONNECTOR_OAUTH_REDIRECT, setupUrl: so.setupUrl || '', setupName: so.setupName || '' });
+        return json(503, { error: googleClientConfig.UNAVAILABLE, code: 'google_signin_unavailable', signInAvailable: false });
       }
       const method = cached.tokenEndpointAuthMethod || (cached.clientSecret ? 'client_secret_post' : 'none');
       const verifier = mcpOauth.makeVerifier(crypto.randomBytes(48));
       const state = crypto.randomBytes(16).toString('hex');
+      // A new attempt supersedes old links for this card. Keep callback work cancellable
+      // until its durable commit, including while token exchange/userinfo is in flight.
+      for (const [key, p] of connectorOauthPending) if (p.id === entry.id) connectorOauthPending.delete(key);
       connectorOauthPending.set(state, { id: entry.id, attemptId, label: entry.name, verifier: verifier,
         clientId: cached.clientId, clientSecret: cached.clientSecret || '', tokenEndpointAuthMethod: method,
         tokenEndpoint: so.tokenEndpoint, authorizationServer: as, resource: '',
-        serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now() });
+        serverUrl: entry.url, redirectUri: CONNECTOR_OAUTH_REDIRECT, at: Date.now(),
+        googleApi: !!entry.googleApi, requiredScopes: so.scopes,
+        originalConfig: JSON.stringify(connectorConfigs.find(c => c && c.id === entry.id) || null),
+        originalGrant: JSON.stringify(connectorOauth.byId[entry.id] || null) });
       for (const [k, v] of connectorOauthPending) { if (Date.now() - (v.at || 0) > 600000) connectorOauthPending.delete(k); }
       const authUrl = mcpOauth.buildAuthorizeUrl({ authorizationEndpoint: so.authorizationEndpoint, clientId: cached.clientId,
         redirectUri: CONNECTOR_OAUTH_REDIRECT, challenge: mcpOauth.challengeOf(verifier), state: state,
@@ -11202,15 +11217,26 @@ async function handleConnectorOauthCallback(req, res) {
   const q = new URLSearchParams((String(req.url).split('?')[1]) || '');
   const code = q.get('code'), state = q.get('state'), providerErr = q.get('error');
   const pending = state ? connectorOauthPending.get(state) : null;
-  if (state) connectorOauthPending.delete(state);
+  if (pending && pending.googleApi) {
+    if (Date.now() - pending.at > 600000) {
+      connectorOauthPending.delete(state);
+      return page('Sign-in expired', 'Please start Google sign-in again in StarNet.', false);
+    }
+    if (pending.exchanging) return page('Sign-in expired', 'This sign-in is already being completed. Return to StarNet.', false);
+    pending.exchanging = true;
+  } else if (state) connectorOauthPending.delete(state);
   if (providerErr) {
+    if (pending && pending.googleApi) connectorOauthPending.delete(state);
     // invalid/unknown client = our cached dynamically-registered client was pruned/rotated server-side. Drop it so
     // the NEXT sign-in re-registers a fresh one (otherwise every retry repeats identically, with no in-app escape).
     if (/invalid_client|unauthorized_client/i.test(providerErr) && pending && pending.authorizationServer) forgetOauthClient(pending.authorizationServer);
     return page('Sign-in failed', 'The provider returned: ' + providerErr + (q.get('error_description') ? ' — ' + q.get('error_description') : '') + (/invalid_client/i.test(providerErr) ? ' — cleared the stale app registration; please try Sign in again.' : ''), false);
   }
   if (!pending) return page('Sign-in expired', 'This sign-in link expired or was already used. Please start again from the catalog.', false);
-  if (!code) return page('Sign-in failed', 'No authorization code was returned by the provider.', false);
+  if (!code) {
+    if (pending.googleApi) connectorOauthPending.delete(state);
+    return page('Sign-in failed', 'No authorization code was returned by the provider.', false);
+  }
   const currentCfg = connectorConfigs.find(c => c && c.id === pending.id) || null;
   if (pending.custom && (!currentCfg || currentCfg.oauth !== true || currentCfg.transport !== 'http' || !sameEndpoint(currentCfg.url, pending.serverUrl))) {
     return page('Sign-in expired', 'This custom connector changed or was removed while sign-in was open. Start again from MCP Connectors.', false);
@@ -11221,12 +11247,24 @@ async function handleConnectorOauthCallback(req, res) {
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, verifier: pending.verifier, resource: pending.resource,
       now: Date.now(), timeoutMs: 30000 });
     if (!tok.accessToken) return page('Sign-in failed', 'The provider did not return an access token.', false);
+    if (pending.googleApi) {
+      const granted = new Set(String(tok.scope || '').split(/\s+/));
+      if (!pending.requiredScopes.filter(s => s !== 'openid' && !s.endsWith('/userinfo.email')).every(s => granted.has(s))) {
+        return page('Google permissions needed', 'The permissions needed for this service were not all approved. Your existing connection was kept. Please sign in again and approve access.', false);
+      }
+      if (!tok.refreshToken) return page('Google sign-in incomplete', 'Google did not allow a lasting connection. Please sign in again and approve offline access. Your existing connection was kept.', false);
+    }
     const oauthEntry = { accessToken: tok.accessToken, refreshToken: tok.refreshToken, expiresAt: tok.expiresAt,
       scope: tok.scope, tokenType: tok.tokenType, clientId: pending.clientId, clientSecret: pending.clientSecret,
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, tokenEndpoint: pending.tokenEndpoint,
       authorizationServer: pending.authorizationServer, resource: pending.resource, at: Date.now() };
     oauthEntry.account = await require('./mcp/account.js').readGoogleAccount({ authorizationServer: pending.authorizationServer,
       tokenEndpoint: pending.tokenEndpoint, accessToken: tok.accessToken, fetchImpl: connectorOauthFetch, now: Date.now() });
+    if (pending.googleApi && (connectorOauthPending.get(state) !== pending ||
+        JSON.stringify(connectorConfigs.find(c => c && c.id === pending.id) || null) !== pending.originalConfig ||
+        JSON.stringify(connectorOauth.byId[pending.id] || null) !== pending.originalGrant)) {
+      return page('Sign-in cancelled', 'This connection changed while sign-in was open. Your current settings were kept.', false);
+    }
     // FAIL THE SIGN-IN LOUDLY if the exchanged tokens can't be proven on disk (read-back + retry). A silent persist
     // failure would leave the connector unsigned + the DCR clientId orphaned on the NEXT boot while the popup lied
     // "connected" — never assert durable state the harness can't prove. Roll the in-memory entry back so this session
@@ -11252,6 +11290,8 @@ async function handleConnectorOauthCallback(req, res) {
     const msg = (e && e.message) || String(e);
     if (/invalid_client|unauthorized_client/i.test(msg) && pending && pending.authorizationServer) forgetOauthClient(pending.authorizationServer);
     return page('Sign-in failed', 'Token exchange failed: ' + msg, false);
+  } finally {
+    if (pending && pending.googleApi && connectorOauthPending.get(state) === pending) connectorOauthPending.delete(state);
   }
 }
 
