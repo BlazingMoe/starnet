@@ -118,7 +118,7 @@ console.log(PRICING_LIVE
   : 'PRICING_LIVE=false in website/site.js — holding pricing back and substituting the no-credits legal pages.');
 
 if (CHECK) {
-  console.log('would publish ' + shipping.length + ' files; holding back ' + held.length + ':');
+  console.log('would publish ' + (shipping.length + 2) + ' files; holding back ' + held.length + ':');
   for (const f of held) console.log('  - ' + f);
   for (const [target, source] of Object.entries(SUBSTITUTIONS)) console.log('  ~ ' + target + ' <- ' + source);
   process.exit(0);
@@ -144,6 +144,14 @@ for (const rel of shipping) {
   copyFileSync(join(SRC, from.split('/').join(sep)), dest);
   if (SUBSTITUTIONS[rel]) console.log('substituted: ' + rel + ' <- ' + from);
 }
+
+/* frontend/index.html loads the class catalog from /shared/specialties.js so the browser and sidecar
+   consume one authority. website/app is a generated frontend mirror, but shared/ lives outside that mirror;
+   stage the exact authoritative bytes explicitly or the static preview silently boots with an empty catalog. */
+const sharedCatalogSource = join(ROOT, 'shared', 'specialties.js');
+const sharedCatalogDest = join(OUT, 'shared', 'specialties.js');
+mkdirSync(dirname(sharedCatalogDest), { recursive: true });
+copyFileSync(sharedCatalogSource, sharedCatalogDest);
 
 /* Cloudflare Pages' dashboard ZIP importer can collapse identically named index.html
    entries from different folders, while Pages clean-URL rewriting sends a secondary .html
@@ -183,6 +191,6 @@ if (existsSync(sitemapPath) && held.length) {
   }
 }
 
-console.log('staged ' + (shipping.length + 1) + ' files -> website-deploy/');
+console.log('staged ' + (shipping.length + 2) + ' files -> website-deploy/');
 for (const f of held) console.log('held back: ' + f);
 console.log('\nnext:\n  npx wrangler pages deploy website-deploy --project-name ' + PROJECT);

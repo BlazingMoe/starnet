@@ -70,6 +70,7 @@ const RoutineNudgeStore = (() => {
 
   function init() {
     sessionProposed = 0;
+    if (typeof WorkflowTakeoverStore !== 'undefined') WorkflowTakeoverStore.init();
     if (stopCron) { try { stopCron(); } catch (_) {} stopCron = null; }
     if (query && query.subscribe) {
       try { stopCron = query.subscribe('cron', foldCron); } catch (_) { stopCron = null; }

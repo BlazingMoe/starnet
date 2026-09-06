@@ -231,6 +231,17 @@
     return line ? text + '\npage errors:   ' + line : text;
   }
 
+  function withPageScreen(text) {
+    if (!text) return text;
+    let screen = 'unknown';
+    try {
+      const active = document.querySelector('.screen.active');
+      const allowed = ['screen-boot', 'screen-splash', 'screen-connect', 'screen-future', 'screen-recovery', 'screen-unreachable', 'screen-lineage', 'screen-game'];
+      if (active && allowed.includes(active.id)) screen = active.id;
+    } catch (_) {}
+    return text + '\napp screen:    ' + screen;
+  }
+
   /* Fetch → copy → tell the user. opts.notify (default true) shows a toast; opts.onDone(ok, text) fires after.
      opts.context ({ error, kind, engineAlive }) enriches the page-side fallback when the sidecar can't be read.
      Always resolves (never throws) with the boolean success so a caller can flip button state. */
@@ -241,6 +252,7 @@
     return fetchText()
       .then(text => text ? text : localReport(opts.context))
       .then(text => text ? withPageErrors(text) : text)
+      .then(withPageScreen)
       .then(text => {
       if (!text) { if (wantNotify) notify('could not read diagnostics — is the app still running?', 'warn'); if (opts.onDone) opts.onDone(false, ''); return false; }
       return copyToClipboard(text).then(ok => {

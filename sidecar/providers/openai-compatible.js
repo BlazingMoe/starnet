@@ -86,12 +86,16 @@
       responseHeader(res, ['x-starnet-request-id', 'x-request-id', 'x-openrouter-request-id', 'request-id']),
       120
     );
+    const upstreamRequestId = safeErrorField(e && e.upstream_request_id, 120);
     const facts = [];
+    if (requestId) facts.push('request ' + requestId);
+    if (upstreamRequestId) facts.push('upstream ' + upstreamRequestId);
     if (type) facts.push('type ' + type);
     if (code) facts.push('code ' + code);
     if (providerName) facts.push('provider ' + providerName);
-    if (requestId) facts.push('request ' + requestId);
-    return { detail: message + (facts.length ? ' [' + facts.join('; ') + ']' : ''), type, code, providerName, requestId };
+    // Diagnostics deliberately clamps messages. Put correlation before the free-text detail so a
+    // verbose upstream error cannot truncate the only identifiers support can trace.
+    return { detail: (facts.length ? '[' + facts.join('; ') + '] ' : '') + message, type, code, providerName, requestId };
   }
   function normalizeModel(m) {
     const id = (m && (m.id || m.name || m.model)) ? String(m.id || m.name || m.model) : '';

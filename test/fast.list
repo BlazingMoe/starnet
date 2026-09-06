@@ -1,5 +1,7 @@
 # Fast test gate steps - run in order by scripts/run-fast-tests.mjs. One path per line.
 test/schema.test.js
+test/group-sessions.test.js
+test/group-sessions.edge.test.js
 test/contract.test.js
 test/events-contract.test.js
 test/clock-rng.test.js
@@ -203,6 +205,7 @@ test/journey-store.test.js
 test/journey.test.js
 test/journeystore.test.js
 test/journey-wiring.test.js
+test/commander-progression-ui.test.js
 test/questinject.test.js
 test/quests-tool.test.js
 test/questsweeps.test.js
@@ -268,6 +271,7 @@ test/work-recap.test.js
 test/qa-ledger.test.js
 test/qa-saboteur.test.js
 test/qa-bugs.test.js
+test/qa-bug-lifecycle.test.js
 test/qa-bugs-register.test.js
 test/ledger-reconcile.test.js
 test/qa-guardian.test.js
@@ -431,6 +435,7 @@ test/permissions-ui.test.js
 test/theme-custom-phosphor.test.js
 test/panel-brightness.test.js
 test/simulation-lighting.test.js
+test/room-lighting-settings.test.js
 test/window-minimize.test.js
 test/nightshift-steer-ui.test.js
 test/world-agent-click.test.js
@@ -711,3 +716,9 @@ test/first-value.test.js
 test/effective-toolsets.test.js
 test/discovery-documents.test.js
 test/value-loop-replay.test.mjs
+test/platform-handoff.test.js
+test/ease-of-use.test.js
+test/workflow-takeover.test.js
+test/workflow-takeover-ui.test.js
+test/task-conversation.test.js
+test/task-conversation-ui.test.js

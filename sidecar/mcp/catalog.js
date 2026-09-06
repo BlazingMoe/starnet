@@ -57,9 +57,9 @@
       authorizationServer: 'https://accounts.google.com',
       authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenEndpoint: 'https://oauth2.googleapis.com/token',
-      scopes: scopes.slice(),
+      scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'].concat(scopes),
       // Without these Google issues NO refresh token and the connector dies in ~1h.
-      extraAuthParams: { access_type: 'offline', prompt: 'consent' },
+      extraAuthParams: { access_type: 'offline', prompt: 'consent select_account' },
       clientSecretRequired: true,
       developerPreview: true,
       setupUrl: 'https://developers.google.com/workspace/guides/configure-mcp-servers',

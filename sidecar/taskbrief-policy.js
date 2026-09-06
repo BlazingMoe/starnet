@@ -2,6 +2,7 @@
    propose a question or a settled brief, but only this module decides whether it is usable. */
 'use strict';
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;   // the shared decision-protocol module (index.js already speaks it)
+const Context = require('./taskbrief-context.js');
 
 const DIMENSIONS = new Set(['objective', 'audience', 'deliverable', 'scope', 'constraints', 'sources', 'acceptance', 'safety']);
 const VAGUE = /\b(what does good look like|tell me more|can you elaborate|any preferences|what do you want|how should i proceed)\b/i;
@@ -65,13 +66,15 @@ function validateQuestionFields(c, call) {
   const reason = clean(c.reason, 240);
   if (!DIMENSIONS.has(dimension)) return { ok: false, error: 'dimension must be one of: ' + Array.from(DIMENSIONS).join(', ') };
   if (!question || VAGUE.test(question)) return { ok: false, error: 'ask one concrete, non-vague question' };
-  if (options.length < 2) return { ok: false, error: multiSelect ? 'provide 2-6 genuinely different options' : 'provide 2-3 genuinely different options' };
+  const conversational = c.mode === 'conversation';
+  if (!conversational && options.length < 2) return { ok: false, error: multiSelect ? 'provide 2-6 genuinely different options' : 'provide 2-3 genuinely different options' };
   const pick = matchOption(options, recommended);
-  if (!pick) return { ok: false, error: 'recommended must match one option (copy it verbatim from options)' };
+  if ((!conversational || recommended) && !pick) return { ok: false, error: 'recommended must match one option (copy it verbatim from options)' };
   if (!reason) return { ok: false, error: 'state why this decision materially changes the result' };
   if ((call || c).discoverable !== false) return { ok: false, error: 'inspect available context first; discoverable must be false' };
   return { ok: true, question: { dimension, question, text: question, options, recommended: pick, reason,
-    multiSelect, newBlocker: (call || c).newBlocker === true } };
+    multiSelect, newBlocker: (call || c).newBlocker === true,
+    mode:conversational ? 'conversation' : 'choice', sample:conversational ? String(c.sample || '').trim().slice(0,2400) : '' } };
 }
 // How many brief_ask calls this brief has spent. Legacy briefs persisted before batching carry no
 // askCalls field; for them every stored question WAS its own call, so the count is the honest backfill.
@@ -89,6 +92,17 @@ function validateQuestions(candidate, brief) {
   if (raw.length > 3) return { ok: false, error: 'ask at most 3 questions in one call — keep only the material ones' };
   const prior = brief && Array.isArray(brief.questions) ? brief.questions : [];
   const calls = askCallsOf(brief);
+  if (c.mode === 'conversation') {
+    if(raw.length !== 1) return {ok:false,error:'Ask one conversational question, then listen before choosing the next.'};
+    if(prior.some(q=>!q.answer)) return {ok:false,error:'Wait for the pending answer before asking again.'};
+    if(Context.delegate(brief && brief.originalDirective) || prior.some(q=>Context.delegate(q.answer)))
+      return {ok:false,error:'The Commander delegated the remaining choices. Update your understanding and proceed with reversible assumptions.'};
+    if(calls >= 6) return {ok:false,error:'Stop discovery now. Produce a useful draft or proceed with stated assumptions; do not keep interviewing.'};
+    if(calls && !Context.current(brief)) return {ok:false,error:'Call brief.update to incorporate the entire latest answer before choosing a follow-up.'};
+    if(prior.some(q=>clean(q.text,240).toLowerCase()===clean(c.question,240).toLowerCase()))
+      return {ok:false,error:'This question was already asked. Use the answer or choose the next useful action.'};
+    const v=validateQuestionFields(c,c); return v.ok ? {ok:true,questions:[v.question]} : v;
+  }
   if (calls >= 2) return { ok: false, error: 'this task already used its two-question limit' };
   if (calls === 1 && (c.newBlocker !== true || prior.some(q => !q.answer))) return { ok: false, error: 'a second question requires an answered first question and a newly exposed blocker' };
   const out = []; const dims = new Set();

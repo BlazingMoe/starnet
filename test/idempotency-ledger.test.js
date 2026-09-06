@@ -46,6 +46,12 @@ const writeDurable = ({ fs }, file, data) => fs.writeFileSync(file, data);
   const fs = memFs();
   let now = 1000;
   const L = makeIdempotencyLedger({ fs, path, workspaces: '/ws', writeDurable, clock: () => now, ttlMs: 10000, maxRows: 3 });
+  for (const leaf of ['fixture_run_command', 'execute_command', 'exec_command', 'execute_code', 'terminal']) {
+    A.eq(L.isWrite('mcp__demo__' + leaf), false, 'command executions are never replayed as completed writes: ' + leaf);
+  }
+  A.eq(L.isWrite('mcp__demo__send_message'), true, 'duplicate external sends remain protected');
+  A.eq(L.isWrite('mcp__demo__create_shell'), true, 'creating an execution resource is still a protected write');
+  A.eq(L.isWrite('mcp__demo__create_run_command'), true, 'creating a command is not executing it');
   A.eq(L.lookup(k1), null, 'empty ledger misses');
   await L.record(k1, { scope: 'run:r1', runId: 'r1', tool: 'mcp__gmail__send_email', summary: 'sent', content: 'Message id 42' });
   const hit = L.lookup(k1);

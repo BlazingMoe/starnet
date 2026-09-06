@@ -153,8 +153,8 @@ function ctxFor(runId) {
   // ---------- 2. the chip door (friendlyerror.js is require-able) ----------
   {
     const Friendly = require('../frontend/app/friendlyerror.js');
-    A.eq(Friendly.connectorChipLabel({ connectorId: 'gmail' }), '⇄ CONNECT GMAIL — 2 clicks', 'chip label');
-    A.eq(Friendly.connectorChipLabel({ connectorId: 'google-calendar' }), '⇄ CONNECT GOOGLE CALENDAR — 2 clicks', 'dashes read as spaces');
+    A.eq(Friendly.connectorChipLabel({ connectorId: 'gmail' }), '⇄ CONNECT GMAIL', 'chip label does not promise unverified setup effort');
+    A.eq(Friendly.connectorChipLabel({ connectorId: 'google-calendar' }), '⇄ CONNECT GOOGLE CALENDAR', 'dashes read as spaces');
     A.eq(Friendly.connectorDoor({}), null, 'no connector id -> no chip (never an empty door)');
     const door = Friendly.connectorDoor({ runId: 'r', connectorId: 'gmail', kind: 'mcp', reason: 'x', toolName: 'send_email' });
     A.eq(door.connectorId, 'gmail', 'door names its connector');
@@ -198,9 +198,9 @@ function ctxFor(runId) {
     A.ok(/choices\(\[\{ label: door\.label, value: 'connect' \}\], \(\) => door\.run\(\)\)/.test(offer), 'rendered through the shared choices() row (one post-run layer)');
     A.ok(/CONNECTOR_NEEDED\.delete\(runId\)/.test(offer), 'the pending event is consumed once offered');
     // offered from the run-end branch, on a CLEAN end only (a stopped run owns the slot with its retry chip)
-    A.ok(/if \(isActiveWs\(ws\) && !taskQuestion && \(!endReason \|\| endReason === 'done'\)\) offerConnectorDoor\(thisRunId\);/.test(src),
-      'offered at run end, active stream, clean end only');
-    const callAt = src.indexOf('offerConnectorDoor(thisRunId)');
+    A.ok(/if \(!taskQuestion && \(!endReason \|\| endReason === 'done'\)\) offerConnectorDoor\(thisRunId, ws\);/.test(src),
+      'stored on the originating stream at clean run end, including background streams');
+    const callAt = src.indexOf('offerConnectorDoor(thisRunId, ws)');
     const stopAt = src.indexOf("if (endReason === 'budget') offerBudgetDoor(); else offerTryAgain();");
     A.ok(stopAt > 0 && callAt > stopAt, 'the connect offer sits AFTER the stop-reason branch in the same run-end block');
   }

@@ -56,7 +56,8 @@ A.ok(/case 'prop':[\s\S]{0,120}return 'refit'/.test(stationFns), 'a capability c
 A.ok(/case 'fact':|case 'attest':/.test(stationFns), 'fact and attest ledger contracts have a real action destination');
 
 /* ---- 4. quests lead the panel; the shell holds steady ---- */
-const render = station.slice(station.indexOf("body.innerHTML = '<div class=\"gx gx-quests\">"), station.indexOf("body.innerHTML = '<div class=\"gx gx-quests\">") + 900);
+const renderStart = station.indexOf("body.innerHTML = '<div class=\"gx gx-quests\">");
+const render = station.slice(renderStart, station.indexOf("const journeyFail", renderStart));
 const orderOk = render.indexOf('questRefreshHtml()') < render.indexOf('q-open') && render.indexOf('q-open') < render.indexOf('journeyHtml()');
 A.ok(orderOk, 'panel order: direction → quests → bookkeeping (quests were the FOURTH thing; never again below the fold)');
 A.ok(/QUEST_KIND_TAG/.test(station) && /FOR YOU/.test(station), 'cards carry a kind badge naming which real source minted them');

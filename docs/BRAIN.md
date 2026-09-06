@@ -21,6 +21,17 @@ telemetry**: the UI never asserts anything the harness can't prove.
   `src-tauri/Cargo.lock`. `release:bump` moves all five together; release preflight and CI must prove
   their agreement before an artifact is named or tagged.
 
+## Customer and owner bug fixes
+
+Check [qa/BUGS.md](../qa/BUGS.md) before fixing a reported bug. Create or update its durable
+record using [qa/bugs/README.md](../qa/bugs/README.md): origin, affected build, report,
+before/after regression, and sibling **adapters, entry points, displays, lifecycle paths**.
+Every relevant sibling needs a registered fast/http scenario or an explicit coverage gap.
+Run the affected [customer journeys](../qa/CUSTOMER_JOURNEYS.md) plus the normal change gates.
+Keep source-fixed, installer-verified and customer-recovered separate; tag ancestry, a closed
+issue or a silent reporter cannot establish recovery. Rebuild the index after updates.
+These rules apply to internal agent merges as well as pull requests.
+
 ## Architecture in one screen
 
 ```

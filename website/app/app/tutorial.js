@@ -931,7 +931,7 @@ const Tutorial = (() => {
   function onLevelUp() {
     tickBrief('level');
     showCoach('levelup', '#tb-station',
-      'i leveled — that’s real work shipped, not flattery. open my dossier → GROWTH to see how reliable i’ve actually been. it stays honest: “—” until it’s earned enough runs to judge.',
+      'my crew level grew from your feedback. your COMMANDER level here tracks recorded progress toward your goals. open QUEST LOG for your journey, or my dossier → GROWTH for my track record.',
       { overTerms: true });   // a level transition fires exactly once — show it even over an open panel rather than drop it
   }
 
@@ -946,7 +946,7 @@ const Tutorial = (() => {
     { k: 'belt',      label: 'Lay a conveyor belt' },
     { k: 'connector', label: 'Bind a connector portal' },
     { k: 'channel',   label: 'Connect a messaging channel (✉ CHANNELS)' },
-    { k: 'level',     label: 'Reach Level 2' }
+    { k: 'level',     label: 'Grow a crew member to Level 2' }
   ];
   const briefDone = k => !!state.brief[k];
   const briefCount = () => STEPS.reduce((n, s) => n + (briefDone(s.k) ? 1 : 0), 0);
@@ -1081,7 +1081,8 @@ const Tutorial = (() => {
         + fmEntry('SHOW', 'box bob · chevrons · cargo colours', 'pure juice — they make the flow legible, they don’t change what runs.');
     }
     return '<p class="fm-lead">your agent grows off real outcomes — no fake bars.</p>'
-      + fmEntry('REAL', 'LEVEL / XP', 'climbs only on real shipped work; never drops. the top-bar STATION chip is every agent’s level, rolled up.')
+      + fmEntry('YOU', 'COMMANDER LEVEL', 'the top-bar level grows with recorded progress toward your life goals. In QUEST LOG, define success, record your actions and metrics, and confirm the outcome when it happens. Finishing a plan alone never completes a life goal.')
+      + fmEntry('CREW', 'AGENT LEVEL / XP', 'grows from your positive feedback about agent work. Your crew’s track record stays separate from your Commander journey; neither level gates capabilities.')
       + fmEntry('REAL', 'CONFIDENCE', 'a reliability read that moves both ways. shows “—” until it has enough real runs to be honest.')
       + fmEntry(null, 'where to look', 'open a dossier → GROWTH for the bars, the confidence gauge, and the milestone case.');
   }

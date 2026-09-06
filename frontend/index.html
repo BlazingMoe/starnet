@@ -477,10 +477,10 @@
       <!-- INSTRUMENT CLUSTER (topbar.js) — one cockpit gauge group: STATION (level + XP sliver) ·
            the session-status instruments (UPLINK / ONLINE / save) moved up from
            #bottombar .bb-right with their ids intact so their existing writers keep working. -->
-      <div class="tb-stat station tb-inst" id="tb-station" title="The whole station's cumulative level — every agent's honest track record rolled up. A level never unlocks or gates anything; it is proof of real work you rated well.">
+      <div class="tb-stat station tb-inst" id="tb-station" title="Your Commander level grows through recorded progress toward your life goals. Open the quest log to see the achievements behind it.">
         <svg class="tb-station-mark" viewBox="0 0 24 28" aria-hidden="true"><path d="M12 2 22 8v12l-10 6-10-6V8Z"/><path d="m6 11 6-4 6 4M6 16l6-4 6 4M6 21l6-4 6 4"/></svg>
-        <span class="tb-lbl">STATION</span>
-        <b class="tb-val" id="gt-station">Lv 1</b>
+        <span class="tb-lbl">COMMANDER</span>
+        <b class="tb-val" id="gt-station">—</b>
         <span class="tb-xp" aria-hidden="true"><i class="tb-xp-fill"></i></span>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
@@ -517,6 +517,7 @@
            The head above stays SESSIONS/PROJECTS + NEW only (Commander directive, 2026-07-08). -->
       <div id="ws-rail-search" class="ws-rail-search">
         <label><span class="sr-only">Search session titles and transcripts</span><input id="ws-search" type="search" placeholder="⌕ search sessions + transcripts" autocomplete="off"></label>
+        <div id="ws-kind-filter" class="ws-kind-filter" role="group" aria-label="Session view" title="Filter the rail. Active runs, failures, pinned sessions and your open conversation stay visible. Search always includes every transcript."><button type="button" data-ws-kind="all" aria-pressed="true">ALL</button><button type="button" data-ws-kind="conversations" aria-pressed="false">CHATS</button><button type="button" data-ws-kind="automated" aria-pressed="false">AUTOMATED</button></div>
         <ul id="ws-search-results" aria-live="polite"></ul>
       </div>
       <ul id="workstreams"></ul>
@@ -828,6 +829,7 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/intentoffer.js"></script><!-- pure intent→class/recipe matcher (the COMMS discovery offer): MUST load before chat.js, which calls it on every real directive -->
 <script src="app/modeldock.js"></script>
 <script src="app/modelpicker.js"></script>
+<script src="app/group-chat.js"></script>
 <script src="app/agentportraits.js"></script>
 <script src="app/chat.js"></script>
 <script src="app/voice-stream.js"></script>
@@ -903,6 +905,8 @@ document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/spec
 <script src="app/dockglow.js"></script><!-- deferred BUILD-dock glow (G1c): soft hint on the BUILD dock while a station quest is open; reuses the kit-out traps; tutorial wins -->
 <script src="app/mintstore.js"></script>
 <script src="app/seedstore.js"></script>
+<script src="app/workflowtakeoverstore.js"></script>
+<script src="app/taskconversation.js"></script>
 <script src="app/autonomystore.js"></script>
 <script src="app/autojobstore.js"></script>
 <script src="app/autopilotstore.js"></script>

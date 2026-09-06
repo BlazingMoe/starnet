@@ -3495,6 +3495,16 @@ const App = (() => {
     if (count && count.textContent !== String(pending.size)) count.textContent = pending.size;
     if (clear) clear.hidden = !railAttentionOnly;
   }
+  let railKind = 'all';
+  const railExpanded = new Set();
+  try {
+    const saved = JSON.parse(localStorage.getItem('skynet.session-view') || '{}');
+    if (['all', 'conversations', 'automated'].includes(saved.kind)) railKind = saved.kind;
+    if (Array.isArray(saved.expanded)) saved.expanded.slice(0, 200).forEach(k => { if (typeof k === 'string') railExpanded.add(k); });
+  } catch (_) {}
+  function saveRailView() {
+    try { localStorage.setItem('skynet.session-view', JSON.stringify({ kind: railKind, expanded: [...railExpanded].slice(-200) })); } catch (_) {}
+  }
   function railFmtElapsed(ms) {
     const s = Math.floor((ms < 0 ? 0 : ms) / 1000);
     if (s < 60) return s + 's';
@@ -3537,6 +3547,7 @@ const App = (() => {
       // background session's paused run must be findable at a glance before the sidecar's deny timer runs out.
       return { dot: 'ws-dot working', meta: started ? railFmtElapsed(Date.now() - started) : '…', busy: true, attn: false, status };
     }
+    if (w.lastRunOk === false) return { dot: 'ws-dot needsyou', meta: 'FAILED', busy: false, attn: true, status: 'last run failed — open to inspect' };
     // a DELIVERY session ('workshop-<runId>' — idle-built work) that hasn't been reviewed is a decision the
     // Commander owes, not just an unread chat: say REVIEW on the row itself (2026-07-15 UX audit — the ⚒ prefix
     // alone didn't distinguish "your agent made you something" from ordinary unread activity).
@@ -3590,8 +3601,21 @@ const App = (() => {
     if (oldFocus && oldFocus.dataset.id) railFocusId = oldFocus.dataset.id;
     const pending = railPendingIds();
     syncRailAttention(pending);
-    const rows = Workstreams.list({ includeArchived: true }).filter(w =>
+    const allRows = Workstreams.list({ includeArchived: true }).filter(w =>
       railAttentionOnly ? pending.has(w.id) : (!w.archived || railShowArchived || pending.has(w.id)));
+    const grouped = railAttentionOnly ? allRows.map(w => ({ type: 'session', w })) : Workstreams.railGroups(allRows, { view: railKind, activeId, expanded: [...railExpanded], urgent: allRows.filter(w => railRowState(w).busy || pending.has(w.id)).map(w => w.id) });
+    const headers = new Map();
+    const rows = grouped.flatMap(item => {
+      if (item.type === 'session') return [item.w];
+      headers.set(item.visible[0].id, item);
+      return item.visible;
+    });
+    const filters = el('ws-kind-filter');
+    if (filters) filters.hidden = railAttentionOnly;
+    if (filters) filters.querySelectorAll('[data-ws-kind]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.wsKind === railKind));
+      button.onclick = () => { railAttentionOnly = false; railKind = button.dataset.wsKind; saveRailView(); renderRail(); };
+    });
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
@@ -3599,7 +3623,9 @@ const App = (() => {
       const title = w.title || 'General';
       const st = railRowState(w);
       const full = railModelFull(w);
-      const tip = title + (w.archived ? ' · archived' : '') + (st.busy || st.attn ? ' · ' + st.status : '')
+      const group = headers.get(w.id);
+      const groupHead = group ? '<li class="ws-auto-group" role="presentation"><button type="button" data-ws-group="' + U.esc(group.key) + '" aria-expanded="' + railExpanded.has(group.key) + '"><span>' + U.esc(group.name) + '</span><small>' + U.esc(railAgentName(w)) + ' · ' + group.rows.length + ' run' + (group.rows.length === 1 ? '' : 's') + ' · ' + (railExpanded.has(group.key) ? 'collapse' : 'show history') + '</small></button></li>' : '';
+      const tip = title + (w.archived ? ' · archived' : '') + (st.status ? ' · ' + st.status : '')
         + (Workstreams.unread(w) ? ' · not seen yet' : '')
         // LANE lives here now rather than in the dot. Only a board DIRECTIVE ('task') actually chose
         // its lane; a plain chat's lane is inferred, so naming it on every row would dress a guess
@@ -3607,7 +3633,7 @@ const App = (() => {
         + (w.kind === 'task' ? ' · board: ' + w.lane : '')
         + (full ? ' · last run on ' + full : '')   // the UNABBREVIATED id the row had to shorten
         + ' — Shift+F10 or right-click for actions';
-      return '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return groupHead + '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true">' + U.esc(railAgentName(w)) + '</span>' +
@@ -3617,6 +3643,15 @@ const App = (() => {
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
         '</li>';
     }).join('');
+    ul.querySelectorAll('[data-ws-group]').forEach(button => {
+      button.onclick = () => {
+        const key = button.dataset.wsGroup;
+        if (railExpanded.has(key)) railExpanded.delete(key); else railExpanded.add(key);
+        saveRailView();
+        renderRail();
+        Array.from(ul.querySelectorAll('[data-ws-group]')).find(b => b.dataset.wsGroup === key)?.focus();
+      };
+    });
     ul.querySelectorAll('.ws-row').forEach(li => {
       const id = li.dataset.id;
       li.onclick = () => switchWorkstream(id);
@@ -3869,7 +3904,7 @@ const App = (() => {
     menu.querySelector('.ws-menu-item').focus();
     SFX.click();
   }
-  function wsMenuAction(act, id) {
+  async function wsMenuAction(act, id) {
     const w = Workstreams.get(id); if (!w) return;
     if (act === 'rename') { beginRenameRow(id); return; }
     if (act === 'pin') { Workstreams.pin(id, !w.pinned); SFX.click(); renderRail(); persist(); return; }
@@ -3878,6 +3913,9 @@ const App = (() => {
     if (act === 'archive') {
       const wasActive = (id === Workstreams.activeId());
       const nowArchived = !w.archived, label = w.title || 'General';
+      if (nowArchived && w.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+        try { await GroupChat.pause(id); } catch (e) { StationUI.notify(e.message, 'bad'); return; }
+      }
       if (!Workstreams.archive(id, nowArchived)) { SFX.bad(); return; }
       SFX.close();
       if (wasActive && Workstreams.activeId() !== id) loadActiveStream();   // archiving the OPEN stream falls back to General
@@ -3885,8 +3923,12 @@ const App = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify((nowArchived ? 'archived ' : 'restored ') + '“' + label + '”', '', undefined, { transient: true });
     }
   }
-  function deleteWorkstream(id) {
+  function deleteWorkstream(id, groupDeleted) {
     const w = Workstreams.get(id); const label = w ? (w.title || 'General') : '';
+    if (w && w.conversationMode === 'group' && !groupDeleted && typeof GroupChat !== 'undefined') {
+      GroupChat.remove(id).then(() => deleteWorkstream(id, true)).catch(e => StationUI.notify(e.message, 'bad'));
+      return false;
+    }
     const agentId = w ? (w.agentId || 'agent') : 'agent';
     // Recheck after the destructive-confirmation click: a session may have started while its menu was open.
     if (w && typeof Channels !== 'undefined' && Channels.isBusy && Channels.isBusy(id)) {
@@ -3929,11 +3971,14 @@ const App = (() => {
     titleSpan.replaceWith(input);
     input.focus(); input.select();
     let done = false;
-    const finish = (save) => {
+    const finish = async (save) => {
       if (done) return; done = true;
       let changed = false;
       if (save) {
         const v = input.value.trim();
+        if (v && w.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
+          try { await GroupChat.rename(id, v); } catch (e) { StationUI.notify(e.message, 'bad'); renderRail(); return; }
+        }
         if (v || id === Workstreams.generalId()) changed = Workstreams.rename(id, v);   // empty on a normal stream = cancel
       }
       if (changed) {
@@ -4090,7 +4135,7 @@ const App = (() => {
       const tip = (r.blessed ? '' : 'REVOKED (trust withdrawn) — ') + 'click to open this project · right-click for actions';
       const sess = projSessionsOf(r.root);
       const extra = Math.max(0, sess.length - 3);
-      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + (st.status ? ', ' + st.status : '') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + projDot(r) + '"></span>' +
         '<span class="proj-main">' +
           '<span class="proj-line">' +

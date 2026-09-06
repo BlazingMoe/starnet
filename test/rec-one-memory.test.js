@@ -391,7 +391,7 @@ A.eq((mktSrc.match(/shelfDeclined\(/g) || []).length >= 6, true,   // the defini
   'the shared declined read gates the personalized shelves (FOR YOU, READY, lineup, curated, gap)');
 A.ok(/Recipes\.list\(\)\.filter\(r => !shelfDeclined\(r && r\.name\)\)/.test(mktSrc),
   '…and it gates the INPUT pool, so an exclusion refills the shelf instead of shrinking it (the shelf-sink law)');
-for (const fn of ['function recCardHTML(s, why)', 'function forYouCardHTML(r, why)', 'function readyCardHTML(o)']) {
+for (const fn of ['function recCardHTML(s, why, compact)', 'function forYouCardHTML(r, why)', 'function readyCardHTML(o)']) {
   A.ok(/declineGlyphHTML\(/.test(A.fnBody(mktSrc, fn)), fn + ' carries the ✕ decline affordance');
 }
 const glyph = A.fnBody(mktSrc, 'function declineGlyphHTML(surface, id, name)');

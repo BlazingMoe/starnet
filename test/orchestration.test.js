@@ -36,10 +36,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   const signal = { aborted: false };
   const emitted = [];
   const leadBroker = { _isLeadConsent: true };   // stand-in for the lead's consent broker (ctx.consent)
-  const ctx = { agentId: 'agent', signal, emit: (name, p) => emitted.push({ name, p }), consent: leadBroker };
+  const ctx = { agentId: 'agent', projectRoot: '/selected/project', projectCwd: '/selected/project/package', signal, emit: (name, p) => emitted.push({ name, p }), consent: leadBroker };
   const out = await dispatchTool.run({ workers: [{ agentId: 'researcher', prompt: 'find X' }, { agentId: 'analyst', prompt: 'analyze Y' }] }, ctx);
 
   A.eq(ro.calls.length, 2, 'two child runs dispatched (one per worker)');
+  A.eq(ro.calls[0].projectRoot, ctx.projectRoot, 'worker inherits the host-selected project for file tools');
+  A.eq(ro.calls[0].workdir, ctx.projectCwd, 'worker inherits the execution cwd');
   A.eq(ro.calls[0].agentId, 'researcher', 'first child is the researcher');
   A.eq(ro.calls[0].system, 'R-SYS', "child runs with the worker's composed system prompt");
   A.eq(ro.calls[0].model, 'm1', 'child uses the worker model when set');
@@ -270,12 +272,13 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-orch-resume-'));
   try {
     const subagents = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1000 }, emit: () => {}, newId: counter() });
-    const first = subagents.start({ leadId: 'lead', agentId: 'researcher', prompt: 'retry', runId: 'run_a' }, async () => new Promise(() => {}));
+    const first = subagents.start({ leadId: 'lead', agentId: 'researcher', prompt: 'retry', runId: 'run_a', projectRoot: '/original/project', workdir: '/original/project/package' }, async () => new Promise(() => {}));
     await tick();
     subagents.interrupt(first.id, 'lead');
+    const reloaded = makeSubagentManager({ fs, pathMod: path, file: path.join(root, 'subagents.json'), clock: { now: () => 1001 }, emit: () => {}, newId: counter() });
     const ro = fakeRunOnce(async () => ({ reason: 'done', messages: [{ role: 'assistant', content: 'resumed' }], usd: 0 }));
     const roster = new Map([['researcher', { system: 'R' }]]);
-    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), subagents, workerMaxIters: 7 });
+    const { resumeTool } = makeOrchestrationTools({ runOnce: ro, roster: () => roster, key: 'k', model: 'm', newId: counter(), subagents: reloaded, workerMaxIters: 7 });
     A.eq(resumeTool.preconditions[0].requiredTool, 'team.subagents', 'team.resume declares inspection as a machine-readable precondition');
     let missing = null;
     try { await resumeTool.run({ id: 'missing' }, { agentId: 'lead', emit: () => {} }); } catch (e) { missing = e; }
@@ -284,6 +287,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     A.eq(out.summary, 'resumed', 'team.resume restarts the interrupted worker');
     await tick(); await tick();
     A.eq(ro.calls[0].maxIters, 7, 'resumed worker receives the configured iteration cap');
+    A.eq(ro.calls[0].projectRoot, '/original/project', 'resume retains the original project from its durable record');
+    A.eq(ro.calls[0].workdir, '/original/project/package', 'resume retains the original execution directory');
   } finally {
     try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
   }
@@ -1054,6 +1059,14 @@ const leadCtx = () => ({ agentId: 'agent', emit: () => {} });
   } finally { try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {} }
 }
 
+{
+  let understanding = 'Initial context';
+  const ro = fakeRunOnce();
+  const { dispatchTool } = makeOrchestrationTools({runOnce:ro, roster:()=>new Map([['researcher',{system:'R-SYS'}]]), key:'k', model:'m', newId:counter(), getTaskContext:()=>understanding});
+  understanding = 'Latest answer: draft only; user must review before sending.';
+  await dispatchTool.run({workers:[{agentId:'researcher',prompt:'Prepare the draft'}]}, {agentId:'lead',emit:()=>{},consent:{}});
+  A.ok(ro.calls[0].system.includes(understanding),'worker receives the latest in-turn understanding at dispatch');
+}
 A.report('orchestration.test');
 
 })();

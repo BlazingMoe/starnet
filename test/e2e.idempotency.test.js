@@ -20,6 +20,7 @@ const { bootToken } = require('./_httpToken.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
+let checkScenario = false;
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function readJsonBody(req) {
   return new Promise(resolve => {
@@ -31,6 +32,7 @@ function readJsonBody(req) {
 
 function startMockMcp() {
   const calls = [];
+  let repaired = false;
   return new Promise(resolve => {
     const server = http.createServer(async (req, res) => {
       if (req.method === 'DELETE') { res.writeHead(204); res.end(); return; }
@@ -50,11 +52,14 @@ function startMockMcp() {
         reply({ tools: [{
           name: 'send_message', description: 'Send a message (WRITE)',
           inputSchema: { type: 'object', required: ['to', 'body'], properties: { to: { type: 'string' }, body: { type: 'string' } } }
-        }] });
+        }, { name: 'run_command', description: 'Execute the project check', inputSchema: { type: 'object', properties: { name: { type: 'string' } } } },
+        { name: 'write_file', description: 'Repair the project', inputSchema: { type: 'object', properties: {} } }] });
         return;
       }
       if (msg.method === 'tools/call') {
         const a = (msg.params && msg.params.arguments) || {};
+        if (msg.params.name === 'write_file') { repaired = true; reply({ content: [{ type: 'text', text: 'repaired' }], isError: false }); return; }
+        if (msg.params.name === 'run_command') { reply({ content: [{ type: 'text', text: JSON.stringify({ exitCode: repaired ? 0 : 7, stdout: repaired ? 'CHECK-PASS' : 'CHECK-FAIL' }) }], isError: false }); return; }
         reply({ content: [{ type: 'text', text: 'sent to ' + a.to + ' id=msg-' + calls.filter(c => c.msg.method === 'tools/call').length }], isError: false });
         return;
       }
@@ -67,6 +72,7 @@ function startMockMcp() {
 
 // the model: while fewer than two tool results exist, emit the SAME send_message call; then stop.
 function startMockOpenRouter() {
+  const requests = [];
   return new Promise(resolve => {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
@@ -80,10 +86,16 @@ function startMockOpenRouter() {
         req.on('end', () => {
           let parsed = {}, msgs = [];
           try { parsed = JSON.parse(body); msgs = parsed.messages || []; } catch (_) {}
+          requests.push(parsed);
           const toolResults = msgs.filter(m => m && m.role === 'tool').length;
           const hasTool = (parsed.tools || []).some(t => t && t.function && t.function.name === 'mcp__demo__send_message');
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-          if (hasTool && toolResults < 2) {
+          if (checkScenario && toolResults < 3) {
+            const name = toolResults === 1 ? 'mcp__demo__write_file' : 'mcp__demo__run_command';
+            const args = toolResults === 1 ? {} : { name: 'check' };
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'check_' + toolResults, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] }) + '\n\n');
+            res.write('data: ' + JSON.stringify({ choices: [{ finish_reason: 'tool_calls', delta: {} }], usage: { prompt_tokens: 8, completion_tokens: 4, total_tokens: 12 } }) + '\n\n');
+          } else if (!checkScenario && hasTool && toolResults < 2) {
             // identical arguments both times — deliberately with a different KEY ORDER the second time, so the
             // proof covers canonical-args hashing and not just string equality.
             const args = toolResults === 0 ? { to: 'ops@example.com', body: 'Invoice #42 is ready' } : { body: 'Invoice #42 is ready', to: 'ops@example.com' };
@@ -100,7 +112,7 @@ function startMockOpenRouter() {
       }
       res.writeHead(404); res.end();
     });
-    server.listen(0, HOST, () => resolve({ server, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
+    server.listen(0, HOST, () => resolve({ server, requests, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
   });
 }
 
@@ -151,6 +163,7 @@ async function readNdjson(res) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-idem-e2e-'));
   const env = {
     SKYNET_WORKSPACES: ws, STARNET_WORKSPACES: ws,
+    STARNET_FULL_ACCESS: '1', SKYNET_FULL_ACCESS: '1',
     SKYNET_OPENROUTER_BASE: llm.base, STARNET_OPENROUTER_BASE: llm.base,
     SKYNET_OPENROUTER_KEY: 'sk-or-v1-idem-fake', STARNET_OPENROUTER_KEY: 'sk-or-v1-idem-fake',
     SKYNET_DEFAULT_MODEL: 'test/model', STARNET_DEFAULT_MODEL: 'test/model'
@@ -165,7 +178,7 @@ async function readNdjson(res) {
 
     const upsert = await fetch(B + '/api/connectors', { method: 'POST', headers, body: JSON.stringify({ id: 'demo', label: 'Demo MCP', transport: 'http', url: mcp.url, token: 'mcp-secret-token' }) });
     A.eq(upsert.status, 200, 'configured the MCP connector');
-    A.eq((await upsert.json()).toolCount, 1, 'the write tool was discovered');
+    A.eq((await upsert.json()).toolCount, 3, 'write and command tools were discovered');
 
     const create = await fetch(B + '/api/cron', {
       method: 'POST', headers,
@@ -207,6 +220,15 @@ async function readNdjson(res) {
     const results2 = panel2.filter(e => e.name === 'agent.tool_result' && e.payload && e.payload.summary === 'idempotent-replay');
     A.eq(results2.length, 1, 'run 2 again dedupes only its OWN repeat');
     A.eq(writeCalls().length, 2, 'the new work item reached the server once more (2 real sends across 2 runs)');
+    checkScenario = true;
+    const checked = await readNdjson(await fetch(B + '/api/cron/run', { method: 'POST', headers, body: JSON.stringify({ id: job.id }) }));
+    const executions = mcp.calls.filter(c => c.msg.method === 'tools/call' && c.msg.params.name === 'run_command');
+    if (executions.length !== 2) console.log(JSON.stringify(checked.filter(e => /tool_call|tool_result|run.end/.test(e.name))));
+    A.eq(executions.length, 2, 'identical failed-check arguments execute again after repair');
+    A.ok(llm.requests.some(request => (request.messages || []).some(message => message.role === 'tool' && /CHECK-PASS/.test(message.content))), 'the model receives the fresh passing check after repair');
+    A.eq(JSON.stringify(executions[0]?.msg.params.arguments), JSON.stringify(executions[1]?.msg.params.arguments), 'fresh check needs no argument workaround');
+    A.eq(checked.filter(e => e.name === 'agent.tool_result' && e.payload.summary === 'idempotent-replay').length, 0, 'the failed command was not replayed as a successful write');
+    A.ok(checked.some(e => e.name === 'agent.run.end' && e.payload.reason === 'done'), 'repair and recheck run completes');
   } finally {
     try { child.kill(); } catch (_) {}
     try { mcp.server.close(); } catch (_) {}

@@ -60,7 +60,10 @@ const QuestLedgerStore = (() => {
       completedBy: (r && r.completedBy) || null,
       domain: (r && r.domain) || null,
       goalId: (r && r.goalId) || null,
-      milestoneId: (r && r.milestoneId) || null
+      milestoneId: (r && r.milestoneId) || null,
+      executionMode: (r && r.executionMode) || (c.type === 'attest' ? 'commander' : 'agent'),
+      whyNow: String((r && r.whyNow) || ''),
+      disposition: r && r.disposition || null
     };
   }
 
@@ -139,6 +142,27 @@ const QuestLedgerStore = (() => {
     return out;
   }
 
+  function paused(q, now) {
+    const d = q && q.disposition;
+    return !!(d && (d.type === 'blocked' || d.type === 'too_big' || (d.type === 'later' && Number(d.snoozeUntil) > (now == null ? Date.now() : now))));
+  }
+  async function writeAction(path, body) {
+    let out;
+    try {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      out = await res.json();
+      if (!res.ok) out = { ok: false, error: out && out.error || 'quest update failed' };
+    } catch (_) { out = { ok: false, error: 'quest service unavailable' }; }
+    lastFetch = 0; await refetch();
+    if (out && out.ok && typeof JourneyStore !== 'undefined' && JourneyStore.sync) await JourneyStore.sync(true);
+    return out;
+  }
+  function disposition(id, type, reason) {
+    return writeAction('/api/quests/disposition', { id, disposition: type, reason: String(reason || ''),
+      snoozeUntil: type === 'later' ? Date.now() + 24 * 3600000 : null });
+  }
+  function report(id, evidence) { return writeAction('/api/quests/report', { id, evidence: String(evidence || '') }); }
+
   // surface a newly-observed pending attest as ONE gentle COMMS beat (the shared nudge lifecycle → one beat at a
   // time, decided beats vanish()). Deduped per attest-key for the page session (anti-nag). Guarded: if a real
   // beat/turn is live (Chat.isBusy) we DON'T claim the moment — we fall back to the ambient broadcast line, which
@@ -182,7 +206,7 @@ const QuestLedgerStore = (() => {
   // a fresh Commander inherits no ledger cache (mirrors the sibling stores' reset).
   function reset() { cache = []; lastFetch = 0; notified.clear(); seenOpen.clear(); seededOnce = false; }
 
-  return { init, sync, quests, pendingAttests, confirm, dismiss, reset, _shape: shape, _apply: apply, _seededOnce: () => seededOnce };
+  return { init, sync, quests, pendingAttests, confirm, dismiss, disposition, report, paused, reset, _shape: shape, _apply: apply, _seededOnce: () => seededOnce };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { QuestLedgerStore };

@@ -28,7 +28,8 @@ try{
   await cdp.send('Page.navigate',{url:'http://127.0.0.1:9490/'});assert.ok(await waitDevReady(cdp,evalJS,{url:'http://127.0.0.1:9490/'}));
   await until(`document.querySelector('#status-pill').textContent==='ONLINE'&&!World.linkState().down`);
   await until(`document.querySelector('.tb-xp-fill').style.width!==''`);
-  await check('Station level and progress use the existing measured XP data',`(()=>{const g=Xp.compute(XpStore.stationStats());return document.querySelector('#gt-station').textContent==='Lv '+g.level&&document.querySelector('.tb-xp-fill').style.width===Math.round(g.frac*100)+'%'})()`);
+  await until(`JourneyStore.status()?.progression&&document.querySelector('#gt-station').textContent.startsWith('Lv ')`);
+  await check('Commander level and progress match the server-owned Journey snapshot',`(()=>{const g=JourneyStore.status().progression;const pct=Math.max(0,Math.min(100,Math.round(100*(g.points-g.levelStartsAt)/(g.nextLevelAt-g.levelStartsAt))));return document.querySelector('#tb-station .tb-lbl').textContent==='COMMANDER'&&document.querySelector('#gt-station').textContent==='Lv '+g.level&&document.querySelector('.tb-xp-fill').style.width===pct+'%'})()`);
   await check('E-STOP moved out of the header into SYSTEM',`!document.querySelector('#topbar #estop-btn')&&document.querySelector('[data-group=system] #estop-btn small').textContent==='halt all runs · Alt+H'`);
   await check('The connection display replaces the old signal glyph and rounded pill',`getComputedStyle(document.querySelector('#sig b')).display==='none'&&getComputedStyle(document.querySelector('#status-pill')).borderRadius==='0px'&&document.querySelector('.tb-link-mark')`);
   await check('Desktop instruments fit within the top bar',fits);await shot('01-online');

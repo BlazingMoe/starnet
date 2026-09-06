@@ -17,7 +17,8 @@ A.ok(/\['wheel', 'touchstart', 'pointerdown'\][\s\S]{0,180}cancelHistoryPin/.tes
   'wheel, touch, and scrollbar/pointer intent cancel the pending automatic pin');
 A.ok(/log\.addEventListener\('scroll'[\s\S]{0,180}if \(historyPinPending\) return[\s\S]{0,240}stick = nearBottom\(\)/.test(src),
   'programmatic replay scroll events cannot falsely disable stick, while ordinary scrolls still update it');
-A.ok(/const historyPin = \+\+historyPinSeq[\s\S]{0,4000}pinLoadedHistoryAfterLayout\(historyPin\)/.test(src),
+const loadBody = src.match(/function load\(ws\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/const historyPin = \+\+historyPinSeq[\s\S]*renderHistory\(\)[\s\S]*replayChannel\(\)[\s\S]*pinLoadedHistoryAfterLayout\(historyPin\)/.test(loadBody),
   'every load schedules its final pin only after history and in-flight replay surfaces render');
 
 A.report('comms-history-pin.test');

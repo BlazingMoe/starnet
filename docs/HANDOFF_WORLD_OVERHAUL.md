@@ -391,3 +391,15 @@ E-STOP is the last SYSTEM menu item, labeled "halt all runs · Alt+H". The menu'
 keyboard navigation and close-on-selection behavior apply. The halt handler and global Alt+H
 shortcut are unchanged. Updated header verification checks the menu action at narrow widths
 and sends real halt requests only to the disposable test server.
+
+## September 6 trunk reconciliation and suspended fixture removal
+
+Synced the world/UI lane with trunk `9fa38c05b`. The header keeps the newer Commander achievement
+progression from JourneyStore, using the refined instrument styling. Session attention now coexists
+with trunk's Chats/Automated views and grouped routine history: pending sessions remain reachable
+across category filters and archives; Waiting for you lists every pending session without grouping.
+Leaving that view restores the saved category and grouping. E-STOP remains under SYSTEM.
+
+Removed the world renderer's suspended pendant stems, shades and bright tubes at the user's request.
+The existing room light sources, light pools, wall-mounted fixtures, shadows and interior masks remain.
+This removes an overlay draw pass rather than changing the room's lighting calculation.

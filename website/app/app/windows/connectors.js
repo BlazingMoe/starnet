@@ -284,16 +284,22 @@
       '</details>';
 
     const host = mountConsole(body, 'connectors', [
-      { id: 'toolsets', label: 'TOOLSETS', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
+      { id: 'toolsets', label: 'BUILT-IN ABILITIES', glyph: '▤', desc: 'Inspect an agent’s capability grants. Switches apply in ASK mode; Full Access overrides them. Connected services still need working credentials.', build: frag(secToolsets) },
       { id: 'catalog', label: 'CATALOG', glyph: '⊞', desc: 'Find a service by name or what you want to do. Choose it to see the setup required; YOUR SERVICES shows saved setups, not a live connection guarantee.', build: frag(secCatalog) },
-      { id: 'keys', label: 'KEYS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
-      { id: 'mcp', label: 'MCP CONNECTORS', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
+      { id: 'keys', label: 'SAVED API CONNECTIONS', glyph: '⊟', desc: 'The platform credentials your agents actually hold, plus a safe drop for a custom API the catalog does not list.', build: frag(secKeys) },
+      { id: 'mcp', label: 'CONNECTED SERVICES', glyph: '⧉', desc: 'External tool servers your agents can call — GitHub, Slack, a database. Inspect connection status, reconnect, or edit advanced settings. Tool access follows the agent’s effective permissions.', build: frag(secMcp) },
+      { id: 'custom', label: 'CREATE / ADVANCED', glyph: '＋', desc: 'Configure a custom server, API, skill package, hook or plugin.', build: frag('<div class="ab-router-grid"><button class="ab-route" data-ab-to="mcp">Add a custom MCP server</button><button class="ab-route" data-ab-to="keys">Add a custom API key</button><button class="ab-route" data-ab-to="exchange">Import a skill package</button><button class="ab-route" data-ab-to="extensions">Create hooks and plugins</button></div>') },
       // shortened: the pane's own opening paragraph is the RICHER copy here (concrete moments, the
       // hook-vs-plugin distinction, the sandbox reason) — unusually, this is the one pane where the
       // lead earns its place and the `desc` was the redundant half. So the desc yields instead.
       { id: 'extensions', label: 'EXTENSIONS', glyph: '⌥', desc: 'Your own hooks and plugins — the code you write, run by the station.', build: frag(secExt) }
     ].concat(lanes.reduce((acc, l) => acc.concat(l.sections), [])), {
       search: true,
+      groups: [
+        { id: 'installed', label: 'INSTALLED', sections: ['toolsets', 'mcp', 'keys', 'agent'] },
+        { id: 'discover', label: 'DISCOVER', sections: ['catalog', 'library'] },
+        { id: 'advanced', label: 'CREATE / ADVANCED', sections: ['custom', 'extensions', 'exchange'] }
+      ],
       searchLabel: 'Search abilities',
       searchPlaceholder: 'search a platform, tool or skill — try “notion”…',
       searchEmptyText: 'No abilities match that search. Try another platform, tool, or skill.'
@@ -309,6 +315,35 @@
     routerEl.innerHTML = secRouter;
     const routerNode = routerEl.firstChild;
     if (host && routerNode) host.insertBefore(routerNode, host.firstChild);
+    const handoffEl = document.createElement('div');
+    handoffEl.className = 'mc-hint'; handoffEl.setAttribute('aria-live', 'polite');
+    if (host) host.insertBefore(handoffEl, host.firstChild);
+    function renderHandoffs(connectors) {
+      handoffEl.replaceChildren();
+      if (typeof Workstreams === 'undefined' || !Workstreams.connectorHandoff) return;
+      for (const ws of Workstreams.list()) {
+        const h = Workstreams.connectorHandoff(ws.id); if (!h) continue;
+        const c = connectors.find(x => x.id === h.connectorId);
+        const ready = c && c.enabled && c.state === 'up' && !c.authRequired;
+        const dormant = c && c.enabled && c.state === 'cached' && !c.authRequired;
+        const supported = dormant || (ready && (!h.toolName || (c.tools || []).includes(h.toolName)));
+        const line = document.createElement('div');
+        const caption = document.createElement('span');
+        caption.textContent = (ws.title || 'Task') + ' · ' + h.connectorId + ' — '
+          + (dormant ? 'saved connection will be checked. ' : supported ? 'connection ready. ' : ready ? 'requested operation is unavailable. ' : 'waiting for connection. ');
+        line.appendChild(caption);
+        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'bb xs';
+        btn.textContent = dormant ? 'CHECK & CONTINUE TASK' : supported ? 'CONTINUE TASK' : 'RETURN TO TASK';
+        btn.onclick = async () => {
+          if (!supported) { App.openWorkstream(ws.id); return; }
+          btn.disabled = true;
+          await Chat.continueConnectorTask(ws.id);
+          if (btn.isConnected) btn.disabled = false;
+          refresh();
+        };
+        line.appendChild(btn); handoffEl.appendChild(line);
+      }
+    }
     // Delegated on the whole console body, not just the strip: `data-ab-to` is the jump CONTRACT for this
     // window, and the empty states reuse it (KEYS' "no keyed platform yet" offers OPEN CATALOG). Binding
     // to the strip alone would have left those buttons inert — a new dead end shipped beside a cured one.
@@ -736,7 +771,9 @@
           '<span class="set-row mc-enable"><input type="checkbox" data-act="toggle"' + (c.enabled ? ' checked' : '') + ' aria-label="Enable connector ' + esc(c.id) + '"></span>' +
           '<b>' + esc(c.label || c.id) + '</b> <span class="dim">' + esc(c.id) + '</span>' +
           '<span class="mc-state" style="color:' + b[0] + '">' + b[1] + (c.toolCount ? ' · ' + c.toolCount + ' tool' + (c.toolCount === 1 ? '' : 's') : '') + '</span></div>' +
-        '<div class="mc-url dim">' + where + timeout + '</div>' + (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
+        '<div class="mc-url dim">' + where + timeout + '</div>' +
+        '<div class="mc-hint">' + (c.account && c.account.email ? 'Account at last sign-in: ' + esc(c.account.email) : 'Account identity: not verified by StarNet.') + ' Browser logins are separate from this connection.</div>' +
+        (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
         '<div class="mc-acts">' +
           // an OAuth connector's stored grant can die provider-side (token revoked, DCR client deleted) — a state
           // RELOAD can't cure (it reconnects with the same dead grant) and EDIT can't reach (its form is the
@@ -756,6 +793,7 @@
       try {
         const j = await Harness.api.get('/api/connectors');
         const list = (j && j.connectors) || []; lastList = list;
+        renderHandoffs(list);
         if (list.length) { listEl.innerHTML = list.map(row).join(''); }
         else {
           listEl.innerHTML = '<div class="empty-state"><span class="es-glyph">⧉</span>' +
@@ -993,9 +1031,10 @@
       const redirectUri = 'http://127.0.0.1:' + (location.port || '8787') + '/api/connectors/oauth/callback';
       const clientField = (e.authType === 'oauth' && e.staticOauth && e.needsClient)
         ? '<div class="cc-key cc-oclient" style="display:none">' +
-            '<div class="mc-hint">One-time setup, shared by every Google card.</div>' +
+            '<div class="mc-hint">Advanced setup, shared by every Google card. Google Workspace MCP is a developer preview; access must be enabled before sign-in can work.</div>' +
             '<ol class="cc-steps">' +
-              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a> and create an OAuth <b>Web application</b> client.</li>' +
+              '<li>Open the <a href="' + esc(e.staticOauth.setupUrl) + '" target="_blank" rel="noopener">' + esc(e.staticOauth.setupName || 'vendor setup guide') + ' ↗</a>, enroll in the preview, and enable the service’s MCP API in your Google Cloud project.</li>' +
+              '<li>Configure the consent screen and create an OAuth <b>Web application</b> client. In testing mode, add your Google account as a test user.</li>' +
               '<li>Add this redirect URI: <span class="cc-uri"><code>' + esc(redirectUri) + '</code><button type="button" class="cc-copy" data-cc-copy="' + esc(redirectUri) + '">COPY</button></span></li>' +
               '<li>Paste the client ID and secret below.</li>' +
             '</ol>' +
@@ -1220,7 +1259,7 @@
           if (c && c.state === 'up') { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); sfx('click'); notify('Connector "' + label + '" connected', 'good'); out.classList.add('ok'); out.textContent = '✓ ' + label + ' signed in — ' + (c.toolCount || 0) + ' tool(s)'; ccRefresh(); refresh(); try { if (win && !win.closed) win.close(); } catch (_) {} return; }
           if (c && c.state === 'error' && (!c.oauth || c.oauthAuthorized)) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); sfx('bad'); out.textContent = '✕ ' + label + ' — ' + (c.detail || 'connection failed'); ccRefresh(); refresh(); return; }
         } catch (_) {}
-        if (tries > 150) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); ccResetSignBtn(id); }   // ~5-minute cap so a stalled/abandoned sign-in stops polling
+        if (tries > 150) { stopCcPoll(id); ccPending.delete(id); ccPendingWin.delete(id); ccAttempts.delete(id); ccResetSignBtn(id); out.classList.remove('ok'); out.textContent = 'Sign-in timed out. Sign in again, then return to your task.'; }   // ~5-minute cap
       }, 2000);
       ccTimers.set(id, timer);
     }

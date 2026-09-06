@@ -629,6 +629,8 @@
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
           name, prompt, schedule, agentId: agentId || undefined, provider, tz,
+          meta: body.querySelector('#rt-prompt').dataset.workflowTakeoverId
+            ? { workflowTakeoverId: body.querySelector('#rt-prompt').dataset.workflowTakeoverId } : undefined,
           unattendedGrants: grants.length ? grants : undefined,
           skills: split('#rt-skills'), contextFrom: split('#rt-context'),
           workdir: workdir || undefined, script: script || undefined,
@@ -654,6 +656,7 @@
           else notify('routine "' + (name || 'unnamed') + '" scheduled for ' + agentLabel(agentId || 'agent'), 'good');
           sfx('click');
           ['#rt-name', '#rt-prompt'].forEach(s => { body.querySelector(s).value = ''; });
+          delete body.querySelector('#rt-prompt').dataset.workflowTakeoverId;
           ['#rt-term', '#rt-conn'].forEach(s => { const el = body.querySelector(s); if (el) el.checked = false; });   // a grant is never sticky across creates
           // the WHEN selection SURVIVES a create (people add three morning routines in a row) — but a
           // sticky cadence with a cleared field would be a lie, so we re-emit it and let the preview

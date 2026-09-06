@@ -1,5 +1,109 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-05 paid first-run recovery (`agent/paid-first-run`)
+
+Owner requested fresh assessment and execution of the subscription/credit purchaser recovery
+plan. Source repair `c364e991d` fences stale pairing, keychain recovery and account status
+responses; preserves a one-shot link confirmation across a transient disk failure; bounds
+identity recovery through body consumption; separates observed balance from optimistic
+admission holds; and adds sanitized paid-account/run correlation to copied diagnostics.
+
+Done means linking, interruption, explicit unlink, relink and restart retain the chosen
+account in the real app; a current funded balance is never replaced by an old account or
+local reservation; errors carry usable correlation; fast/HTTP gates pass. Full customer
+closure additionally requires the affected installed Windows/Apple Silicon behavior and
+production Sonnet trace. The three original reports remain open pending that evidence.
+Execution receipt: `qa/digests/2026-09-05-paid-first-run.md`.
+
+## DONE — 2026-09-05 life-goal progression (`agent/life-goal-progression`)
+
+Owner request: plan and execute a goal-centered leveling and quest loop.
+
+1. Separate completed planned actions from achieved life outcomes. Store success conditions;
+   require explicit Commander outcome evidence; retain existing earned history.
+2. Give Commander progression its own durable, deduplicated achievement points and headline
+   level; keep crew feedback XP separate. Credit intermediate goal-linked actions/metrics.
+3. Feed goal metrics, evidence, and blocker feedback into quest refresh. Add bounded reactive
+   refresh, durable later/blocked/too-big/resume, and explicit real-world action reporting.
+4. Connect the quest-log UI to those APIs, including user-performed milestone reporting,
+   extending a completed plan, and specific achievement receipts.
+5. Verify action -> evidence -> next step -> goal confirmation -> station evolution in the
+   seeded running app, repeat reads after restart, then fast/http gates and integration.
+
+Done means a completed plan leaves the goal active; a reported real-world action advances
+the plan with labelled evidence; a recorded metric informs planning; explicit goal outcome
+confirmation advances Commander level and station evolution exactly once, surviving restart.
+
+Implemented: explicit success conditions and goal confirmation, manual goal creation with one
+or more steps, focus switching, extending plans, user-performed action reports, Commander
+achievement progression, metric checkpoint dedupe, adaptive quest evidence, and defer/resume.
+Independent review corrected assigned-agent attribution for user actions, lost registration
+responses, and active-plan preservation when history is capped.
+
+Live seeded proof (`node dev/life-goal-proof.mjs`, :9143): three action reports left the goal
+active at 100% of plan and 30 points; metrics reached the model directive; a generated quest
+paused, resumed, and completed from a user report; explicit goal confirmation produced 160
+points, Commander Lv 2, and evolution stage 1. Restart preserved those values and repeat
+confirmation minted nothing. Browser warning/exception lists and native-control paint count
+were empty. The provider was a local deterministic mock, so real-provider recommendation
+quality and installed-desktop behavior remain unverified. Pre-merge gates passed: 722/722
+fast and 99/99 HTTP. The combined website-repair candidate also passed 722/722 fast and
+the live restart proof. Merged as `46b944c11`; post-merge gates passed 722/722 fast and
+99/99 HTTP, exit 0. Unrelated QA notes and the Rooms handoff were preserved.
+See `docs/LIFE_GOAL_PROGRESSION_2026-09-05.md`. No installed-app or release claim.
+
+## DONE — 2026-09-05 group chat integration (`agent/group-dm-plan-0904`)
+
+Merged as `6002f57f5` after synchronizing with conversation trunk `368d6a8b9`.
+Pre-merge and post-merge gates both passed 721/721 fast and 99/99 HTTP, exit 0.
+Conversational question drafts and normal-composer answers passed live restart/answer
+verification on :9137. Existing uncommitted QA status and Rooms handoff bytes were
+preserved. Integration window released; preview worktree retained for user testing.
+See `docs/GROUP_CHAT_MERGE_2026-09-05.md`. No installed-app or release claim.
+
+## DONE — 2026-09-05 conversational task context (`agent/rec-vision-audit-0905`)
+
+Owner approved concrete experience questions, whole-answer extraction, adaptive follow-ups,
+draft-led clarification, and stopping when the next useful action is clear, with a better COMMS UI.
+Extend the durable Task Brief and existing clarify/answer path. Keep choices optional, show cited
+working understanding separately from assumptions, preserve long answers and restart continuity,
+and honor a single use-your-judgment escape. Legacy choice callers remain compatible.
+Verified: live open question -> rich answer -> grounded adaptive follow-up/sample -> proceed; simple
+requests run immediately; restart restores the pending conversation without answering it itself.
+Combined branch passed 719/719 fast and 98/98 HTTP, with themed UI/keyboard/narrow-layout checks.
+Merged as `b62ccd22a`; post-merge fast 719/719 and HTTP 98/98 both passed, exit 0.
+See `qa/task-context-conversation-0905.md`. Existing QA status and Rooms handoff bytes were preserved.
+
+## DONE — 2026-09-05 platform connection integration (`agent/platform-handoff-0905`)
+
+Connector task continuation, saved browser-profile contention, and Google account identity were
+integrated with current station workflows and the Hermes reliability lane. Joint production trunk
+`c2a62eeb9` passed post-merge fast 716/716 and HTTP 96/96, both exit 0. Seeded live task
+restart/continuation and real-Chrome saved-cookie reuse passed on the identical production source.
+Unrelated QA status and Rooms handoff bytes were preserved; merge receipts belong in `qa/STATUS.md`.
+Production Google OAuth provisioning and installed-app release remain outside this local merge.
+Details and local evidence paths: `docs/PLATFORM_CONNECTION_FOLLOWTHROUGH.md`.
+
+## DONE — 2026-09-05 repeated-work takeover (`agent/rec-vision-audit-0905`)
+
+Plan: use durable task briefs joined to completed run evidence to detect the same bounded workflow
+on at least three separate occasions. Exclude retries/corrections, failed/internal runs, conflicting
+targets and existing routines. Offer one evidence-backed takeover through the existing routine beat;
+acceptance opens the existing editable routine draft with the original agent, sources and instructions.
+The user chooses the cadence and confirms creation; no schedule is inferred from counts. Persist
+offer/defer/never decisions, honor paused/forgotten personalization, and suppress scheduled workflows.
+
+Done means: in a seeded live station, repeated completed requests earn a concrete takeover card;
+review opens a prefilled routine draft, confirmation creates exactly one real scheduler job, and
+restart retains the job/decision without another offer. Negative scenarios remain silent. Focused,
+fast and HTTP gates pass before the user-authorized merge. Use existing scheduler execution and
+authority, with no new agent loop or capability unlock. Preserve unrelated trunk work.
+
+Implemented and source-app verified: takeover card -> evidence-backed editable draft -> confirmed
+Monday routine -> successful scheduler result -> restart without another offer. Branch gates:
+714/714 fast and 96/96 HTTP steps green. See `qa/workflow-takeover-0905.md` for fixture boundaries
+and run receipts. Post-merge gate result belongs in `qa/STATUS.md`.
+
 
 ## DONE — 2026-09-05 approved world/UI integration (`agent/world-visual-audit-0904`)
 

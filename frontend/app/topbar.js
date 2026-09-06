@@ -1,12 +1,11 @@
 /* STARNET — topbar.js : the TOPBAR INSTRUMENT-CLUSTER logic (read-only wiring).
 
-   The topbar holds one cockpit gauge group: STATION (level + an XP-progress sliver)
+   The topbar holds one cockpit gauge group: COMMANDER (level + achievement progress)
    and the moved-up session-status instruments (UPLINK / ONLINE / save).
 
    This module OWNS none of the data. It is a pure read-only consumer:
-     - STATION level      — written into #gt-station by xpstore.js (untouched); we only
-                             ADD the XP sliver, painted from Xp.compute(XpStore.stationStats())
-                             (a read-only exported getter) on the same U.bus growth events.
+     - COMMANDER level   — read from JourneyStore's server-owned progression snapshot.
+                             Crew XP cannot write this headline or celebrate its level.
      - UPLINK / ONLINE / save — their markup was moved up from #bottombar .bb-right with ids
                              intact, so main.js save() and stationui.js tick()/flashSave() keep
                              writing them with zero changes here.
@@ -16,23 +15,35 @@
 'use strict';
 const Topbar = (() => {
   let wired = false;
+  let lastCommanderLevel = null;
 
   const $ = sel => document.querySelector(sel);
 
-  // ---- STATION XP sliver: read-only compute over the live station rollup ----
+  // ---- Commander achievement sliver: read-only projection of durable Journey proof ----
   function paintXp() {
     try {
-      if (typeof Xp === 'undefined' || typeof XpStore === 'undefined' || !XpStore.stationStats) return;
-      const stats = XpStore.stationStats();
-      if (!stats) return;
-      const g = Xp.compute(stats);
+      const j = typeof JourneyStore !== 'undefined' && JourneyStore.status ? JourneyStore.status() : null;
+      const g = j && j.progression;
+      const label = document.getElementById('gt-station');
+      if (!g || !Number.isFinite(g.level)) {
+        if (label) label.textContent = '—'; lastCommanderLevel = null;
+        const emptyFill = $('#tb-station .tb-xp-fill'); if (emptyFill) emptyFill.style.width = '0%';
+        return;
+      }
+      const stale = JourneyStore.state && JourneyStore.state().stale;
+      if (label) label.textContent = 'Lv ' + g.level + (stale ? ' · saved' : '');
+      if (lastCommanderLevel != null && g.level > lastCommanderLevel) {
+        const chip = document.getElementById('tb-station');
+        if (chip) { chip.classList.remove('lvup'); void chip.offsetWidth; chip.classList.add('lvup'); }
+        if (typeof SFX !== 'undefined' && SFX.level) SFX.level();
+      }
+      lastCommanderLevel = g.level;
       const fill = $('#tb-station .tb-xp-fill');
-      if (fill && g && isFinite(g.frac)) {
-        const pct = Math.max(0, Math.min(100, Math.round(g.frac * 100)));
+      if (fill && g.nextLevelAt > g.levelStartsAt) {
+        const pct = Math.max(0, Math.min(100, Math.round(100 * (g.points - g.levelStartsAt) / (g.nextLevelAt - g.levelStartsAt))));
         fill.style.width = pct + '%';
         const xp = $('#tb-station .tb-xp');
-        if (xp) xp.title = 'STATION Lv ' + g.level + ' — ' + pct + '% to Lv ' + (g.level + 1)
-          + (isFinite(g.toNext) ? ' (' + g.toNext + ' XP to go)' : '');
+        if (xp) xp.title = 'COMMANDER Lv ' + g.level + ' — ' + g.points + ' achievement points; ' + g.pointsToNextLevel + ' to the next level';
       }
     } catch (_) { /* honest no-op: leave the sliver where it is */ }
   }

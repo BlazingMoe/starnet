@@ -139,6 +139,10 @@
       nextRunAt: job.nextRunAt,
       lastRunAt: job.lastRunAt,
       lastStatus: job.lastStatus,
+      lastError: job.lastError || (job.blockedConfig && job.blockedConfig.reason) || null,
+      lastReason: job.lastReason || null,
+      deliver: job.deliver || 'local',
+      completedRuns: job.repeat && job.repeat.completed || 0,
       provider: job.provider || null,
       model: job.model || null
     };
@@ -181,7 +185,7 @@
      added to the store later is then withheld by default instead of quietly becoming agent-writable.
      (test/tool-withheld-message.test.js additionally source-greps this file to prove no code path here even
      NAMES that grant field — which is why the sentence above describes it instead of spelling it.) */
-  const AGENT_PATCHABLE = ['name', 'prompt', 'schedule', 'model', 'provider', 'repeatTimes', 'timezone', 'monitorMode'];
+  const AGENT_PATCHABLE = ['name', 'prompt', 'schedule', 'model', 'provider', 'repeatTimes', 'timezone', 'monitorMode', 'deliver', 'attachToSession'];
 
   function makeRoutineTools(deps) {
     deps = deps || {};
@@ -387,6 +391,8 @@
           model: { type: 'string' },
           repeatTimes: { type: ['integer', 'null'], description: 'update: null for recurring forever.' }
           ,monitorMode: { type: 'boolean', description: 'update: suppress runs while contextFrom source bytes are unchanged.' }
+          ,deliver: { type: 'string', enum: ['local', 'origin'], description: 'update: local output or return to the captured chat/session.' }
+          ,attachToSession: { type: 'boolean', description: 'update: keep local results in the captured session.' }
         }
       },
       run: async (args) => {
@@ -448,6 +454,11 @@
           set('schedule', args.schedule, 200);
           set('timezone', args.timezone, 80);
           set('model', args.model, 120);
+          if (args.deliver != null) {
+            if (args.deliver !== 'local' && args.deliver !== 'origin') throw new Error('deliver must be local or origin');
+            patch.deliver = args.deliver;
+          }
+          if (Object.prototype.hasOwnProperty.call(args, 'attachToSession')) patch.attachToSession = args.attachToSession === true;
           if (Object.prototype.hasOwnProperty.call(args, 'monitorMode')) patch.monitorMode = args.monitorMode === true;
         }
         /* A TIMEZONE ONLY MEANS SOMETHING WITH A SCHEDULE. The host resolves tz inside the schedule parse

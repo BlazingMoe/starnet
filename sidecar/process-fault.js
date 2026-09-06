@@ -12,12 +12,13 @@
    (the rest of the process is not torn), and it stays on the surface-only path in index.js.
 
    Pure + injected (no ambient process/timer), so the whole policy is unit-testable:
-     makeProcessFaultHandler({ surface, exit, schedule, release, keepAlive, delayMs, now, log })
+     makeProcessFaultHandler({ surface, exit, schedule, quiesce, release, keepAlive, delayMs, now, log })
        -> { onUncaught(err), fault(), isBenign(err) }
    - surface(kind, err)   : the existing log + diagnostics-ring recorder (called FIRST, always).
    - exit(code)           : process.exit in production.
    - schedule(fn, ms)     : setTimeout in production (the exit is deferred so the fault is observable).
-   - release()            : best-effort sync hook (lock release / owner claim drop). Any throw is contained.
+   - quiesce()            : best-effort immediate hook that stops work/timers/transports while health is degraded.
+   - release()            : best-effort sync hook (lock release / owner claim drop) immediately before exit.
    - keepAlive            : test-only opt-out (STARNET_UNCAUGHT_KEEP_SERVING=1): surface + mark degraded, but
                             never exit — so a harness that deliberately provokes a throw can keep asserting.
    - BENIGN allowlist     : EPIPE / ERR_STREAM_DESTROYED on a stdio write (the desktop shell or a test runner
@@ -45,6 +46,7 @@ function makeProcessFaultHandler(deps) {
   const surface = typeof deps.surface === 'function' ? deps.surface : function () {};
   const exit = typeof deps.exit === 'function' ? deps.exit : function () {};
   const schedule = typeof deps.schedule === 'function' ? deps.schedule : function (fn, ms) { return setTimeout(fn, ms); };
+  const quiesce = typeof deps.quiesce === 'function' ? deps.quiesce : function () {};
   const release = typeof deps.release === 'function' ? deps.release : function () {};
   const log = typeof deps.log === 'function' ? deps.log : function () {};
   const now = typeof deps.now === 'function' ? deps.now : function () { return null; };   // clock is INJECTED (lint-determinism); index.js passes Date.now
@@ -62,8 +64,13 @@ function makeProcessFaultHandler(deps) {
     if (isBenign(err)) return { action: 'benign' };
     if (fault) return { action: 'already-faulted' };
     fault = { kind: 'uncaughtException', message: summarize(err), at: now(), exiting: !keepAlive };
+    // The degraded observation window must never remain an execution window. Stop every background producer and
+    // abort live work immediately, before either the delayed exit or the crash-loop hold path is selected. The
+    // composition root also refuses non-diagnostic HTTP while fault() is set. A broken quiesce hook is contained:
+    // fail-loud exit/hold policy must still run and the hook failure is itself visible in the boot log.
+    try { quiesce(); } catch (e) { log('uncaughtException: quiesce hook failed (fault policy continues): ' + summarize(e)); }
     if (keepAlive) {
-      log('uncaughtException: process marked DEGRADED but kept alive (UNCAUGHT_KEEP_SERVING is set — test opt-out)');
+      log('uncaughtException: process marked DEGRADED and quiesced but kept alive (UNCAUGHT_KEEP_SERVING is set — test opt-out)');
       return { action: 'degraded-kept-alive' };
     }
     if (breaker) {
@@ -74,7 +81,7 @@ function makeProcessFaultHandler(deps) {
         try { loop = typeof breaker.state === 'function' ? breaker.state() : null; } catch (_) { loop = null; }
         fault.exiting = false;
         fault.loop = loop || { count: verdict.count, tripped: true };
-        log('uncaughtException: CRASH LOOP — ' + verdict.count + ' fault exit(s) inside the window; holding this process alive in DEGRADED mode instead of exiting again (health 503 carries the reason; read routes keep serving)');
+        log('uncaughtException: CRASH LOOP — ' + verdict.count + ' fault exit(s) inside the window; holding this process alive QUIESCED in DEGRADED mode instead of exiting again (only the recovery shell, health and diagnostics keep serving)');
         return { action: 'crash-loop-held', count: verdict.count };
       }
     }

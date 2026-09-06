@@ -41,8 +41,11 @@ A.ok(/modelPin:\s*pickedSummonModel/.test(mkt), 'the picked model is threaded in
 // they feed — they were a collapsible strip on the far side of the window. The model bar is still wired end to end,
 // now via summonConfigPanelHTML() off the dossier rather than off the roster.
 A.ok(/summonConfigPanelHTML\(s\)/.test(mkt), 'the CONFIGURE panel is rendered into the dossier');
-A.ok(/function summonConfigPanelHTML[\s\S]{0,900}summonModelBarHTML\(s\)/.test(mkt), 'the CONFIGURE panel carries the model bar (still wired into summon)');
-A.ok(/function wireSummonConfig[\s\S]{0,3000}ModelPicker\.onChange\(modelWrap/.test(mkt), 'the panel re-binds its model picker on every dossier repaint');
+const summonConfigHTML = mkt.match(/function summonConfigPanelHTML\(s\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/summonModelBarHTML\(s\)/.test(summonConfigHTML), 'the CONFIGURE panel carries the model bar (still wired into summon)');
+// Check the function's wiring, independent of how much appearance/name setup precedes it.
+const summonConfigBody = mkt.match(/function wireSummonConfig\(sc\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/ModelPicker\.onChange\(modelWrap/.test(summonConfigBody), 'the panel re-binds its model picker on every dossier repaint');
 // The name field now sits INSIDE the element renderDossier() replaces, so a keystroke may never repaint the dossier.
 A.ok(!/nameIn\.addEventListener\('input',[\s\S]{0,200}renderDossier\(\)/.test(mkt), 'typing a name never re-renders the dossier out from under the focused input');
 
@@ -104,9 +107,9 @@ A.ok(/id="comms-agent-model"/.test(html), 'index.html has the COMMS agent model 
 A.ok(/function renderIdBar\(/.test(chat), 'chat.js renders the COMMS agent line');
 A.ok(/App\.agents\(\)/.test(chat), 'the agent line is populated from the LIVE roster (App.agents), not hardcoded');
 A.ok(/activeWs\s*\?\s*\(activeWs\.agentId/.test(chat), 'the selected agent reflects the DISPLAYED workstream\'s agentId');
-// window widened 3000→3600: load() legitimately grew (it now also re-resolves the speaker `name` from the
-// displayed stream's agent). The invariant is unchanged — renderIdBar() must live INSIDE load().
-A.ok(/function load\(ws\)[\s\S]{0,3600}renderIdBar\(\)/.test(chat), 'load() re-renders the agent line so it follows every stream switch');
+// Match the function boundary: unrelated comments or new restore paths must not invalidate this wiring check.
+const loadBody = chat.match(/function load\(ws\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/renderIdBar\(\)/.test(loadBody), 'load() re-renders the agent line so it follows every stream switch');
 // a change hands off to App.selectAgent (switch/mint a stream bound to that agent) — never rebinds the current convo.
 A.ok(/function wireIdBar\(/.test(chat), 'chat.js wires the selector change once');
 A.ok(/App\.selectAgent\(/.test(chat), 'selecting an agent hands off to App.selectAgent');

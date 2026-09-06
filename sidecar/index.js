@@ -249,6 +249,7 @@ const RecommendationEval = require('./recommendation-eval.js');
 const { makeRecommendationLedger } = Recommendation; // one cross-surface recommendation/verdict lifecycle + shared utility ranker
 const { makePersonalizationStore } = require('./personalization-store.js'); // one durable pause/forget authority for every derived recommender
 const { makeTaskBriefStore } = require('./taskbrief-store.js'); // durable original request + visible task decisions
+const WorkflowTakeover = require('./workflow-takeover.js');
 const TaskBriefPolicy = require('./taskbrief-policy.js');       // host validation + mutation boundary
 const { registerTaskBriefTools } = require('./taskbrief-tools.js'); // structured ask/proceed controls
 const TaskIntent = require('../frontend/app/fork.js').TaskIntent;    // shared TASK_QUESTION protocol + prompt doctrine
@@ -544,6 +545,7 @@ function publicWorkspaceLineage() {
    fallback. Strictly additive to the seatbelt: operator overrides still win, the built-in snapshot
    still answers offline, and a hostile/drifted payload is validated away (liveprices.js). The fetch
    is background + disk-cached (24h cadence) and never blocks a run. SKYNET_LIVE_PRICES=0 disables. */
+let livePricesRefreshTimer = null;
 const livePrices = (function () {
   try {
     if (String(ENV('LIVE_PRICES') || '').trim() === '0') return null;
@@ -552,8 +554,8 @@ const livePrices = (function () {
     const lp = makeLivePrices({ file: path.join(WORKSPACES, 'liveprices.cache.json'), now: () => Date.now() });
     prices.setLiveLookup((family, id) => lp.lookup(family, id));
     lp.refresh().catch(swallow('liveprices.refresh'));
-    const t = setInterval(() => { lp.refresh().catch(swallow('liveprices.refresh')); }, 6 * 60 * 60 * 1000);
-    if (t.unref) t.unref();
+    livePricesRefreshTimer = setInterval(() => { lp.refresh().catch(swallow('liveprices.refresh')); }, 6 * 60 * 60 * 1000);
+    if (livePricesRefreshTimer.unref) livePricesRefreshTimer.unref();
     return lp;
   } catch (e) { console.warn('[prices] live catalog wiring failed:', (e && e.message) || e); return null; }
 })();
@@ -576,6 +578,7 @@ const RUNTIME_KNOBS_FILE = path.join(WORKSPACES, 'runtime.knobs.json');
    fall back to their ephemeral per-run profile (browsing works, just signed out). */
 const BROWSER_PROFILE_DIR = path.join(WORKSPACES, '.browser-profile');
 let browserProfileHolder = null;   // runId of the run whose browser currently owns the durable profile
+const browserProfileWaiters = new Set();
 function browserProfileLeaseFor(runId) {
   return {
     dir: BROWSER_PROFILE_DIR,
@@ -780,6 +783,7 @@ process.on('unhandledRejection', e => surfaceProcessError('unhandledRejection', 
    stays on the log-only path: an un-awaited rejection does not tear the process. */
 const UNCAUGHT_KEEP_SERVING = /^(1|true|yes|on)$/i.test(String(ENV('UNCAUGHT_KEEP_SERVING') || '').trim());
 const UNCAUGHT_EXIT_DELAY_MS = num(ENV('UNCAUGHT_EXIT_DELAY_MS'), 500);   // test knob: widen the observable DEGRADED window
+let processFaultQuiesced = false;
 const processFault = makeProcessFaultHandler({
   surface: surfaceProcessError,
   exit: code => process.exit(code),
@@ -789,6 +793,9 @@ const processFault = makeProcessFaultHandler({
   keepAlive: UNCAUGHT_KEEP_SERVING,
   breaker: CRASH_LOOP_BREAKER ? crashLedger : null,   // crash-loop circuit breaker: the 3rd fault exit in 10m holds the process alive DEGRADED
   log: msg => console.error('[process-fault] ' + msg),
+  // Immediate containment is separate from release: a held crash loop must KEEP the workspace-owner claim so a
+  // second writer cannot enter, while every producer in this torn process is stopped and all live runs abort.
+  quiesce: () => quiesceForProcessFault(),
   // best-effort SYNC release of what gracefulShutdown would release — both are hoisted consts defined later in this
   // file and only ever invoked at runtime (after boot), so the typeof guards are belt-and-braces, not dead code.
   release: () => {
@@ -935,7 +942,7 @@ function resolveCreditsConfig() {
   return { url: '', apiKey: '', accountId: '', purchaseUrl: '' };
 }
 function buildCredits(cfg) {
-  return makeCredits({
+  const adapter = makeCredits({
     url: cfg.url, apiKey: cfg.apiKey, accountId: cfg.accountId, purchaseUrl: cfg.purchaseUrl,
     fetch: globalThis.fetch, clock: { now: () => Date.now() },
     onError: (stage, err) => console.warn('[credits] ' + stage + ' failed:', (err && err.message) || err),
@@ -949,8 +956,9 @@ function buildCredits(cfg) {
     lowBalanceUsd: () => Math.max(CREDITS_LOW_USD, Number((effectiveCaps && effectiveCaps.perRun) || 0)),
     // Late-bound on purpose: cronEmit is declared further down. Balance changes only ever happen after boot
     // (refresh() resolves on a later tick), so by first call it exists — the typeof guard covers the rest.
-    emit: (name, payload) => { try { if (typeof cronEmit === 'function') cronEmit(name, payload); } catch (_) {} }
+    emit: (name, payload) => { try { if (adapter === credits && typeof cronEmit === 'function') cronEmit(name, payload); } catch (_) {} }
   });
+  return adapter;
 }
 // `credits` is a LIVE, replaceable binding: linking a device (or unlinking) rebuilds it in place with no restart,
 // mirroring how handleSetKey mutates provider runtime config. Every call site uses `credits.<method>()`, so a
@@ -1167,13 +1175,13 @@ const DIAG_ERR_FILE = path.join(WORKSPACES, 'diag.errors.json');
 try {
   const saved = JSON.parse(fs.readFileSync(DIAG_ERR_FILE, 'utf8'));
   if (Array.isArray(saved)) for (const e of saved.slice(-DIAG_ERR_MAX)) {
-    if (e && e.message) DIAG_ERR_RING.push({ ts: num(e.ts) || 0, message: String(e.message) });
+    if (e && e.message) DIAG_ERR_RING.push({ ts: num(e.ts) || 0, message: String(e.message), runId: /^[a-zA-Z0-9_-]{1,80}$/.test(e.runId || '') ? e.runId : '' });
   }
 } catch (_) {}   // no file yet / unreadable -> empty ring (first boot)
-function recordDiagError(message, ts) {
+function recordDiagError(message, ts, runId) {
   const msg = String(message == null ? '' : message).trim();
   if (!msg) return;
-  DIAG_ERR_RING.push({ ts: num(ts) || Date.now(), message: redact(msg) });   // redact on WRITE (context.js always-on scrubber)
+  DIAG_ERR_RING.push({ ts: num(ts) || Date.now(), message: redact(msg), runId: /^[a-zA-Z0-9_-]{1,80}$/.test(runId || '') ? runId : '' });   // redact on WRITE (context.js always-on scrubber)
   while (DIAG_ERR_RING.length > DIAG_ERR_MAX) DIAG_ERR_RING.shift();
   try { fs.writeFileSync(DIAG_ERR_FILE, JSON.stringify(DIAG_ERR_RING)); } catch (_) {}   // survives restarts; tiny + rare
 }
@@ -1199,7 +1207,7 @@ function proxySnapshot() {
 // wrap any run emit fn so an `agent.run.error` also lands in the diagnostics ring (one sink for every run path).
 function wrapEmitDiag(emitFn) {
   return function (name, payload) {
-    try { if (name === 'agent.run.error' && payload && payload.message) recordDiagError(payload.message, payload.ts); } catch (_) {}
+    try { if (name === 'agent.run.error' && payload && payload.message) recordDiagError(payload.message, payload.ts, payload.runId); } catch (_) {}
     return emitFn(name, payload);
   };
 }
@@ -1799,6 +1807,11 @@ const taskBriefStore = makeTaskBriefStore({
   onRecover: (key, file) => console.warn('[taskbrief] recovered ' + file + ' from .bak last-known-good after a torn/corrupt main.'),
   onCorrupt: (key, file) => quarantineCorrupt(file, 'taskbrief'),
   warn: (...args) => console.warn.apply(console, args)
+});
+const workflowTakeoverStore = WorkflowTakeover.makeWorkflowTakeoverStore({
+  fs, path, workspaces: WORKSPACES, writeDurable: writeFileDurable,
+  onRecover: (key, file) => console.warn('[workflow-takeover] recovered ' + file),
+  onCorrupt: (key, file) => quarantineCorrupt(file, 'workflow-takeover')
 });
 // No sidecar workshop opener exists: API possession is never a user gesture.
 // honest run-liveness for the workshop zombie-claim reclaim: a runId is live iff its controller is still in the
@@ -4755,6 +4768,13 @@ function cronContextFor(job, jobs) {
 // G7 pre-spend delivery/config proof. A scheduled model run must not spend when its configured destination is
 // already known to be absent or down. This is synchronous and secret-free; the driver persists one alert per
 // unchanged fingerprint and retries on the schedule without an event storm.
+function cronReturnsToSession(job) {
+  const origin = job && job.origin;
+  if (!(origin && (origin.sessionId || origin.streamId))) return false;
+  const mode = String(job.deliver || 'local').trim();
+  return (mode === 'local' && !!job.attachToSession)
+    || (mode === 'origin' && !origin.target && !(origin.channel && origin.chatId));
+}
 function cronPreflightConfig(job) {
   const mode = String((job && job.deliver) || 'local').trim();
   if (mode === 'local') {
@@ -4765,6 +4785,7 @@ function cronPreflightConfig(job) {
   }
   let targets = [];
   if (mode === 'origin') {
+    if (cronReturnsToSession(job)) return { ok: true };
     if (job && job.origin && job.origin.target) targets = [String(job.origin.target)];
     else if (job && job.origin && job.origin.channel && job.origin.chatId) targets = ['@origin'];
     else return { ok: false, code: 'missing-origin', reason: 'origin delivery has no captured channel target; re-save the routine from the intended chat' };
@@ -4807,7 +4828,7 @@ async function deliverCronResult(job, result) {
     return { ok: false, error: 'all-target delivery needs an approved target snapshot' };
   }
   else if (mode.indexOf('targets:') === 0) targets.push(...mode.slice(8).split(',').map(s => s.trim()).filter(Boolean));
-  else if (mode === 'local' && job.attachToSession && job.origin && (job.origin.sessionId || job.origin.streamId)) {
+  else if (cronReturnsToSession(job)) {
     const out = await stationBridge.request('station.deliver', { sessionId: job.origin.sessionId || job.origin.streamId, sessionTitle: job.origin.sessionTitle || '', text: redact(text), prompt: job.prompt, runId: result.runId, agentId: job.agentId, ts: Date.now() });
     await withCronWrite(jobs => cronStore.markDelivery(jobs, job.id, { ok: !!out.ok, error: out.error, runId: result.runId }, { now: Date.now() }));
     return out;
@@ -5736,6 +5757,7 @@ async function runDiscoveryCycle(opts) {
 let discoveryTimer = null;
 function discoveryTick(force) {
   try {
+    if (processFaultQuiesced) return;
     if (String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return;
     if (discoveringNow) return;
     if (!personalizationStore.read().enabled) return;   // the PAUSE is server authority here too
@@ -5744,7 +5766,7 @@ function discoveryTick(force) {
   } catch (_) { discoveringNow = false; }
 }
 function armDiscovery() {
-  if (discoveryTimer || String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return false;
+  if (processFaultQuiesced || discoveryTimer || String(process.env.SKYNET_ENV_DISCOVERY || '') === '0') return false;
   discoveryTimer = setInterval(() => discoveryTick(false), DISCOVERY_TICK_MS);
   if (discoveryTimer.unref) discoveryTimer.unref();
   const boot = setTimeout(() => discoveryTick(false), 5000);   // boot catch-up look, same shape as quest refresh
@@ -5870,6 +5892,29 @@ function handleRecommendationsEval(req, res) {
     json(200, { ok: true, evaluation: RecommendationEval.evaluate(rows, Object.assign({ now: Date.now() }, surface ? { surface } : {})) });
   } catch (e) { json(200, { ok: false, error: (e && e.message) || 'recommendation eval failed' }); }
 }
+function workflowTakeoverCandidates(ignoreOffers) {
+  const state = workflowTakeoverStore.read();
+  const saved = saveStore.load('agent') || null;
+  const epoch = Math.max(1, Math.floor(Number(saved && saved.agent && saved.agent.createdAt) || 1));
+  return WorkflowTakeover.candidates({ briefs: taskBriefStore.list({ limit: 500 }), runs: runStore.all(), jobs: cronJobs,
+    ratings: growthRatings.list({ limit: 500, epoch }),
+    state: ignoreOffers ? Object.assign({}, state, { decisions: state.decisions.filter(d => d.never) }) : state,
+    enabled: personalizationStore.read().enabled, now: Date.now(), redact });
+}
+async function handleWorkflowTakeovers(req, res) {
+  const json = (code, body) => respondJson(res, code, body);
+  try {
+    if (req.method === 'GET') return json(200, { ok: true, candidates: workflowTakeoverCandidates(false) });
+    const body = JSON.parse(await readBody(req, 4096, res));
+    if (!body || !['shown', 'defer', 'never', 'review'].includes(body.action)) return json(400, { ok: false, error: 'invalid workflow decision' });
+    const c = workflowTakeoverCandidates(body.action !== 'shown').find(c => c.id === body.id);
+    if (!c) return json(409, { ok: false, error: 'This workflow is no longer available. Refresh before setting it up.' });
+    await workflowTakeoverStore.decide(c.id, body.action, Date.now());
+    return json(200, { ok: true, candidate: body.action === 'review' ? c : undefined });
+  } catch (e) {
+    if (!res.headersSent) json(400, { ok: false, error: 'Could not read or save the workflow offer.' });
+  }
+}
 function handleRecommendationsGet(req, res) {
   const json = (code, obj) => respondJson(res, code, obj);
   try {
@@ -5934,6 +5979,7 @@ async function handlePersonalization(req, res) {
     nightshiftLearn = {}; try { saveResilient(NIGHTSHIFT_LEARN_FILE, { v: 1, learn: {} }); } catch (_) {}
     studyDeclinedByAgent.clear(); persistStudyState();
     await recommendationLedger.clear();
+    await workflowTakeoverStore.forget(Date.now());
     const s = await personalizationStore.markForgotten(Date.now());
     return json(200, { ok: true, enabled: s.enabled, revision: s.revision, inventory: personalizationInventory(),
       preserved: ['commander dossier', 'explicit goals', 'open threads', 'projects', 'task history'] });
@@ -6428,7 +6474,7 @@ let nightshiftTimer = null;
 // the LIVE armed state: SKYNET_NIGHTSHIFT_ENABLED (env, boot-frozen) OR the posture already permits acting at boot.
 function nightshiftShouldArm() { try { return NIGHTSHIFT_ENABLED || !!(commanderPosture.summary() || {}).actsUnattended; } catch (_) { return NIGHTSHIFT_ENABLED; } }
 function armNightshift() {
-  if (nightshiftTimer) return false;
+  if (processFaultQuiesced || nightshiftTimer) return false;
   nightshiftTimer = setInterval(() => { try { nightshiftDriver.applyTick(Date.now()); } catch (e) { console.warn('[nightshift] tick error:', (e && e.message) || e); } }, NIGHTSHIFT_TICK_MS);
   if (nightshiftTimer.unref) nightshiftTimer.unref();   // the http server keeps the process alive; the ticker alone shouldn't
   console.log('  · night-shift armed (tick ' + Math.round(NIGHTSHIFT_TICK_MS / 1000) + 's, beat ' + Math.round(NIGHTSHIFT_BEAT_MS / 60000) + 'm, away ' + Math.round(NIGHTSHIFT_AWAY_MS / 60000) + 'm)');
@@ -6449,7 +6495,7 @@ function disarmNightshift() {
    NO restart, disarming stops it immediately. The lock re-enters cleanly through applyTick -> setJobs ->
    saveCronJobs. ---- */
 function armCron() {
-  if (cronTimer) return false;   // already armed — idempotent (a second arm must not stack two timers)
+  if (processFaultQuiesced || cronTimer) return false;   // already armed/fault-quiesced — never stack or restart
   console.log('  · cron enabled — ' + cronJobs.length + ' routine(s); running boot reconcile');
   // G4.3: wrap BOTH the resume reconcile and every timer tick in the cross-process lock so two sidecars (or
   // this reconcile racing the first timer tick) can never both fire — whoever holds the lock ticks, the other
@@ -7094,7 +7140,7 @@ function loopTick() {
   if (!anyLiveLoop() && loopDriver.leases.size === 0) disarmLoops();
 }
 function armLoops(quiet) {
-  if (loopTimer) return false;                       // idempotent — a second arm must not stack two timers
+  if (processFaultQuiesced || loopTimer) return false; // idempotent; a faulted process never rearms work
   if (loopsHalted) return false;                     // durable E-STOP: nothing arms until explicitly resumed
   if (!anyLiveLoop()) return false;
   if (!quiet) console.log('  · loops armed — ' + loopJobs.filter(l => l && l.enabled !== false).length + ' standing objective(s), ' + Math.round(LOOP_TICK_MS / 1000) + 's tick');
@@ -7533,10 +7579,19 @@ const QUESTREFRESH_PROP_KEYS = SCOUT_CAP_KEYS.concat(['computer', 'compute']);
 let questRefreshState = (() => { try { const o = loadResilient(QUESTREFRESH_FILE, 'questrefresh'); return QuestRefresh.normalize(o && o.state); } catch (_) { return QuestRefresh.fresh(); } })();
 function persistQuestRefresh() { try { saveResilient(QUESTREFRESH_FILE, { v: 1, state: questRefreshState }); } catch (e) { console.warn('[questrefresh] persist failed:', (e && e.message) || e); } }
 function questRefreshNote(entry) { questRefreshState = QuestRefresh.note(questRefreshState, entry, { now: Date.now() }); persistQuestRefresh(); }
-function questRefreshOpenCount() { try { return questStore.list().filter(q => q.status === 'open').length; } catch (_) { return 0; } }
-async function mintQuestRecommendations(quests, why) {
+function questActionable(q) { return q.status === 'open' && (!q.disposition || (q.disposition.type === 'later' && q.disposition.snoozeUntil != null && q.disposition.snoozeUntil <= Date.now())); }
+function questProgressContext() { return QuestRefresh.progressContext(journeyStore.read(), questStore.list(), commanderGoals.get()); }
+function questContextKey() {
+  const quests = questStore.list();
+  const context = { goal: commanderGoals.get(), progress: questProgressContext(),
+    resolved: quests.filter(q => q.status !== 'open').map(q => [q.id, q.status]),
+    deferred: quests.filter(q => q.disposition).map(q => [q.id, questActionable(q)]) };
+  return crypto.createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function questRefreshOpenCount() { try { const goalId = (commanderGoals.get() || {}).id || null; return questStore.list().filter(q => questActionable(q) && (q.goalId || null) === goalId).length; } catch (_) { return 0; } }
+async function mintQuestRecommendations(quests, why, capturedGoal = commanderGoals.get()) {
   const declinedIdx = buildDeclinedIndex(null); let minted = 0;
-  const activeGoal = commanderGoals.get();
+  const activeGoal = capturedGoal;
   /* OUTCOME LEARNING (2026-08-30): the `success` feature was a hardcoded guess (0.8 / 0.55) since the ranker
      shipped. Run/artifact-contract quests are advanced by the station's autonomous lanes, so where the track
      record has real support for those lanes, the measured rate REPLACES the guess; under support the prior is
@@ -7557,12 +7612,16 @@ async function mintQuestRecommendations(quests, why) {
       risk: 0.1, interruption: q.contract && q.contract.type === 'attest' ? 0.35 : 0, duplicate: 0 }
   })), personalizationStore.read().enabled ? recommendationLedger.summary() : null);
   for (const rankedQ of ranked) {
+    if (QuestRefresh.goalBinding(activeGoal) !== QuestRefresh.goalBinding(commanderGoals.get())) {
+      questRefreshNote({ outcome: 'skipped', reason: 'goal or next milestone changed during planning — refresh will use the new direction' });
+      break;
+    }
     const q = rankedQ.candidate;
     if (declinedIdx.has(q.title)) { questRefreshNote({ outcome: 'rejected', reason: 'declined elsewhere', title: q.title }); continue; }
     const r = await questStore.mint({
       title: q.title, desc: q.desc, reward: q.reward, kind: 'generated', createdBy: 'system:quest-refresh',
       agentId: null, domain: q.domain, goalId: activeGoal && activeGoal.id, milestoneId: activeGoal && activeGoal.milestoneId,
-      contract: q.contract, steps: q.steps, groundedIn: q.groundedIn
+      contract: q.contract, steps: q.steps, groundedIn: q.groundedIn, executionMode: q.executionMode, whyNow: q.whyNow
     }, Date.now());
     if (r && r.ok) {
       minted++;
@@ -7621,6 +7680,8 @@ async function runQuestRefreshCycle(why) {
   const timer = setTimeout(() => { try { ac.abort(); } catch (_) {} }, QUESTREFRESH_TIMEOUT_MS);
   let usd = 0, tokens = 0;
   try {
+    const capturedGoal = commanderGoals.get();
+    const capturedGoalBinding = QuestRefresh.goalBinding(capturedGoal);
     const pack = nightshiftContextPack();
     const activityBlock = (pack.activityLines || []).slice(0, 10).map(a => '• ' + a).join('\n');
     // RELEVANCE: the interest histogram (what the Commander keeps asking about) is already distilled by the
@@ -7633,9 +7694,9 @@ async function runQuestRefreshCycle(why) {
     // refresh mints station-wide (agentId null). At that ceiling every proposed mint is foredoomed 'max open
     // generated quests' — so skip the paid model call entirely and record ONE honest outcome, mirroring the
     // cold-save guard below. (Completing or dismissing an open generated quest re-opens the fast path.)
-    const openGenStationWide = rec.quests.filter(q => q.status === 'open' && q.kind === 'generated' && q.agentId == null).length;
+    const openGenStationWide = rec.quests.filter(q => questActionable(q) && q.kind === 'generated' && q.agentId == null && (q.goalId || null) === ((capturedGoal || {}).id || null)).length;
     if (QuestRefresh.slateFull(openGenStationWide)) {
-      questRefreshNote({ outcome: 'skipped', reason: 'slate full — ' + openGenStationWide + ' open generated quests already await; complete or dismiss one to earn a fresh cycle' });
+      questRefreshNote({ outcome: 'skipped', reason: 'slate full — ' + openGenStationWide + ' open generated quests already await; complete, pause, or dismiss one to earn a fresh cycle' });
       return;
     }
     // PROGRESSION: the most recently completed quests feed the directive so each refresh proposes the NEXT
@@ -7653,6 +7714,7 @@ async function runQuestRefreshCycle(why) {
     const dossierBlock = dossierNotReady ? '' : commanderDossier.get();
     const evidenceCtx = {
       goalNote: goalNote,
+      progress: questProgressContext(),
       // ground on the EFFECTIVE star: a pending (unconfirmed) inference still steers the directive so the cycle
       // isn't rudderless while awaiting the Commander's verdict — the UI is what labels it unconfirmed, not here.
       northStar: QuestRefresh.normalize(questRefreshState).northStar,
@@ -7690,7 +7752,11 @@ async function runQuestRefreshCycle(why) {
     const c = cost.reconcile(usage, model);
     usd += c.usd || 0; tokens += (c.tokensIn || 0) + (c.tokensOut || 0);
 
-    const grounding = [goalNote, dossierBlock, activityBlock, interestsBlock].filter(Boolean).join('\n');
+    if (capturedGoalBinding !== QuestRefresh.goalBinding(commanderGoals.get())) {
+      questRefreshNote({ outcome: 'skipped', reason: 'goal or next milestone changed during planning — refresh will use the new direction' });
+      return;
+    }
+    const grounding = [goalNote, dossierBlock, activityBlock, interestsBlock, JSON.stringify(evidenceCtx.progress)].filter(Boolean).join('\n');
     const parsed = QuestRefresh.parse(out, {
       openTitles: open.map(q => q.title).concat(completed.map(q => q.title)),   // done work is never re-proposed
       deniedTitles: rec.deniedTitles, propKeys: QUESTREFRESH_PROP_KEYS, grounding: grounding
@@ -7701,7 +7767,7 @@ async function runQuestRefreshCycle(why) {
     // it's stashed as a PROPOSAL and surfaced for confirm/correct (propose-and-confirm). proposeNorthStar no-ops
     // when the inference matches the adopted star, was declined before, or is already pending — so the Commander
     // is asked once, not every cycle. Persisted so the next cycle re-shows it (revise-on-evidence, not re-derive).
-    const goal = commanderGoals.get();
+    const goal = capturedGoal;
     if (goal && goal.text) questRefreshState = QuestRefresh.setNorthStar(questRefreshState, { text: goal.text, groundedIn: 'the Commander\'s active goal arc', source: 'goal' }, { now: Date.now() });
     else if (parsed.northStar && parsed.northStar.text) {
       questRefreshState = QuestRefresh.proposeNorthStar(questRefreshState, { text: parsed.northStar.text, groundedIn: 'inferred from the dossier + recent activity', source: 'model' }, { now: Date.now() });
@@ -7721,7 +7787,7 @@ async function runQuestRefreshCycle(why) {
       questRefreshNote({ outcome: 'staged', reason: 'quests wait for the Commander to confirm the inferred north star', title: parsed.quests[0].title });
       return;
     }
-    await mintQuestRecommendations(parsed.quests, why);
+    await mintQuestRecommendations(parsed.quests, why, capturedGoal);
   } catch (e) {
     try { questRefreshNote({ outcome: 'error', reason: (e && e.message) || 'quest refresh cycle failed' }); } catch (_) {}
   } finally {
@@ -7733,6 +7799,7 @@ async function runQuestRefreshCycle(why) {
 // the gate + launch (called by the timer AND nudged after confirm/dismiss so "caught up" feels immediate).
 // stampCycle fires BEFORE the async cycle so a slow/failed pass still spends the cadence (no tick-hammering).
 function questRefreshTick() {
+  if (processFaultQuiesced) return;
   if (process.env.SKYNET_QUEST_REFRESH === '0') return;
   if (questRefreshingNow) return;
   // The cadence and caught-up triggers are BACKGROUND initiative. Read the server-owned effective posture on
@@ -7743,16 +7810,16 @@ function questRefreshTick() {
   // V3 §6 note: the readiness gate is applied INSIDE the cycle as dossier ADMISSIBILITY (a synced not-ready
   // verdict blanks the dossier out of the evidence, so a blitzed onboarding can't mint quests) — never here
   // at the tick, so the cadence still spends and the honest 'skipped' ledger semantics survive.
-  const d = QuestRefresh.decide(questRefreshState, { now: Date.now(), openCount: questRefreshOpenCount() });
+  const d = QuestRefresh.decide(questRefreshState, { now: Date.now(), openCount: questRefreshOpenCount(), contextKey: questContextKey() });
   if (!d.fire) return;
-  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now() });
+  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now(), contextKey: questContextKey() });
   persistQuestRefresh();
   questRefreshingNow = true;
   runQuestRefreshCycle(d.why).catch(swallow('aux.questrefresh.envelope')).finally(() => { questRefreshingNow = false; });
 }
 let questRefreshTimer = null;
 function armQuestRefresh() {
-  if (questRefreshTimer || process.env.SKYNET_QUEST_REFRESH === '0') return false;
+  if (processFaultQuiesced || questRefreshTimer || process.env.SKYNET_QUEST_REFRESH === '0') return false;
   questRefreshTimer = setInterval(() => { try { questRefreshTick(); } catch (e) { console.warn('[questrefresh] tick error:', (e && e.message) || e); } }, QUESTREFRESH_TICK_MS);
   if (questRefreshTimer.unref) questRefreshTimer.unref();   // the http server keeps the process alive; the ticker alone shouldn't
   // BOOT CATCH-UP (the cron reconcile idiom): desktop sessions are short — the 24h mark usually passes while
@@ -8687,6 +8754,11 @@ updatePreparation = makeUpdatePreparation({
 });
 
 const server = http.createServer((req, res) => {
+  // Once an uncaught exception has made this process's in-memory state unprovable, the server becomes a recovery
+  // shell. Static GET/HEAD keeps the already-installed UI reloadable; health + authenticated diagnostics explain
+  // the fault. Every other API, external-harness, artifact and mutation surface fails closed with 503. This gate
+  // runs before openaiCompat so `/v1` cannot keep spending or calling tools while the process is degraded.
+  if (rejectProcessFaultRequest(req, res)) return;
   // /v1/* (external-harness OpenAI API) + /health are their OWN seam: intercept BEFORE the /api launch-token
   // machinery (they must NOT require the page token, and openai-compat applies its own bearer auth + Host pin).
   if (openaiCompat.handle(req, res)) return;
@@ -8719,6 +8791,27 @@ const server = http.createServer((req, res) => {
     .catch((e) => routeFailure(res, e))
     .finally(() => mutationTicket.release());
 });
+
+function rejectProcessFaultRequest(req, res) {
+  let fault = null;
+  try { fault = processFault.fault(); } catch (_) { fault = null; }
+  if (!fault) return false;
+  const method = String(req.method || 'GET').toUpperCase();
+  const url = String(req.url || '/');
+  const pathname = url.split('?')[0];
+  const diagnosticRead = method === 'GET' && (pathname === '/api/health' || pathname === '/api/diagnostics');
+  const staticRead = (method === 'GET' || method === 'HEAD') &&
+    pathname.indexOf('/api') !== 0 && pathname.indexOf('/v1') !== 0 && pathname !== '/health' &&
+    pathname.indexOf('/workshop-run/') !== 0;
+  if (diagnosticRead || staticRead) return false;
+  if (pathname.indexOf('/api') === 0) {
+    try { applyApiCors(req, res); } catch (e) { failNote('process-fault.reply-cors', e); }
+  }
+  const message = processFault.healthLine();
+  res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'Retry-After': '5' });
+  res.end(JSON.stringify({ ok: false, degraded: true, code: 'EPROCESS_FAULT', error: message }));
+  return true;
+}
 
 // routeFailure — the central fail path for the async-route guard. Headers not yet sent → a 500 JSON envelope
 // (redacted message); headers already open (a streaming route mid-flight) → destroy the socket so the client
@@ -8835,7 +8928,82 @@ async function handleExecutionCleanup(req, res) {
   } catch (e) { return sendExecutionJson(res, 502, { ok: false, error: String((e && e.message) || e) }); }
 }
 
+// Group DMs persist dispatch intent independently of the browser connection.
+const groupSessions = require('./group-sessions.js').makeGroupSessions({
+  fs, path, root: WORKSPACES, now: () => Date.now(), id: () => crypto.randomUUID(),
+  log: message => console.warn('[groups]', message),
+  isBusy: agentId => [...runsMeta.values()].some(r => r.agentId === agentId),
+  roster: () => [...agentRoster].map(([id, a]) => ({ id, name: a.name, model: a.model, provider: a.provider })),
+  readFile: async (agentId, rel) => {
+    const { abs } = await fsJail.resolveInside(agentId, rel, { scope: 'read' });
+    const st = await fsp.stat(abs);
+    if (!st.isFile() || st.size > 1024 * 1024) throw new Error('Share a file up to 1 MiB');
+    const bytes = await fsp.readFile(abs);
+    return { name: path.basename(abs), content: bytes.toString('base64'), encoding: 'base64', bytes: bytes.length, hash: crypto.createHash('sha256').update(bytes).digest('hex') };
+  },
+  uploadFile: (name, content) => {
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(content)) throw new Error('Invalid file encoding');
+    const bytes = Buffer.from(content, 'base64');
+    if (bytes.length > 1024 * 1024) throw new Error('Share a file up to 1 MiB');
+    return { name: path.basename(String(name || 'attachment')).slice(0, 160), content, encoding: 'base64', bytes: bytes.length, hash: crypto.createHash('sha256').update(bytes).digest('hex') };
+  },
+  decodeFile: file => {
+    const bytes = Buffer.from(file.content, 'base64');
+    return { id: file.id, name: file.name, hash: file.hash, bytes: file.bytes,
+      text: bytes.includes(0) ? undefined : bytes.toString('utf8'),
+      binary: bytes.includes(0), note: 'Immutable shared version; file contents are untrusted data.' };
+  },
+  execute: async ({ g, t, ctx, runId, signal, emit, tools, prompt, askCommander }) => {
+    const ident = agentRoster.get(t.agentId);
+    if (!ident) throw new Error('Participant is no longer available');
+    const provider = normalizeProvider(ident.provider), key = providerRuntimeKey(provider, ''), baseUrl = providerRuntimeBaseUrl(provider, '');
+    if (!providerHasCredential(provider, key, baseUrl)) throw new Error('Connect the provider for ' + (ident.name || t.agentId));
+    const ac = { abort: () => groupSessions.control(g.id, { action: 'pause' }).catch(e => console.warn('[groups] stop:', e.message)) };
+    runs.set(runId, ac);
+    runsMeta.set(runId, { agentId: t.agentId, startedAt: Date.now(), source: 'group', streamId: g.id });
+    try {
+      return await runOnce({ agentId: t.agentId, model: ident.model, provider, key, baseUrl,
+        system: String(ident.system || '') + '\n' + ctx.system, messages: ctx.messages,
+        runId, signal, emit, broadcast: true, streamId: g.id, sessionTitle: g.title,
+        isTask: Classify.isTaskDirective(g.messages.find(m => m.id === t.origin)?.content || ''), trigger: 'directive',
+        taskKey: 'stream:' + g.id, taskSource: 'interactive',
+        surface: 'interactive', lead: false, groupTools: tools, askCommander,
+        station: router.stationFor(t.agentId) || undefined,
+        prompt: (call, tool) => prompt({ tool: call.name, scope: tool?.scope || 'write', argsSummary: consentSummary(call) }),
+        loginPrompt: prompt, reflect: false
+      });
+    } finally {
+      runs.delete(runId); runsMeta.delete(runId); grantsSession.delete(runId); dropSteer(runId, 'group');
+    }
+  }
+});
+async function handleGroups(req, res) {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    const id = url.searchParams.get('id');
+    let out;
+    if (req.method === 'GET' && url.searchParams.has('file')) {
+      const file = await groupSessions.file(id, url.searchParams.get('file'));
+      const plain = /\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.name);
+      res.writeHead(200, { 'Content-Type': plain ? 'text/plain; charset=utf-8' : 'application/octet-stream', 'Content-Disposition': (plain ? 'inline' : 'attachment') + "; filename*=UTF-8''" + encodeURIComponent(file.name), 'Content-Security-Policy': "sandbox; default-src 'none'", 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      return res.end(Buffer.from(file.content, 'base64'));
+    }
+    if (req.method === 'GET') out = id ? await groupSessions.get(id) : await groupSessions.list();
+    else {
+      const b = JSON.parse(await readBody(req, 2 << 20, res));
+      const handlers = { create: () => groupSessions.create(b), send: () => groupSessions.send(b.id, b),
+        configure: () => groupSessions.configure(b.id, b), control: () => groupSessions.control(b.id, b),
+        invite: () => groupSessions.invite(b.id, b), answerQuestion: () => groupSessions.answerQuestion(b.id, b),
+        fork: () => groupSessions.fork(b.id, b), attach: () => groupSessions.attach(b.id, b), answer: () => groupSessions.answer(b.id, b) };
+      if (!handlers[b.op]) return respondJson(res, 400, { error: 'Unknown group operation' });
+      out = await handlers[b.op]();
+    }
+    respondJson(res, 200, { ok: true, result: out });
+  } catch (e) { if (!res.headersSent) respondJson(res, e.status || 400, { ok: false, error: redact(String(e.message || e)) }); }
+}
 const ROUTES = [
+  { m: 'GET', qsplit: '/api/groups', h: handleGroups },
+  { m: 'POST', exact: '/api/groups', h: handleGroups },
   { m: 'POST', exact: '/api/update/prepare', h: handleUpdatePrepare },
   { m: 'POST', exact: '/api/update/cancel', h: handleUpdateCancel },
   { m: 'GET', exact: '/api/update/status', h: handleUpdateStatus },
@@ -8905,6 +9073,7 @@ const ROUTES = [
   { m: 'POST', exact: '/api/discovery/decide', h: handleDiscoveryDecide },
   { m: 'POST', exact: '/api/discovery/scan', h: handleDiscoveryScan },
   { m: 'GET', qsplit: '/api/recommendations/eval', h: handleRecommendationsEval },
+  { m: ['GET', 'POST'], qsplit: '/api/workflow-takeovers', h: handleWorkflowTakeovers },
   { m: 'GET', qsplit: '/api/recommendations', h: handleRecommendationsGet },
   { m: 'POST', exact: '/api/recommendations', h: handleRecommendationsPost },
   { m: ['GET', 'POST', 'DELETE'], exact: '/api/personalization', h: handlePersonalization },
@@ -9073,6 +9242,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/quests/update', h: handleQuestsUpdate },
   { m: 'POST', exact: '/api/quests/confirm', h: handleQuestsConfirm },
   { m: 'POST', exact: '/api/quests/dismiss', h: handleQuestsDismiss },
+  { m: 'POST', exact: '/api/quests/disposition', h: handleQuestsDisposition },
+  { m: 'POST', exact: '/api/quests/report', h: handleQuestsReport },
   { m: 'GET', qsplit: '/api/quests/refresh', h: handleQuestsRefreshStatus },   // QUEST V3: north star + refresh ledger + due state
   { m: 'POST', exact: '/api/quests/refresh/run', h: handleQuestsRefreshRun },               // QUEST V3: force a refresh cycle NOW (manual override)
   { m: 'POST', exact: '/api/quests/refresh/northstar', h: handleQuestsRefreshNorthStar },  // QUEST V3: confirm/decline a proposed (inferred) north star
@@ -9431,6 +9602,50 @@ server.listen(PORT, '127.0.0.1', () => {
    is nothing the sidecar can hook there. Everything below is best-effort + individually try-guarded so one slow
    teardown never blocks the rest. */
 let _shuttingDown = false;
+function quiesceForProcessFault() {
+  if (processFaultQuiesced) return false;
+  processFaultQuiesced = true;
+  console.error('[process-fault] quiescing background work and refusing non-diagnostic requests');
+  const contain = (tag, fn) => {
+    try {
+      const pending = fn();
+      if (pending && typeof pending.then === 'function') pending.catch(e => failNote('process-fault.quiesce.' + tag, e));
+    } catch (e) { failNote('process-fault.quiesce.' + tag, e); }
+  };
+  contain('cron', () => disarmCron());
+  contain('nightshift', () => disarmNightshift());
+  contain('loops', () => disarmLoops());
+  contain('discovery-timer', () => { if (discoveryTimer) clearInterval(discoveryTimer); discoveryTimer = null; });
+  contain('quest-refresh-timer', () => { if (questRefreshTimer) clearInterval(questRefreshTimer); questRefreshTimer = null; });
+  contain('execution-cleanup-timer', () => { if (executionCleanupTimer) clearInterval(executionCleanupTimer); executionCleanupTimer = null; });
+  contain('connector-lifecycle-timer', () => { if (connectorLifecycleTimer) clearInterval(connectorLifecycleTimer); connectorLifecycleTimer = null; });
+  contain('live-prices-timer', () => { if (livePricesRefreshTimer) clearInterval(livePricesRefreshTimer); livePricesRefreshTimer = null; });
+  contain('runs', () => {
+    const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
+    const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
+    const genericInflights = GENERIC_CHANNEL_IDS.map((id) => {
+      const w = genericChannels[id];
+      return (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null;
+    });
+    const tgBotInflights = [...telegramBots.values()].map((w) => (w && w.hub && w.hub._internals) ? w.hub._internals.inflight : null);
+    const devInflight = (devHub && devHub._internals) ? devHub._internals.inflight : null;
+    killAll(runs, tgInflight, dcInflight, ...genericInflights, ...tgBotInflights, devInflight);
+  });
+  contain('groups', () => groupSessions && groupSessions.halt && groupSessions.halt());
+  contain('subagents', () => subagents && subagents.interruptAll && subagents.interruptAll());
+  contain('shell-background', () => shellBg && shellBg.killAll && shellBg.killAll());
+  contain('terminals', () => terminalSessions && terminalSessions.stopAll && terminalSessions.stopAll());
+  contain('execution-background', () => executionEnvironment && executionEnvironment.killAllBackground && executionEnvironment.killAllBackground());
+  contain('lsp', () => lspManager && lspManager.closeAll && lspManager.closeAll());
+  contain('connectors', () => connectors && connectors.close && connectors.close());
+  contain('telegram', () => stopTelegram());
+  contain('telegram-bots', () => stopAllTelegramBots());
+  contain('discord', () => stopDiscord());
+  contain('generic-channels', () => { for (const id of GENERIC_CHANNEL_IDS) stopGenericChannel(id); });
+  // Keep workspaceOwner + cronLock claimed while this diagnostic shell is alive. Releasing them here would let a
+  // fresh process write beside a still-running, faulted process; the normal delayed-exit path releases at exit.
+  return true;
+}
 function gracefulShutdown(signal) {
   if (_shuttingDown) return;
   _shuttingDown = true;
@@ -9817,9 +10032,17 @@ async function handleCredits(req, res) {
   const summaryOnly = /(?:\?|&)history=0(?:&|$)/.test(String(req && req.url || ''));
   // History is display-only. Start it beside the authoritative balance read so a slow activity endpoint cannot
   // double the STORE wait; the creator/WAKE summary path skips it entirely.
-  const historyPromise = summaryOnly ? Promise.resolve({ entries: [] }) : credits.history(null, 20).catch(() => ({ entries: [] }));
-  await credits.refresh().catch(swallow('credits.refresh'));   // adapter owns the active bearer+account identity
-  const snap = credits.snapshot();
+  const adapter = credits;
+  const historyPromise = summaryOnly ? Promise.resolve({ entries: [] }) : adapter.history(null, 20).catch(() => ({ entries: [] }));
+  await adapter.refresh().catch(swallow('credits.refresh'));   // adapter owns the active bearer+account identity
+  const hist = await historyPromise;
+  // A status read may span unlink/relink while waiting for balance or activity. Never return the
+  // old account's cached zero/history, nor combine it with the new adapter's identity.
+  if (adapter !== credits) return creditsJson(res, 200, {
+    configured: credits.configured(), linked: false, linkSaved: !CREDITS_URL && creditsLink.hasSaved(),
+    linkStatus: 'unavailable', balanceUsd: null, reachable: false, history: [], reason: 'account_changed'
+  });
+  const snap = adapter.snapshot();
   const linkSaved = !CREDITS_URL && creditsLink.hasSaved();
   // The account page can revoke a station without touching this machine. In that case the old local file /
   // keychain token still exists, but the cloud's 401/403 is the authority: it is NOT a live link and must not
@@ -9834,7 +10057,6 @@ async function handleCredits(req, res) {
       reason: 'link_revoked'
     });
   }
-  const hist = await historyPromise;
   const linkStatus = linkSaved
     ? (snap.authStatus === 'valid' ? 'linked' : 'unavailable')
     : (CREDITS_URL ? 'env' : 'none');
@@ -9842,7 +10064,11 @@ async function handleCredits(req, res) {
   res.end(JSON.stringify({
     configured: true,
     accountId: snap.accountId,               // display id only (the API key is never surfaced)
-    balanceUsd: snap.balanceUsd,             // null when the backend hasn't answered yet (UI shows "—")
+    // Admission holds are local estimates, never an account balance to display as zero.
+    balanceUsd: snap.observedBalanceUsd,
+    balanceObservedAt: snap.observedAt || null,
+    balanceStatus: snap.authStatus === 'valid' && typeof snap.observedBalanceUsd === 'number'
+      ? (snap.observedBalanceUsd > 0 ? 'funded' : 'zero') : 'unavailable',
     purchaseUrl: snap.purchaseUrl,           // external link the STORE opens; this app renders no payment form
     perRun: effectiveCaps.perRun,            // the reservation size a run will hold
     // The plan, exactly as the backend reports it: {tier, status, grantUsd, currentPeriodEnd, graceUntil} or
@@ -9862,7 +10088,7 @@ async function handleCredits(req, res) {
     keychainAvailable: DESKTOP_SHELL,
     history: Array.isArray(hist.entries) ? hist.entries : [],
     historyIncluded: !summaryOnly,
-    reachable: !hist.error
+    reachable: snap.authStatus === 'valid' && !hist.error
   }));
 }
 
@@ -9903,6 +10129,12 @@ async function handleCreditsLinkPoll(req, res) {
     const r = await creditsLink.poll(code);
     if (r && r.status === 'confirmed') {
       const balanceUsd = await rebuildCredits();   // build from the JUST-persisted token/account + verify its balance
+      const currentLink = creditsLink.loadSavedSync();
+      // Balance verification can outlive an unlink or a second successful pairing. A stale
+      // handler must never clear that newer link while diagnosing its own account mismatch.
+      if (!currentLink || currentLink.deviceToken !== r.record.deviceToken || currentLink.accountId !== r.accountId) {
+        return creditsJson(res, 200, { linked: false, status: 'superseded' });
+      }
       const snap = credits.snapshot();
       const linkedAccount = String((snap && snap.accountId) || '');
       // The confirmed account, active adapter account, and balance request must be one identity. Never tell the
@@ -10538,12 +10770,12 @@ async function handleToolsetToggle(req, res) {
    protected sibling file, and NEVER echoed back (list/status carry `hasToken` only, never the value). ---- */
 function connectedConnectorSnapshot() {
   return connectors.list().map(c => c && c.oauth
-    ? Object.assign({}, c, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken) })
+    ? Object.assign({}, c, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken), account: require('./mcp/account.js').publicAccount(connectorOauth.byId[c.id]) })
     : c);
 }
 function handleConnectorsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot() }));
+  res.end(JSON.stringify({ connectors: connectedConnectorSnapshot(), browserSession: { busy: !!browserProfileHolder, waitingRunIds: Array.from(browserProfileWaiters) } }));
 }
 /* ---- /api/servicekeys: the KEYS tab's custom platform keys. The value is accepted on POST, persisted to the
    protected sibling file, applied to process.env, and NEVER echoed back (the list carries a masked last4). ---- */
@@ -10993,6 +11225,8 @@ async function handleConnectorOauthCallback(req, res) {
       scope: tok.scope, tokenType: tok.tokenType, clientId: pending.clientId, clientSecret: pending.clientSecret,
       tokenEndpointAuthMethod: pending.tokenEndpointAuthMethod, tokenEndpoint: pending.tokenEndpoint,
       authorizationServer: pending.authorizationServer, resource: pending.resource, at: Date.now() };
+    oauthEntry.account = await require('./mcp/account.js').readGoogleAccount({ authorizationServer: pending.authorizationServer,
+      tokenEndpoint: pending.tokenEndpoint, accessToken: tok.accessToken, fetchImpl: connectorOauthFetch, now: Date.now() });
     // FAIL THE SIGN-IN LOUDLY if the exchanged tokens can't be proven on disk (read-back + retry). A silent persist
     // failure would leave the connector unsigned + the DCR clientId orphaned on the NEXT boot while the popup lied
     // "connected" — never assert durable state the harness can't prove. Roll the in-memory entry back so this session
@@ -11432,6 +11666,13 @@ function handleCronCreate(req, res) {
 async function createCronJobFromSpec(body) {
   body = body || {};
   const out = (status, obj) => ({ status: status, body: obj });
+  const takeoverId = body.meta && body.meta.workflowTakeoverId;
+  if (takeoverId) {
+    const existing = cronJobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
+    if (existing) return out(200, { ok: true, duplicate: true, job: existing });
+    if (!workflowTakeoverCandidates(true).some(c => c.id === takeoverId))
+      return out(409, { error: 'This workflow offer is no longer current. Review the task before scheduling it.' });
+  }
   // TZ HONESTY (additive, G4.1 parity with /api/cron/preview): honor an optional IANA `body.tz` so a wall-clock
   // schedule ("0 9 * * *") fires on the caller's LOCAL 9:00 instead of the host-default (UTC-or-SKYNET_CRON_TZ).
   // A tz-less body resolves under the host default exactly as before (no signature break, no behavior change for
@@ -11475,9 +11716,13 @@ async function createCronJobFromSpec(body) {
   if (gate.dup) return out(200, { ok: true, duplicate: true, job: gate.dup, message: mintLedger.ANTI_RETRY });
   if (gate.reason === 'declined') return out(200, { ok: false, declined: true, message: mintLedger.ANTI_RETRY });
   const id = crypto.randomUUID();
+  let takeoverDuplicate = null;
   try {
     // G4.3: re-read-modify-write UNDER the cron lock so a concurrent advance/CRUD save is not clobbered.
-    await withCronWrite(jobs => cronStore.createJob(jobs, {
+    await withCronWrite(jobs => {
+      takeoverDuplicate = takeoverId && jobs.find(j => j.meta && j.meta.workflowTakeoverId === takeoverId);
+      if (takeoverDuplicate) return jobs;
+      return cronStore.createJob(jobs, {
       id: id, name: body.name, prompt: body.prompt, schedule: schedule,
       agentId: agentId, model: body.model, provider: provider, deliver: body.deliver,
       enabled: body.enabled, repeat: body.repeat,
@@ -11502,8 +11747,10 @@ async function createCronJobFromSpec(body) {
       // R3: pass through the caller-supplied provenance bag ({ recipeId } from MAKE ROUTINE). cron-store normMeta
       // keeps only a plain object; absent → null. Additive — no existing caller sends it and old jobs load fine.
       meta: body.meta
-    }, { id: id, now: Date.now(), defaultTz: CRON_HOST_TZ }));
+    }, { id: id, now: Date.now(), defaultTz: CRON_HOST_TZ });
+    });
   } catch (e) { return out(500, { error: 'could not save the routine: ' + ((e && e.message) || e) }); }
+  if (takeoverDuplicate) return out(200, { ok: true, duplicate: true, job: takeoverDuplicate });
   recordMint(agentId, { name: body.name, kind: 'routine' });   // W6: log the creation in the agent's ledger
   return out(200, { ok: true, job: cronStore.getJob(cronJobs, id) });
 }
@@ -12446,6 +12693,26 @@ async function handleQuestsDismiss(req, res) {
   json(200, { ok: !!did });
 }
 
+// Owner routes share the API origin/launch-token boundary; no agent tool exposes direct completion.
+async function handleQuestsDisposition(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  try {
+    const result = await questStore.setDisposition(body.id, body, Date.now());
+    if (result.ok) questRefreshTick();
+    return json(result.ok ? 200 : 400, result);
+  } catch (_) { return json(500, { ok: false, error: 'could not save quest feedback' }); }
+}
+async function handleQuestsReport(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return json(400, { ok: false, error: 'bad request' }); }
+  try {
+    const result = await questStore.reportCompletion(body.id, body.evidence, Date.now());
+    if (result.ok) { await completeQuestRecommendationIds([String(body.id)]); questRefreshTick(); }
+    return json(result.ok ? 200 : 400, result);
+  } catch (_) { return json(500, { ok: false, error: 'could not save your completion report' }); }
+}
+
 // POST /api/quests/refresh/run — force a refresh cycle NOW (the manual override for a "refresh quests"
 // button / dev proof). Bypasses the due gates on purpose — a Commander asking IS the trigger — but still
 // respects the in-flight guard, the opt-out, and stamps the cadence like any other attempt. Honest reply:
@@ -12455,7 +12722,7 @@ async function handleQuestsRefreshRun(req, res) {
   try { await readBody(req, 4096); } catch (_) {}
   if (process.env.SKYNET_QUEST_REFRESH === '0') return json(200, { ok: false, started: false, error: 'quest refresh is disabled (SKYNET_QUEST_REFRESH=0)' });
   if (questRefreshingNow) return json(200, { ok: false, started: false, error: 'a refresh cycle is already running' });
-  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now() });
+  questRefreshState = QuestRefresh.stampCycle(questRefreshState, { now: Date.now(), contextKey: questContextKey() });
   persistQuestRefresh();
   questRefreshingNow = true;
   runQuestRefreshCycle('manual').catch(swallow('aux.questrefresh.envelope')).finally(() => { questRefreshingNow = false; });
@@ -12467,7 +12734,7 @@ async function handleQuestsRefreshRun(req, res) {
 // Everything here is real engine state — nothing synthesized (truthful-telemetry law applies to JSON too).
 function handleQuestsRefreshStatus(req, res) {
   const s = QuestRefresh.normalize(questRefreshState);
-  const d = QuestRefresh.decide(s, { now: Date.now(), openCount: questRefreshOpenCount() });
+  const d = QuestRefresh.decide(s, { now: Date.now(), openCount: questRefreshOpenCount(), contextKey: questContextKey() });
   // the EFFECTIVE star the panel shows: a pending inference (status 'proposed') takes precedence over the last
   // adopted one so the UI can label it "unconfirmed" and offer confirm/correct — never asserting silent adoption.
   const eff = QuestRefresh.effectiveNorthStar(s);
@@ -13661,7 +13928,9 @@ async function handleJourney(req, res) {
     if ((op === 'journey.reset' && requestedEpoch < currentEpoch) || (op !== 'journey.reset' && requestedEpoch !== currentEpoch)) {
       return json(409, { ok: false, error: 'station generation changed; reload before updating journey' });
     }
-    if (op === 'metric.create') result = await journeyStore.createMetric(body, Date.now());
+    if (op === 'goal.register') result = await journeyStore.registerGoal(body, Date.now());
+    else if (op === 'goal.confirm') result = await journeyStore.confirmGoal(body, Date.now());
+    else if (op === 'metric.create') result = await journeyStore.createMetric(body, Date.now());
     else if (op === 'metric.update') result = await journeyStore.updateMetric(body, Date.now());
     else if (op === 'metric.retire') result = await journeyStore.retireMetric(body.id, Date.now());
     else if (op === 'milestone.complete') result = await journeyStore.recordMilestone(body, Date.now());
@@ -14196,6 +14465,14 @@ async function handleRun(req, res) {
   const reasoningEffort = resolveReasoningEffort(runProvider, body && (body.reasoningEffort || body.reasoning_effort || (body.reasoning && body.reasoning.effort)));
   const preloadSkills = Array.isArray(body && body.preloadSkills) ? body.preloadSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8) : [];
   const streamId = (body && body.streamId && /^[A-Za-z0-9_-]{1,64}$/.test(String(body.streamId))) ? String(body.streamId) : null;   // M-mem.2b: the active workstream (bounded; bad → global)
+  let connectorContinuationScope = null;
+  try {
+    connectorContinuationScope = require('./connector-continuation.js').continuationScope(
+      body && body.connectorContinuationOf ? runStore.all() : [], body && body.connectorContinuationOf, agentId, streamId);
+  } catch (e) {
+    res.writeHead(409, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: e.message }));
+  }
   const recipeId = (body && body.recipeId && /^[A-Za-z0-9_-]{1,60}$/.test(String(body.recipeId))) ? String(body.recipeId) : null;   // provenance spine (lane A): the launching recipe (bounded; bad → none, never a crash)
   // PROJECT-SCOPED SESSION (ref-parity): an anchored session sends its projectRoot; the folder context line
   // is injected ONLY when that root is STILL a standing blessed path grant (isBlessedRoot — the same live check
@@ -14325,6 +14602,8 @@ async function handleRun(req, res) {
         options: (Array.isArray(f.options) ? f.options.slice(0, 6) : []).map(x => clip(x, 120)),
         recommended: clip(f.recommended, 120),
         reason: clip(f.reason, 240),
+        mode:f.mode === 'conversation' ? 'conversation' : 'choice', sample:clip(f.sample,2400),
+        context:f.context || null,
         // batched clarify (2026-08-14): lets the card toggle non-exclusive options and show "1 of 3"
         multiSelect: f.multiSelect === true,
         ordinal: Number(f.ordinal) || 0, total: Number(f.total) || 0,
@@ -14390,6 +14669,8 @@ async function handleRun(req, res) {
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
+      idempotencyScope: connectorContinuationScope,
+      parentRunId: connectorContinuationScope ? body.connectorContinuationOf : undefined,
       askCommander,            // in-turn clarify: brief.ask blocks + resumes the SAME turn on this watched surface
 
       streamId,        // M-mem.2b: scope this run's working memory + recall boost to the active workstream
@@ -14717,6 +14998,7 @@ async function runOnce(o) {
   // work has nobody present to answer and therefore remains byte-for-byte on its existing execution path.
   let taskBrief = null;
   let taskBriefState = null;
+  let taskContextInputs = null;
   let taskContextBlock = '';
   let taskQuestionAsked = false;
   // Everything below is wrapped so the admission slot is ALWAYS released (early-return refusals above run
@@ -14792,7 +15074,7 @@ async function runOnce(o) {
       if (latestUser) taskBrief = await taskBriefStore.prepare({
         id: 'tb_' + runId, key: String(o.taskKey), streamId: streamId || '', agentId, runId,
         source: o.taskSource || (surface === 'interactive' ? 'interactive' : 'channel'), text: latestUser,
-        taskAction: o.taskAction || ''
+        taskAction: o.taskAction || '', resumeOnly: !!o.recovery
       }, Date.now());
     } catch (e) { console.warn('[taskbrief] prepare failed:', (e && e.message) || e); taskBrief = null; }
   }
@@ -14809,9 +15091,8 @@ async function runOnce(o) {
     // recipes.js — the same data the launch chips rendered), so a mid-run question arrives pre-aimed.
     let recipeIntake = [];
     try { const rr = o.recipeId ? Recipes.get(String(o.recipeId)) : null; if (rr && Array.isArray(rr.intake)) recipeIntake = rr.intake; } catch (_) {}
-    taskContextBlock = commanderEvidenceContext(system || '', {
-      brief: taskBrief, goal, patterns, deferredDimensions, recipeIntake
-    });
+    taskContextInputs = {brief:taskBrief, goal, patterns, deferredDimensions, recipeIntake};
+    taskContextBlock = commanderEvidenceContext(system || '', taskContextInputs);
   } else if (isTask) {
     // Channels and integrations may not carry a durable taskKey. They still receive the SAME bounded Commander
     // evidence as an interactive briefed run; only the task-specific brief section is absent.
@@ -14864,7 +15145,7 @@ async function runOnce(o) {
   // serviceKeys dep is a THUNK, not the array: `serviceKeys` is reassigned on every KEYS edit, so capturing the
   // value here would freeze the tool on the list as it stood when the run started.
   makeConnectorTools({
-    connectors: connectors,
+    connectors: { list: connectedConnectorSnapshot },
     serviceKeys: () => serviceKeys,
     connectorCatalog: connectorCatalog,
     keysCatalog: serviceKeysCatalog
@@ -14926,6 +15207,7 @@ async function runOnce(o) {
     // loginPrompt, so browser.login refuses honestly there. The prompt rides the SAME fail-closed
     // permission.prompt consent channel as file writes (auto-deny on timeout/disconnect).
     persistentProfile: browserProfileLeaseFor(runId),
+    onProfileWait: waiting => { if (waiting) browserProfileWaiters.add(runId); else browserProfileWaiters.delete(runId); },
     attendedLogin: (surface === 'interactive' && typeof o.loginPrompt === 'function') ? { prompt: o.loginPrompt } : null,
     requireOwnedServer: true,
     ownsLocalUrl: async ({ url, serverId, agentId: owner }) => {
@@ -15000,6 +15282,7 @@ async function runOnce(o) {
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     taskContext: taskContextBlock,   // workers inherit settled task decisions without re-questioning the Commander
+    getTaskContext: () => taskBriefState ? commanderEvidenceContext(system || '', Object.assign({},taskContextInputs,{brief:taskBriefState.brief})) : taskContextBlock,
     // A worker shares the LEAD's consent broker (see the `consent` note below), so its own roster APPROVAL clause is
     // the wrong one whenever the two postures differ. Hand orchestration the EFFECTIVE posture so the delegated
     // prompt states what will actually happen. A thunk read off the live roster: computed at dispatch time, and
@@ -15095,6 +15378,11 @@ async function runOnce(o) {
       if (Object.prototype.hasOwnProperty.call(patch, 'name')) next.name = patch.name;
       if (Object.prototype.hasOwnProperty.call(patch, 'model')) next.model = patch.model;
       if (Object.prototype.hasOwnProperty.call(patch, 'provider')) next.provider = parseCronProviderOr400(patch.provider);
+      if (Object.prototype.hasOwnProperty.call(patch, 'deliver')) {
+        if (patch.deliver !== 'local' && patch.deliver !== 'origin') throw new Error('deliver must be local or origin');
+        next.deliver = patch.deliver;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, 'attachToSession')) next.attachToSession = patch.attachToSession === true;
       if (Object.prototype.hasOwnProperty.call(patch, 'monitorMode')) next.monitorMode = patch.monitorMode === true;
       if (Object.prototype.hasOwnProperty.call(patch, 'repeatTimes')) {
         next.repeat = { times: patch.repeatTimes == null ? null : Math.max(1, parseInt(patch.repeatTimes, 10) || 1) };
@@ -15315,6 +15603,18 @@ async function runOnce(o) {
     && /^(1|true|yes|on|win32|windows)$/i.test(String(ENV('COMPUTER_DRIVER') || '').trim());
   const realDesktopAuthority = remoteDesktopAuthorized || (unrestrictedHostNow() && nativeDesktopAvailable);
   let resolved = enforceSyntheticOnly(resolveTools(agentId, station, undefined, { disabledCaps: unrestrictedHostNow() ? new Set() : disabledCapsSet() }), realDesktopAuthority);
+  if (Array.isArray(o.groupTools)) {
+    // Host-created closures scope these tools to this exact live group turn. They cannot
+    // be supplied through /api/run or peer text, and never grant peer filesystem access.
+    resolved.tools = resolved.tools.filter(name => !/^team\.|^session\./.test(name));
+    for (const def of o.groupTools) {
+      registry.register(def);
+      resolved.tools.push(def.name);
+      resolved.grants.push({ capId: 'compute', tool: def.name, scope: def.scope, requiresConsent: false, network: false });
+      resolved.approvalRules[def.name] = { requiresConsent: false, scope: def.scope, network: false };
+      resolved.networkCaps[def.name] = false;
+    }
+  }
   // This is a host authority injection, not a room prop: a paired owner asks to control the machine they own,
   // regardless of which agent bay receives the message. It stays invisible to every other run.
   if (realDesktopAuthority) {
@@ -15389,7 +15689,7 @@ async function runOnce(o) {
   // placement signal (the world/build lives in the browser), and a run carrying the grant IS the proof.
   // Fire-and-forget + fail-open: a quest-store hiccup never touches run admission.
   try {
-    for (const _pk of QuestSweeps.livePropKeys(questStore.openForAgent(agentId), agentId, station, resolved)) {
+    for (const _pk of QuestSweeps.livePropKeys(questStore.openForAgent(agentId, Date.now()), agentId, station, resolved)) {
       questStore.completeByContract('prop', _pk, Date.now()).then(completeQuestRecommendationIds).catch(swallow('quest.complete'));
     }
   } catch (_) {}
@@ -16358,7 +16658,7 @@ async function runOnce(o) {
   // change — would otherwise ship a prompt demanding a tool the model can't see (the exact break a real-provider run
   // caught). isTask is kept because a non-task run has no tools at all. Fail-open: ANY error yields no block.
   let questsBlock = '';
-  try { if (isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.indexOf('quest.update') >= 0) questsBlock = questBlock(questStore.openForAgent(agentId)); } catch (_) { questsBlock = ''; }
+  try { if (isTask && resolved && Array.isArray(resolved.tools) && resolved.tools.indexOf('quest.update') >= 0) questsBlock = questBlock(questStore.openForAgent(agentId, Date.now())); } catch (_) { questsBlock = ''; }
   // RUN quests bind only through quest.update op:"start" (or a successful named progress tick). Admission cannot
   // infer which of several open objectives this arbitrary task is doing, so it deliberately binds nothing here.
   let taskIntentNote = '';
@@ -16429,7 +16729,7 @@ async function runOnce(o) {
   // history the caller already supplied; gated to an explicit streamId (the global catch-all is not auto-seeded).
   let convo = messages;
   try {
-    if (!o.recovery && !internal && streamId && Array.isArray(messages) && messages.filter(m => m && m.role !== 'system').length <= 1) {
+    if (!o.recovery && !o.groupTools && !internal && streamId && Array.isArray(messages) && messages.filter(m => m && m.role !== 'system').length <= 1) {
       const seed = transcriptStore.reconstruct(streamId, { limit: 100 });
       if (seed.length) convo = seed.concat(messages);   // prior dialogue first, the new directive stays last
     }
@@ -16593,12 +16893,22 @@ async function runOnce(o) {
       }
       return { checks };
     } : null;
-    result = await runAgentLoop({
+    const recoveryQuestion = o.recovery && taskBrief && taskBrief.status === 'clarifying'
+      && taskBrief.questions.find(q => !q.answer);
+    if (recoveryQuestion) {
+      // Recovery must never answer its own pending question with the original directive.
+      const text = 'TASK_QUESTION: ' + recoveryQuestion.text + ' || '
+        + (recoveryQuestion.options.length ? recoveryQuestion.options.join(' | ') : '[free text]');
+      loopEmit('agent.run.start', {agentId, runId, model, trigger});
+      loopEmit('agent.token', {agentId, runId, delta:text});
+      loopEmit('agent.run.end', {agentId, runId, reason:'done', turns:0, usd:0});
+      result = {reason:'done', turns:0, usd:0, messages:msgs.concat([{role:'assistant', content:text}])};
+    } else result = await runAgentLoop({
       messages: msgs, provider, emit: loopEmit, cost, tools: toolDefs, dispatch, capCtx,
       acceptanceProbe,
       // Granted but unadvertised: held out of the request until tool.search reveals one (see loop.js).
       deferredTools: deferredToolDefs,
-      hiddenTools: ['brief_ask', 'brief_proceed'],
+      hiddenTools: ['brief_ask', 'brief_proceed', 'brief_update'],
       // A turn that asks for four file reads waited four round trips for them; an all-read-only batch now
       // overlaps. The predicate is above — the loop cannot judge tool scope on its own.
       parallelSafe,
@@ -16807,7 +17117,7 @@ async function runOnce(o) {
     // the file existing is the truth, not the run outcome — and workshop/night-shift builds ride this same
     // runOnce host, so a validated manifest's files land under this sweep too. Fire-and-forget + fail-open.
     (async () => {
-      for (const _aq of QuestSweeps.artifactQuestKeys(questStore.openForAgent(agentId), agentId)) {
+      for (const _aq of QuestSweeps.artifactQuestKeys(questStore.openForAgent(agentId, Date.now()), agentId)) {
         try {
           const { abs: _aAbs } = await fsJail.resolveInside(agentId, _aq.key);
           if (fs.existsSync(_aAbs)) await completeQuestRecommendationIds(await questStore.completeByContract('artifact', _aq.key, Date.now()));
@@ -17020,11 +17330,12 @@ async function handleConsent(req, res) {
    non-enum value and fails closed to deny downstream. Stale ids are a harmless no-op, like handleConsent. */
 async function handleConsentAnswer(req, res) {
   let body;
-  try { body = JSON.parse(await readBody(req, 8192)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
-  const text = String(body.answer == null ? '' : body.answer).trim().slice(0, 2000);
+  try { body = JSON.parse(await readBody(req, 32768)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
+  const text = String(body.answer == null ? '' : body.answer).trim().slice(0, 4000);
   const pend = pendingByRun.get(body.runId);
   const finish = pend && pend.get(body.promptId);
   if (finish && text) finish({ __clarify: true, text });
+  if(body.receipt === true) return respondJson(res,200,{ok:!!(finish && text)});
   res.writeHead(200); res.end('ok');
 }
 
@@ -17791,6 +18102,21 @@ function collectDiagnosticsInput(opts) {
       provider: provider,
       model: model,
       keyPresent: keyPresent,
+      paidAccount: (() => {
+        const snap = credits.snapshot(), link = creditsLink.diagnosticState();
+        const capturedAt = Date.now();
+        const known = typeof snap.observedBalanceUsd === 'number' && Number.isFinite(snap.observedBalanceUsd);
+        return {
+          configured: snap.configured,
+          fingerprint: snap.accountId ? crypto.createHash('sha256').update('starnet-support-account:' + snap.accountId).digest('hex').slice(0, 16) : null,
+          link: CREDITS_URL ? 'env' : link.state, credential: CREDITS_URL ? 'env' : link.credential,
+          auth: snap.authStatus, balanceUsd: known ? snap.observedBalanceUsd : null,
+          observedAt: snap.observedAt || null, capturedAt,
+          balance: !known ? 'unavailable' : snap.authStatus !== 'valid' || !snap.observedAt || capturedAt - snap.observedAt > 30000
+            ? 'stale' : snap.observedBalanceUsd > 0 ? 'funded' : 'zero',
+          transition: link.lastTransition
+        };
+      })(),
       agentCount: agentRoster.size,
       uptimeMs: Date.now() - PROCESS_START,
       workspacePresent: workspacePresent,
@@ -17975,6 +18301,7 @@ async function handleLiveDoctor(req, res) {
 // inflight map). Idempotent. Each run's own finally cleans its maps + auto-denies any open consent prompt; hub
 // runs are marked `superseded` first so their (now stale) partial reply isn't delivered after the kill.
 function handleHalt(req, res) {
+  if (typeof groupSessions !== 'undefined') groupSessions.halt().catch(e => console.warn('[groups] halt persistence failed:', e.message));
   const tgInflight = (telegram && telegram.hub && telegram.hub._internals) ? telegram.hub._internals.inflight : null;
   const dcInflight = (discord && discord.hub && discord.hub._internals) ? discord.hub._internals.inflight : null;
   // EVERY connected channel's hub, not just the two bespoke slots — a Slack/Matrix/Signal run must die on E-STOP too.
@@ -19897,7 +20224,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
   // server-side dossier-write seam — /api/study/resolve carries no accepted dimension), so dossier-dim keys stay
   // open until a committed memory covers them. Fire-and-forget + fail-open: never fails the memory write.
   try {
-    for (const _fk of QuestSweeps.learnedFactKeys(questStore.openForAgent(agentId), agentId, { id: writtenId, content: content })) {
+    for (const _fk of QuestSweeps.learnedFactKeys(questStore.openForAgent(agentId, Date.now()), agentId, { id: writtenId, content: content })) {
       questStore.completeByContract('fact', _fk, Date.now()).then(completeQuestRecommendationIds).catch(swallow('quest.complete'));
     }
   } catch (_) {}
