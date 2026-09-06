@@ -116,10 +116,10 @@
     // Settings has NO spotify surface; the old 'settings' door landed on PROVIDERS with no connect control),
     // NOT REFIT (the gear is already on station) — distinct from `capdenied` which fires when no JUKEBOX exists.
     spotify_not_connected: { retryable: false, action: 'toolsets', msg: 'The JUKEBOX is on station, but Spotify isn’t connected yet — connect it in ABILITIES, then try again.' },
-    // the one-run-at-a-time mutex: the SIDECAR message names the holder (age/source) + the doors (ROUTINES,
-    // E-STOP) — friendlyError passes it through verbatim instead of flattening to `unknown` (2026-07-07 escape:
+    // the one-run-at-a-time mutex: the SIDECAR message names the holder (age/source) + recovery steps.
+    // Keep those details instead of flattening to `unknown` (2026-07-07 escape:
     // the user got "Something went wrong" in a loop while the real answer was one sentence away).
-    agent_busy:    { retryable: true,  action: null,       msg: 'That agent is still busy with a previous run — wait for it to finish, or press E-STOP (the red control in the top bar, or Alt+H) to abort everything.' },
+    agent_busy:    { retryable: true,  action: null,       msg: 'That agent is still busy with a previous run — wait for it to finish, or open its conversation and stop the active run.' },
     // the SIDECAR's own token gate said no (a 403 with "forbidden token/origin/host"): after a sidecar
     // crash+respawn the page still holds the OLD X-StarNet-Token, so EVERY action 403s. Retrying is doomed and
     // "add a key" is the wrong door — the page needs the fresh boot token, which only a reload fetches.
@@ -394,9 +394,10 @@
       return { userMessage: capdeniedMessage(cap), kind: kind, retryable: k.retryable, action: k.action, cap: cap, raw: raw };
     }
     // agent_busy: the sidecar composed the full truthful sentence (who holds the agent, since when, the doors)
-    // — show THAT, not a flattened generic. Falls back to the canned line if the raw is somehow bare.
+    // — retain those facts, replacing only guidance for the retired global-stop control.
     if (kind === 'agent_busy' && /already running a task/.test(raw.toLowerCase())) {
-      return { userMessage: raw, kind: kind, retryable: k.retryable, action: k.action, raw: raw };
+      const message = raw.replace(/,\s*or press E-STOP\b[^.]*\.?$/i, ', or open its conversation and stop the active run.');
+      return { userMessage: message, kind: kind, retryable: k.retryable, action: k.action, raw: raw };
     }
     // oauth (keyless device-code sign-in) carries WHICH provider it was, so the door reads the right reconnect
     // label (RECONNECT CHATGPT / GROK / KIMI). Codex keeps its exact copy; grok/kimi name themselves.

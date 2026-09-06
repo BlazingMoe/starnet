@@ -1,5 +1,4 @@
-/* node test/consent-visibility.test.js — EL-11 escape tests: FIX 1 (background consent must be VISIBLE)
-   + FIX 2 (error copy names E-STOP, so an E-STOP control must exist on screen).
+/* node test/consent-visibility.test.js — EL-11 escape tests: background consent must be VISIBLE.
 
    FIX 1 escape: a consent prompt on a NON-displayed session rendered nothing — StationUI.notify lived only
    inside permissionRow (active stream only); background prompts produced an unlabeled crew-dot flip that lit
@@ -84,20 +83,6 @@ const F = p => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
   A.ok(/CONSENT_ACK_EXTEND_MS\s*=/.test(idx), 'sidecar: the extension bound is a named, bounded constant');
   // the summon channel keeps its own untouched fail-closed timer (no behavior change out of scope).
   A.ok(/setTimeout\(\(\) => finish\(null\), CONSENT_TIMEOUT_MS\)/.test(idx), 'sidecar: summon fail-closed timer untouched');
-}
-
-/* ---------- FIX 2 · E-STOP: copy told users to "press E-STOP" while no control existed on screen ---------- */
-{
-  const safety = F('frontend/app/safety.js');
-  A.ok(/getElementById\('estop-btn'\)/.test(safety) && /data-group="system"[\s\S]*id="estop-btn"/.test(F('frontend/index.html')),
-    'safety.js: E-STOP is wired to an actual SYSTEM menu control, not a hidden hotkey-only action');
-  A.ok(/Alt\+H/.test(safety), 'safety.js: the control itself teaches the Alt+H hotkey');
-  const fe = F('frontend/app/friendlyerror.js');
-  const estopMsgs = (fe.match(/msg:\s*'[^']*E-STOP[^']*'/g) || []);
-  A.ok(estopMsgs.length > 0, 'friendlyerror.js: still names E-STOP where it matters');
-  for (const m of estopMsgs) A.ok(/Alt\+H/.test(m), 'friendlyerror.js: every E-STOP mention also names the hotkey/control: ' + m.slice(0, 60));
-  const css = F('frontend/css/safety.css');
-  A.ok(/estop/.test(css), 'safety.css: the E-STOP control is styled (chrome vocabulary, not a naked button)');
 }
 
 A.report('consent-visibility');

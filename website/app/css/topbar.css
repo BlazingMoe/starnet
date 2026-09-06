@@ -95,8 +95,7 @@
   #topbar #sig { display: none; }
 }
 /* MOBILE CONTROL REACHABILITY: keep connection status in the header;
-   the pinnable rail and level lamp move out of the narrow one-row budget.
-   E-STOP lives in the SYSTEM menu and retains the global Alt+H shortcut. */
+   the pinnable rail and level lamp move out of the narrow one-row budget. */
 @media (max-width: 600px) {
   #topbar { padding-inline: 8px; }
   #topbar #wr-top,

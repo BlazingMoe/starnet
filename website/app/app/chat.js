@@ -6242,7 +6242,7 @@ const Chat = (() => {
   function wiEmit(name, payload) { try { if (typeof U !== 'undefined' && U.bus) U.bus.emit(name, payload); } catch (_) {} }
 
   /* ---------- TURN CONTROLS (harness-standard): interrupt + type-ahead ---------- */
-  // INTERRUPT — a gentle, per-stream stop, distinct from safety.js's Alt+H "halt EVERYTHING + alarm". It cancels
+  // INTERRUPT — a per-stream stop. It cancels
   // only the DISPLAYED stream's in-flight run; the plumbing already exists (each stream owns an AbortController
   // here + a server runId) so this just exposes a ⏹ button / Esc for it. Flag the stream interrupted so send()'s
   // catch keeps what already streamed instead of logging an error, and drop that stream's type-ahead queue — a
