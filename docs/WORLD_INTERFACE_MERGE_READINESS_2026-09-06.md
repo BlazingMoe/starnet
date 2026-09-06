@@ -51,3 +51,22 @@ session-attention live probe (**36 checks**, zero runtime exceptions). The live 
 also confirmed AUTOMATED excludes ordinary sessions and ALL restores them. Evidence is in
 `.worldshots/merge-readiness/session-filter-{fast,live}.log` and the corresponding result JSON
 files. No backend code changed, so the earlier HTTP receipt remains applicable.
+
+## Integration completed
+
+Merged into `feat/harness-backend` at `fb22656bed4ceb905650af760800de4f0d897f74`.
+The final version includes the Google sign-in and release-audit repairs from current trunk,
+plus the user's final session-spacing correction: 2px list gaps, no stacked vertical margins,
+and 5px vertical row padding. The compact list was visually verified in the custom live preview.
+
+The frozen combined source `351c50ccc` passed **724/724** fast steps before integration;
+the merged commit passed **724/724** again on trunk. The full HTTP suite passed **101/101**
+on `5ecf07507`, whose backend bytes are identical to the merged version. The updated session
+live probe passed **36 checks** with no runtime exceptions after the spacing adjustment.
+Only documentation changed between the frozen source and its integration candidate.
+
+Receipts: `.worldshots/merge-readiness/frozen-world-fast.log`, `integrated-world-fast.log`,
+`merge-candidate-http.log`, their result JSON files, and `merge-spacing-live.log`.
+Unrelated integration-tree QA notes and the Rooms handoff were preserved. The preview worktree
+is retained for the custom station at `http://127.0.0.1:9177/`. This is source integration;
+no installed release or publication is claimed.
