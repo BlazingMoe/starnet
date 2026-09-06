@@ -4,11 +4,11 @@
 One tracked file per bug under `qa/bugs/`; this is only the index. File a new bug with
 `node scripts/qa/bugs.mjs --new --title "..." --surface <surface>`.
 
-**8** open (open+claimed) of 60 total — 0 P0 · 8 P1 · 0 P2
+**9** open (open+claimed) of 61 total — 0 P0 · 9 P1 · 0 P2
 
 Engineering status is separate from delivery and customer recovery. Legacy rows without origin are not a customer census.
 
-User/owner reports: **19** · source fixed: **12** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **18**.
+User/owner reports: **20** · source fixed: **12** · installer verified: **0** · customer confirmed: **0** · still reported failing: **1** · recovery unconfirmed: **19**.
 
 | Report | Family | Source | Installer | Customer |
 | --- | --- | --- | --- | --- |
@@ -18,6 +18,7 @@ User/owner reports: **19** · source fixed: **12** · installer verified: **0** 
 | [Mac paid onboarding becomes unreachable after reload and relink](bugs/eaaa3ec8-mac-onboarding-unreachable-after-link.md) | recovery-truth | open | unverified | unconfirmed |
 | [Funded working station still displays a zero-credit warning](bugs/72af29f4-funded-station-false-zero-warning.md) | recovery-truth | open | unverified | unconfirmed |
 | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | production-request-truth | open | unverified | persists |
+| [Mac desktop microphone blocked while browser mirror works](bugs/8a553481-mac-desktop-microphone-blocked-while-browser-mir.md) | desktop-microphone | open | unverified | unconfirmed |
 | [Customer viewport becomes blank after ten to twenty minutes](bugs/9256a771-viewport-black-after-idle.md) | durability-and-visibility | open | unverified | unconfirmed |
 | [Connector stays up after an authenticated tool returns 401](bugs/9dc98fa0-connector-401-still-shows-up.md) | recovery-truth | fixed | unverified | unconfirmed |
 | [Connector times out waiting for a buffered SSE reply](bugs/11341152-connector-buffered-sse-times-out.md) | protocol-lifecycle | fixed | unverified | unconfirmed |
@@ -48,6 +49,7 @@ User/owner reports: **19** · source fixed: **12** · installer verified: **0** 
 | P1 | open | providers | [Funded working station still displays a zero-credit warning](bugs/72af29f4-funded-station-false-zero-warning.md) | reliability-followup | — |
 | P1 | open | providers | [Managed Sonnet request still returns an uncorrelated HTTP 400](bugs/fd9c4b4d-managed-sonnet-400-unresolved.md) | reliability-followup | — |
 | P1 | open | sessions | [Workshop reports a completed web tool when its entry file is missing](bugs/097269b5-workshop-reports-a-completed-web-tool-when-its-e.md) | agent/release-ui-audit-0906 | — |
+| P1 | open | voice | [Mac desktop microphone blocked while browser mirror works](bugs/8a553481-mac-desktop-microphone-blocked-while-browser-mir.md) | agent/voice-agents-mac-0906 | — |
 | P1 | open | world | [Customer viewport becomes blank after ten to twenty minutes](bugs/9256a771-viewport-black-after-idle.md) | reliability-followup | — |
 | P1 | fixed | autonomy | [cron-store's armAt never receives the host defaultTz, so a tz-less cron routine's FIRST nextRunAt is UTC-anchored while every later advance uses local — the mar](bugs/f47a1e3a-cron-store-s-armat-never-receives-the-host-defau.md) | sweep/autonomy | 226cec3c |
 | P1 | fixed | channels | [A lost-race consent tap stamps "▸ ✅ Allow once" onto the message before resolveConsent is asked, so a DENIED request keeps a permanent "approved" record](bugs/64563ad9-a-lost-race-consent-tap-stamps-allow-once-onto-t.md) | sweep/channels | 96fe108d |
@@ -107,6 +109,6 @@ User/owner reports: **19** · source fixed: **12** · installer verified: **0** 
 | skills | 0 |
 | onboarding | 2 |
 | world | 1 |
-| voice | 0 |
+| voice | 1 |
 | release | 0 |
 

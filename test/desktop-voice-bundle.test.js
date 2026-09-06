@@ -51,6 +51,11 @@ assert.match(
   /<key>NSMicrophoneUsageDescription<\/key>\s*<string>[^<]*(?:microphone|voice)[^<]*<\/string>/i,
   'the macOS app bundle declares why StarNet requests microphone access'
 );
+assert.equal(tauri.bundle.macOS.hardenedRuntime, true);
+assert.equal(tauri.bundle.macOS.entitlements, 'entitlements.plist');
+assert.match(fs.readFileSync(path.join(root, 'src-tauri', tauri.bundle.macOS.entitlements), 'utf8'),
+  /<key>com\.apple\.security\.device\.audio-input<\/key>\s*<true\s*\/>/,
+  'signed macOS builds authorize microphone input under hardened runtime');
 
 for (const [name, source] of [['desktop CI', desktopCi], ['release CI', releaseCi]]) {
   assert.match(
