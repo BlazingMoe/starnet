@@ -63,7 +63,18 @@ const server = http.createServer((req, res) => {
     assert.ok(requests.every(r => !(r.tools || []).some(t => t.function.name === 'team_dispatch')));
     const download = await fixture.request('/api/groups?id=' + g.id + '&file=' + state.artifacts[0].id);
     assert.equal(await download.text(), 'EXACT_SHARED_VERSION_1');
+    const attached = await request('POST', '', { op: 'create', members: ['agent'], title: 'Message attachment proof' });
+    await request('POST', '', { op: 'control', id: attached.id, action: 'pause' });
+    const upload = { op: 'attach', id: attached.id, key: 'photo-upload', name: 'photo.png', content: Buffer.from('EXACT_USER_ATTACHMENT').toString('base64') };
+    const uploaded = await request('POST', '', upload), artifactId = uploaded.artifacts[0].id;
+    assert.equal((await request('POST', '', upload)).artifacts.length, 1, 'HTTP upload retry is idempotent');
+    await request('POST', '', { op: 'send', id: attached.id, key: 'photo-message', text: 'Describe my photo', artifactIds: [artifactId] });
+    assert.deepEqual((await request('GET', '?id=' + attached.id)).messages[0].artifactIds, [artifactId]);
     await fixture.restart();
+    const restoredAttachment = await request('GET', '?id=' + attached.id);
+    assert.deepEqual(restoredAttachment.messages[0].artifactIds, [artifactId], 'HTTP message-to-file association survives restart');
+    const restoredFile = await fixture.request('/api/groups?id=' + attached.id + '&file=' + artifactId);
+    assert.equal(await restoredFile.text(), 'EXACT_USER_ATTACHMENT', 'the referenced file retains exact bytes');
     state = await request('GET', '?id=' + g.id);
     assert.equal(state.turns.length, 2); assert.equal(state.messages.filter(m => m.author !== 'user').length, 2);
     const judgment = await request('POST', '', { op: 'create', members: ['agent'], title: 'Judgment proof' });

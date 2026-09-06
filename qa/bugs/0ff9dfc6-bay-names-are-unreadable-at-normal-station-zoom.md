@@ -1,0 +1,90 @@
+---
+fingerprint: 0ff9dfc6
+slug: bay-names-are-unreadable-at-normal-station-zoom
+title: Bay names are unreadable at normal station zoom
+surface: world
+severity: P1
+status: open
+found: 2026-09-06
+lane: release-0110
+fix:
+origin: owner
+report: Owner 0.11.0 installer test, 2026-09-06, bay name screenshot
+affected: Windows 0.11.0 candidate 2cfdcb04e
+family: bay-labels
+installer: unverified
+recovery: unconfirmed
+---
+
+# Bay names are unreadable at normal station zoom
+
+## Symptom
+
+Agent names on bay monitors are too small and dim to read at normal station zoom.
+
+## Repro
+
+1. Open a station with multiple assigned bays in the reported 0.11.0 installer.
+2. Inspect names at normal fitted zoom and with room lighting enabled.
+3. Longer names are cut after five characters and the remaining glyphs are barely legible.
+
+## Evidence
+
+Owner bay-name screenshot (2026-09-06). Original frontend/app/propsprites.js used an 8px sprite font, slice(0, 5), and painted names below the lightmap. Live :9188 six-bay fixture now visibly shows NOVA, ULTRON, RESEARCHER, ALIX, RELEASE REVIEW and PROJECT FOLLOWUPS in cinema and REFIT. Readable signs are painted after lighting in both callers. Anchor: test/bay-name-legibility.test.js.
+
+## Verdict
+
+Source repair implemented and live proof recorded. Commit linkage will be added after the fix commit. Exact installer behavior and owner recovery remain unverified.
+
+## Regression
+
+The previous implementation silently discarded the sixth character and rasterized names into the shaded sprite. The executable render recorder checks complete ULTRON, a 16–22 CSS-pixel font floor across five zooms and three device scales, live rename/binding, unassigned bays, adjacent label collisions and bounded long names. Live screenshots confirm the six named bays at fitted and closer zoom and in REFIT.
+
+## Sibling coverage
+
+{
+  "adapters": [
+    {
+      "target": "shared canvas name renderer",
+      "state": "covered",
+      "test": "test/bay-name-legibility.test.js",
+      "scenario": "real renderer emits full labels, bounded font size and non-overlapping signs",
+      "gate": "fast"
+    }
+  ],
+  "entrypoints": [
+    {
+      "target": "live station and REFIT",
+      "state": "blocked",
+      "reason": "Both live entry points were visually inspected using the seeded six-bay station; there is no registered browser test for these canvas labels."
+    }
+  ],
+  "displays": [
+    {
+      "target": "zoom and DPR geometry",
+      "state": "covered",
+      "test": "test/bay-name-legibility.test.js",
+      "scenario": "five camera scales across DPR 1, 1.25 and 2",
+      "gate": "fast"
+    },
+    {
+      "target": "physical display and installed CRT",
+      "state": "blocked",
+      "reason": "Windows source browser screenshots were inspected; exact new installer and physical Mac retests remain pending."
+    }
+  ],
+  "lifecycle": [
+    {
+      "target": "rename, reassign and unassigned",
+      "state": "covered",
+      "test": "test/bay-name-legibility.test.js",
+      "scenario": "new roster projection replaces the old label without reusing a stale cached name",
+      "gate": "fast"
+    },
+    {
+      "target": "saved station reload",
+      "state": "blocked",
+      "reason": "The six-bay fixture survived preview reload; no registered bay-label browser persistence test exists."
+    }
+  ]
+}

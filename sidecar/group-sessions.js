@@ -120,6 +120,9 @@ function makeGroupSessions(d) {
       if (g.messages.some(m => m.key === key)) return;
       const ids = recipients(g, b);
       if (ids.some(a => !roster().some(r => r.id === a))) fail('Participant no longer exists');
+      if (b.artifactIds != null && (!Array.isArray(b.artifactIds) || b.artifactIds.length > 20)) fail('Choose up to 20 attachments');
+      const artifactIds = [...new Set((b.artifactIds || []).map(identifier))];
+      if (artifactIds.some(aid => !g.artifacts.some(a => a.id === aid && a.agentId === 'user'))) fail('Attachment is not in this conversation');
       if (b.interrupt) {
         cancelQuestions(g, () => true);
         for (const t of g.turns) {
@@ -128,7 +131,7 @@ function makeGroupSessions(d) {
         }
         g.paused = false;
       }
-      const m = message(g, 'user', value, { key, recipients: ids, replyTo: b.replyTo || null });
+      const m = message(g, 'user', value, { key, recipients: ids, replyTo: b.replyTo || null, ...(artifactIds.length ? { artifactIds } : {}) });
       for (const a of ids) turn(g, m.id, a, { independent: !!b.independent, cutoff: b.independent ? m.seq : null });
       if (b.summarize && ids.length > 1) turn(g, m.id, g.leadId, { summary: true });
     });
@@ -275,7 +278,9 @@ function makeGroupSessions(d) {
     const g = await create({ members: source.members, leadId: source.leadId, title: b.title || source.title + ' branch', instructions: source.instructions });
     await update(g.id, dest => {
       dest.messages = source.messages.filter(m => m.seq <= cutoff).map(m => ({ ...m, imported: true }));
-      dest.artifacts = source.artifacts.filter(a => a.messageSeq <= cutoff);
+      const linked = new Set(source.messages.flatMap(m => m.artifactIds || []));
+      const retained = new Set(dest.messages.flatMap(m => m.artifactIds || []));
+      dest.artifacts = source.artifacts.filter(a => linked.has(a.id) ? retained.has(a.id) : a.messageSeq <= cutoff);
       dest.branchedFrom = { id, cutoff };
     });
     return publicGroup(get(g.id));
@@ -514,7 +519,20 @@ function makeGroupSessions(d) {
     list: async () => { await ready; return { groups: Object.values(read().groups).filter(g => !g.deleted).map(g => ({ id: g.id, title: g.title, members: g.members, leadId: g.leadId })), templates: read().templates, roster: roster() }; },
     get: async id => { await ready; return publicGroup(get(id)); },
     file: async (id, aid) => { await ready; const f = get(id).artifacts.find(a => a.id === aid); if (!f) fail('Shared file not found', 404); return f; },
-    attach: async (id, b) => { await ready; const content = text(b.content, 1400000); const file = d.uploadFile(b.name, content); await update(id, g => { g.artifacts.push({ ...file, id: d.id(), agentId: 'user', messageSeq: g.messages.length, createdAt: d.now() }); }); return publicGroup(get(id)); },
+    attach: async (id, b) => {
+      await ready;
+      const attachmentKey = b.key == null ? null : identifier(b.key);
+      const content = text(b.content, 1400000), file = d.uploadFile(b.name, content);
+      await update(id, g => {
+        const prior = attachmentKey && g.artifacts.find(a => a.agentId === 'user' && a.attachmentKey === attachmentKey);
+        if (prior) {
+          if (prior.hash !== file.hash || prior.name !== file.name) fail('Attachment retry does not match the original file');
+          return;
+        }
+        g.artifacts.push({ ...file, id: d.id(), agentId: 'user', messageSeq: g.messages.length, createdAt: d.now(), ...(attachmentKey ? { attachmentKey } : {}) });
+      });
+      return publicGroup(get(id));
+    },
     answer: async (id, b) => { const p = pending.get(b.promptId); if (!p || p.id !== id) fail('Approval is no longer pending', 409); if (!['once', 'deny'].includes(b.decision)) fail('Invalid approval'); p.finish(b.decision); return { ok: true }; },
     idle: async id => { await workers.get(id); },
     halt: () => {

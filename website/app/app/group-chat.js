@@ -5,7 +5,7 @@ const GroupChat = (() => {
   let generation = 0, lastPaint = '', notice = '', draftKey = null;
   let openedFileUrl = null, openedFile = null;
   const composerDrafts = new Map();
-  const sharedAttachments = new Set();
+  const sharedAttachments = new Map();
   const $ = id => document.getElementById(id);
   const uid = () => crypto.randomUUID();
   const h = (tag, attrs = {}, value) => {
@@ -160,6 +160,7 @@ const GroupChat = (() => {
     if (priorRevision !== group.revision) { active.groupRevision = group.revision; save(); }
     participantsHeader($('gc-header'), group.members, !!group.paused);
     const log = $('gc-log'), bottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+    const previousRows = new Map([...log.querySelectorAll('[data-message-id]')].map(row => [row.dataset.messageId, row]));
     log.replaceChildren();
     /* Speaker on every reply. An agent's name is the reply affordance: click it and the next
        message goes to that agent (no button under every bubble). The agent's roster colour
@@ -174,12 +175,19 @@ const GroupChat = (() => {
       const content = (group.questions || []).some(q => q.turnId === m.turnId)
         ? m.content.replace(/(?:^|\n)TASK_QUESTION:[^\n]*(?:\n|$)/g, '\n').trim() : m.content;
       if (!content) continue;
-      const row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
-      const body = h('div', { class: 'body' });
-      if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
-      const color = colorOf(m.author); if (color) row.style.setProperty('--gc-c', color);
-      row.append(group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase()), body);
-      if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
+      const attachments = (m.artifactIds || []).map(id => group.artifacts.find(f => f.id === id)).filter(Boolean);
+      const rowKey = JSON.stringify([m, content, attachments, group.members]);
+      let row = previousRows.get(m.id);
+      if (!row || row._gcMessageKey !== rowKey) {
+        row = h('article', { class: 'gc-message cmsg' + (m.author === 'user' ? ' user' : ' agent'), 'data-message-id': m.id });
+        const body = h('div', { class: 'body' });
+        if (typeof Chat !== 'undefined' && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
+        const color = colorOf(m.author); if (color) row.style.setProperty('--gc-c', color);
+        row.append(group.members.includes(m.author) ? speaker(m.author, m.id) : h('span', { class: 'who' }, name(m.author).toUpperCase()), body);
+        if (m.partial) row.append(h('small', { class: 'gc-partial' }, 'partial · work did not complete'));
+        if (attachments.length) renderMessageAttachments(row, group.id, attachments);
+        row._gcMessageKey = rowKey;
+      }
       log.append(row);
       for (const next of group.turns.filter(t => m.turnId && t.parent === m.turnId && !t.questionId && t.state !== 'stopped')) {
         log.append(h('div', { class: 'gc-transfer' }, next.recoveryOf ? name(next.agentId) + ' was asked to check a handoff that did not start' :
@@ -226,16 +234,39 @@ const GroupChat = (() => {
       }
       states.append(row);
     }
-    /* Shared files: one compact chip row in the tool-chip voice, not a stack of full-width buttons. */
+    /* Message attachments belong to their turn. Retain the shelf for agent outputs and
+       legacy uploads whose original message was never recorded; don't invent that association. */
+    const attachedIds = new Set(group.messages.flatMap(m => m.artifactIds || []));
+    const sharedFiles = group.artifacts.filter(f => !attachedIds.has(f.id));
     const files = $('gc-files'); files.replaceChildren();
-    files.parentElement.hidden = !group.artifacts.length;
-    if (group.artifacts.length) files.append(h('span', { class: 'gc-files-label' }, 'shared'));
-    for (const f of group.artifacts) {
+    files.parentElement.hidden = !sharedFiles.length;
+    if (sharedFiles.length) files.append(h('span', { class: 'gc-files-label' }, 'shared'));
+    for (const f of sharedFiles) {
       const chip = h('button', { type: 'button', class: 'gc-file' + (openedFile === f.id ? ' open' : ''), 'aria-label': 'Open shared file ' + f.name, onclick: () => openFile(group.id, f).catch(showError) });
       chip.append(h('span', { class: 'tc-glyph', 'aria-hidden': 'true' }, '▤'), h('span', {}, f.name)); files.append(chip);
     }
     recipientLabel();
     if (Chat.refreshGroupControls) Chat.refreshGroupControls();
+  }
+  function renderMessageAttachments(row, id, files) {
+    const view = h('div', { class: 'chat-attach-view gc-attachments', 'aria-label': 'Message attachments' });
+    for (const file of files) {
+      const image = /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(file.name);
+      const chip = h('button', { type: 'button', class: image ? 'gc-attachment-image' : 'gc-file', 'aria-label': 'Open attachment ' + file.name,
+        onclick: () => openFile(id, file).catch(showError) });
+      if (image) {
+        const img = h('img', { alt: file.name, loading: 'lazy' }); chip.append(img);
+        fetch('/api/groups?id=' + encodeURIComponent(id) + '&file=' + encodeURIComponent(file.id)).then(r => {
+          if (!r.ok) throw Error('Attachment preview unavailable'); return r.blob();
+        }).then(blob => {
+          if (!img.isConnected || active?.id !== id) return;
+          const url = URL.createObjectURL(blob), free = () => URL.revokeObjectURL(url);
+          img.addEventListener('load', free, { once: true }); img.addEventListener('error', free, { once: true }); img.src = url;
+        }).catch(() => { img.remove(); });
+      }
+      chip.append(h('span', {}, file.name)); view.append(chip);
+    }
+    row.append(view);
   }
   function recipientLabel() {
     const e = $('gc-recipients'); e.replaceChildren();
@@ -253,7 +284,9 @@ const GroupChat = (() => {
     const url = URL.createObjectURL(blob);
     openedFileUrl = url; openedFile = file.id; lastPaint = ''; paint();
     preview.append(h('h4', {}, file.name), h('small', {}, 'version ' + file.hash.slice(0, 12)), h('a', { href: url, download: file.name }, 'SAVE FILE'));
-    if (/\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.sourcePath || file.name)) {
+    if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(file.name)) {
+      preview.append(h('img', { class: 'gc-file-image', src: url, alt: file.name }));
+    } else if (/\.(md|txt|csv|json|log|js|ts|py|html|css|xml|ya?ml|svg)$/i.test(file.sourcePath || file.name)) {
       const content = await blob.text(), body = h('div', { class: 'gc-message' });
       if (/\.md$/i.test(file.sourcePath || file.name) && Chat.renderProse) Chat.renderProse(body, content); else body.textContent = content;
       preview.append(body);
@@ -298,20 +331,24 @@ const GroupChat = (() => {
       if (question && !/(?:^|\s)@/.test(value) && !recipients.length && !options.attachments?.length) {
         await answerQuestion(id, question.id, String(value).trim()); composerDrafts.delete(id); draftKey = null; return true;
       }
+      const artifactIds = [];
       for (const file of options.attachments || []) {
         const attachmentKey = id + ':' + file.id;
-        if (sharedAttachments.has(attachmentKey)) continue;
+        if (sharedAttachments.has(attachmentKey)) { artifactIds.push(sharedAttachments.get(attachmentKey)); continue; }
         const response = await fetch('/api/file?agent=' + encodeURIComponent(agentId) + '&path=' + encodeURIComponent(file.path));
         if (!response.ok) throw new Error('Could not share ' + file.name);
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.length > 1024 * 1024) throw new Error('Group files currently support up to 1 MiB; ' + file.name + ' is still attached.');
         let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
-        await api({ op: 'attach', id, name: file.name, content: btoa(binary) });
-        sharedAttachments.add(attachmentKey);
+        const uploaded = await api({ op: 'attach', id, key: file.id, name: file.name, content: btoa(binary) });
+        const artifact = uploaded.artifacts.find(a => a.attachmentKey === file.id && a.agentId === 'user');
+        if (!artifact) throw new Error('Attachment was not confirmed. Your file is still staged.');
+        sharedAttachments.set(attachmentKey, artifact.id); artifactIds.push(artifact.id);
       }
       if (paused) await api({ op: 'control', id, action: 'resume' });
       const result = await api({ op: 'send', id, key, text: String(value || '').trim() || 'Please review the attached files.', replyTo: reply,
-        recipients: /(?:^|\s)@/.test(value) ? [] : recipients });
+        recipients: /(?:^|\s)@/.test(value) ? [] : recipients, artifactIds });
+      for (const file of options.attachments || []) sharedAttachments.delete(id + ':' + file.id);
       composerDrafts.delete(id);
       if (active?.id === id) { group = result; $('gc-mentions').replaceChildren(); selected = []; replyTo = null; draftKey = null; notice = ''; $('gc-notice').textContent = ''; paint(); }
       return true;

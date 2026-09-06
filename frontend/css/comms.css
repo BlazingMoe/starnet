@@ -823,3 +823,13 @@
 /* P1.2 identity-honesty: the model slot doubles as a one-line honest notice when the focused agent id is not in
    the live registry (roster out of sync). Amber warn token, not the dim phosphor — this is a state to notice. */
 .comms-agent-model.comms-agent-warn { color: var(--warn); opacity: 1; }
+
+/* Sent group files live with their message, using the same thumbnail register as direct COMMS. */
+.gc-attachments { justify-content: flex-end; }
+.gc-attachment-image { display: flex; flex-direction: column; gap: 6px; padding: 6px; max-width: 220px;
+  border: 1px solid var(--ui-edge); border-radius: var(--r-sm); background: var(--panel); color: var(--ph);
+  box-shadow: var(--ui-well); cursor: pointer; font: inherit; text-align: left; }
+.gc-attachment-image img { display: block; width: 100%; height: 116px; object-fit: contain; border-radius: 2px; }
+.gc-attachment-image span { display: block; max-width: 100%; overflow-wrap: anywhere; font-size: 12px; line-height: 1.35; }
+.gc-attachment-image:hover, .gc-attachment-image:focus-visible { border-color: var(--ph); outline-color: var(--ph); }
+.gc-file-image { display: block; max-width: 100%; max-height: 50vh; object-fit: contain; margin: 10px auto; }

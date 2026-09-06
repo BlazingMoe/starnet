@@ -862,7 +862,7 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-recruit .mkt-card-code { font-size: 10px; letter-spacing: 1px; color: var(--ph-dim); }
 .mkt-recruit .mkt-rows .mkt-build { min-height: 62px; border-color: var(--ph-faint); box-shadow: none; }
 .mkt-recruit .mkt-rec-sect { font-size: 11px; letter-spacing: 1px; line-height: 1.4; }
-.mkt-recruit .mkt-rec-rail { gap: 4px; grid-template-columns: repeat(3,minmax(0,1fr)); }
+.mkt-recruit .mkt-rec-rail:not(.mkt-rail-deep) { gap: 4px; grid-template-columns: repeat(3,minmax(0,1fr)); }
 .mkt-recruit .mkt-rec { min-width: 0; border-color: var(--ph-faint); border-radius: 3px; box-shadow: none;
   padding: 10px 5px 8px; background: rgba(0,0,0,.16); }
 .mkt-recruit .mkt-rec-top { flex-direction: column; gap: 6px; text-align: center; }
@@ -1019,7 +1019,7 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
 .mkt-recipes .mkt-block .bh { font-size: 11px; letter-spacing: 1.2px; }
 .mkt-recipes .mkt-starters { color: var(--text); }
 .mkt-recipes .mkt-brief { padding: 12px 0; }
-.mkt-recipes .mkt-rec-rail { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.mkt-recipes .mkt-rec-rail:not(.mkt-rail-deep) { grid-template-columns: repeat(3,minmax(0,1fr)); }
 .mkt-recipes .mkt-rec { padding: 10px; }
 .mkt-recipes .mkt-rec .mkt-coin { --coin: 34px; }
 .mkt-recipes .mkt-rec-name { font-size: 14px; }
@@ -1037,7 +1037,7 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
   .mkt .mkt-nameplate { flex-basis: 100%; }
   .mkt .mkt-search { width: 100%; box-sizing: border-box; }
   .mkt.show-dossier .mkt-search, .mkt.show-dossier .mkt-sub, .mkt.show-dossier .mkt-bar { display: none; }
-  .mkt-recipes .mkt-rec-rail { grid-template-columns: minmax(0,1fr); }
+  .mkt-recipes .mkt-rec-rail:not(.mkt-rail-deep) { grid-template-columns: minmax(0,1fr); }
   .mkt-recipes .mkt-dos-scroll { padding-inline: 14px; }
 }
 
@@ -1055,7 +1055,7 @@ button.mkt-archive-head:focus-visible { outline: 2px solid var(--gold); outline-
   .mkt-bar:has(.mkt-tabs) { grid-template-columns: minmax(0,1fr) auto; }
   .mkt-bar .mkt-from-notes { grid-column: 1; grid-row: 3; justify-self: start; }
   .mkt-bar:has(.mkt-tabs) .mkt-import { grid-column: 2; grid-row: 3; }
-  .mkt-recipes .mkt-rec-rail { grid-template-columns: minmax(0,1fr); }
+  .mkt-recipes .mkt-rec-rail:not(.mkt-rail-deep) { grid-template-columns: minmax(0,1fr); }
 }
 
 /* Setup screens keep the same quiet, recessed form treatment as recruitment configuration. */

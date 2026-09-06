@@ -3579,13 +3579,9 @@ const PropSprites = (() => {
     inset(x + 7, y - 1, w - 14, 5, bound ? '#0e1c16' : '#101619');
     if (bound) {
       px(x + 8, y, w - 16, 1, '#1e3a2c');
-      ctx.fillStyle = '#7df0c8'; ctx.font = "8px 'VT323','Courier New',monospace";
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      // the plate speaks the AGENT'S NAME (f.dockName — resolved LIVE by the caller from bodies/roster,
-      // never stored on the prop doc, so a rename repaints next frame). The raw id is only the fallback
-      // for a bay whose agent has no resolvable name — an id like `agent` used to render every custom
-      // dock as the word AGENT.
-      ctx.fillText(String(f.dockName || String(f.agentId).replace(/^tg_/, '')).slice(0, 5).toUpperCase(), x + (w >> 1), y + 1);
+      // The readable name is painted after room lighting by drawBayNames. Keep the
+      // physical display lit here; baking tiny text into this sprite erased names.
+      px(x + 8, y + 2, w - 16, 1, '#5ad1b3');
       bloom(x + 8, y, w - 16, 3, c, 0.10 + (act ? 0.10 : 0));
     } else {
       px(x + 9, y, w - 18, 1, '#2a3438'); px(x + 9, y + 2, w - 22, 1, '#232c30');   // dim UNASSIGNED bars
@@ -11222,6 +11218,73 @@ const PropSprites = (() => {
     return { x, y, r: e.r, c: e.c, a: e.a * k };
   }
 
+  // Names are signage, not shaded furniture. Both the live station and REFIT
+  // call this after their light pass, using their current camera scale. Rasterize
+  // directly into the final canvas so zoom never enlarges an 8px cached glyph.
+  const bayTextLayouts = new Map();
+  function drawBayNames(props, scale, dpr) {
+    if (!ctx || !props.length || !(scale > 0)) return;
+    const unit = (dpr || 1) / scale;
+    const font = Math.max(16 * unit, Math.min(9, 22 * unit));
+    const maxWidth = 132 * unit, pad = 5 * unit, line = font * 1.05;
+    ctx.save();
+    try {
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      ctx.font = font + "px 'VT323','Courier New',monospace";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const placed = [];
+      for (const p of props) {
+        if (!p.agentId) continue;
+        const name = String(p.dockName || String(p.agentId).replace(/^tg_/, '')).toUpperCase();
+        const key = name + '|' + font.toFixed(3) + '|' + maxWidth.toFixed(3);
+        let layout = bayTextLayouts.get(key);
+        if (!layout) {
+          const chars = Array.from(name), lines = [''];
+          for (const ch of chars) {
+            let i = lines.length - 1;
+            if (ctx.measureText(lines[i] + ch).width > maxWidth && lines[i]) {
+              if (lines.length === 2) {
+                while (lines[i] && ctx.measureText(lines[i] + '…').width > maxWidth) lines[i] = Array.from(lines[i]).slice(0, -1).join('');
+                lines[i] += '…'; break;
+              }
+              const space = lines[i].lastIndexOf(' ');
+              if (space > 0) {
+                const tail = lines[i].slice(space + 1);
+                lines[i] = lines[i].slice(0, space);
+                lines.push(tail);
+              } else lines.push('');
+              i++;
+            }
+            lines[i] += ch;
+          }
+          layout = { lines, width: Math.max(...lines.map(s => ctx.measureText(s).width)) + pad * 2 };
+          if (bayTextLayouts.size >= 256) bayTextLayouts.clear();
+          bayTextLayouts.set(key, layout);
+        }
+        const x = (p.x + (p.w || 1) / 2) * TILE;
+        const anchor = p.y * TILE - (p.mount === 'surface' ? SURFACE_RISE : 0) + 1;
+        const h = line * layout.lines.length + 4 * unit;
+        const box = { x: x - layout.width / 2, y: anchor - h / 2, w: layout.width, h };
+        // Dense neighbouring bays stack their signs instead of overprinting names.
+        for (let attempt = 0; attempt < placed.length; attempt++) {
+          const hit = placed.find(b => box.x < b.x + b.w + unit && box.x + box.w + unit > b.x && box.y < b.y + b.h + unit && box.y + box.h + unit > b.y);
+          if (!hit) break;
+          box.y = hit.y - box.h - 2 * unit;
+        }
+        placed.push(box);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#0b1916'; ctx.fillRect(box.x, box.y, box.w, box.h);
+        ctx.strokeStyle = '#65c9ad'; ctx.lineWidth = unit;
+        ctx.strokeRect(box.x, box.y, box.w, box.h);
+        if (box.y + box.h < anchor) {
+          ctx.beginPath(); ctx.moveTo(x, box.y + box.h); ctx.lineTo(x, anchor); ctx.stroke();
+        }
+        ctx.fillStyle = '#d6fff0'; ctx.shadowColor = '#5ad1b3'; ctx.shadowBlur = 2 * (dpr || 1);
+        layout.lines.forEach((s, i) => ctx.fillText(s, x, box.y + 2 * unit + line * (i + 0.5)));
+      }
+    } finally { ctx.restore(); }
+  }
+
   return {
     setCtx(c) { ctx = c; },
     setNow(t) { now = t; },
@@ -11229,7 +11292,7 @@ const PropSprites = (() => {
     // value is DIALLED on a real deck and copied back into the constant, never guessed.
     setChroma(k) { CHROMA = (k == null ? 1 : +k) || 1; _cboost.clear(); },
     getChroma: () => CHROMA,
-    draw, drawOver, hasOver, drawSeatFront, CATALOG, CATS, spec, has, TILE,
+    draw, drawBayNames, drawOver, hasOver, drawSeatFront, CATALOG, CATS, spec, has, TILE,
     drawShadow, lightOf, EMIT,
     // ORIENTATION: what each prop's art can honestly do, and the box it covers once turned. The
     // builder asks BEFORE offering an R/M affordance — never an input that produces broken art.

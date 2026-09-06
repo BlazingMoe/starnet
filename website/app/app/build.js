@@ -4651,6 +4651,12 @@ const Build = (() => {
     drawLayer('flashes', () => drawFlashes(now, t));
     drawLayer('validation', () => drawRoutingValidation(t, now));   // plain-words callouts on any broken piece, IN build mode (cost-safety + guidance)
     drawLayer('beltEndpoints', () => drawBeltEndpointGlow(t, now)); // BELT tool armed → INTAKE glows FROM, BAY/OUTBOX glow TO (what connects to what)
+    drawLayer('bayNames', () => {
+      if (typeof PropSprites !== 'undefined' && PropSprites.drawBayNames) {
+        PropSprites.setCtx(ctx);
+        PropSprites.drawBayNames(frameBayLabels, zoom, window.devicePixelRatio || 1);
+      }
+    });
     // the candidate field is an INSTRUMENT — above the light with the crosshair, or the deck swallows it
     drawLayer('lineField', () => drawLineField(t));
     drawLayer('crosshair', () => drawCrosshair(t));   // the aim instrument — ABOVE the light layer, or the deck swallows it
@@ -4876,7 +4882,9 @@ const Build = (() => {
 
   // placeable props — drawn in WORLD tile coords (camera maps world*t, the bake is origin-shifted
   // to match). Lit (work=true) so the editor previews screens alive; y-sorted for clean overlap.
+  let frameBayLabels = [];
   function drawProps(now) {
+    frameBayLabels = [];
     if (typeof PropSprites === 'undefined') return;
     const list = station.props();
     if (!list.length) return;
@@ -4912,6 +4920,7 @@ const Build = (() => {
         if (!bayNames) { bayNames = new Map(); for (const a of ((opts && typeof opts.agents === 'function' && opts.agents()) || [])) bayNames.set(a.id, a.name); }
         const nm = bayNames.get(p.agentId);
         if (nm) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { dockName: nm });
+        frameBayLabels.push(dp);
       }
       PropSprites.draw(dp, true);
     }

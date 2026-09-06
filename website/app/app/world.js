@@ -5800,7 +5800,7 @@ const World = (() => {
       convey.drawBelts(ctx, now, T, geo.belts, beltLiveSet);
     }
 
-    const items = [], decals = [], propLights = [];   // decals = the flat floor pass, painted under every item (see isFlatProp) · propLights = this frame's emissive sources
+    const items = [], decals = [], propLights = [], bayLabels = [];   // decals = the flat floor pass, painted under every item (see isFlatProp) · propLights = this frame's emissive sources
     // placeable props (furniture) — drawn over the bake, y-sorted with agents, under the lightmap
     if (geo && geo.props && geo.props.length && typeof PropSprites !== 'undefined') {
       PropSprites.setCtx(ctx); PropSprites.setNow(now);
@@ -5855,6 +5855,7 @@ const World = (() => {
         if (p.t === 'bay' && p.agentId) {
           const db = bodyForAgent(p.agentId);
           if (db && db.name) dp = Object.assign(dp === p ? Object.assign({}, p) : dp, { dockName: db.name });
+          if (propOnScreen(dp)) bayLabels.push(dp);
         }
         // OCCUPIED BED: the base pass holds the quilt back so the sleeper can be drawn between the
         // frame and the covers (drawOver, below). Same copy-on-write idiom as the nameplate above.
@@ -5983,6 +5984,10 @@ const World = (() => {
     drawWorkGlyphs(now);  // stage-ticker STRETCH: the "▸ TOOL" tag at a desk with a real tool in flight (one line below the run clock)
     drawAwaitTag(now);    // G4.1: the amber AWAITING APPROVAL tag over a permission-blocked hero
     drawRoutingNags(now); // BELT LEGIBILITY: the compiled plan's errors as in-world callouts on the broken piece
+    if (bayLabels.length && PropSprites.drawBayNames) {
+      PropSprites.setCtx(ctx);
+      PropSprites.drawBayNames(bayLabels, scale, window.devicePixelRatio || 1);
+    }
     drawBeltHoverTag(now);// BELT LEGIBILITY: hover a belt tile → where does this line flow (a glance, never a window)
     drawOutboxHoverTag(now);// OUTBOX LEGIBILITY: hover the stacked chute → what the crates are + what a click does
     drawDockFlashes(now); // LONE-BAY dock arrival: the bay visibly catches work when no belt line exists
