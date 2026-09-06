@@ -615,4 +615,31 @@ A.ok(/function openRouterCatalog\(\)[\s\S]{0,400}models\/openrouter/.test(sui), 
 const tmSeg = sui.slice(sui.indexOf('function wireTierModels'), sui.indexOf('  // P1-8 NOTIFICATION'));
 A.ok(/writeTierModels\(map\)/.test(tmSeg), 'a tier-model pick persists to the store on change');
 
+// Rebuilding search results reuses the stage. Arrow keys must still move exactly one
+// card/row after repeated wiring, rather than firing every prior search's listener.
+{
+  const document = { activeElement: null };
+  const listeners = new Set();
+  const cards = Array.from({ length: 6 }, (_, i) => ({
+    dataset: { id: 'class-' + i }, offsetTop: Math.floor(i / 2) * 100,
+    classList: { contains: name => name === 'mkt-card' },
+    focus() { document.activeElement = this; }
+  }));
+  const scope = {
+    querySelectorAll: () => cards, contains: card => cards.includes(card),
+    addEventListener: (_, fn) => listeners.add(fn),
+    removeEventListener: (_, fn) => listeners.delete(fn)
+  };
+  const source = mkt.slice(mkt.indexOf('  function wireGridNav('), mkt.indexOf('  function wireProspect('));
+  const sandbox = { document, tab: 'agents', focusAgent: 'class-0', focusRecipe: null };
+  require('node:vm').runInNewContext(source + '\nthis.wire = wireGridNav;', sandbox);
+  for (let i = 0; i < 4; i++) sandbox.wire(scope);
+  A.eq(listeners.size, 1, 'repeated searches keep a single grid keyboard listener');
+  cards[0].focus();
+  for (const fn of listeners) fn({ key: 'ArrowRight', preventDefault() {} });
+  A.eq(document.activeElement, cards[1], 'right arrow moves one card after repeated search renders');
+  for (const fn of listeners) fn({ key: 'ArrowDown', preventDefault() {} });
+  A.eq(document.activeElement, cards[3], 'down arrow moves one two-column gallery row');
+}
+
 A.report('class-loadouts');
