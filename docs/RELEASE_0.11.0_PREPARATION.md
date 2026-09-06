@@ -36,7 +36,8 @@ The integration checkout's machine-local QA ledger separately retains three olde
 findings: `f373c745` (ABILITIES layout settlement timeout), `8f99d28c` (journey station-level
 read was null) and `c30a3a14` (audit station-level read was null). Current repeated capture
 and journey checks pass; this alone does not prove the original intermittent causes were
-repaired. They remain open. The fresh release worktree has a separate empty finding
+repaired. They remained open at that checkpoint; continued preparation below resolves
+the two station-level detector findings. The fresh release worktree has a separate empty finding
 directory, so its zero ledger count must not be presented as the integration ledger's count.
 
 The live repository-secret inventory on 2026-09-06 also confirms that
@@ -157,11 +158,73 @@ Evidence: `hud-before-owned.log`, `hud-after-owned.log`, `hud-regression-before.
 `audit-hud.log`, `journeys-hud.log`, and `.bugloops/release-0110-hud-*/receipt.json` in
 this release worktree. Earlier `hud-before.log`/`hud-after.log` attempts used an occupied
 port and are excluded from the proof; the controlled rerun refuses occupied ports.
-The initial full gate correctly rejected the changed committed HUD fingerprint; its
-reviewed release-surface record must be refreshed before integration. No claim of
+The initial full gate correctly rejected the changed committed HUD fingerprint; the
+reviewed release-surface record was refreshed at `979099385`. No claim of
 release readiness or customer recovery follows from this QA repair.
 
 The two station-level QA findings have a reproduced detector cause and a source repair.
 The ABILITIES layout timeout remains unresolved: successful reruns do not establish its
 historical cause. All eight customer P1 records and the Google activation requirement
 remain open pending their specific acceptance evidence.
+
+## Latest checkpoint — 2026-09-06 19:33 UTC
+
+The integrated and frozen code/test candidate is **`979099385bdad7d58d1fd660911bffab60ed2ea0`**,
+tree `656909b632c6a90aff468294d3871331dfacecab`. Documentation-only follow-through is kept
+on the release branch so it does not move the verified integration candidate.
+
+- Full fast gate: **727/727 before and after integration**, both exit 0.
+- Independent Guardian cycle **20260906-191711: GREEN**, all seven gates ran, none skipped.
+  Fast 727/727, HTTP 101/101, adversarial API checks, screenshots, unchanged visual
+  baselines/threshold, live audit 46/46, and full journeys 130/130 all passed.
+- Fresh Beginner Run on this exact candidate: **six UI-only stages PASS**, 123699 ms.
+  This proves reaching the first real-model boundary, not a live-provider deliverable.
+- Five ABILITIES opens settled in **648–922 ms**, no remaining loading nodes. This does
+  not establish the cause of the historical layout timeout, which stays open.
+- `npm run desktop:build -- --no-bundle` passed in 5m 23s. The resulting local executable
+  has clean reproducible-source provenance for this candidate, consistent 0.10.13 version
+  metadata, and is **unsigned and not installed/tested as a running Tauri app**.
+- **4269 tracked resource files** copied into the desktop build match the source bytes.
+  Bundled Node v22.23.2 loads Kokoro and ONNX successfully; this is module-loading proof,
+  not microphone or speech-generation proof. Artifact hash and details are recorded in
+  `.bugloops/desktop-validation-build.json`.
+
+The original audit report independently confirms that `c30a3a14` saw a displayed em dash.
+The original `8f99d28c` journey report records null at initial board open, then level 1
+after the first chat; it did not retain raw initial HUD text. Controlled network delay
+reproduces the shared invalid expectation, and the negative DOM probe verifies that
+incorrect numeric levels are now rejected. Both records are closed as **detector repairs**,
+with original records backed up and before/after evidence attached. No customer bug was
+closed by this work. One QA P1 and all eight customer P1 records remain open.
+
+Exact-candidate Guardian, full-journey and Beginner receipts were copied unchanged to
+integration. The dashboard's active-finding count was derived from the integration ledger,
+not the release worktree's empty ledger. Final integration `qa:ready`:
+
+    NOT READY — 3 reasons
+    1. Ledger open P0/P1: 1 open blocking finding (0 P0 · 1 P1)
+    2. Bug register open P0/P1: 8 open blocking bugs (0 P0 · 8 P1)
+    3. Installed-exe smoke: tested binary source does not equal current trunk
+
+`release:preflight -- --version 0.11.0` also remains FAIL: readiness is red and the
+integration checkout has its pre-existing modified `docs/NEXT.md`. That file and the
+Rooms handoff were preserved byte-for-byte; foreign metadata was not swept into a commit.
+Logs: `readiness-hud-final.log`, `preflight-hud-final.log`, `gate-hud-trunk-fast.log`,
+`guardian-hud-queued.log`, and `.bugloops/guardian-20260906-191711/` in this release tree.
+
+### Google setup is now located and concretely prepared
+
+The signed-in Cloud Console contains the existing **StarNet** project `starnet-505202`,
+with one Web application client named **StarNet Account**. Its audience is External / In
+production, but no Workspace API scopes are declared, the five needed Workspace APIs are
+not enabled, and branding policy/homepage links are empty. Existing account sign-in
+configuration does not establish the new desktop Workspace connections.
+
+A **Desktop app** client named **StarNet Desktop** is prepared in the browser form.
+Create has not been clicked: explicit approval was requested for credential creation and
+storing its registration in the release secret. No Google settings, credentials, public
+policy, releases or updater feed were changed. The setup and draft disclosure are in
+[Google activation preparation](GOOGLE_RELEASE_ACTIVATION_0.11.0.md).
+
+There is still **no official 0.11.0 installer, version bump, tag or publication**. The
+48-hour duration waiver remains recorded; no other release gate has been waived.
