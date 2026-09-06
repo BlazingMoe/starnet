@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "bab0d1c528af007ab3cdc78caaa13632e9c85fed",
+    "sourceCommit": "0d68870cc0fbd90f60acefb22954c9d6881af7a8",
     "pathSetSha256": "5aef1a27613366b3be5ccc150bfd68badf86009a0e647461f5cd33983c1ce89a",
     "files": [
       {
@@ -138,8 +138,8 @@
       },
       {
         "path": "frontend/app/build.js",
-        "bytes": 397851,
-        "sha256": "cb1b0359d82947ace7157c6adc35b5ca007a74f8bf28bdb516caaee501e41172"
+        "bytes": 398249,
+        "sha256": "552197ea342b214478adde1da9f3d75cd83043ac9cfc9fbd301490c97d097bc8"
       },
       {
         "path": "frontend/app/channels.js",
@@ -198,8 +198,8 @@
       },
       {
         "path": "frontend/app/crtlab.js",
-        "bytes": 21363,
-        "sha256": "906a230d7514bd2d6390a7bb9d9369ddd31ba800061b82088c1a1bddee5e53fe"
+        "bytes": 21367,
+        "sha256": "1cd59f2ed52d746f31acd198bce6b87822c6bee83c014249e16d72db356fb315"
       },
       {
         "path": "frontend/app/ctxgauge.js",
@@ -523,8 +523,8 @@
       },
       {
         "path": "frontend/app/propsprites.js",
-        "bytes": 761175,
-        "sha256": "4d87508fcc7de6252d7ce8cdc7aa5b6b1df21ee4b0932c4802f27ab158410034"
+        "bytes": 761344,
+        "sha256": "96024af2c4036f5d64066bc8712e897a12c33e56bc3ff1b0d398f42aff0c24aa"
       },
       {
         "path": "frontend/app/prospect.js",
@@ -753,8 +753,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 342798,
-        "sha256": "87acfb43dd1833ec7e964eed89a71bea0d28b73ca864537683c0607b035304f9"
+        "bytes": 339978,
+        "sha256": "319f3759fb964f2b141140eb8e832c8e28b776a2494535a882a23234021078be"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -773,8 +773,8 @@
       },
       {
         "path": "frontend/app/stationui.js",
-        "bytes": 671145,
-        "sha256": "9cd3339874a15a700ad971ec0b6a7cc40138a319c3a40b8be134771c2a6d4bf2"
+        "bytes": 671077,
+        "sha256": "4a0c168c5ae508f6380dec3b9a0696715f16879ad78f340e6a9a39057fcd2adf"
       },
       {
         "path": "frontend/app/study.js",
@@ -1008,8 +1008,8 @@
       },
       {
         "path": "frontend/app/world.js",
-        "bytes": 719326,
-        "sha256": "e1769c2d0e4ec29a67f82ba000ed0ac2c966041095f7e6a67b95b82f656b2e89"
+        "bytes": 719487,
+        "sha256": "91f394b16008637a02c62bb43aad1cb2b58db71f74cfaf8a4b2995e018503b7b"
       },
       {
         "path": "frontend/app/worldmodel.js",
