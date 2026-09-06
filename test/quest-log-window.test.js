@@ -9,7 +9,7 @@
         carries no blind setTimeout guess, and the outcome reads in plain language.
      3. A QUEST STARTS IN ITS OWN SESSION — work/ledger GO routes to 'session' (never the TASK BOARD),
         idempotent by title, composer PREFILLED never sent, ledger quests bind their OWN agent.
-     4. QUESTS LEAD THE PANEL — direction, then quests, then bookkeeping; kind badges name the source;
+     4. QUESTS LEAD THE PANEL — quests, then goal settings and bookkeeping; kind badges name the source;
         the window is a steady-height shell so a data poke cannot re-centre it mid-read.
 
    stationui.js is browser-flow — like outbox-window.test.js we lock its invariants by reading the
@@ -58,19 +58,19 @@ A.ok(/case 'fact':|case 'attest':/.test(stationFns), 'fact and attest ledger con
 /* ---- 4. quests lead the panel; the shell holds steady ---- */
 const renderStart = station.indexOf("body.innerHTML = '<div class=\"gx gx-quests\">");
 const render = station.slice(renderStart, station.indexOf("const journeyFail", renderStart));
-const orderOk = render.indexOf('questRefreshHtml()') < render.indexOf('q-open') && render.indexOf('q-open') < render.indexOf('journeyHtml()');
-A.ok(orderOk, 'panel order: direction → quests → bookkeeping (quests were the FOURTH thing; never again below the fold)');
+const orderOk = render.indexOf('journalHtml') < render.indexOf('questRefreshHtml()') && render.indexOf('questRefreshHtml()') < render.indexOf('journeyHtml()');
+A.ok(orderOk, 'panel order: quests → goal settings → bookkeeping (the briefing and action lead the window)');
 A.ok(/QUEST_KIND_TAG/.test(station) && /FOR YOU/.test(station), 'cards carry a kind badge naming which real source minted them');
 A.ok(/className: 'quests-win'/.test(station), 'the window declares the steady-height shell class');
 A.ok(/\.term\.quests-win \{ --con-h:/.test(css), 'quests-win RESTATES --con-h (declared only on .term.console — an undefined var would silently fall back to content-fit)');
 A.ok(/\.gx-quests \.q-grid \{ grid-template-columns: repeat\(auto-fill/.test(motion), 'the quest grid follows the window width at its CANONICAL rule in motion.css (app.css copies are silent no-ops)');
 A.ok(/align-items: stretch/.test(motion), 'cards in a row share a height — one action baseline per row');
 
-/* ---- 5. THE GOAL TRACK — the active goal drawn as a path, at the top ---- */
+/* ---- 5. THE GOAL TRACK — the active goal drawn as a path, before refresh controls ---- */
 A.ok(/function questTrackHtml/.test(station), 'the goal track has its own renderer');
 const trackFn = station.slice(station.indexOf('function questTrackHtml'), station.indexOf('function QSS_CELEBRATING'));
 A.ok(render.indexOf('questTrackHtml(arcs)') >= 0 && render.indexOf('questTrackHtml(arcs)') < render.indexOf('questRefreshHtml()'),
-  'the track leads the panel (the Commander’s goal is the first thing in the window)');
+  'the track leads goal settings, before the refresh controls');
 A.ok(/const isArc = q =>/.test(station) && /const rest = qs\.filter\(q => !isArc\(q\)\)/.test(station),
   'arc quests are MOVED out of the card grid — the path is never printed twice');
 /* the ordering bug this test exists for: Quests.build() returns open.concat(done), so a COMPLETED
@@ -123,4 +123,85 @@ A.eq(descs.length, 4, 'one quest per dossier dimension');
 A.eq(new Set(descs.slice(0, 3)).size, 3, 'known dimensions carry DISTINCT explanations (nine identical sentences read as one wall)');
 A.ok(/every agent on the station will know this about you/.test(descs[3]), 'an unknown dimension keeps the honest generic line rather than an invented claim');
 
+/* Execute the production journal renderer and its actual selection callbacks. The shell only models
+   the two button collections; business state still comes through the real renderer's QuestStore seam. */
+const vm = require('node:vm');
+let questRows = [
+  { id: 'st:crew', kind: 'station', title: 'Recruit a specialist', desc: 'Bring another mind aboard.', reward: 'A larger crew', status: 'open' },
+  { id: 'ds:stack', kind: 'dossier', title: 'Your <tools>', desc: 'Share your tools.', reward: 'Better context', status: 'open' }
+];
+let rendered = '', buttons = {}, focused = '';
+const list = { scrollTop: 0 };
+const body = {
+  dataset: {},
+  querySelector: s => s === '.q-mission-list' ? list : null,
+  querySelectorAll: s => buttons[s] || [],
+  get innerHTML() { return rendered; },
+  set innerHTML(html) {
+    rendered = html; buttons = { '.q-filter': [], '.q-mission': [] };
+    for (const m of html.matchAll(/<button class="(q-filter|q-mission(?: selected)?)" ([^>]+)>/g)) {
+      const data = /data-(category|quest-select)="([^"]*)"/.exec(m[2]);
+      if (!data) continue;
+      const key = data[1] === 'category' ? 'category' : 'questSelect';
+      buttons[m[1] === 'q-filter' ? '.q-filter' : '.q-mission'].push({
+        dataset: { [key]: data[2] },
+        addEventListener(_event, handler) { this.click = handler; },
+        focus() { focused = data[2]; }
+      });
+    }
+  }
+};
+const ctx = vm.createContext({ body, QuestStore: { view: () => ({ quests: questRows }) },
+  esc: s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'),
+  QUEST_KIND_TAG: { station: 'STATION', dossier: 'ABOUT YOU' }, GO_LABEL: {},
+  questGoDest: () => null, questCompletesWhen: () => 'the recorded condition is met', workshopGrantOn: () => false,
+  questTrackHtml: () => '', lifeGoalsHtml: () => '', questRefreshHtml: () => '', journeyHtml: () => '',
+  rerender: () => ctx.buildQuests(body)
+});
+const journalSource = station.slice(station.indexOf('  function buildQuests(body)'), station.indexOf('    // COMMANDER JOURNEY writes')) + '\n}';
+vm.runInContext(journalSource, ctx);
+ctx.buildQuests(body);
+A.eq(body.dataset.questSelected, 'st:crew', 'journal initially selects the first available quest');
+A.eq((rendered.match(/class="gx-tro q-card /g) || []).length, 1, 'journal renders exactly one open briefing, not nine competing cards');
+buttons['.q-mission'][1].click();
+A.eq(body.dataset.questSelected, 'ds:stack', 'selecting a mission replaces the briefing');
+A.eq(focused, 'ds:stack', 'keyboard focus returns to the selected mission');
+A.ok(rendered.includes('Your &lt;tools&gt;') && !rendered.includes('Your <tools>'), 'quest titles stay escaped in the list and briefing');
+list.scrollTop = 120;
+ctx.buildQuests(body);
+A.eq(body.dataset.questSelected, 'ds:stack', 'background data pokes retain the selected quest');
+A.eq(list.scrollTop, 120, 'background data pokes retain the mission-list scroll');
+buttons['.q-filter'].find(b => b.dataset.category === 'station').click();
+A.eq(body.dataset.questSelected, 'st:crew', 'category changes choose a quest in that category');
+A.eq(buttons['.q-mission'].length, 1, 'category filters exclude unrelated quests');
+buttons['.q-filter'].find(b => b.dataset.category === 'missions').click();
+A.ok(rendered.includes('No quests in this category'), 'an empty category has an explicit recovery state');
+buttons['.q-filter'].find(b => b.dataset.category === 'all').click();
+questRows[0].status = 'done';
+ctx.buildQuests(body);
+A.eq(body.dataset.questSelected, 'ds:stack', 'completion advances selection to a remaining open quest');
+A.ok(rendered.includes('COMPLETED QUESTS'), 'completed quests remain accessible in history');
+questRows = [];
+ctx.buildQuests(body);
+A.ok(rendered.includes('All caught up'), 'zero open quests has an honest empty state');
+questRows = [
+  { id: 'q:first', kind: 'ledger', title: 'First', status: 'open', executionMode: 'commander', contract: { type: 'attest' } },
+  { id: 'q:second', kind: 'ledger', title: 'Second', status: 'open', executionMode: 'commander', contract: { type: 'attest' } }
+];
+body._questDrafts = new Map([['q:first', { evidence: 'First quest evidence', reason: 'First reason' }]]);
+ctx.buildQuests(body);
+A.ok(rendered.includes('id="q-evidence-q:first"') && rendered.includes('First quest evidence'), 'evidence drafts use stable quest-specific field IDs');
+buttons['.q-mission'][1].click();
+A.ok(rendered.includes('id="q-evidence-q:second"') && !rendered.includes('First quest evidence'), 'switching quests never puts the first quest evidence into the second');
+buttons['.q-mission'][0].click();
+A.ok(rendered.includes('First quest evidence'), 'returning to a quest restores its own evidence draft');
+ctx.JourneyStore = { status: () => ({ progression: { level: 7 } }) };
+ctx.buildQuests(body);
+A.ok(rendered.includes('<strong>7</strong><span>Commander'), 'journal level reads Commander progression, not crew XP or a fabricated score');
+vm.runInContext(station.slice(station.indexOf('  function windowDirty(w)'), station.indexOf('  function requestCloseTerm')), ctx);
+const draftWindow = { querySelector: selector => selector === '.term-body' ? body : null };
+body._questDrafts.set('q:first', { evidence: 'Unsaved result', dirty: true });
+A.eq(ctx.windowDirty(draftWindow), true, 'a draft in another mission still triggers the existing unsaved-close guard');
+body._questDrafts.set('q:first', { evidence: '', dirty: false });
+A.eq(ctx.windowDirty(draftWindow), false, 'recorded or clean cached fields do not block closing');
 A.report('quest-log-window.test');
