@@ -28,7 +28,7 @@ const oldGlow = [240, 230, 206], glow = [238, 218, 184];
 // the room pool, the corridor pool and the lightmap's cut all ride the same curve. The colour lock
 // moves to the constant; the two pool sites must still draw through it.
 A.ok(/const POOL_RGB = '246,224,188'/.test(bake), 'the warm-neutral pool color is the one POOL_RGB constant');
-A.eq((bake.match(/falloffStops\((?:gw|g), POOL_RGB, LIGHT\.floor\)/g) || []).length, 2,
+A.eq((bake.match(/falloffStops\((?:gw|g), POOL_RGB, LIGHT\.floor(?: \* ROOM_FIXTURE_GAIN)?\)/g) || []).length, 2,
   'room and corridor pools both paint POOL_RGB along the shared falloff curve');
 A.ok(!/rgba\(246,224,188,' \+ LIGHT\.floor/.test(bake), 'no pool still hand-rolls its own stop list');
 A.ok(!/rgba\(250,236,206/.test(bake), 'the near-white floor-pool color no longer ships');

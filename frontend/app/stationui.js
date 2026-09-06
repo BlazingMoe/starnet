@@ -96,8 +96,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   // panelBright (0–100, default 0) is the tube's BRIGHTNESS knob: it lifts the panel glass's black
   // level toward the phosphor colour (never toward white). 0 = the shipped look, untouched.
   function defaults() { return { theme: 'amber', themeHue: 35, themeSat: 100, themeGlow: 100, panelBright: 0, roomLighting: 'low', textScale: 0, flicker: true, crtGlass: 'full', sound: true, backdrop: 'void', sessionRow: 'compact', keepComputerAwake: false, notifyPrefs: notifyDefaults() }; }
-  // Raise the room's shadow floor, keeping the approved two lamps and their glow intact.
-  // LOW is the existing look, including for saves created before this preference existed.
+  // Raise overall room exposure without changing the distribution of its lights.
+  // Existing saves retain their chosen level; missing values start at LOW.
   const ROOM_LIGHTING_STEPS = [
     ['low', 'LOW', 0.82],
     ['medium', 'MEDIUM', 0.72],
@@ -5934,7 +5934,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<label class="set-slider"><span class="set-slider-name">GLOW</span><input type="range" id="set-glow" min="0" max="150" step="5" value="' + clampN(s.themeGlow, 0, 150, 100) + '"><span class="set-slider-val" id="set-glow-val">' + clampN(s.themeGlow, 0, 150, 100) + '%</span></label>' +
       '<label class="set-slider"><span class="set-slider-name">BRIGHTNESS</span><input type="range" id="set-bright" min="0" max="100" step="5" value="' + clampN(s.panelBright, 0, 100, 0) + '"><span class="set-slider-val" id="set-bright-val">' + clampN(s.panelBright, 0, 100, 0) + '%</span></label>' +
       '<h4 class="ms-h" id="set-lighting-label">ROOM LIGHTING</h4>' +
-      '<p class="set-about">Choose how bright the station rooms feel. LOW is the original lighting; MEDIUM and HIGH lift the shadows while keeping the warm top and bottom lights.</p>' +
+      '<p class="set-about">Choose the brightness across your rooms. LOW is softly lit; MEDIUM and HIGH make the whole room brighter.</p>' +
       '<div class="set-themes" id="set-lighting" role="group" aria-labelledby="set-lighting-label">' +
       ROOM_LIGHTING_STEPS.map(([v, name]) => {
         const on = resolveRoomLighting(s.roomLighting) === v;

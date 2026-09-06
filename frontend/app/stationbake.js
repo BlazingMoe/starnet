@@ -3559,13 +3559,13 @@ const StationBake = (() => {
     b.restore();
   }
 
-  // Reference HAB-16 is 15 x 14 tiles with one column and two original floods.
-  // Keep that arrangement when a room grows instead of adding bright side columns.
-  const lampCols = () => 1;
+  // Room coverage comes from the diffuse area fill. Fixtures add restrained local
+  // highlights, distributed across BOTH axes instead of stretching two central spots.
+  const ROOM_FIXTURE_GAIN = 0.22;
+  const lampCols = r => Math.max(1, Math.ceil((r.x2 - r.x1 + 1) / Math.max(3, LIGHT.pitch)));
   function lampRows(Y, RH) {
-    const scaleY = RH / (14 * T);
-    const y0 = Y + T * 1.6 * scaleY, yLast = Y + RH - T * 1.2 * scaleY;
-    return { rows: 2, y0, step: yLast - y0 };
+    const rows = Math.max(1, Math.ceil(RH / (T * Math.max(3, LIGHT.pitch))));
+    return { rows, y0: Y + RH / rows * 0.5, step: RH / rows };
   }
 
   /* the ADDITIVE half of the room lighting — every warm floor pool + its sheen, drawn to whatever
@@ -3582,7 +3582,8 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = 60 * Math.min(RW / (15 * T), RH / (14 * T)) * Math.max(0.5, LIGHT.reach || 1);
+      const { rows, y0, step } = lampRows(Y, RH);
+      const rad = Math.max(RW / count, RH / rows) * 0.75 * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -3590,19 +3591,19 @@ const StationBake = (() => {
       for (const q of G.allRects) b.rect(q.x1 * T, q.y1 * T, (q.x2 - q.x1 + 1) * T, (q.y2 - q.y1 + 1) * T);
       b.clip();
       b.beginPath(); b.rect(X - gW, Y - gN, RW + gW + gE, RH + gN + gS); b.clip();
-      const { rows, y0, step } = lampRows(Y, RH);
       for (let j = 0; j < rows; j++) for (let i = 0; i < count; i++) {
         const lx = X + RW * (i + 0.5) / count, ly = y0 + step * j;
         const gw = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
         // Warm-neutral rather than near-white: keeps the shipped pool strength/contrast while
         // taking the clinical edge off the deck and lowering peak luminance a small amount.
-        falloffStops(gw, POOL_RGB, LIGHT.floor);   // same curve as the lightmap's cut — a pool used to bend at 0.6→0.32 while the darkness over it ran dead straight, which doubles the rim
+        falloffStops(gw, POOL_RGB, LIGHT.floor * ROOM_FIXTURE_GAIN);
         b.fillStyle = gw; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
         // FLOOR SHEEN (Slice 2): a faint vertical reflection streak on the deck below the pool, as if
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
-        bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0 });
+        b.save(); b.globalAlpha = ROOM_FIXTURE_GAIN;
+        bakeSheen(b, lx, ly + T * 0.9, rad * 0.34); b.restore();
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0, gain: ROOM_FIXTURE_GAIN });
       }
       b.restore();
     }
@@ -4280,6 +4281,19 @@ const StationBake = (() => {
       falloffStops(g, '0,0,0', a);
       L.fillStyle = g; L.fillRect(x - r, y - r, r * 2, r * 2);
     };
+    // One opaque union, composited once: overlapping rectangles in an expanded/L-shaped
+    // room must not stack brightness. Include the raised north wall in the same fill so
+    // there is no horizontal lighting cutoff where wall meets floor. The receiver mask
+    // below still confines all light to actual interior surfaces, including chamfers.
+    const roomCoverage = canvas(CW, CH), R = translatedContext(roomCoverage);
+    R.fillStyle = '#000';
+    for (const r of G.allRects) {
+      if (G.isCorridor(r.z)) continue;
+      R.fillRect(r.x1 * T, r.y1 * T - WALL.up - WALL.capH,
+        (r.x2 - r.x1 + 1) * T, (r.y2 - r.y1 + 1) * T + WALL.up + WALL.capH);
+    }
+    L.globalAlpha = Math.max(0, Math.min(1, LIGHT.room));
+    L.drawImage(roomCoverage, VX, VY); L.globalAlpha = 1;
     for (const r of G.allRects) {
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       /* ONE CUT PER LAMP, ALONG THE LONG AXIS — for corridors too. A corridor used to take a single
@@ -4290,12 +4304,7 @@ const StationBake = (() => {
          case that assumption gets wrong, and it is the commonest shape on a real station.
          `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
-      if (!cor) {
-        // The reference room's original soft fill, scaled with the same source geometry.
-        const referenceScale = Math.min(RW / (15 * T), RH / (14 * T));
-        cut(X + RW * 0.5, Y + RH * 0.42, 14 * T * 0.78 * referenceScale, LIGHT.room);
-        continue;
-      }
+      if (!cor) continue;
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
       const n = Math.max(1, Math.round(along / (cross * 1.4)));
@@ -4320,7 +4329,7 @@ const StationBake = (() => {
       L.fillStyle = 'rgba(0,0,0,' + Math.min(1, LIGHT.crown).toFixed(3) + ')';
       for (const [x, y, w, h] of crownRects) L.fillRect(x, y, w, h);
     }
-    for (const l of lampPos) cut(l.x, l.y, l.r, LIGHT.pool);   // lamps punch bright pools out of the darker ambient → the lights carry the room
+    for (const l of lampPos) cut(l.x, l.y, l.r, LIGHT.pool * (l.gain == null ? 1 : l.gain));
     // doorway light spill so corridors and rooms read as connected — DOORWAYS only (see pairIsSill)
     for (const [x1, y1, x2, y2] of G.doorDefs) {
       if (!pairIsSill(x1, y1, x2, y2)) continue;
@@ -4349,7 +4358,7 @@ const StationBake = (() => {
         if (w > 0.001) for (const l of lampPos) {
           const r = l.r * 0.6;
           const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
-          falloffStops(g, l.rgb || LAMP_RGB, w);   // the film carries the ROOM's fixture temperature (lampRgbOf)
+          falloffStops(g, l.rgb || LAMP_RGB, w * (l.gain == null ? 1 : l.gain));
           F.fillStyle = g; F.fillRect(l.x - r, l.y - r, r * 2, r * 2);
         }
         /* VIEWPORT SPILL — the sky is a light source. A pane cut through the north wall opens onto
