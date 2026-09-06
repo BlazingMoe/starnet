@@ -7,7 +7,7 @@ severity: P1
 status: fixed
 found: 2026-09-06
 lane: agent/release-ui-audit-0906
-fix: b45e6ab8d
+fix: 042394b7d
 origin: audit
 ---
 
