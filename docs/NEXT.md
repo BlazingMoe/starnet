@@ -1,5 +1,12 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-06 Add agents integration (`agent/comms-add-agents-0906`)
+
+Owner requested merging the verified COMMS picker repair. It opens before network work,
+shows unavailable-backend errors with Retry, and ignores late results after Cancel.
+Earlier candidates passed 725/725; the current world/UI combination is being gated before
+integration. Preserve the existing QA status and Rooms handoff edits. Bug record: `0245a284`.
+
 ## DONE — 2026-09-06 release UI audit integration (`agent/release-ui-audit-0906`)
 
 Owner authorized merging the two audited repairs: complete appearance backups and full-suite
