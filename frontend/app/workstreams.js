@@ -606,6 +606,8 @@
     const groups = new Map(), result = [];
     for (const w of rows) {
       const auto = automationOf(w), keep = w.id === opts.activeId || w.pinned || w.lastRunOk === false || urgent.has(w.id);
+      // AUTOMATED means automation only. Pending responses remain reachable through session attention.
+      if (opts.view === 'automated' && !auto) continue;
       if (!auto || !auto.id) {
         if (!keep && ((opts.view === 'conversations' && auto) || (opts.view === 'automated' && !auto))) continue;
         result.push({ type: 'session', w }); continue;

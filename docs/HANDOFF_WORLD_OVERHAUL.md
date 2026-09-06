@@ -409,3 +409,11 @@ Merge preparation passed all 723 fast steps, 100 HTTP steps, and 149 live UI che
 144-prop station is preserved. Verification scope and receipts are recorded in
 `docs/WORLD_INTERFACE_MERGE_READINESS_2026-09-06.md`. The lane is prepared for integration,
 not yet merged or packaged as an installed release.
+
+### Session filters simplified after review
+
+The session rail now offers only ALL and AUTOMATED. The retired CHATS preference falls back
+to ALL on load. AUTOMATED strictly shows sessions with automation provenance, including legacy
+automation sessions; ordinary active, pinned, failed or waiting sessions no longer bypass that
+filter. Waiting for you remains a separate shortcut to pending responses across all sessions.
+An empty automation list explains that there are no automation sessions yet.

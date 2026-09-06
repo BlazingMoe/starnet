@@ -3499,7 +3499,7 @@ const App = (() => {
   const railExpanded = new Set();
   try {
     const saved = JSON.parse(localStorage.getItem('skynet.session-view') || '{}');
-    if (['all', 'conversations', 'automated'].includes(saved.kind)) railKind = saved.kind;
+    if (['all', 'automated'].includes(saved.kind)) railKind = saved.kind;
     if (Array.isArray(saved.expanded)) saved.expanded.slice(0, 200).forEach(k => { if (typeof k === 'string') railExpanded.add(k); });
   } catch (_) {}
   function saveRailView() {
@@ -3643,6 +3643,9 @@ const App = (() => {
         '<button class="ws-kebab" tabindex="-1" aria-label="session actions" title="session actions">⋯</button>' +
         '</li>';
     }).join('');
+    if (!rows.length && railKind === 'automated' && !railAttentionOnly) {
+      ul.innerHTML = '<li class="proj-empty" role="presentation"><span role="status">No automation sessions yet.</span></li>';
+    }
     ul.querySelectorAll('[data-ws-group]').forEach(button => {
       button.onclick = () => {
         const key = button.dataset.wsGroup;

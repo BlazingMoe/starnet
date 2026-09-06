@@ -37,6 +37,7 @@ try{
   assert.ok(await waitDevReady(cdp,evalJS,{url:'http://127.0.0.1:9488/'}),'app boots');await sleep(1100);
   await check('Crew starts with the roster and a compact search control',`!document.querySelector('#crew-filters')&&document.querySelector('#crew-search-wrap').hidden&&document.querySelectorAll('#crew .crew-row').length===App.agents().length&&App.agents().length>20`);
   await check('Quiet sessions have no attention shortcut',`document.querySelector('#ws-attention').hidden`);await shot('01-clean-crew');
+  await check('Session filters offer only All and Automated',`JSON.stringify([...document.querySelectorAll('[data-ws-kind]')].map(e=>e.dataset.wsKind))==='["all","automated"]'`);
   await run(`window.__before={agent:App.currentAgent().id,session:Workstreams.activeId()};document.querySelector('#crew-search-toggle').click();document.querySelector('#crew-search').value='fOrGe';document.querySelector('#crew-search').dispatchEvent(new Event('input'))`);
   await sleep(200);
   await check('Case-insensitive agent search finds the intended row without changing the conversation',`document.querySelectorAll('#crew .crew-row:not([hidden])').length===1&&document.querySelector('#crew .crew-row:not([hidden])').textContent.includes('FORGE')&&App.currentAgent().id===window.__before.agent&&Workstreams.activeId()===window.__before.session`);
@@ -53,8 +54,10 @@ try{
   await check('Attention counts two sessions on the same agent and excludes an orphan',`!document.querySelector('#ws-attention').hidden&&document.querySelector('#ws-attention-count').textContent==='2'`);
   await check('Approval and question badges name the action needed on their exact sessions',`document.querySelector('[data-id="'+window.__sessions.a+'"] .ws-meta').textContent==='Approval needed'&&document.querySelector('[data-id="'+window.__sessions.b+'"] .ws-meta').textContent==='Reply needed'`);
   await check('A waiting archived session is visible without opening the archive',`!!document.querySelector('#workstreams [data-id="'+window.__sessions.b+'"]')`);
-  await run(`for(const id of Object.values(window.__sessions))Workstreams.get(id).automation={kind:'routine',id:'merge-review',name:'Release workflow'};App.refreshRail();document.querySelector('[data-ws-kind=conversations]').click()`);
-  await check('Grouped automated sessions keep both pending requests visible in Chats',`!!document.querySelector('#workstreams [data-id="'+window.__sessions.a+'"]')&&!!document.querySelector('#workstreams [data-id="'+window.__sessions.b+'"]')&&!!document.querySelector('[data-ws-group]')`);
+  await run(`document.querySelector('[data-ws-kind=automated]').click()`);
+  await check('Automated hides ordinary sessions even when active or awaiting a response',`!document.querySelector('#workstreams [data-id="'+window.__before.session+'"]')&&!document.querySelector('#workstreams [data-id="'+window.__sessions.a+'"]')&&!document.querySelector('#workstreams [data-id="'+window.__sessions.b+'"]')&&!document.querySelector('#ws-attention').hidden`);
+  await run(`for(const id of Object.values(window.__sessions))Workstreams.get(id).automation={kind:'routine',id:'merge-review',name:'Release workflow'};App.refreshRail()`);
+  await check('Grouped automated sessions keep both pending requests visible in Automated',`!!document.querySelector('#workstreams [data-id="'+window.__sessions.a+'"]')&&!!document.querySelector('#workstreams [data-id="'+window.__sessions.b+'"]')&&!!document.querySelector('[data-ws-group]')`);
   await run(`document.querySelector('[data-ws-kind=all]').click()`);
   await check('Crew rows do not duplicate session approval labels',`![...document.querySelectorAll('#crew .crew-status')].some(e=>/APPROVAL|NEEDS YOU/.test(e.textContent))`);
   await run(`document.querySelector('#ws-attention').click()`);
@@ -86,9 +89,10 @@ try{
   await check('Resolving the last prompt hides the shortcut, restores ordinary sessions and recovers focus',`document.querySelector('#ws-attention').hidden&&document.querySelector('#ws-attention').getAttribute('aria-pressed')==='false'&&!!document.querySelector('#workstreams [data-id="'+window.__before.session+'"]')&&document.activeElement.id==='ws-search'`);
   await check('Resolved archived sessions return to the archive',`!document.querySelector('#workstreams [data-id="'+window.__sessions.b+'"]')`);
   await check('Controls use station styling instead of native white paint',`[...document.querySelectorAll('#crew-search-toggle,#crew-search,#crew-search-close,#ws-attention')].every(e=>!['rgb(255, 255, 255)','rgb(239, 239, 239)'].includes(getComputedStyle(e).backgroundColor))`);
-  await run(`localStorage.setItem('starnet.crewrail.rows','0')`);await cdp.send('Page.reload');
+  await run(`localStorage.setItem('starnet.crewrail.rows','0');localStorage.setItem('skynet.session-view',JSON.stringify({kind:'conversations'}))`);await cdp.send('Page.reload');
   assert.ok(await waitDevReady(cdp,evalJS,{url:'http://127.0.0.1:9488/'}));await sleep(500);
   await check('A deliberately collapsed roster stays collapsed after reload',`document.querySelector('#crew').classList.contains('shut')`);
+  await check('A saved retired Chats filter returns to All after reload',`document.querySelector('[data-ws-kind=all]').getAttribute('aria-pressed')==='true'&&!document.querySelector('[data-ws-kind=conversations]')`);
   await run(`document.querySelector('#crew-search-toggle').click();document.querySelector('#crew-search').value='FORGE';document.querySelector('#crew-search').dispatchEvent(new Event('input'))`);await sleep(350);
   await check('Searching opens a collapsed roster so results are actually visible',`document.querySelector('#crew').clientHeight>40&&document.querySelector('#crew .crew-row:not([hidden])').getBoundingClientRect().height>0`);
   await run(`document.querySelector('#crew-search-close').click()`);await sleep(350);
