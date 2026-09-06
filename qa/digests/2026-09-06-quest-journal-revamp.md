@@ -114,3 +114,18 @@ Both mirrored JS files passed syntax checks; whitespace check passed.
 Follow-up full gate and merge are queued with the release coordinator, which owns the shared
 suite/merge slot. The first merged version is green; this correction is source/live verified
 but not yet merged. No installer or release claim.
+
+## Final sizing pass
+
+Owner requested a modest overall size reduction. Main prose is now 16px (was 18px),
+briefing titles 23px (was 27px), list titles 17px (was 19px), and disclosure rows 44px
+(was 52px). Reduced panel padding, list/briefing minimum height, form spacing, and the
+window height cap to 760px. The layout and handlers are unchanged.
+
+Live preview confirmed title 23px, body 16px, three rows each exactly 44px, and body
+clientWidth/scrollWidth both 947px. Quest journal 74 assertions and website mirror 8
+assertions passed; diff whitespace clean. Preview refreshed and left open.
+
+The overnight coordinator subsequently canceled its queue for usage conservation. No new
+full suite or merge was started. Preserve this source candidate for the owner's next run;
+the compact/lower-section follow-up is not on trunk yet.
