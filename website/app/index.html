@@ -494,14 +494,13 @@
   <aside id="left">
     <!-- The head carried an "N AGENTS" count that #crew-sum already implied one panel lower
          ("0 WORKING / 2 IDLE" totals the same roster and says more). Dropped 2026-07-27 — one fact, one place. -->
-    <h3>▮ CREW<span class="crew-h3-right"><button id="crew-hide" class="crew-hide" type="button" title="Hide the crew rail" aria-label="Hide the crew rail" aria-expanded="true">◂</button></span></h3>
-    <div id="crew-filters" class="crew-filters" role="group" aria-label="Filter crew by activity">
-      <button type="button" data-crew-filter="all" aria-pressed="true">ALL</button>
-      <button type="button" data-crew-filter="active" aria-pressed="false">WORKING</button>
-      <button type="button" data-crew-filter="await" aria-pressed="false">NEEDS YOU</button>
+    <h3>▮ CREW<span class="crew-h3-right"><button id="crew-search-toggle" class="crew-hide" type="button" title="Find an agent" aria-label="Find an agent" aria-expanded="false" aria-controls="crew-search-wrap">⌕</button><button id="crew-hide" class="crew-hide" type="button" title="Hide the crew rail" aria-label="Hide the crew rail" aria-expanded="true">◂</button></span></h3>
+    <div id="crew-search-wrap" class="crew-search-wrap" hidden>
+      <input id="crew-search" type="search" placeholder="Find an agent…" aria-label="Find an agent by name" autocomplete="off" aria-controls="crew">
+      <button id="crew-search-close" type="button" aria-label="Close agent search" title="Close agent search">✕</button>
     </div>
     <ul id="crew"></ul>
-    <div id="crew-filter-empty" class="crew-filter-empty" hidden></div>
+    <div id="crew-search-empty" class="crew-search-empty" role="status" hidden>No agents match. Try another name.</div>
     <div id="crew-sum"></div>
     <!-- ROSTER SEAM (leftrail.js): drag the CREW/SESSIONS split. A zero-height flex anchor whose
          ::before covers the gap the eye reads as the seam — the flex flow places it exactly there,
@@ -509,6 +508,7 @@
     <div id="crew-vresizer" class="row-resizer" title="drag to resize CREW vs SESSIONS (double-click to reset)" role="separator" aria-orientation="horizontal" aria-label="Resize the crew roster"></div>
     <div id="ws-wrap">
       <div class="ws-head"><span class="ws-view" role="tablist" aria-label="rail view"><button id="ws-tab-sessions" class="ws-tab on" role="tab" aria-selected="true" title="your saved conversations">SESSIONS</button><button id="ws-tab-projects" class="ws-tab" role="tab" aria-selected="false" title="trusted project folders">PROJECTS</button></span><span class="ws-head-acts"><button id="ws-new" title="start a new COMMS session">+ NEW</button><button id="ws-addproject" title="bless a folder as a trusted project" hidden>+ ADD</button></span></div>
+      <button id="ws-attention" class="ws-attention" type="button" aria-pressed="false" aria-controls="workstreams" hidden><span>Waiting for you</span><span id="ws-attention-count"></span><span id="ws-attention-clear" aria-hidden="true" hidden>✕</span></button>
       <!-- RAIL SEARCH (2026-07-17): the SESSION TOOLS window was retired — search lives ON the rail now
            (the one capability no other surface covered); per-session export moved into the row ⋯ menu.
            The head above stays SESSIONS/PROJECTS + NEW only (Commander directive, 2026-07-08). -->

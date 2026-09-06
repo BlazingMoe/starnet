@@ -32,11 +32,11 @@ try {
   await evalJS(cdp, `App.currentAgent().skin=${JSON.stringify(identity.skin)}; StationUI.setRoster(App.agents())`);
   await check('Composer has useful writing depth', `document.querySelector('#chat-input').getBoundingClientRect().height>=60`);
   await shot('01-comms-crew');
-  await evalJS(cdp, `document.querySelector('[data-crew-filter="active"]').click()`);
-  await check('Idle agents do not appear as working', `!Array.from(document.querySelectorAll('#crew .crew-row')).some(r=>!r.hidden) && !document.querySelector('#crew-filter-empty').hidden`);
-  await evalJS(cdp, `document.querySelector('[data-crew-filter="await"]').click()`);
-  await check('Approval filter has honest empty state', `document.querySelector('#crew-filter-empty').textContent==='No approvals waiting.'`);
-  await evalJS(cdp, `document.querySelector('[data-crew-filter="all"]').click(); StationUI.openTerm('connectors','toolsets')`);
+  await evalJS(cdp, `document.querySelector('#crew-search-toggle').click();document.querySelector('#crew-search').value='nothing-matches';document.querySelector('#crew-search').dispatchEvent(new Event('input'))`);
+  await check('Crew search explains a missing match', `!Array.from(document.querySelectorAll('#crew .crew-row')).some(r=>!r.hidden) && !document.querySelector('#crew-search-empty').hidden`);
+  await evalJS(cdp, `document.querySelector('#crew-search-close').click()`);
+  await check('Closing search restores the roster without an activity filter', `Array.from(document.querySelectorAll('#crew .crew-row')).every(r=>!r.hidden) && document.querySelector('#crew-search-wrap').hidden`);
+  await evalJS(cdp, `StationUI.openTerm('connectors','toolsets')`);
   for(let i=0;i<40;i++) { if(await evalJS(cdp,`!!document.querySelector('.ts-availability')`)) break; await sleep(250); }
   await check('Toolset badges and totals match the selected agent’s effective authority', `(async () => {const aid=document.querySelector('#ts-agent').value, placed=World.heroCaps(aid).map(c=>c.objectType);const view=await Harness.api.get('/api/toolsets?agent='+encodeURIComponent(aid)+'&placed='+encodeURIComponent(placed.join(',')));const labels=view.toolsets.map(t=>t.available?'AVAILABLE':t.switchEffective&&!t.enabled?'DISABLED':t.switchEffective&&!t.placed&&!t.profileGranted?'NEEDS PROP':'UNAVAILABLE');const rows=Array.from(document.querySelectorAll('.ts-row'));const counts=Array.from(document.querySelectorAll('.ability-readout b'),e=>Number(e.textContent));return rows.length===view.toolsets.length && rows.every((r,i)=>r.querySelector('.ts-availability').textContent===labels[i]) && counts[0]===labels.filter(x=>x==='AVAILABLE').length && counts[1]===labels.filter(x=>x==='NEEDS PROP').length && counts[2]===labels.filter(x=>x==='DISABLED'||x==='UNAVAILABLE').length})()`);
   await check('Setup routes are collapsed until requested', `!document.querySelector('#ab-router').open`);

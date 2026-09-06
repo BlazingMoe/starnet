@@ -347,3 +347,25 @@ keyboard behavior, four smaller viewport sizes and enlarged text. No runtime exc
 `.worldshots/workflow-setup/`. The existing `dev/inbox-when-picker-shots.mjs` also verifies that Save
 Schedule persists the chosen cadence through the real seeded server and reads back its agent,
 whole-workflow flag and next run. It uses an isolated workspace and mock provider, with no model run.
+
+## September 5 crew search and session attention
+
+The Crew ALL / WORKING / NEEDS YOU strip is removed. A small Find an agent control in the header
+opens a name/ID search; Escape or its close control clears the query and restores the roster.
+Crew rows keep their existing activity indicators. Searching temporarily reveals a roster dragged
+shut, then restores that saved split when closed. Session controls retain their space in the rail.
+
+Pending requests are shown on their actual sessions: Approval needed for consent and Reply needed
+for an agent question. A conditional Waiting for you shortcut counts sessions, including separate
+requests on the same agent, and filters the list to those conversations. Orphaned channel IDs do
+not count; an archived session with a live request remains reachable. Clicking a result opens its
+own conversation and existing request UI. Resolving the final request removes the shortcut and
+restores the normal list. Session search exits the filter, and Projects hides session controls.
+Compact pending rows put their badges below the title so the action cannot squeeze out its name.
+
+No backend, consent, or execution behavior changed. Updates reuse the existing rail heartbeat.
+`node dev/session-attention-probe.mjs` passes 31 live checks using fixture requests on an isolated
+seeded server, with no model calls or consent decisions. It checks exact-session navigation into
+the approval UI, two requests on one agent, questions, orphan/archived cases, resolution, search,
+keyboard/focus recovery, three smaller viewport sizes, enlarged text and saved roster collapse.
+No runtime exceptions. Evidence: `.worldshots/session-attention/`. The custom demo save is preserved.

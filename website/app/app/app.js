@@ -3473,6 +3473,28 @@ const App = (() => {
   let railTicker = 0;
   let railShowArchived = false;   // when true the rail also lists archived (put-away) sessions, dimmed
   let railFocusId = null;         // roving-tabindex cursor: one rail stop regardless of session count
+  let railAttentionOnly = false;
+  let railAttentionKey = '';
+  // Pending consent belongs to a session. Multiple sessions on one agent remain distinct;
+  // deleted/orphaned channels cannot contribute a count with nowhere to open.
+  function railPendingIds() {
+    return new Set(typeof Channels === 'undefined' ? [] : Channels.pendingIds().filter(id => Workstreams.get(id)));
+  }
+  function syncRailAttention(pending) {
+    railAttentionKey = [...pending].sort().join('\n');
+    if (!pending.size) railAttentionOnly = false;
+    const btn = el('ws-attention'); if (!btn) return;
+    const hide = !pending.size || railView !== 'sessions';
+    if (hide && document.activeElement === btn) el('ws-search')?.focus();
+    if (btn.hidden !== hide) btn.hidden = hide;
+    const pressed = String(railAttentionOnly);
+    if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
+    const label = 'Waiting for you · ' + pending.size + ' session' + (pending.size === 1 ? '' : 's') + ' waiting for your response. ' + (railAttentionOnly ? 'Show all sessions' : 'Show waiting sessions');
+    if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
+    const count = el('ws-attention-count'), clear = el('ws-attention-clear');
+    if (count && count.textContent !== String(pending.size)) count.textContent = pending.size;
+    if (clear) clear.hidden = !railAttentionOnly;
+  }
   function railFmtElapsed(ms) {
     const s = Math.floor((ms < 0 ? 0 : ms) / 1000);
     if (s < 60) return s + 's';
@@ -3503,13 +3525,17 @@ const App = (() => {
      task board is the surface that owns it, and for a 'chat' stream (most of the rail) lane is
      inferred rather than chosen, so it was never a fact worth the loudest pixel in the row. */
   function railRowState(w) {
+    const pending = typeof Channels !== 'undefined' && Channels.pendingOf(w.id);
+    if (pending) {
+      const question = pending.tool === 'brief.ask';
+      return { dot: 'ws-dot needsyou', meta: question ? 'Reply needed' : 'Approval needed', busy: Channels.isBusy(w.id), attn: true, status: question ? 'waiting for your answer' : 'awaiting your approval' };
+    }
     if (typeof Channels !== 'undefined' && Channels.isBusy(w.id)) {
       const status = Channels.statusOf(w.id);
-      const attn = /approval/.test(status);
       const started = Channels.startedAtOf(w.id);
       // EL-11: a pending consent gets an EXPLICIT marker on its own row (not just the dot recolor) — a
       // background session's paused run must be findable at a glance before the sidecar's deny timer runs out.
-      return { dot: 'ws-dot ' + (attn ? 'needsyou' : 'working'), meta: attn ? '▣ NEEDS YOU' : (started ? railFmtElapsed(Date.now() - started) : '…'), busy: true, attn, status };
+      return { dot: 'ws-dot working', meta: started ? railFmtElapsed(Date.now() - started) : '…', busy: true, attn: false, status };
     }
     // a DELIVERY session ('workshop-<runId>' — idle-built work) that hasn't been reviewed is a decision the
     // Commander owes, not just an unread chat: say REVIEW on the row itself (2026-07-15 UX audit — the ⚒ prefix
@@ -3545,6 +3571,11 @@ const App = (() => {
     return (model || '—') + ' · ' + n + ' MSG';
   }
   function railModelFull(w) { return (w.lastModel || '').trim(); }
+  function railRowLabel(w, st) {
+    const title = w.title || 'General', name = railAgentName(w);
+    return title + ' session' + (name === title ? '' : ', ' + name) + (st.attn ? ', ' + st.meta : '')
+      + (Workstreams.unread(w) ? ', not seen yet' : '') + '; Enter to open; Shift+F10 for actions';
+  }
   function rowClass(w, st, activeId) {
     return 'ws-row' + (w.id === activeId ? ' sel' : '') + (st.busy ? ' busy' : '') + (st.attn ? ' attn' : '')
       + (w.pinned ? ' pinned' : '') + (w.archived ? ' archived' : '')
@@ -3557,7 +3588,10 @@ const App = (() => {
     const oldFocus = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.ws-row[data-id]') : null;
     const restoreFocus = !!(oldFocus && ul.contains(oldFocus));
     if (oldFocus && oldFocus.dataset.id) railFocusId = oldFocus.dataset.id;
-    const rows = Workstreams.list({ includeArchived: railShowArchived });
+    const pending = railPendingIds();
+    syncRailAttention(pending);
+    const rows = Workstreams.list({ includeArchived: true }).filter(w =>
+      railAttentionOnly ? pending.has(w.id) : (!w.archived || railShowArchived || pending.has(w.id)));
     if (!rows.some(w => w.id === railFocusId)) railFocusId = rows.some(w => w.id === activeId) ? activeId : (rows[0] && rows[0].id);
     ul.setAttribute('role', 'listbox');
     ul.setAttribute('aria-label', 'Sessions');
@@ -3565,7 +3599,7 @@ const App = (() => {
       const title = w.title || 'General';
       const st = railRowState(w);
       const full = railModelFull(w);
-      const tip = title + (w.archived ? ' · archived' : '') + (st.busy ? ' · ' + st.status : '')
+      const tip = title + (w.archived ? ' · archived' : '') + (st.busy || st.attn ? ' · ' + st.status : '')
         + (Workstreams.unread(w) ? ' · not seen yet' : '')
         // LANE lives here now rather than in the dot. Only a board DIRECTIVE ('task') actually chose
         // its lane; a plain chat's lane is inferred, so naming it on every row would dress a guess
@@ -3573,7 +3607,7 @@ const App = (() => {
         + (w.kind === 'task' ? ' · board: ' + w.lane : '')
         + (full ? ' · last run on ' + full : '')   // the UNABBREVIATED id the row had to shorten
         + ' — Shift+F10 or right-click for actions';
-      return '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(title + ' session' + (railAgentName(w) === title ? '' : ', ' + railAgentName(w)) + (Workstreams.unread(w) ? ', not seen yet' : '') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return '<li class="' + rowClass(w, st, activeId) + '" data-id="' + U.esc(w.id) + '" tabindex="' + (w.id === railFocusId ? '0' : '-1') + '" role="option" aria-selected="' + (w.id === activeId ? 'true' : 'false') + '" aria-posinset="' + (index + 1) + '" aria-setsize="' + rows.length + '" aria-label="' + U.esc(railRowLabel(w, st)) + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + st.dot + '"></span>' +
         (w.pinned ? '<span class="ws-pin" aria-hidden="true">★</span>' : '') +
         '<span class="ws-agent" aria-hidden="true">' + U.esc(railAgentName(w)) + '</span>' +
@@ -3632,6 +3666,8 @@ const App = (() => {
   function updateRailLive() {
     const ul = el('workstreams'); const game = el('screen-game');
     if (!ul || typeof Workstreams === 'undefined' || !game || !game.classList.contains('active')) { stopRailTicker(); return; }
+    const pending = railPendingIds();
+    if ([...pending].sort().join('\n') !== railAttentionKey) { renderRail(); return; }
     const activeId = Workstreams.activeId();
     ul.querySelectorAll('.ws-row').forEach(li => {
       if (li.querySelector('.ws-rename')) return;   // leave a row alone while its title is being edited in place
@@ -3644,6 +3680,7 @@ const App = (() => {
       const rec = li.querySelector('.ws-receipt');
       if (rec) { const next = railReceipt(w); if (rec.textContent !== next) rec.textContent = next; }
       const cls = rowClass(w, st, activeId); if (li.className !== cls) li.className = cls;
+      const label = railRowLabel(w, st); if (li.getAttribute('aria-label') !== label) li.setAttribute('aria-label', label);
     });
   }
   function armRailTicker() { if (!railTicker) railTicker = setInterval(updateRailLive, 1000); }
@@ -3720,8 +3757,13 @@ const App = (() => {
   function wireRailSearch() {
     const q = el('ws-search'); if (!q || q.__wired) return;
     q.__wired = true;
-    q.oninput = renderSessionSearch;
+    q.oninput = () => { if (railAttentionOnly) { railAttentionOnly = false; renderRail(); } renderSessionSearch(); };
     q.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); q.value = ''; renderSessionSearch(); q.blur(); } };
+    const attention = el('ws-attention');
+    if (attention) attention.onclick = () => {
+      railAttentionOnly = !railAttentionOnly;
+      q.value = ''; renderSessionSearch(); renderRail(); SFX.click();
+    };
   }
   // COMMS AGENT SELECTOR: put the Commander on the line with agent <agentId>. Selecting an agent must never
   // silently rebind an existing conversation to a different agent (that would corrupt whose transcript it is);
@@ -3914,6 +3956,7 @@ const App = (() => {
   function updateArchivedToggle() {
     const ul = el('workstreams'); if (!ul) return;
     const old = ul.querySelector('.ws-arch-row'); if (old) old.remove();
+    if (railAttentionOnly) return;
     let n = 0; for (const w of Workstreams.list({ includeArchived: true })) if (w.archived) n++;
     if (!n) { railShowArchived = false; return; }
     const li = document.createElement('li');
@@ -3971,6 +4014,7 @@ const App = (() => {
     view = (view === 'projects') ? 'projects' : 'sessions';
     if (view === railView) return;
     railView = view;
+    syncRailAttention(railPendingIds());
     SFX.click();
     const pan = (typeof Projects !== 'undefined') ? Projects.panels(view) : { sessionsList: view === 'sessions', projectsList: view === 'projects', newBtn: view === 'sessions', addBtn: view === 'projects' };
     const set = (id, show) => { const e = el(id); if (e) e.hidden = !show; };
