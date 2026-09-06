@@ -19,4 +19,6 @@ The separately verified room-colour repair is trunk merge `cac60f4a990d84b49c734
 
 ## Release boundary
 
+The combined product-code candidate passed all 729 fast steps and 130/130 browser-journey assertions. The first HTTP gate exposed a fixture-isolation issue: the staged Google Desktop registration took precedence over the legacy connector suite's fake/no-client setup. The suite now explicitly supplies an empty Desktop-registration fixture and clears inherited legacy credentials, then applies its own scenario credentials. Production registration precedence is unchanged. The corrected suite passes all 129 assertions; the separate native Desktop PKCE suite still exercises the native flow. Full HTTP rerun and final integration receipts are recorded with the replacement artifact.
+
 This is an unpublished replacement 0.11.0 candidate. The version is not bumped again. Preserve the previously tested installer and receipt before overwriting the candidate path. Full gates, exact clean source identity, updater-signature validation and resource-byte verification must precede delivery. Publication still waits for the owner’s test and release decision. The 48-hour soak waiver does not waive installed acceptance or the existing public-readiness blockers.

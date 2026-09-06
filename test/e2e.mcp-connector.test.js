@@ -131,7 +131,13 @@ function startMockOpenRouter() {
 function boot(port, env, attemptsLeft) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [INDEX], {
-      env: Object.assign({}, process.env, env, { SKYNET_PORT: String(port), STARNET_PORT: String(port) }),
+      // This suite deliberately exercises legacy/no-client setup. A locally
+      // staged publisher registration must not replace its explicit fixtures.
+      // Native Desktop PKCE is covered separately by google-signin.e2e.test.js.
+      env: Object.assign({}, process.env, {
+        STARNET_GOOGLE_DESKTOP_CLIENT_JSON: '{}',
+        STARNET_GOOGLE_OAUTH_CLIENT_ID: '', STARNET_GOOGLE_OAUTH_CLIENT_SECRET: '',
+      }, env, { SKYNET_PORT: String(port), STARNET_PORT: String(port) }),
       stdio: ['ignore', 'pipe', 'pipe']
     });
     let out = '', settled = false;
