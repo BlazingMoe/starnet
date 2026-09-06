@@ -1,7 +1,7 @@
 # NEXT.md — current priorities & task queue
 
 
-## VERIFIED — 2026-09-06 per-agent voices and Mac microphone (`agent/voice-agents-mac-0906`)
+## MERGED — 2026-09-06 per-agent voices and Mac microphone (`agent/voice-agents-mac-0906`)
 
 Owner requested distinct voices per agent and relayed a MacBook Pro M1 Max report where
 Speak/Hands-Free Mic work only in the browser mirror. Commits `d65f8f538` and `3d3c1ff12`
@@ -14,7 +14,7 @@ through sidecar restart + page reload, and restored station-default inheritance 
 Real authenticated TTS returned distinct Kokoro WAVs for the same phrase. No browser warnings,
 errors, or native control paint. Fast: 725/725; HTTP: 101/101; customer journeys: 29/29, all exit 0.
 
-Integration receipt: `qa/STATUS.md`. Signed Mac allow/deny/reset/restart and customer recovery remain unverified; report
+Merged as `ac051bd84`; post-merge fast 725/725 and HTTP 101/101 passed. Integration receipt: `qa/STATUS.md`. Signed Mac allow/deny/reset/restart and customer recovery remain unverified; report
 `8a553481` stays open. Receipt: `qa/digests/2026-09-06-agent-voices-mac.md`.
 
 ## DONE — 2026-09-06 Add agents integration (`agent/comms-add-agents-0906`)

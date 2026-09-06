@@ -68,3 +68,17 @@ refreshed only the four reviewed voice source fingerprints in the product claims
 all claim verdicts remain unchanged. The focused claims check passed 64 assertions.
 The HTTP suite encountered one local port collision; its unchanged nightshift-focus test
 passed all 62 assertions on retry. Full merge gates are recorded in `qa/STATUS.md`.
+
+## Merged receipt
+
+Merged to `feat/harness-backend` as `ac051bd849597ef18ab2e783e78254bb86bda2de`,
+after synchronizing the catalog styling at `c3aad9ecd`. The integrated Git tree exactly
+matched the tested branch. Pre-merge and post-merge fast gates passed 725/725 steps;
+pre-merge and post-merge HTTP gates passed 101/101 steps, all exit 0.
+During the post-merge runs another lane advanced trunk to `fa05bcc1d` with session-starter
+UI changes. Those runs therefore were not against a frozen commit; no backend or ship
+files changed in that interval, and the later chat diff leaves voice handling intact.
+The final combined seeded UI retained NOVA/Bella and VOICE TEST/George after reload.
+Unrelated integration QA edits and the Rooms handoff were preserved byte-for-byte.
+The preview worktree remains available at port 9196. No installer build or publication;
+signed Apple Silicon microphone testing and customer recovery remain outstanding.
