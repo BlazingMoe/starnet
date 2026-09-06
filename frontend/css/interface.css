@@ -6,26 +6,6 @@ body {
   --ui-highlight: rgba(var(--ph-bright-rgb), .12);
   --ui-well: inset 0 2px 8px rgba(0,0,0,.65), inset 0 0 0 1px rgba(0,0,0,.7);
   --ui-face: linear-gradient(180deg, rgba(var(--ph-rgb), .06), transparent 50%);
-  /* Phosphor key faces: a crisp bevel and hard seat, like station hardware. */
-  --ui-key-rest: linear-gradient(180deg,
-    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 0 2px,
-    color-mix(in srgb, var(--ph) 4%, var(--panel2)) 2px 100%);
-  --ui-key-hover: linear-gradient(180deg,
-    color-mix(in srgb, var(--ph) 24%, var(--panel2)) 0 2px,
-    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 2px 100%);
-  --ui-key-rest-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .12),
-    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7);
-  --ui-key-over-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .18),
-    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7), 0 0 8px rgba(var(--ph-rgb),.15);
-  --ui-key-face: var(--ui-key-rest);
-  --ui-key-shadow: var(--ui-key-rest-shadow);
-  /* Dock menus and hover nameplates borrow the top bar's curved-glass fade. */
-  --ui-dock-face: var(--glass),
-    linear-gradient(180deg, rgba(var(--ph-rgb),.22), rgba(var(--ph-rgb),.10) 52%, rgba(var(--ph-rgb),.04)),
-    var(--panel2);
-  --ui-dock-over: var(--glass),
-    linear-gradient(180deg, rgba(var(--ph-rgb),.32), rgba(var(--ph-rgb),.16) 52%, rgba(var(--ph-rgb),.06)),
-    var(--panel2);
 }
 .ui-overline, .comms-overline { color: var(--ph-dim); font-size: 11px; letter-spacing: 1.6px; line-height: 1.4; }
 
@@ -278,9 +258,52 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
 .work-entry .ui-overline { margin-right: auto; }
 :is(#crew-search-toggle, #crew-search-close, #crew-search, .ws-attention, .cf-group > summary, .ab-router > summary, .refit-toolgroup > summary, .work-path button):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
 
-/* Only the approved dock, starter and navigation-hint controls use this finish.
-   Settings, session controls, Add agents and the composer keep their dedicated skins. */
-#screen-game :is(#bottombar .bb-menu .bb, .cmsg-starter, .nav-coach-x):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
+/* The approved finish is confined to the bottom navigation and its own hover cards. */
+#bottombar, .station-tip.dock-tip, .hint-bubble.dock-tip {
+  /* Phosphor key faces: a crisp bevel and hard seat, like station hardware. */
+  --ui-key-rest: linear-gradient(180deg,
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 4%, var(--panel2)) 2px 100%);
+  --ui-key-hover: linear-gradient(180deg,
+    color-mix(in srgb, var(--ph) 24%, var(--panel2)) 0 2px,
+    color-mix(in srgb, var(--ph) 12%, var(--panel2)) 2px 100%);
+  --ui-key-rest-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .12),
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7);
+  --ui-key-over-shadow: inset 0 1px 0 rgba(var(--ph-bright-rgb), .18),
+    inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 0 rgba(0,0,0,.7), 0 0 8px rgba(var(--ph-rgb),.15);
+  --ui-key-face: var(--ui-key-rest);
+  --ui-key-shadow: var(--ui-key-rest-shadow);
+  /* Dock menus and hover nameplates borrow the top bar's curved-glass fade. */
+  --ui-dock-face: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.22), rgba(var(--ph-rgb),.10) 52%, rgba(var(--ph-rgb),.04)),
+    var(--panel2);
+  --ui-dock-over: var(--glass),
+    linear-gradient(180deg, rgba(var(--ph-rgb),.32), rgba(var(--ph-rgb),.16) 52%, rgba(var(--ph-rgb),.06)),
+    var(--panel2);
+}
+.station-tip.dock-tip {
+  position: fixed; z-index: 200; pointer-events: none;
+  width: max-content; max-width: min(280px, calc(100vw - 24px));
+  padding: 7px 10px; text-align: left;
+  font-size: 15px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
+  color: var(--ph-bright); background: var(--ui-key-rest, var(--panel2)); text-shadow: none;
+  border: 1px solid var(--ph-dim); border-radius: 2px;
+  box-shadow: 0 3px 0 rgba(0,0,0,.7), inset 2px 0 0 var(--ph);
+  opacity: 0; transform: translateY(3px);
+  transition: opacity var(--t-fast) var(--ease-out), transform var(--t-fast) var(--ease-out);
+}
+.station-tip.dock-tip[hidden] { display: none; }
+.station-tip.dock-tip.show { opacity: 1; transform: translateY(0); }
+/* the arrow tracks the anchor's centre (--tip-arrow, set by tooltip.js after clamping) */
+.station-tip.dock-tip::after {
+  content: ''; position: absolute; left: var(--tip-arrow, 50%); margin-left: -4px;
+  top: calc(100% - 3px); width: 6px; height: 6px;
+  background: var(--panel2); border: 0; border-right: 1px solid rgba(var(--ph-rgb), .28);
+  border-bottom: 1px solid rgba(var(--ph-rgb), .28); transform: rotate(45deg);
+}
+.station-tip.dock-tip.below::after { top: auto; bottom: calc(100% - 3px); transform: rotate(225deg); }
+
+#screen-game :is(#bottombar .bb-menu .bb):where(:not(.active, .sel, .on, .selected, .open, .rec, .speaking,
   .armed, .danger-armed, .primary, .refit-primary, .suggested, .confirm,
   [aria-pressed="true"], [aria-selected="true"], [aria-expanded="true"])) {
   color: var(--ui-key-label, var(--ui-key-accent, var(--ph)));
@@ -291,20 +314,19 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
     box-shadow var(--t-fast) var(--ease-soft), background-color var(--t-fast) var(--ease-soft);
 }
 /* State variables only paint controls that opted into the material above. */
-#screen-game :is(#bottombar .bb-menu .bb, .cmsg-starter, .nav-coach-x):where(:hover, :focus-visible):not(:disabled) {
+#screen-game :is(#bottombar .bb-menu .bb):where(:hover, :focus-visible):not(:disabled) {
   --ui-key-face: var(--ui-key-hover);
   --ui-key-shadow: var(--ui-key-over-shadow);
   --ui-key-edge: var(--ui-key-accent, var(--ph));
   --ui-key-label: var(--ui-key-accent, var(--ph-bright));
 }
-#screen-game :is(#bottombar .bb-menu .bb, .cmsg-starter, .nav-coach-x):active:not(:disabled) {
+#screen-game :is(#bottombar .bb-menu .bb):active:not(:disabled) {
   --ui-key-face: var(--ui-key-rest);
   --ui-key-shadow: inset 0 2px 4px rgba(0,0,0,.42);
 }
-#screen-game :is(#bottombar .bb-menu .bb, .cmsg-starter, .nav-coach-x):disabled { --ui-key-label: var(--ph-dim); }
-#screen-game .cmsg-starter { transform: none; }
+#screen-game :is(#bottombar .bb-menu .bb):disabled { --ui-key-label: var(--ph-dim); }
 /* Keep this finish on the navigation dock and hover nameplates only. */
-#bottombar .bb-menu, .station-tip, body > .hint-bubble { background: var(--ui-dock-face); }
+#bottombar .bb-menu, .station-tip.dock-tip, body > .hint-bubble.dock-tip { background: var(--ui-dock-face); }
 #bottombar .bb-group:not(.open) > .bb-grp,
 #screen-game #bottombar .bb-menu .bb { background: var(--ui-dock-face); }
 #bottombar .bb-group:not(.open) > .bb-grp:is(:hover, :focus-visible),
@@ -313,7 +335,8 @@ body:not(.rows-inbox) #workstreams .ws-row.attn > .ws-kebab { grid-area: menu; }
   background: linear-gradient(180deg, var(--ph-bright), var(--ph) 52%, var(--ph-dim));
 }
 @media (prefers-reduced-motion: reduce) {
-  #screen-game :is(#bottombar .bb-menu .bb, .cmsg-starter, .nav-coach-x) { transition-duration: 0s !important; }
+  #screen-game :is(#bottombar .bb-menu .bb) { transition-duration: 0s !important; }
+  .station-tip.dock-tip { transition: none; transform: none; }
 }
 @media (max-width: 1100px) {
   #chat-panel .comms-idbar { gap: 9px; padding: 9px 5px; }

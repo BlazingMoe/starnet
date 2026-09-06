@@ -99,7 +99,7 @@ A.ok(/evo\.goalsReached/.test(trackFn) && /' reached<\/b>'/.test(trackFn),
 A.ok(/SET THE NEXT GOAL/.test(trackFn), 'after a goal is reached the door invites the NEXT one');
 A.ok(/q-track-reached-band/.test(trackFn) && /\.q-track-reached-band/.test(css), 'the finished band keeps the gold rail it earned');
 A.ok(/\.q-track \{/.test(css) && /\.q-node-now \.q-node-dot/.test(css), 'the track ships its CSS layer');
-A.ok(/const milestones = rest\.filter/.test(station) && /<summary[^>]*>MILESTONES/.test(station), 'lifetime milestones live in a collapsed shelf instead of inflating the current OPEN list');
+A.ok(/const milestones = rest\.filter/.test(station) && /<details class="q-milestones\b[^"]*"><summary>/.test(station), 'lifetime milestones live in a collapsed shelf instead of inflating the current OPEN list');
 /* the payoff: what the path cashes out in. The stage NAME must come from the engine, never a copy of the
    ladder in the frontend — and it must not read as an unlock, because evolution grants nothing. */
 A.ok(/evo\.next/.test(trackFn) && !/DRIFT|VECTOR|ORBIT|CONSTELLATION|DEEP FIELD/.test(trackFn),
