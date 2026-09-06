@@ -262,7 +262,7 @@ const Marketplace = (() => {
           '<div class="mkt-nameplate"><span class="mkt-title" id="mkt-title">' + esc(title()) + '</span>' +
             '<span class="mkt-sub" id="mkt-sub">' + esc(subtitle()) + '</span></div>' +
           '<div class="mkt-search">⌕ <input id="mkt-q" type="text" autocomplete="off" spellcheck="false" placeholder="search classes…" aria-label="Search classes"></div>' +
-          '<button class="mkt-x" id="mkt-x" aria-label="' + esc('Close ' + plainTitle().toLowerCase()) + '" title="close">✕</button>' +
+          '<button class="mkt-x x-btn" id="mkt-x" aria-label="' + esc('Close ' + plainTitle().toLowerCase()) + '" title="close">✕</button>' +
         '</div>' +
         '<div class="mkt-bar" id="mkt-bar"></div>' +
         '<div class="mkt-stage" id="mkt-stage"></div>' +
