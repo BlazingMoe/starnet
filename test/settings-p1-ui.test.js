@@ -37,6 +37,26 @@ ok(/your keys and tokens are never included|secrets excluded/i.test(ui), 'P1-7: 
 ok(/AutonomyStore\.exportState/.test(ui) && /AutonomyStore\.importState/.test(ui), 'P1-7: browser-owned autonomy slice round-trips');
 ok(/function exportState\(/.test(auto) && /function importState\(/.test(auto), 'P1-7: AutonomyStore exposes export/import');
 
+// Execute the production browser-slice collector: a successful import must restore
+// visual preferences as well as theme and sound, including the new sky choices.
+const collectStart = ui.indexOf('    const browserSections = () => {');
+const collectEnd = ui.indexOf('    if (exportBtn)', collectStart);
+ok(collectStart >= 0 && collectEnd > collectStart, 'P1-7: browser export collector is located');
+for (const backdrop of ['void', 'galaxy', 'belt', 'moon']) {
+  const settings = { theme: 'green', themeHue: 140, themeSat: 85, themeGlow: 75,
+    panelBright: 20, roomLighting: 'high', backdrop, textScale: 115, sessionRow: 'inbox',
+    flicker: false, crtGlass: 'off', sound: false, keepComputerAwake: false, notifyPrefs: { sound: false } };
+  const collect = new Function('store', 'notifyDefaults', 'resolveRoomLighting',
+    ui.slice(collectStart, collectEnd) + '\nreturn browserSections;')(
+    { settings }, () => ({}), v => v);
+  const sections = collect();
+  const restored = Object.assign({ backdrop: 'city', textScale: 0, sessionRow: 'compact' }, sections.settings);
+  for (const key of ['backdrop', 'textScale', 'sessionRow', 'roomLighting', 'theme', 'sound']) {
+    ok(restored[key] === settings[key], 'P1-7: backup/import preserves ' + key + ' with ' + backdrop);
+  }
+  ok(!Object.hasOwn(sections.settings, 'notifyPrefs'), 'P1-7: notification settings retain their separate section');
+}
+
 // ---- P1-8 notification preferences ----
 ok(/function notifyDefaults\(/.test(ui), 'P1-8: notifyDefaults defines the per-category prefs');
 ok(/runComplete[\s\S]{0,80}needsApproval[\s\S]{0,80}cronDigest/.test(ui) || /needsApproval/.test(ui), 'P1-8: the named categories exist');
