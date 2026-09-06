@@ -1,5 +1,7 @@
 # StarNet 0.11.0 preparation
 
+Current checkpoint: all five version pins are 0.11.0, Google Desktop registration is staged, and the replacement owner-test installer includes the four reported UI fixes plus approved room colour. See [the current candidate receipt](RELEASE_0.11.0_TEST_CANDIDATE.md). The sections below retain the chronological preparation history; their earlier missing-registration and unbumped-version observations are historical. Public release remains pending.
+
 Owner requested the official update preparation on 2026-09-06 and explicitly waived the
 48-hour release-candidate soak. This waiver applies to duration only; it is not a READY
 receipt, an assertion of bug-free operation, or a substitute for installed-artifact proof.
