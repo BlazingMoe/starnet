@@ -1,3 +1,5 @@
+Latest owner tuning: ambient darkness reduced from 0.84 to 0.82 for a slight overall lift, most visible in the sides. Source positions, radius, hue, sheen and falloff are unchanged. The reference parity proof now compares the original renderer with exactly this same ambient adjustment, and both base and lightmap remain identical. Focused lighting checks pass 39 assertions; the local room was refreshed and visually inspected. The reference version before this two-point adjustment completed all 722 fast steps; a new full receipt for the adjustment is pending.
+
 # Exact reference lighting restoration
 
 Current implementation: 463ee4864. Source lock: 2a86a5ca9. Branch: agent/room-lighting-strip.
