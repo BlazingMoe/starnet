@@ -6,15 +6,15 @@ const out = '.worldshots/room-lighting';
 mkdirSync(out, { recursive: true });
 let proc, cdp;
 try {
-  ({proc} = launchChrome({cdpPort:9356, profileDir:out+'/profile'}));
-  cdp = await connectCDP(9356);
+  ({proc} = launchChrome({cdpPort:9367, profileDir:out+'/profile'}));
+  cdp = await connectCDP(9367);
   await cdp.send('Page.enable');
   if(phase==='before') {
     const baseline=execFileSync('git',['show','07a643772:frontend/app/stationbake.js']);
     cdp.on('Fetch.requestPaused', p => cdp.send('Fetch.fulfillRequest',{requestId:p.requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/javascript'}],body:baseline.toString('base64')}));
     await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*/app/stationbake.js*',requestStage:'Request'}]});
   }
-  await cdp.send('Page.navigate',{url:'http://127.0.0.1:9186/'});
+  await cdp.send('Page.navigate',{url:'http://127.0.0.1:9197/'});
   for(let i=0;i<60;i++) { if(await evalJS(cdp,"typeof World !== 'undefined' && !!World.stationDoc()")) break; await sleep(250); }
   const results = await evalJS(cdp, `(() => {
     const results=[];
@@ -26,7 +26,7 @@ try {
       const sample=(fx,fy)=>{ const x=Math.floor((r.x1+w*fx)*12), y=Math.floor((r.y1+h*fy)*12); return 1-ctx.getImageData(x,y,1,1).data[3]/255; };
       const cv=document.createElement('canvas'); cv.width=bake.baseCv.width; cv.height=bake.baseCv.height;
       const c=cv.getContext('2d'); c.drawImage(bake.baseCv,0,0); c.drawImage(bake.lightCv,0,0);
-      results.push({w,h,lamps:bake.lamps.length,center:sample(.5,.5),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
+      results.push({w,h,lamps:bake.lamps.length,center:sample(.5,.5),top:sample(.5,.18),bottom:sample(.5,.82),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
     }
     return results;
   })()`);
@@ -34,6 +34,7 @@ try {
   writeFileSync(`${out}/${phase}.json`,JSON.stringify(results,null,2));
   console.log(JSON.stringify(results));
   if(phase!=='before' && results.some(r=>r.center < Math.max(r.left,r.right,r.corner)+.2)) throw new Error('Room centre must remain distinctly brighter than its perimeter');
+  if (phase !== 'before' && results.some(r => Math.max(r.center,r.top,r.bottom)-Math.min(r.center,r.top,r.bottom) > .06)) throw new Error('Vertical strip must stay continuous along the depth');
   await capture(cdp,out,phase+'-live');
   for(const scene of ['telescope','wood']) {
     await evalJS(cdp,`(() => {

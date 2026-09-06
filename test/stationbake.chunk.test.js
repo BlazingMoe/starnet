@@ -269,6 +269,7 @@ for (const [w, h] of [[9, 7], [14, 9], [18, 18], [24, 16], [12, 24], [40, 30]]) 
   for (let y = r.y1; y <= r.y2; y++) for (let x = r.x1; x <= r.x2; x++) g.zoneGrid[g.idx(x, y)] = 'r1';
   const lamps = StationBake.bake(g).lamps;
   const mean = key => lamps.reduce((s, l) => s + l[key], 0) / lamps.length;
+  A.ok(lamps.every(l => l.x === (2 + w / 2) * 12 && l.roomStrip), w + 'x' + h + ' keeps every fixture on one vertical strip');
   A.ok(Math.abs(mean('x') - (2 + w / 2) * 12) < .01 && Math.abs(mean('y') - (2 + h / 2) * 12) < .01,
     w + 'x' + h + ' fixtures balance around the room centre');
   A.ok(lamps.every(l => l.x > (2 + w * .1) * 12 && l.x < (2 + w * .9) * 12 && l.y > (2 + h * .1) * 12 && l.y < (2 + h * .9) * 12),

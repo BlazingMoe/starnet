@@ -3556,11 +3556,18 @@ const StationBake = (() => {
     b.restore();
   }
 
-  // Keep fixtures in the middle of the deck. Width used to add a new column every
-  // eight tiles, while rows hugged the north/south walls: large rooms lit their
-  // corners more than their centre. Cell-centred rows and a wider column pitch
-  // preserve a dark perimeter without lowering the station's ambient exposure.
-  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / (Math.max(2, LIGHT.pitch) * 2)));
+  // One north/south fixture line in every room, independent of its aspect ratio.
+  const lampCols = () => 1;
+  // A continuous top-to-bottom light strip. Sample the same physical falloff
+  // across the width; never restart it at each fixture or turn it horizontally.
+  function roomStrip(ctx, X, Y, RW, RH, rgb, alpha) {
+    const reach = Math.max(0.5, LIGHT.reach || 1);
+    for (let dx = 0; dx < RW; dx++) {
+      const t = Math.min(1, Math.abs((dx + 0.5) / RW * 2 - 1) / reach);
+      ctx.fillStyle = 'rgba(' + rgb + ',' + (alpha * falloffAt(t)).toFixed(4) + ')';
+      ctx.fillRect(X + dx, Y, 1, RH);
+    }
+  }
   function lampRows(Y, RH) {
     const rows = Math.max(1, Math.floor(RH / (Math.max(2, LIGHT.pitch) * T)));
     return { rows, y0: Y + RH / rows / 2, step: RH / rows };
@@ -3591,18 +3598,11 @@ const StationBake = (() => {
       for (const q of G.allRects) b.rect(q.x1 * T, q.y1 * T, (q.x2 - q.x1 + 1) * T, (q.y2 - q.y1 + 1) * T);
       b.clip();
       b.beginPath(); b.rect(X - gW, Y - gN, RW + gW + gE, RH + gN + gS); b.clip();
-      for (let j = 0; j < rows; j++) for (let i = 0; i < count; i++) {
-        const lx = X + RW * (i + 0.5) / count, ly = y0 + step * j;
-        const gw = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
-        // Warm-neutral rather than near-white: keeps the shipped pool strength/contrast while
-        // taking the clinical edge off the deck and lowering peak luminance a small amount.
-        falloffStops(gw, POOL_RGB, LIGHT.floor);   // same curve as the lightmap's cut — a pool used to bend at 0.6→0.32 while the darkness over it ran dead straight, which doubles the rim
-        b.fillStyle = gw; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
-        // FLOOR SHEEN (Slice 2): a faint vertical reflection streak on the deck below the pool, as if
-        // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
-        // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
-        bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0 });
+      roomStrip(b, X, Y, RW, RH, POOL_RGB, LIGHT.floor);
+      for (let j = 0; j < rows; j++) {
+        const lx = X + RW / 2, ly = y0 + step * j;
+        // Hardware remains spaced along the strip, but does not stamp round pools.
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0, roomStrip: true });
       }
       b.restore();
     }
@@ -4290,6 +4290,10 @@ const StationBake = (() => {
          case that assumption gets wrong, and it is the commonest shape on a real station.
          `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
+      if (!cor) {
+        roomStrip(L, X, Y, RW, RH, '0,0,0', 1 - (1 - LIGHT.room) * (1 - LIGHT.pool));
+        continue;
+      }
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
       const n = Math.max(1, Math.round(along / (cross * 1.4)));
@@ -4313,7 +4317,7 @@ const StationBake = (() => {
       L.fillStyle = 'rgba(0,0,0,' + Math.min(1, LIGHT.crown).toFixed(3) + ')';
       for (const [x, y, w, h] of crownRects) L.fillRect(x, y, w, h);
     }
-    for (const l of lampPos) cut(l.x, l.y, l.r, LIGHT.pool);   // lamps punch bright pools out of the darker ambient → the lights carry the room
+    for (const l of lampPos) if (!l.roomStrip) cut(l.x, l.y, l.r, LIGHT.pool);   // lamps punch bright pools out of the darker ambient → the lights carry the room
     // doorway light spill so corridors and rooms read as connected — DOORWAYS only (see pairIsSill)
     for (const [x1, y1, x2, y2] of G.doorDefs) {
       if (!pairIsSill(x1, y1, x2, y2)) continue;
@@ -4339,7 +4343,13 @@ const StationBake = (() => {
            fixtures' films overlap across the whole deck and the pass stops being pools and becomes
            a haze that lifts the entire room. Darkness may reach far and stay believable; a
            highlight may not. */
+        if (w > 0.001) for (const room of G.allRects) {
+          if (G.isCorridor(room.z)) continue;
+          roomStrip(F, room.x1 * T, room.y1 * T, (room.x2 - room.x1 + 1) * T,
+            (room.y2 - room.y1 + 1) * T, lampRgbOf(room.z), w);
+        }
         if (w > 0.001) for (const l of lampPos) {
+          if (l.roomStrip) continue;
           const r = l.r * 0.6;
           const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
           falloffStops(g, l.rgb || LAMP_RGB, w);   // the film carries the ROOM's fixture temperature (lampRgbOf)
