@@ -128,7 +128,7 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
         let r;
         try { r = await fetchImpl(target.href, { method: spec.method || 'GET', headers: { Authorization: 'Bearer ' + token, Accept: spec.text ? 'text/plain' : 'application/json', 'Content-Type': 'application/json' }, body, redirect: 'error', signal: ctrl.signal }); }
         catch (_) { throw new Error('Google request failed or was cancelled'); }
-        if (!r.ok) { try { await r.body?.cancel(); } catch (_) {} throw new Error('connector HTTP ' + r.status + (r.status === 403 ? ' — Google denied access; check the permissions granted to StarNet' : '')); }
+        if (!r.ok) { try { await r.body?.cancel(); } catch (_) { ctrl.abort(); } throw new Error('connector HTTP ' + r.status + (r.status === 403 ? ' — Google denied access; check the permissions granted to StarNet' : '')); }
         const reader = r.body?.getReader(); let text = '';
         if (reader) {
           const chunks = []; let size = 0;

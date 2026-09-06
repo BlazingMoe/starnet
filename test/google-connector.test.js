@@ -70,6 +70,14 @@ const catalog = require('../sidecar/mcp/catalog.js');
     await assert.rejects(client.initialize(), e => e.message.includes('HTTP ' + status) && !e.message.includes('sensitive'));
     client.close();
   }
+  let cleanupSignal;
+  const failedCleanup = makeMcpClient({ transport: makeGoogleTransport({ url: ENDPOINTS.gmail, token: 't', fetchImpl: async (_, opts) => {
+    cleanupSignal = opts.signal;
+    return { ok: false, status: 401, body: { cancel() { throw new Error('private cleanup details'); } } };
+  } }) });
+  await assert.rejects(failedCleanup.initialize(), e => e.message.includes('HTTP 401') && !e.message.includes('private'));
+  assert.equal(cleanupSignal.aborted, true, 'failed error-body cancellation aborts the request while preserving the API status');
+  failedCleanup.close();
   const blocked = makeMcpClient({ timeoutMs: 1000, transport: makeGoogleTransport({ url: ENDPOINTS.gmail, token: 't', timeoutMs: 20, fetchImpl: () => new Promise(() => {}) }) });
   await assert.rejects(blocked.initialize(), /timed out/); blocked.close();
   const oversized = makeMcpClient({ timeoutMs: 1000, transport: makeGoogleTransport({ url: ENDPOINTS.gmail, token: 't', fetchImpl: async () => new Response('x'.repeat(8 * 1024 * 1024 + 1)) }) });
