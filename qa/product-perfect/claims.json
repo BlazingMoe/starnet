@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "f546525aa2e43f8c574a7347cde6111143d5531b",
+    "sourceCommit": "6972d0711ce7709e175970b6a3d8a54f76de432c",
     "pathSetSha256": "71a155584b4f2cc8539826a2050ad9ee6c7ecd29ff1c1ff2ce645060443f5a49",
     "files": [
       {
@@ -48,8 +48,8 @@
       },
       {
         "path": "docs/DOWNLOAD_PAGE.md",
-        "bytes": 5581,
-        "sha256": "47a73e22acb1f972ba4f7f35e8986e25d5533ecd929f8d4dc302c1d1d21d9b06"
+        "bytes": 5585,
+        "sha256": "b4d17b1b3514383c7f013447ea0f4a431b4f7516a8d682e69c0462ecafde5e68"
       },
       {
         "path": "docs/RELEASE_NOTES_v1.0.0_DRAFT.md",
@@ -148,8 +148,8 @@
       },
       {
         "path": "frontend/app/chat.js",
-        "bytes": 635666,
-        "sha256": "5e16a34bca05f267240aab2dc706378667aa5718ad20263020de5b4c7f2d6f2e"
+        "bytes": 634387,
+        "sha256": "39a8753c23ad890036b970791335929352b035db73c2fdb1b5db4c4f5766a3b4"
       },
       {
         "path": "frontend/app/chatresize.js",
@@ -2450,7 +2450,10 @@
         {
           "kind": "absent",
           "path": "frontend/index.html",
-          "needles": ["id=\"estop-btn\"", "app/safety.js"]
+          "needles": [
+            "id=\"estop-btn\"",
+            "app/safety.js"
+          ]
         },
         {
           "kind": "contains",
