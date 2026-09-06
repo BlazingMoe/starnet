@@ -5603,6 +5603,8 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         theme: store.settings.theme, themeHue: store.settings.themeHue,
         themeSat: store.settings.themeSat, themeGlow: store.settings.themeGlow,
         panelBright: store.settings.panelBright, roomLighting: resolveRoomLighting(store.settings.roomLighting),
+        backdrop: store.settings.backdrop, textScale: store.settings.textScale,
+        sessionRow: store.settings.sessionRow,
         flicker: store.settings.flicker, crtGlass: store.settings.crtGlass,
         sound: store.settings.sound, keepComputerAwake: store.settings.keepComputerAwake
       }, notifyPrefs: Object.assign({}, store.settings.notifyPrefs || notifyDefaults()) };
