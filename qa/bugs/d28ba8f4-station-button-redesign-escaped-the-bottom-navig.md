@@ -32,7 +32,7 @@ The original task changed frontend/css/app.css, comms.css and interface.css plus
 
 ## Verdict
 
-Source rollback and live verification complete. The serialized full fast gate and integration are pending; installer and owner recovery remain unverified.
+Source rollback and live verification complete. Merged in 6999618c2 together with the subsequently requested enable-switch restyling; all 725 fast-gate steps passed before and after integration. Installer and owner recovery remain unverified.
 
 ## Regression
 
