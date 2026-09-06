@@ -14,6 +14,21 @@ NEXT ROUTINE shows its stopped/empty state instead of an unexplained dash.
 Both have explicit rail navigation buttons; the attention shortcut is disabled when no
 current conversation can be opened. Agent feeds remain in the default picker with provenance.
 
+Live proof at :9186: main picker contained only `approvals,next` at 340 x 164px;
+Stats contained the six counters and searching tokens returned only TOKENS. Existing five
+pins survived the code reload; removing the three preview counters left `approvals,next`
+after another reload. The routine arrow opened AUTOMATION / ACTIVE ROUTINES with the
+scheduler still off. The attention button was disabled while NEEDS YOU read `clear`.
+A temporary production widget.set feed appeared in the main picker with NOVA attribution,
+then was cleared; the final picker returned to two rows. Escape restored focus, the picker
+fit a 600 x 500 viewport, and no native-white controls or browser warnings/errors were found.
+Pending-conversation navigation and stale-target rejection passed the 73-assertion widget
+test; no live approval was issued for this visual/catalog revision.
+Full gate: `npm run test:fast` passed all 725 steps (exit 0) at candidate
+`382a66e28ee4909bf443ba2686a6e5e21aa11d21`. Source syntax, generated website mirrors,
+and diff whitespace checks passed. This remains source-verified in the isolated branch,
+not merged or installed.
+
 ## Compact picker revision — owner visual feedback
 
 The owner rejected the oversized card layout. The library now uses flat 29px instrument
