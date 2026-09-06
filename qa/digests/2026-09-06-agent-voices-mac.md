@@ -2,7 +2,7 @@
 
 Branch: `agent/voice-agents-mac-0906`, based on `3d31e373e`.
 Source commits: `d65f8f538` (Mac packaging), `3d3c1ff12` (agent voices).
-No integration merge, installer build, or publication.
+Integration status and final merge gates: `qa/STATUS.md`. No installer build or publication.
 
 ## Behavior
 
@@ -60,3 +60,11 @@ This Windows host cannot establish signed macOS WKWebView microphone behavior. T
 Mac candidate must prove allow/deny/reset/restart for Speak and Hands-Free Mic on Apple Silicon,
 with the artifact version/hash recorded. The customer symptom remains open and recovery
 unconfirmed. No installed desktop, real microphone, or human auditory comparison was verified.
+
+## Integration preparation
+
+Synchronized with trunk `94028fa48` without rebasing. Regenerated the combined bug index and
+refreshed only the four reviewed voice source fingerprints in the product claims ledger;
+all claim verdicts remain unchanged. The focused claims check passed 64 assertions.
+The HTTP suite encountered one local port collision; its unchanged nightshift-focus test
+passed all 62 assertions on retry. Full merge gates are recorded in `qa/STATUS.md`.
