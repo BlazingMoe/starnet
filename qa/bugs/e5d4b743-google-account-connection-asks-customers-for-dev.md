@@ -7,7 +7,7 @@ severity: P1
 status: open
 found: 2026-09-06
 lane: agent/google-account-signin
-fix:
+fix: cb8385c56
 origin: owner
 report: Owner report in local task on 2026-09-06; Google catalog screenshot and request for account-only sign-in
 affected: Local demo 0.10.13; public installer unverified
@@ -34,12 +34,89 @@ Owner screenshot and live local DOM at 127.0.0.1:8791 showed Gmail → SET UP. B
 
 ## Verdict
 
-Implementation in progress. Public Google registration and actual installer sign-in remain unverified; do not close on mocked-provider proof alone.
+Source implementation committed at cb8385c56. Public activation is still blocked on a StarNet-owned Google Desktop OAuth registration and Google approval; no real Google account or installer acceptance is claimed. This record stays open until the requested customer flow can be activated.
 
 ## Regression
 
-
+Before: fresh Gmail card required client ID and client secret input. After: the seeded UI at 127.0.0.1:8946 showed SIGN IN WITH GOOGLE and zero application-credential inputs. With a synthetic provider, callback completion changed the card to MANAGE SERVICE and displayed six Gmail tools plus a verified synthetic account identity. `test/google-connector.test.js` exercises all 23 native MCP operations and the package configuration guard; `test/google-signin.e2e.test.js` drives the real sidecar across consent, cancellation, persistence failures, restart, refresh, revocation and removal. These tests do not prove Google public approval.
 
 ## Sibling coverage
 
-
+{
+  "adapters": [
+    {
+      "target": "Gmail",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "MCP initialization probe and every declared tool through stable API adapter",
+      "gate": "fast"
+    },
+    {
+      "target": "Drive",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "MCP initialization probe and every declared tool through stable API adapter",
+      "gate": "fast"
+    },
+    {
+      "target": "Calendar",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "MCP initialization probe and every declared tool through stable API adapter",
+      "gate": "fast"
+    },
+    {
+      "target": "Docs",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "MCP initialization probe and every declared tool through stable API adapter",
+      "gate": "fast"
+    },
+    {
+      "target": "Sheets",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "MCP initialization probe and every declared tool through stable API adapter",
+      "gate": "fast"
+    }
+  ],
+  "entrypoints": [
+    {
+      "target": "catalog sign-in and callback",
+      "state": "covered",
+      "test": "test/google-signin.e2e.test.js",
+      "scenario": "publisher registration, PKCE callback, partial and denied consent",
+      "gate": "http"
+    },
+    {
+      "target": "legacy Google preview connector",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "legacy first-party URL resolves to stable catalog adapter while custom endpoints remain custom",
+      "gate": "fast"
+    }
+  ],
+  "displays": [
+    {
+      "target": "catalog customer controls",
+      "state": "covered",
+      "test": "test/google-connector.test.js",
+      "scenario": "no developer credential form and Sign in with Google label",
+      "gate": "fast"
+    },
+    {
+      "target": "real installed Google consent on Windows and macOS",
+      "state": "blocked",
+      "reason": "No StarNet Google registration is configured and no candidate installer has completed real Google consent."
+    }
+  ],
+  "lifecycle": [
+    {
+      "target": "durable Google grant",
+      "state": "covered",
+      "test": "test/google-signin.e2e.test.js",
+      "scenario": "failed save and cancel preserve old grant; restart refreshes; revoked access fails closed; removal survives restart",
+      "gate": "http"
+    }
+  ]
+}
