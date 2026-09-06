@@ -69,15 +69,6 @@
 .refit-note { color: var(--warn); font-family: 'VT323', monospace; font-size: 14px; letter-spacing: .5px; margin: 6px 0; }
 .refit-note.bad { color: var(--gold); }
 
-/* ---------- FLOW STRIP: the one picture of the work pipeline, hot segment lit (belt-teach) ---------- */
-.refit-flowstrip { margin: 6px 0 8px; padding: 7px 8px 6px; border: 1px solid var(--ph-faint); background: rgba(0,0,0,.25); }
-.refit-flowstrip .flow-line { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 3px; }
-.flow-seg { font-family: 'VT323', monospace; font-size: 14px; letter-spacing: 1px; color: var(--ph-dim); padding: 1px 5px; border: 1px solid var(--ph-faint); }
-.flow-seg.hot { color: var(--gold); border-color: var(--gold); text-shadow: 0 0 6px rgba(var(--gold-rgb), .55); }
-.flow-seg.desk { border-style: dashed; }
-.flow-arrow { color: var(--ph-dim); font-size: 11px; }
-.refit-flowstrip .flow-note { margin-top: 5px; text-align: center; font-family: 'VT323', monospace; font-size: 12.5px; letter-spacing: .4px; color: var(--ph-dim); }
-
 /* ---------- FILTER route rows ---------- */
 .refit-filter-rows { margin: 4px 0 2px; }
 .refit-route-row { display: flex; align-items: center; gap: 5px; margin: 3px 0; }
@@ -122,7 +113,7 @@
    picker), THE WORK (the standing job brief). Matte, theme vars only, VT323 for readouts. */
 .step-fact { font-family: 'VT323', monospace; font-size: 14.5px; letter-spacing: .5px; color: var(--text); margin: 2px 0; }
 .step-fact b { color: var(--ph-bright); }
-#step-bound { color: var(--ok); text-transform: none; letter-spacing: .5px; }
+#step-bound { color: var(--ph-bright); text-transform: none; letter-spacing: .5px; }
 .refit-brief {
   resize: vertical; min-height: 58px; max-height: 180px;
   line-height: 1.25; font-size: 14.5px;
@@ -217,6 +208,85 @@
 .refit-workflow-edit, .refit-workflow-note { color: var(--ph-dim); }
 .refit-workflow-advanced { margin: 12px 0; }
 .refit-workflow-advanced summary { cursor: pointer; color: var(--ph); padding: 6px 0; }
+/* Workflow setup is a wide editing screen. Its main choices stay separate from
+   connection facts; only the body scrolls, keeping Close and Done reachable. */
+.refit-workflow-editor { backdrop-filter: none; }
+.refit-workflow-editor .refit-guide-card {
+  width: min(calc(960px * var(--sn-unzoom,1)),calc(100% - 32px));
+  max-height: calc(100% - 32px); box-sizing: border-box; overflow: hidden;
+  display: flex; flex-direction: column; padding: 0; container-type: inline-size;
+  border: 1px solid var(--ph-dim); border-radius: 7px; font-family: 'VT323',monospace;
+  background: var(--panel); box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 18px 70px rgba(0,0,0,.65), inset 0 1px var(--ui-highlight);
+}
+.workflow-header { display: flex; align-items: flex-start; gap: 20px; flex: 0 0 auto; padding: 16px 24px; border-bottom: 1px solid var(--ui-edge); background: var(--ui-face); }
+.workflow-header > div { min-width: 0; flex: 1; }
+.workflow-kicker { display: block; font-size: 11px; letter-spacing: 1.6px; color: var(--ph-dim); margin-bottom: 7px; }
+.refit-workflow-editor .workflow-header h3 { display: block; font-weight: 400; font-size: 30px; line-height: 1.1; color: var(--ph-bright); background: none; padding: 0; margin: 0 0 9px; letter-spacing: .4px; }
+.workflow-header p { font-size: 17px; color: var(--text); line-height: 1.35; margin: 0; max-width: 68ch; }
+.workflow-close { min-width: 32px; min-height: 32px; display: flex; align-items: center; justify-content: center; padding: 4px; flex: 0 0 auto; }
+.workflow-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; padding: 22px 24px; font-size: 17px; line-height: 1.35; }
+.workflow-columns { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(0,1fr); padding: 0; }
+.workflow-main { min-width: 0; padding: 18px 24px; }
+.workflow-body:not(.workflow-columns) > .workflow-main { padding: 0; }
+.workflow-aside { min-width: 0; padding: 22px 22px; border-left: 1px solid var(--ui-edge); background: rgba(0,0,0,.2); }
+.workflow-section + .workflow-section { border-top: 1px solid var(--ui-edge); padding-top: 16px; margin-top: 16px; }
+.refit-workflow-editor h4 { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 400; letter-spacing: .2px; color: var(--ph-bright); margin: 0 0 10px; line-height: 1.2; }
+.refit-workflow-editor h4 > span { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: 0 0 auto; border: 1px solid var(--ui-edge); background: var(--ph-faint); font-size: 16px; border-radius: 3px; }
+.workflow-help, .refit-workflow-editor .step-fact, .refit-workflow-editor .trg-explain { font-size: 16px; line-height: 1.4; letter-spacing: .1px; color: var(--text); margin: 8px 0; }
+.workflow-help + .workflow-help { margin-top: 14px; }
+.workflow-selection { color: var(--ph-bright); font-size: 15px; margin: 10px 0 7px; }
+.refit-workflow-editor .refit-input { padding: 9px 10px; font-size: 17px; letter-spacing: .1px; }
+.refit-workflow-editor .refit-brief { min-height: 112px; max-height: 260px; line-height: 1.4; }
+.refit-workflow-editor .refit-note { font-size: 15px; line-height: 1.35; }
+.refit-workflow-editor .step-brief-note { font-size: 14px; line-height: 1.35; }
+.refit-workflow-editor :is(.bb,.btn-sm) { white-space: normal; }
+.refit-workflow-editor #step-rows { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; max-height: 118px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--ph-dim) transparent; margin: 8px 0 10px; padding: 2px; }
+.refit-workflow-editor .bay-agent { text-align: left; padding: 8px 6px; min-height: 34px; font-size: 14px; letter-spacing: .3px; overflow-wrap: anywhere; }
+.refit-workflow-editor .bay-agent.active { color: var(--ph-bright); background: var(--ph-faint); border-color: var(--ph); box-shadow: inset 2px 0 var(--ph); }
+.refit-workflow-editor [hidden] { display: none !important; }
+.refit-workflow-editor details { font-size: 14px; margin-top: 14px; }
+.refit-workflow-editor summary { cursor: pointer; color: var(--ph-dim); padding: 5px 0; }
+.refit-workflow-editor summary:hover { color: var(--ph-bright); }
+.workflow-start-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+.workflow-start-options .workflow-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; padding: 14px 12px; text-align: left; border: 1px solid var(--ph-dim); background: var(--ui-face),var(--panel2); }
+.workflow-choice b { font-size: 19px; font-weight: 400; letter-spacing: .1px; }
+.workflow-choice span { font-size: 14px; color: var(--ph-dim); line-height: 1.35; letter-spacing: .1px; }
+.workflow-start-options .workflow-choice.active { border-color: var(--ph); box-shadow: inset 3px 0 var(--ph); background: var(--ui-face),var(--ph-faint); }
+.refit-workflow-editor .trg-form { margin-top: 12px; padding: 14px; }
+.refit-workflow-editor .trg-form-k { font-size: 15px; letter-spacing: .4px; }
+.refit-workflow-editor .refit-workflow { border: 0; margin: 0; padding: 0; }
+.refit-workflow-editor .refit-workflow-step { background: var(--panel2); border: 1px solid var(--ui-edge); box-shadow: none; font-size: 15px; padding: 12px; gap: 5px; letter-spacing: .1px; }
+.refit-workflow-editor .refit-workflow-step:hover { border-color: var(--ph); }
+.refit-workflow-editor .refit-workflow-step b { font-size: 18px; }
+.refit-workflow-editor .refit-workflow-note { font-size: 13px; }
+.refit-workflow-editor .refit-filter-rows { display: grid; gap: 18px; margin-top: 20px; }
+.refit-workflow-editor .refit-filter-rows .refit-route-row { display: block; margin: 0; }
+.refit-workflow-editor .refit-filter-rows .refit-route-lbl { display: block; width: auto; font-size: 15px; color: var(--ph-bright); margin-bottom: 7px; }
+.workflow-lane-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.refit-workflow-editor :is(.lane-btn,.loop-exit,.loop-when) { min-height: 32px; padding: 7px 10px; font-size: 15px; }
+.refit-workflow-editor .loop-when-row { flex-wrap: wrap; gap: 7px; }
+.workflow-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 0 0 auto; padding: 14px 24px; border-top: 1px solid var(--ui-edge); background: var(--ui-face); }
+.workflow-footer > span { flex: 1; font-size: 13px; line-height: 1.3; color: var(--ph-dim); }
+.workflow-footer .btn-sm { min-height: 34px; padding: 7px 15px; font-size: 15px; }
+.refit-workflow-editor :is(button,input,textarea,summary):focus-visible { outline: 2px solid var(--ph-bright); outline-offset: 2px; }
+/* A placement hint can arrive while adding a workstation from the Bay editor.
+   Keep that hint for after setup instead of covering the fields with a second panel. */
+body:has(.refit-workflow-editor) > .tut-coach:not(.kit),
+body:has(.refit-workflow-editor):has(> .tut-coach:not(.kit)) > .tut-ring { visibility: hidden; pointer-events: none; }
+@container (max-width: 700px) {
+  .workflow-columns { grid-template-columns: minmax(0,1fr); }
+  .workflow-aside { border-left: 0; border-top: 1px solid var(--ui-edge); }
+  .workflow-header { padding: 16px 18px; gap: 10px; }
+  .refit-workflow-editor .workflow-header h3 { font-size: 26px; }
+  .workflow-main, .workflow-aside, .workflow-body:not(.workflow-columns) { padding: 18px; }
+  .workflow-footer { padding: 12px 18px; flex-wrap: wrap; }
+  .workflow-footer > span { flex-basis: 100%; }
+}
+@container (max-width: 420px) {
+  .workflow-start-options { grid-template-columns: minmax(0,1fr); }
+  .refit-workflow-editor #step-rows { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .workflow-header p { font-size: 15px; }
+}
 /* STARTER GEAR (was STATION ORDERS) — the stage BEFORE a line exists, in the same card slot. The count is the only
    new part: a real n/4 off the live model, so progress reads at a glance. */
 .refit-finline .fl-count { margin-left: auto; font-size: 13px; letter-spacing: 1px; color: var(--ph-dim); }

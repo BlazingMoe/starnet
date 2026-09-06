@@ -5945,7 +5945,6 @@ const World = (() => {
     drawQueueJam(now);   // the live backlog as a physical jam of waiting crates at the INTAKE (world-space, under the lightmap)
     drawShippedPallet(now);   // SHIPPED TODAY: completed jobs stack as product crates at the OUTBOX (server-truth count)
 
-    drawOverhead(now);   // the deckhead: pendant fixtures hanging over the room, above everything that walks under them
     ctx.drawImage(cache.lightCv, 0, 0);
     ctx.save();
     try {
@@ -6375,30 +6374,6 @@ const World = (() => {
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
-  }
-
-  /* ---- THE DECKHEAD (depth pass, 2026-09-03) ----
-     Nothing ever hung ABOVE the floor: every lamp past a room's north wall was a pool of light with no
-     fixture, and a top-down room with nothing between the camera and the deck reads as a tray. Each hanging
-     fixture the bake laid (lamps with `hang`) gets a pendant: a stem, a shade, and the filament in the
-     room's own lamp colour — drawn OVER props and bodies, since it is above them, and UNDER the lightmap so
-     it takes the room's ambient like everything else (its filament is re-lit by the shimmer). The wall-
-     mounted first row keeps the flood the bake already paints. Deterministic, ~5 fills per fixture. */
-  function drawOverhead(now) {
-    if (!cache || !cache.lamps || !cache.lamps.length) return;
-    for (const l of cache.lamps) {
-      if (!l.hang) continue;
-      const x = Math.round(l.x), y = Math.round(l.y) - 6;   // the shade sits a little north of the pool centre (the fixture is above it)
-      ctx.fillStyle = '#14161c'; ctx.fillRect(x, y - 9, 1, 6);                 // stem
-      ctx.fillStyle = '#23262e'; ctx.fillRect(x - 4, y - 3, 9, 2);              // shade, top course
-      ctx.fillStyle = '#31353f'; ctx.fillRect(x - 5, y - 1, 11, 2);             // shade, flared lip
-      ctx.fillStyle = '#0d0e12'; ctx.fillRect(x - 5, y + 1, 11, 1);             // the dark underside
-      const rgb = l.rgb || '252,224,172';
-      ctx.fillStyle = 'rgba(' + rgb + ',0.95)'; ctx.fillRect(x - 2, y + 1, 5, 1);   // the filament / tube, seen edge-on
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = 'rgba(' + rgb + ',0.22)'; ctx.fillRect(x - 4, y, 9, 3);
-      ctx.globalCompositeOperation = 'source-over';
-    }
   }
 
   /* Hull beacons use bake-validated mount points on the exterior skirt.
