@@ -1,5 +1,13 @@
 # NEXT.md — current priorities & task queue
 
+## IN PROGRESS — 2026-09-06 release UI audit integration (`agent/release-ui-audit-0906`)
+
+Owner authorized merging the two audited repairs: complete appearance backups and full-suite
+journey receipts. Synced with trunk `b8f8e8dd6`; combined candidate must pass the fast gate and
+live journeys before integration, then the fast gate on trunk. Existing open release findings
+remain open. Preserve unrelated integration-tree QA status and Rooms handoff edits.
+Audit detail: `docs/RELEASE_UI_AUDIT_2026-09-06.md`. Merge result belongs in `qa/STATUS.md`.
+
 ## IN PROGRESS — 2026-09-05 paid first-run recovery (`agent/paid-first-run`)
 
 Owner requested fresh assessment and execution of the subscription/credit purchaser recovery
