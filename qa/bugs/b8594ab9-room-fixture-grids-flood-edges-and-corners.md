@@ -6,8 +6,8 @@ surface: world
 severity: P2
 status: fixed
 found: 2026-09-06
-lane: agent/room-lighting-overhaul
-fix: 7e570a506
+lane: agent/room-lighting-strip
+fix: 1525663d0
 origin: owner
 report: Owner visual comparison of telescope room and wood-floor mancave, 2026-09-05
 affected: Source snapshot 07a643772; installed build unknown
@@ -24,19 +24,19 @@ The telescope room is broadly and evenly lit, including its sides and corners, i
 
 ## Repro
 
-Run `node dev/seed.js --keep` on port 9186, then `node dev/room-lighting-proof.mjs before` and `node dev/room-lighting-proof.mjs after`. The before pass intercepts only stationbake.js with the reported source snapshot. Compare six room sizes and the furnished telescope/wood scenes.
+Run the seeded preview on port 9197. `dev/room-lighting-proof.mjs reference-scaled` checks seven sizes. `dev/room-lighting-reference-proof.mjs` compares the saved reference room with the original renderer using the approved ambient lift.
 
 ## Evidence
 
-Anchor: frontend/app/stationbake.js:3562. Local `.worldshots/room-lighting/` contains before/after PNGs and JSON sampled from the running browser's production lightmap. At 18x18, fixture count is 4 -> 2, center transmission .553 -> .773, corner .580 -> .196. At 40x30, fixtures 20 -> 6 and corner transmission .698 -> .227. Global LIGHT controls are unchanged.
+The owner's actual HAB-16 reference is 15x14 with a single column and two original top/bottom fixtures. The current renderer reproduces its original baked base and lightmap byte-for-byte after applying the same approved ambient adjustment (0.84 to 0.82). Glow was reduced separately from 0.07 to 0.06. Seven room sizes preserve two sources, darker sides and illuminated north walls. Reference parity, seeded screenshots and measurements are in `.worldshots/room-lighting/`; portable summary is `qa/digests/2026-09-06-room-lighting-strip.md`.
 
 ## Verdict
 
-Source implementation 7e570a506 and live browser comparison completed. Installed build and owner recovery remain unverified; this record makes no installed/customer recovery claim.
+The owner accepted the local preview and requested final validation and integration. This supersedes the earlier centered-cell and continuous-strip experiments. Installed build remains unverified; acceptance of the source preview does not claim installer recovery.
 
 ## Regression
 
-Before, rows hugged the north/south edges and column density grew every eight tiles, creating brighter corners than centers in 18x18 rooms. After, fixtures occupy centered cells with room-scaled radius, and the room fill is centered with tighter falloff reach. Six sampled sizes retain a center at least .20 above all sampled perimeter points.
+Source positions and radius scale from the approved reference room. Column count no longer grows with width. Original falloff, sheen and light temperature remain; the approved ambient/glow values and CRT lab Reset defaults agree. Focused station-bake coverage checks seven room sizes and chunk/monolithic parity.
 
 ## Sibling coverage
 

@@ -58,7 +58,7 @@ const lightControls = { ambient: '0.82', pool: '0.85', room: '0.46', corridor: '
 for (const [key, value] of Object.entries(lightControls)) {
   const lock = new RegExp('\\b' + key + ': ' + value.replace('.', '\\.') + '(?:[, }])');
   A.ok(lock.test(bake), 'the shipped ' + key + ' lighting control remains ' + value);
-  A.ok(lock.test(lab), 'the CRT lab reset keeps ' + key + ' at the shipped value');
+  A.ok(lock.test((lab.match(/const LIGHT_DEFAULTS = \{([^}]+)\}/) || [])[1] || ''), 'the CRT lab reset keeps ' + key + ' at the shipped value');
 }
 
 A.report('simulation-lighting');
