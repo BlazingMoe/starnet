@@ -2447,11 +2447,6 @@ body:not(.no-flicker) #screen-game.active { animation: flick 7s infinite; }
   box-shadow: 0 0 0 3px rgba(0,0,0,.9), 0 -6px 26px rgba(0,0,0,.75), 0 0 20px var(--ph-glow2);
 }
 .bb-group.open .bb-menu { display: flex; }
-.bb-menu-h {
-  padding: 5px 10px 7px; margin-bottom: 3px;
-  font-size: 12px; letter-spacing: 2px; color: var(--ph-dim);
-  border-bottom: 1px solid var(--ph-faint); white-space: nowrap;
-}
 .bb-menu .bb {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   border: 1px solid transparent; padding: 6px 10px; font-size: 15px; letter-spacing: 1.5px;
@@ -2478,7 +2473,6 @@ body:not(.no-flicker) #screen-game.active { animation: flick 7s infinite; }
     max-width: calc(100vw - 16px);
     box-sizing: border-box;
   }
-  .bb-menu-h { overflow: hidden; text-overflow: ellipsis; }
   .bb-menu .bb { min-width: 0; }
 }
 
