@@ -4,7 +4,7 @@ slug: centered-room-lighting-leaves-sides-dark-and-cre
 title: Centered room lighting leaves sides dark and creates hotspots
 surface: world
 severity: P2
-status: open
+status: fixed
 found: 2026-09-06
 lane: agent/room-lighting-strip
 fix: 5f40c3e60
@@ -32,7 +32,7 @@ Before/after JSON, full room renders and live screenshots are under `.worldshots
 
 ## Verdict
 
-Source fix 5f40c3e60 replaces the circular room fill with one union of interior coverage, including raised north walls. A distributed fixture grid provides restrained highlights at 22% of the former room-fixture strength. `test/stationbake.chunk.test.js` checks both-axis coverage, bounded gains and chunk/full-bake parity; `test/room-lighting-settings.test.js` retains preset behavior. Full regression and final furnished-room proof are pending.
+Source fix 5f40c3e60 replaces the circular room fill with one union of interior coverage, including raised north walls. A distributed fixture grid provides restrained highlights at 22% of the former room-fixture strength. `test/stationbake.chunk.test.js` checks both-axis coverage, bounded gains and chunk/full-bake parity; `test/room-lighting-settings.test.js` retains preset behavior. All 723 fast-suite steps passed under the extended runner, exit 0; the standard 15-minute wrapper timed out without a test failure. Furnished metal/plank rooms, live Build view, and all three brightness levels passed live checks. Installer verification and owner recovery confirmation remain outstanding.
 
 ## Regression
 
@@ -40,4 +40,4 @@ Actual browser lightmap sampling covers 5x5 through 60x12/12x60 rooms and L/U/ov
 
 ## Sibling coverage
 
-{"adapters":[{"target":"room materials and fixture highlights","state":"blocked","reason":"Browser coverage proof and shared renderer exercised; furnished-scene check pending."}],"entrypoints":[{"target":"rectangular and irregular room geometry","state":"blocked","reason":"Nine sizes plus L/U/overlap layouts verified by the browser proof; real-canvas pixel checks are not registered in the fast suite."}],"displays":[{"target":"world and build preview","state":"blocked","reason":"World verified and chunk parity registered in test/stationbake.chunk.test.js; live build preview and installer pending."}],"lifecycle":[{"target":"lighting presets and reload","state":"blocked","reason":"Existing setting persistence tests retained; updated renderer's live three-level/reload proof in progress."}]}
+{"adapters":[{"target":"room materials and fixture highlights","state":"blocked","reason":"Furnished metal/plank scenes visually inspected and browser coverage proof passed; these real-canvas checks are not registered in the fast suite."}],"entrypoints":[{"target":"rectangular and irregular room geometry","state":"blocked","reason":"Nine sizes plus L/U/overlap layouts verified by the browser proof; real-canvas pixel checks are not registered in the fast suite."}],"displays":[{"target":"world and build preview","state":"blocked","reason":"Both views verified live, Build reported no degraded layers, and test/stationbake.chunk.test.js passed parity checks; installed desktop remains unverified."}],"lifecycle":[{"target":"lighting presets and reload","state":"blocked","reason":"All three levels, keyboard activation and reload persistence passed live with the corrected renderer; installed restart remains unverified."}]}
