@@ -42,7 +42,7 @@ A temporary loopback proxy reproduced the original plain-text 404. The patched p
 
 ## Verdict
 
-Source fix cf6b3ca03 is live-verified: immediate picker, readable 404 with successful Retry, two-agent group creation, reload, and server restart retaining both members. Group HTTP scenarios and picker regression pass. Integration remains blocked: full fast retry failed at step 154/724 in shell-machine-state.test.js (9 PowerShell child-command timeout failures, 257 assertions passed); the initial fast run failed at preflight and the customer-journey run hit Node startup out-of-memory. Isolated reruns passed preflight 10/10 and sidecar.http 504 assertions. Port 9177 remains on its older worktree without the group endpoint; it was not modified. Installer and reporter recovery remain unverified.
+Source fix cf6b3ca03 merged as ceafd9c67. Full fast gate passed 725/725 before and after integration; test/group-chat-picker.test.js and group HTTP scenarios pass. Live verification covered immediate picker, readable missing-route error with successful Retry, two-agent group creation, reload and server restart persistence. Final check on port 9177 opened the picker and listed NOVA plus 25 available peers after that server process had restarted. Earlier transient gate failures were superseded by successful complete runs. Receipt: qa/digests/2026-09-06-add-agents.md. Installer and reporter recovery remain unverified.
 
 ## Regression
 

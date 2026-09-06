@@ -1,11 +1,12 @@
 # NEXT.md — current priorities & task queue
 
-## IN PROGRESS — 2026-09-06 Add agents integration (`agent/comms-add-agents-0906`)
+## DONE — 2026-09-06 Add agents integration (`agent/comms-add-agents-0906`)
 
 Owner requested merging the verified COMMS picker repair. It opens before network work,
 shows unavailable-backend errors with Retry, and ignores late results after Cancel.
-Earlier candidates passed 725/725; the current world/UI combination is being gated before
-integration. Preserve the existing QA status and Rooms handoff edits. Bug record: `0245a284`.
+Merged as `ceafd9c67`; fast gate passed 725/725 before and after integration. Live port 9177
+now opens the picker and lists the crew. Existing QA status and Rooms handoff edits were
+preserved. Bug record: `0245a284`; receipt: `qa/digests/2026-09-06-add-agents.md`.
 
 ## DONE — 2026-09-06 release UI audit integration (`agent/release-ui-audit-0906`)
 
