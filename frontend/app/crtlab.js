@@ -14,14 +14,14 @@
   // MUST MIRROR StationBake.LIGHT — RESET writes these back over the live object (same contract as
   // WALL_DEFAULTS below). Dulled 2026-08-15 alongside the bake; a stale mirror here would make RESET
   // restore the brighter station that no longer ships.
-  const LIGHT_DEFAULTS = { ambient: 0.84, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.1, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };
+  const LIGHT_DEFAULTS = { ambient: 0.84, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };
   // MUST MIRROR StationBake.SHAPE — same RESET-writes-these contract as WALL_DEFAULTS below.
   const SHAPE_DEFAULTS = { cornerN: 1 };
   /* MUST MIRROR StationBake.WALL EXACTLY — these are not just the readout's key list, RESET writes
      them back over the live object. They had drifted (up 9, side 12) behind the shipped 14/7, so
      RESET restored a state that never shipped and side 12 pushed the wall band past the hull
      silhouette it is pinned to. Add a WALL knob, add it here. */
-  const WALL_DEFAULTS = { up: 30, corUp: 16, skirt: 32, side: 7, capH: 4, sideCap: 5 };
+  const WALL_DEFAULTS = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5 };
   const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.12, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
   // TUBE APERTURE — the CSS glass vignette over the feed (app.css :root --tube-*). NOT the barrel warp:
   // `curve` bows the picture, these dim its outer band, and they move independently. Seeded from the live

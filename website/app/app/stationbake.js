@@ -96,7 +96,7 @@ const StationBake = (() => {
     return out;
   }
 
-  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.02 };   // cap 0.30→0.10 (2026-09-03): the crown ring was the brightest thing on the station's outside
+  const WALL_TONE = { face: -0.32, top: -0.10, cap: 0.30 };   // cap back at the shipped +0.30 (2026-09-05, Andrew with a 0.10.13 frame: "there is no wall line") — the bright crown IS how a top-down view reads a wall; the exterior's darkness lives in HULL_EXPOSURE, never here
   let wallPalCache = null;
   function wallPal(z) {
     let p = wallPalCache && wallPalCache.get(z);
@@ -136,7 +136,7 @@ const StationBake = (() => {
                 each footprint plus exactly `pad`, so a crown wider than that hangs OUTSIDE the
                 mask and renders at its raw baked tone against the starfield — a blazing line
                 down the sides while the north crown sits under 0.77 ambient. */
-  const WALL = { up: 30, corUp: 16, skirt: 32, side: 7, capH: 4, sideCap: 5 };   // up 22→30, corUp 12→16 (2026-09-03, depth pass): a room is a box you are inside, and height is the only cue a top-down view has for it   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
+  const WALL = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5 };   // corUp 16→30, skirt 32→40 (2026-09-05, Andrew: the south wall read shorter than the north, hallways "way shorter" than rooms — a hallway is the room's construction now, and the skirt matches the north face's visible height)   // up 22→30, corUp 12→16 (2026-09-03, depth pass): a room is a box you are inside, and height is the only cue a top-down view has for it   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
   /* VIEWPORT holes punched by the wall pass this bake. buildLightMap cuts the ambient mask over
      them — without that the sky behind a window renders at the interior's 23% and reads as a
      black pane. Reset per bake alongside the wall palette cache. */
@@ -238,7 +238,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.1, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -1839,7 +1839,7 @@ const StationBake = (() => {
     // lit crown — opaque cap band, 1px lighter top edge, 1px darker seam beneath. Kept BRIGHT:
     // after the ambient bake this continuous line defines the wall height at any zoom.
     crown(b, X, topY - capH, T, capH, pal.cap);
-    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.08));                          // 1px lighter top edge
+    crown(b, X, topY - capH, T, 1, shade(pal.cap, 0.30));                          // 1px lighter top edge
     b.fillStyle = shade(pal.cap, -0.45); b.fillRect(X, topY - 1, T, 1);            // 1px darker seam beneath
     // THE FACE — per material
     (WALL_RECIPES[wallMatOf(e.z)] || WALL_RECIPES.plating)(b, pal, X, topY, h, e, n, room, Y + inFace);
@@ -1847,7 +1847,7 @@ const StationBake = (() => {
        thick bevelled edge — lit on top and the west, shaded on the east — that catches the ceiling light
        and separates it from its neighbour. Two tiles per segment. Painted over the recipe so every material
        reads as panels bolted to the frame; `wallDetail` scales it. */
-    if (room && DEPTH.wallDetail > 0.001) {
+    if (DEPTH.wallDetail > 0.001) {   // rooms AND hallways (2026-09-05): a hallway framed differently from the room it buds off reads as a different building
       const seg = ((e.x % 2) + 2) % 2, wd = Math.max(0, DEPTH.wallDetail);
       const fr = shade(pal.face, 0.22 * wd), fd2 = shade(pal.face, -0.45 * wd), fx = shade(pal.face, -0.62 * wd);
       b.fillStyle = fr; b.fillRect(X, topY + 2, T, 1);                                 // lit top rail of the panel
@@ -3080,7 +3080,7 @@ const StationBake = (() => {
        correction — the ring simply did not. Keep them together. */
     const xLo = outX < 0 ? Math.round(ax - HR) : X, xHi = outX < 0 ? X + T : Math.round(ax + HR);
     const yLo = outY < 0 ? Math.round(cy - HR) : Y, yHi = outY < 0 ? Y + T : Math.round(cy + HR);
-    const lit = shade(pal.cap, 0.08), seam = shade(pal.cap, -0.45);
+    const lit = shade(pal.cap, 0.30), seam = shade(pal.cap, -0.45);
     const ccy = Math.round(Y / T);
     const put = (x, y, w, h, c) => {
       const x0 = Math.max(xLo, x), x1 = Math.min(xHi, x + w);
@@ -3284,7 +3284,7 @@ const StationBake = (() => {
          Nothing spikes above its neighbours — the -0.22 crest's original complaint (a bright 1px
          divider column, 2026-07-24) is avoided because the crown is a WIDE band with its highlight
          on the outer edge, where the hull is, not stranded in the middle of the wall. */
-      const crownLit = shade(pal.cap, 0.08), crownSeam = shade(pal.cap, -0.45);
+      const crownLit = shade(pal.cap, 0.30), crownSeam = shade(pal.cap, -0.45);
       const cw = sideCapW();
       // walls only extrude OUTSIDE the tile when the neighbour is void. Interior boundaries
       // (a non-door seam to another zone) draw the face only, so the wall never smears onto
@@ -3435,7 +3435,7 @@ const StationBake = (() => {
             const w = 1 + Math.round(reach * (k + 1) / capH), x = side ? edge - w : edge;
             occlusion.rects.push([x, top - capH + k, w, 1]);
             crown(b, x, top - capH + k, w, 1, pal.cap);
-            crown(b, side ? x : edge + w - 1, top - capH + k, 1, 1, shade(pal.cap, 0.08));
+            crown(b, side ? x : edge + w - 1, top - capH + k, 1, 1, shade(pal.cap, 0.30));
           }
           b.fillStyle = shade(pal.cap, -0.45); b.fillRect(side ? edge - reach - 1 : edge, top - 1, reach + 1, 1);
         }
