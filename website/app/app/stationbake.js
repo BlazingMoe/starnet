@@ -238,7 +238,7 @@ const StationBake = (() => {
      `reach` together take it to mean 44 / 7% lit / chroma 22 with the SAME crushed-black floor:
      contrast and colour, not a global lift (ambient itself moved 0.82 -> 0.80 only). A/B the whole
      thing with the CRT LAB's "Light: pre-09-02" preset before relitigating any single value. */
-  const LIGHT = { ambient: 0.84, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
+  const LIGHT = { ambient: 0.82, ambR: 7, ambG: 5, ambB: 3, pool: 0.85, room: 0.46, corridor: 0.34, door: 0.4, floor: 0.24, crown: 0.45, pitch: 8, reach: 1.3, falloff: 0.85, cool: 0.9, warm: 0.16, spill: 0.7 };   // floor 0.26→0.3, warm 0.14→0.3 (2026-09-03 overhaul: the film is what puts light ON the deck under a lamp; measured lounge sd 28.8→35+, crushed 4%→2%) · crown = how far the ambient gives way over a wall's lit top surface (0 = off, the old inversion)
   const POOL_RGB = '246,224,188';   // warm-neutral tungsten — the deck pools (locked by simulation-lighting.test.js)
   const LAMP_RGB = '252,224,172';   // the film's tungsten — a touch more saturated than the deck pool, it sits ON things
   const STAR_RGB = '150,186,255';   // the sky through the glass
@@ -3559,11 +3559,13 @@ const StationBake = (() => {
     b.restore();
   }
 
-  const lampCols = (r) => Math.max(1, Math.floor((r.x2 - r.x1 + 1) / Math.max(2, LIGHT.pitch)));
+  // Reference HAB-16 is 15 x 14 tiles with one column and two original floods.
+  // Keep that arrangement when a room grows instead of adding bright side columns.
+  const lampCols = () => 1;
   function lampRows(Y, RH) {
-    const y0 = Y + T * 1.6, yLast = Y + RH - T * 1.2;
-    const rows = Math.max(1, 1 + Math.floor(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
-    return { rows, y0, step: rows > 1 ? (yLast - y0) / (rows - 1) : 0 };
+    const scaleY = RH / (14 * T);
+    const y0 = Y + T * 1.6 * scaleY, yLast = Y + RH - T * 1.2 * scaleY;
+    return { rows: 2, y0, step: yLast - y0 };
   }
 
   /* the ADDITIVE half of the room lighting — every warm floor pool + its sheen, drawn to whatever
@@ -3580,7 +3582,7 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = Math.min(60, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
+      const rad = 60 * Math.min(RW / (15 * T), RH / (14 * T)) * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -4288,6 +4290,12 @@ const StationBake = (() => {
          case that assumption gets wrong, and it is the commonest shape on a real station.
          `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
+      if (!cor) {
+        // The reference room's original soft fill, scaled with the same source geometry.
+        const referenceScale = Math.min(RW / (15 * T), RH / (14 * T));
+        cut(X + RW * 0.5, Y + RH * 0.42, 14 * T * 0.78 * referenceScale, LIGHT.room);
+        continue;
+      }
       const vert = RH > RW;
       const along = vert ? RH : RW, cross = vert ? RW : RH;
       const n = Math.max(1, Math.round(along / (cross * 1.4)));

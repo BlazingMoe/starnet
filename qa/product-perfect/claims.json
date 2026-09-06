@@ -18,7 +18,7 @@
   "expectedClaimCount": 37,
   "releaseSurface": {
     "algorithm": "sha256",
-    "sourceCommit": "fc0fea13e8b430341a2ad07c7710d4d4419d8d52",
+    "sourceCommit": "b34063de1036410643b83e9980414aa3a9d881ce",
     "pathSetSha256": "35f806b0a0dbe801e6852fb7d699846911c65713289c283c13b96afb7baf576f",
     "files": [
       {
@@ -199,7 +199,7 @@
       {
         "path": "frontend/app/crtlab.js",
         "bytes": 21363,
-        "sha256": "476ee624623e491fdc1d5b115056c58a46af9b5a6e06d433d7c18746ed8aa4a5"
+        "sha256": "906a230d7514bd2d6390a7bb9d9369ddd31ba800061b82088c1a1bddee5e53fe"
       },
       {
         "path": "frontend/app/ctxgauge.js",
@@ -753,8 +753,8 @@
       },
       {
         "path": "frontend/app/stationbake.js",
-        "bytes": 336933,
-        "sha256": "73ab5a30e53d83c1a5566eb4b7928ad76edaada129a465bb7f95d5d2c14a0766"
+        "bytes": 337246,
+        "sha256": "e4bc21a5099ddb2114f8a44e2043dea6a8c48cd7a9d917baebf8974602f81e09"
       },
       {
         "path": "frontend/app/stationcommands.js",
@@ -1009,7 +1009,7 @@
       {
         "path": "frontend/app/world.js",
         "bytes": 721176,
-        "sha256": "5caa1cae1b62a3ca947998fc413453ad3281420830cc9f9c4819428e6664339d"
+        "sha256": "fedf8bf2e722f368795d1b729b3a09c9e5ea29581921d5e2f1c4ede88e1939b7"
       },
       {
         "path": "frontend/app/worldmodel.js",
