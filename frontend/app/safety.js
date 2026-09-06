@@ -50,7 +50,7 @@
     const b = document.createElement('button');
     b.id = 'estop-btn';
     b.type = 'button';
-    b.textContent = '⏹ E-STOP';
+    b.innerHTML = '<span class="tb-stop-mark" aria-hidden="true"></span><span class="tb-stop-copy"><b>E-STOP</b><small>HALT RUNS</small></span>';
     b.title = 'E-STOP — kill every live run, everywhere, now (Alt+H)';
     b.setAttribute('aria-label', 'Emergency stop — halt all runs (Alt+H)');
     b.addEventListener('click', halt);

@@ -478,15 +478,18 @@
            the session-status instruments (UPLINK / ONLINE / save) moved up from
            #bottombar .bb-right with their ids intact so their existing writers keep working. -->
       <div class="tb-stat station tb-inst" id="tb-station" title="The whole station's cumulative level — every agent's honest track record rolled up. A level never unlocks or gates anything; it is proof of real work you rated well.">
+        <svg class="tb-station-mark" viewBox="0 0 24 28" aria-hidden="true"><path d="M12 2 22 8v12l-10 6-10-6V8Z"/><path d="m6 11 6-4 6 4M6 16l6-4 6 4M6 21l6-4 6 4"/></svg>
         <span class="tb-lbl">STATION</span>
         <b class="tb-val" id="gt-station">Lv 1</b>
         <span class="tb-xp" aria-hidden="true"><i class="tb-xp-fill"></i></span>
       </div>
       <span class="tb-sep" aria-hidden="true"></span>
       <div class="tb-status">
-        <span id="sig" title="local sidecar uplink">UPLINK <b>▂▄▆█</b></span>
-        <span id="status-pill">ONLINE</span>
-        <span id="save-dot" title="autosave">●</span>
+        <div class="tb-connection">
+          <svg class="tb-link-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5M5 17v-4h14v4"/><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/></svg>
+          <div class="tb-link-copy"><span id="sig" title="local sidecar uplink">UPLINK <b aria-hidden="true">▂▄▆█</b></span><span id="status-pill">ONLINE</span></div>
+          <span id="save-dot" title="autosave">●</span>
+        </div>
       </div>
     </div>
   </header>

@@ -369,3 +369,17 @@ seeded server, with no model calls or consent decisions. It checks exact-session
 the approval UI, two requests on one agent, questions, orphan/archived cases, resolution, search,
 keyboard/focus recovery, three smaller viewport sizes, enlarged text and saved roster collapse.
 No runtime exceptions. Evidence: `.worldshots/session-attention/`. The custom demo save is preserved.
+
+## September 5 header instruments
+
+The station level, E-STOP and connection readout now share the dashboard's recessed, matte
+hardware styling. The level has a rank emblem and its existing measured XP progress. E-STOP
+has a larger target, a stop symbol and a HALT RUNS subtitle. Uplink and activity share a
+two-line readout with a connection symbol, replacing the old signal bars and oval status pill.
+Existing status IDs, writers, save-health indicator, halt action and Alt+H shortcut remain intact.
+Colors follow all six palettes; narrow layouts progressively remove decorative symbols.
+This adds no timers, animation loops, network requests or world-render work.
+
+`dev/header-instruments-probe.mjs` exercises layout from 320 to 1440 pixels, enlarged text,
+theme changes, real E-STOP requests and connection loss/recovery on a disposable seeded server.
+Evidence lives in `.worldshots/header-instruments/`. The custom station at port 9177 is preserved.
