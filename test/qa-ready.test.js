@@ -35,7 +35,7 @@ function greenArtifacts() {
     ledger: { ok: true, counts: { P0: 0, P1: 0, P2: 3 } },
     bugs: { counts: { P0: 0, P1: 0, P2: 7 } },
     guardian: { stampIso: FRESH, trunkHead: TRUNK, result: 'green', gatesRan: ['test-fast', 'shoot', 'golden', 'audit', 'journeys'], gatesSkipped: [] },
-    journeys: { stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 120, total: 120 },
+    journeys: { stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 120, total: 120, fullSuite: true },
     beginner: { stampIso: FRESH, trunkHead: TRUNK, result: 'PASS', mode: 'ui-only', totalMs: 84000 },
     installed: {
       schemaVersion: 3, stampIso: iso(NOW - 2 * DAY_MS), expectedHead: TRUNK, expectedTree: TREE,
@@ -192,7 +192,11 @@ function greenCfg() {
 /* ─── F. journeys + beginner + installed check semantics ─── */
 {
   const cfg = greenCfg();
-  A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 5, total: 5 }, cfg).ok, true, 'fresh candidate-bound journeys pass -> ok');
+  A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 5, total: 5, fullSuite: true }, cfg).ok, true, 'fresh candidate-bound full journeys pass -> ok');
+  for (const fullSuite of [false, undefined, 'true']) {
+    A.eq(checkJourneys({ stampIso: FRESH, trunkHead: TRUNK, result: 'pass', passed: 13, total: 13, fullSuite }, cfg).ok, false,
+      'a focused or unproven-scope receipt cannot satisfy release journeys');
+  }
   A.eq(checkJourneys({ stampIso: FRESH, result: 'blocked' }, cfg).ok, false, 'blocked journeys -> NOT READY');
   A.eq(checkJourneys({ stampIso: FRESH, result: 'fail' }, cfg).ok, false, 'failed journeys -> NOT READY');
   A.eq(checkJourneys({ stampIso: STALE, trunkHead: TRUNK, result: 'pass' }, cfg).ok, false, 'a stale journeys pass -> NOT READY');
