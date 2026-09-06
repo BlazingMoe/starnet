@@ -42,7 +42,9 @@ A.ok(/modelPin:\s*pickedSummonModel/.test(mkt), 'the picked model is threaded in
 // now via summonConfigPanelHTML() off the dossier rather than off the roster.
 A.ok(/summonConfigPanelHTML\(s\)/.test(mkt), 'the CONFIGURE panel is rendered into the dossier');
 A.ok(/function summonConfigPanelHTML[\s\S]{0,900}summonModelBarHTML\(s\)/.test(mkt), 'the CONFIGURE panel carries the model bar (still wired into summon)');
-A.ok(/function wireSummonConfig[\s\S]{0,3000}ModelPicker\.onChange\(modelWrap/.test(mkt), 'the panel re-binds its model picker on every dossier repaint');
+// Check the function's wiring, independent of how much appearance/name setup precedes it.
+const summonConfigBody = mkt.match(/function wireSummonConfig\(sc\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+A.ok(/ModelPicker\.onChange\(modelWrap/.test(summonConfigBody), 'the panel re-binds its model picker on every dossier repaint');
 // The name field now sits INSIDE the element renderDossier() replaces, so a keystroke may never repaint the dossier.
 A.ok(!/nameIn\.addEventListener\('input',[\s\S]{0,200}renderDossier\(\)/.test(mkt), 'typing a name never re-renders the dossier out from under the focused input');
 
