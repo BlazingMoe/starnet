@@ -3559,23 +3559,13 @@ const StationBake = (() => {
     b.restore();
   }
 
-  // Keep the established north-wall floods and their depth rhythm, on one centre line.
+  // Reference HAB-16 is 15 x 14 tiles with one column and two original floods.
+  // Keep that arrangement when a room grows instead of adding bright side columns.
   const lampCols = () => 1;
   function lampRows(Y, RH) {
-    const y0 = Y + T * 1.6, yLast = Y + RH - T * 1.2;
-    const rows = Math.max(1, 1 + Math.floor(Math.max(0, yLast - y0) / (Math.max(2, LIGHT.pitch) * T)));
-    return { rows, y0, step: rows > 1 ? (yLast - y0) / (rows - 1) : 0 };
-  }
-
-  // Extend the existing lateral falloff down the deck without widening it.
-  // Wall light is handled separately, so the beam cannot black out the wall.
-  function verticalBeam(ctx, cx, top, height, radius, rgb, alpha) {
-    const left = Math.floor(cx - radius), right = Math.ceil(cx + radius);
-    for (let x = left; x < right; x++) {
-      const t = Math.min(1, Math.abs(x + 0.5 - cx) / radius);
-      ctx.fillStyle = 'rgba(' + rgb + ',' + (alpha * falloffAt(t)).toFixed(4) + ')';
-      ctx.fillRect(x, top, 1, height);
-    }
+    const scaleY = RH / (14 * T);
+    const y0 = Y + T * 1.6 * scaleY, yLast = Y + RH - T * 1.2 * scaleY;
+    return { rows: 2, y0, step: yLast - y0 };
   }
 
   /* the ADDITIVE half of the room lighting — every warm floor pool + its sheen, drawn to whatever
@@ -3592,7 +3582,7 @@ const StationBake = (() => {
       if (G.isCorridor(r.z)) continue;
       const X = r.x1 * T, Y = r.y1 * T, RW = (r.x2 - r.x1 + 1) * T, RH = (r.y2 - r.y1 + 1) * T;
       const count = lampCols(r);
-      const rad = Math.min(60, RW * 0.30, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
+      const rad = 60 * Math.min(RW / (15 * T), RH / (14 * T)) * Math.max(0.5, LIGHT.reach || 1);
       const gN = openSide(r, 'n') ? rad : 0, gS = openSide(r, 's') ? rad : 0;
       const gW = openSide(r, 'w') ? rad : 0, gE = openSide(r, 'e') ? rad : 0;
       b.save();
@@ -3601,14 +3591,18 @@ const StationBake = (() => {
       b.clip();
       b.beginPath(); b.rect(X - gW, Y - gN, RW + gW + gE, RH + gN + gS); b.clip();
       const { rows, y0, step } = lampRows(Y, RH);
-      verticalBeam(b, X + RW / 2, Y, RH, rad * 0.7, POOL_RGB, LIGHT.floor);
       for (let j = 0; j < rows; j++) for (let i = 0; i < count; i++) {
         const lx = X + RW * (i + 0.5) / count, ly = y0 + step * j;
+        const gw = b.createRadialGradient(lx, ly, 1, lx, ly, rad * 0.7);
+        // Warm-neutral rather than near-white: keeps the shipped pool strength/contrast while
+        // taking the clinical edge off the deck and lowering peak luminance a small amount.
+        falloffStops(gw, POOL_RGB, LIGHT.floor);   // same curve as the lightmap's cut — a pool used to bend at 0.6→0.32 while the darkness over it ran dead straight, which doubles the rim
+        b.fillStyle = gw; b.fillRect(lx - rad * 0.7, ly - rad * 0.7, rad * 1.4, rad * 1.4);
         // FLOOR SHEEN (Slice 2): a faint vertical reflection streak on the deck below the pool, as if
         // the polished plating catches the ceiling light. Narrow (≈40% pool width), taller than wide,
         // additive + very low alpha, warm-neutral like the pool. Drawn under the same 'lighter' pass.
         bakeSheen(b, lx, ly + T * 0.9, rad * 0.34);
-        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0, beamTop: Y, beamHeight: RH, beamFirst: j === 0 });
+        lampPos.push({ x: lx, y: ly, r: rad * 1.4, rgb: lampRgbOf(r.z), hang: j > 0 });
       }
       b.restore();
     }
@@ -4297,21 +4291,9 @@ const StationBake = (() => {
          `LIGHT.corridor` controls passage fill independently of the room's local fixtures. */
       const cor = G.isCorridor(r.z);
       if (!cor) {
-        // Fill follows the actual north-wall sources, never a second pool in the
-        // middle of the floor. The existing radial falloff reaches the tall wall.
-        const { rows, y0, step } = lampRows(Y, RH);
-        const roomRadius = Math.min(60, RW * 0.30, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1);
-        L.save(); L.beginPath(); L.rect(X, Y, RW, RH); L.clip();
-        verticalBeam(L, X + RW / 2, Y, RH, roomRadius * 1.4, '0,0,0', 1 - (1 - LIGHT.room) * (1 - LIGHT.pool));
-        L.restore();
-        // The tall north wall still receives the original fixture's reach. Only
-        // the deck beam is narrowed: clipping at the wall/deck seam prevents
-        // this restoration from washing out the left and right floor edges.
-        const wallRadius = Math.min(60, Math.max(30, RH * 0.85)) * Math.max(0.5, LIGHT.reach || 1) * 1.4;
-        L.save(); L.beginPath(); L.rect(X - T * 2, Y - T * 8, RW + T * 4, T * 8); L.clip();
-        cut(X + RW / 2, y0, wallRadius, 1 - (1 - LIGHT.room) * (1 - LIGHT.pool));
-        cut(X + RW / 2, y0, roomRadius * 1.4, 1 - (1 - LIGHT.room) * (1 - LIGHT.pool));
-        L.restore();
+        // The reference room's original soft fill, scaled with the same source geometry.
+        const referenceScale = Math.min(RW / (15 * T), RH / (14 * T));
+        cut(X + RW * 0.5, Y + RH * 0.42, 14 * T * 0.78 * referenceScale, LIGHT.room);
         continue;
       }
       const vert = RH > RW;
@@ -4338,7 +4320,7 @@ const StationBake = (() => {
       L.fillStyle = 'rgba(0,0,0,' + Math.min(1, LIGHT.crown).toFixed(3) + ')';
       for (const [x, y, w, h] of crownRects) L.fillRect(x, y, w, h);
     }
-    for (const l of lampPos) if (!l.beamHeight) cut(l.x, l.y, l.r, LIGHT.pool);   // lamps punch bright pools out of the darker ambient → the lights carry the room
+    for (const l of lampPos) cut(l.x, l.y, l.r, LIGHT.pool);   // lamps punch bright pools out of the darker ambient → the lights carry the room
     // doorway light spill so corridors and rooms read as connected — DOORWAYS only (see pairIsSill)
     for (const [x1, y1, x2, y2] of G.doorDefs) {
       if (!pairIsSill(x1, y1, x2, y2)) continue;
@@ -4365,10 +4347,6 @@ const StationBake = (() => {
            a haze that lifts the entire room. Darkness may reach far and stay believable; a
            highlight may not. */
         if (w > 0.001) for (const l of lampPos) {
-          if (l.beamHeight) {
-            if (l.beamFirst) verticalBeam(F, l.x, l.beamTop, l.beamHeight, l.r * 0.6, l.rgb || LAMP_RGB, w);
-            continue;
-          }
           const r = l.r * 0.6;
           const g = F.createRadialGradient(l.x, l.y, 1, l.x, l.y, r);
           falloffStops(g, l.rgb || LAMP_RGB, w);   // the film carries the ROOM's fixture temperature (lampRgbOf)

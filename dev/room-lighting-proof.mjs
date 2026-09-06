@@ -18,7 +18,7 @@ try {
   for(let i=0;i<60;i++) { if(await evalJS(cdp,"typeof World !== 'undefined' && !!World.stationDoc()")) break; await sleep(250); }
   const results = await evalJS(cdp, `(() => {
     const results=[];
-    for(const [w,h] of [[9,7],[14,9],[18,18],[24,16],[12,24],[40,30]]) {
+    for(const [w,h] of [[9,7],[14,9],[15,14],[18,18],[24,16],[12,24],[40,30]]) {
       const doc=WorldModel.defaultDoc(), room=doc.rooms[doc.order[0]];
       room.rects=[{x1:0,y1:0,x2:w-1,y2:h-1}];
       const geo=WorldModel.create(doc).projectGeometry(), bake=StationBake.bake(geo);
@@ -26,7 +26,7 @@ try {
       const sample=(fx,fy)=>{ const x=Math.floor((r.x1+w*fx)*12), y=Math.floor((r.y1+h*fy)*12); return 1-ctx.getImageData(x,y,1,1).data[3]/255; };
       const cv=document.createElement('canvas'); cv.width=bake.baseCv.width; cv.height=bake.baseCv.height;
       const c=cv.getContext('2d'); c.drawImage(bake.baseCv,0,0); c.drawImage(bake.lightCv,0,0);
-      results.push({w,h,lamps:bake.lamps.length,source:sample(.5,1.6/h),sourceLeft:sample(.08,1.6/h),sourceRight:sample(.92,1.6/h),wall:sample(.5,-1/h),center:sample(.5,.5),top:sample(.5,.18),bottom:sample(.5,.82),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
+      results.push({w,h,lamps:bake.lamps.length,source:sample(.5,1.6/14),sourceLeft:sample(.08,1.6/14),sourceRight:sample(.92,1.6/14),wall:sample(.5,-1/h),center:sample(.5,.5),top:sample(.5,.18),bottom:sample(.5,1-1.2/14),left:sample(.08,.5),right:sample(.92,.5),corner:sample(.08,.92),png:cv.toDataURL()});
     }
     return results;
   })()`);
@@ -35,7 +35,7 @@ try {
   console.log(JSON.stringify(results));
   if(phase!=='before' && results.some(r=>r.source < Math.max(r.sourceLeft,r.sourceRight)+.2)) throw new Error('North source must remain brighter than side edges');
   if (phase !== 'before' && results.some(r => r.wall < .3)) throw new Error('North wall must retain illumination');
-  if (phase !== 'before' && results.some(r => r.bottom < r.source - .07)) throw new Error('The narrow beam must reach the lower floor');
+  if (phase !== 'before' && results.some(r => r.lamps !== 2 || r.bottom < .65)) throw new Error('Every room needs the reference top and bottom lights');
   await capture(cdp,out,phase+'-live');
   for(const scene of ['telescope','wood']) {
     await evalJS(cdp,`(() => {
