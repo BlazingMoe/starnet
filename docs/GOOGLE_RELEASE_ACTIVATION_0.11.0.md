@@ -1,5 +1,15 @@
 # StarNet Google activation — prepared 2026-09-06
 
+## Update — owner-approved activation, 20:11 UTC
+
+The owner approved the prepared Google action and packaging a 0.11.0 installer for testing before public release. **StarNet Desktop** (Desktop app) was created in `starnet-505202`; the first attempt failed without saving a client, and the verified retry succeeded. The existing Web client was preserved.
+
+The downloaded native registration passed `scripts/stage-google-client.mjs`, was stored as `STARNET_GOOGLE_DESKTOP_CLIENT_JSON` in `androoAGI/starnet` (secret metadata confirmed at 20:02:13 UTC), and is included in the local test package. Registration bytes were not committed or printed. The bundled staging copy matches the validated registration.
+
+All five exact Workspace APIs below were enabled, each confirmed by Google's Enabled state. The 11 unique implemented scopes (including OpenID and email) were saved in Data Access with factual usage explanations. Google's console confirmed **Data access changes saved!** No verification was submitted and no approval was claimed. Branding links, the final privacy/data-flow review, the required demonstration, and real-account lifecycle acceptance remain outstanding. This is no longer waiting for owner permission to create the client.
+
+The sections below preserve the original pre-approval findings and preparation plan; their statements that configuration is absent are historical.
+
 This is a preparation record, not an approval or a claim that public Google Workspace
 sign-in is working. The existing project was inspected through the signed-in Cloud
 Console. No Google configuration or credentials were created or changed.
