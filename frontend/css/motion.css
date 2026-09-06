@@ -883,6 +883,7 @@ button:active {
   .empty-state .es-cta,
   input, textarea, select,
   .set-row input[type=checkbox], .set-row input[type=checkbox]::after,
+  .mkt input[type=checkbox]::after,
   .crew-row:hover, .ag-item:hover, .kb-card:hover, .gx-tro:hover, .perk:hover, .prov-card:hover,
   .gx-quests .q-done .gx-tro:hover,
   .crew-prog > div, .stat-bar > div, #xpfill,
