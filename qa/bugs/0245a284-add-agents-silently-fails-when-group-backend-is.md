@@ -42,11 +42,7 @@ A temporary loopback proxy reproduced the original plain-text 404. The patched p
 
 ## Verdict
 
-Source repair committed in cf6b3ca03c372c404bcb46997a56d570d7747d70 and verified through the production-button regression, live group creation/reload, and live plain-text-404/Retry recovery. The picker opens before network work and displays failures in that window with Retry and Cancel.
-
-Not merged: the full fast gate does not have a green receipt. Its first attempt failed at step 67/724 in eval-campaign-preflight; that test passed 10 assertions when rerun alone. The second attempt progressed farther but reported repeated PowerShell child-command timeouts in test/shell-machine-state.test.js. The customer-journey run also lacks a full green receipt after a Node startup out-of-memory crash at step 3/29, although the implicated sidecar.http suite passed 504 assertions alone. Logs remain under dev/add-agents-{fast,fast-retry,customer-journeys,sidecar-retry,group-http}.log in this lane.
-
-Port 9177 belongs to a separate older worktree and has not been changed. Its backend must be brought up to the current group-capable source to enable group chat. This repair addresses the silent UI failure. Installer behavior and reporter recovery remain unverified.
+Source fix cf6b3ca03 is live-verified: immediate picker, readable 404 with successful Retry, two-agent group creation, reload, and server restart retaining both members. Group HTTP scenarios and picker regression pass. Integration remains blocked: full fast retry failed at step 154/724 in shell-machine-state.test.js (9 PowerShell child-command timeout failures, 257 assertions passed); the initial fast run failed at preflight and the customer-journey run hit Node startup out-of-memory. Isolated reruns passed preflight 10/10 and sidecar.http 504 assertions. Port 9177 remains on its older worktree without the group endpoint; it was not modified. Installer and reporter recovery remain unverified.
 
 ## Regression
 
