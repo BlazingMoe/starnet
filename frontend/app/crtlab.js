@@ -21,7 +21,7 @@
      them back over the live object. They had drifted (up 9, side 12) behind the shipped 14/7, so
      RESET restored a state that never shipped and side 12 pushed the wall band past the hull
      silhouette it is pinned to. Add a WALL knob, add it here. */
-  const WALL_DEFAULTS = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5 };
+  const WALL_DEFAULTS = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5, hullLit: 0.70, hullVoid: 0.34 };
   const DEPTH_DEFAULTS = { wallShadow: 0.5, sheen: 0.14, cornerAO: 0.55, dither: 0.12, floorWear: 0.55, floorDetail: 1, deckSeam: 0.38, wallDetail: 1, poolAlbedo: 1, edgeAO: 1, southFoot: 0 };
   // TUBE APERTURE — the CSS glass vignette over the feed (app.css :root --tube-*). NOT the barrel warp:
   // `curve` bows the picture, these dim its outer band, and they move independently. Seeded from the live
@@ -253,6 +253,8 @@
     sliders.push(buildSlider(body, wall, 'skirt', 6, 44, 1, scheduleRebake));   // hull drop below the station
     sliders.push(buildSlider(body, wall, 'side', 4, 7, 1, scheduleRebake));     // e/w wall band width — 7 is the hull's own reach (`pad`); past it the wall juts out of the station silhouette
     sliders.push(buildSlider(body, wall, 'sideCap', 2, 6, 1, scheduleRebake));  // lit top surface of the e/w/s walls — the crown ring's width
+    sliders.push(buildSlider(body, wall, 'hullLit', 0.1, 1, 0.01, scheduleRebake));   // exterior exposure at the DECK LINE — the plate ring and the top of the skirt, where the room's light spills over the crown
+    sliders.push(buildSlider(body, wall, 'hullVoid', 0, 0.8, 0.01, scheduleRebake));  // exterior exposure at the skirt's FOOT — starlight only; the skirt fades between the two
 
     section(body, 'PRESETS');
     const presetWrap = document.createElement('div');

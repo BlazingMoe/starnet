@@ -136,7 +136,7 @@ const StationBake = (() => {
                 each footprint plus exactly `pad`, so a crown wider than that hangs OUTSIDE the
                 mask and renders at its raw baked tone against the starfield — a blazing line
                 down the sides while the north crown sits under 0.77 ambient. */
-  const WALL = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5 };   // corUp 16→30, skirt 32→40 (2026-09-05, Andrew: the south wall read shorter than the north, hallways "way shorter" than rooms — a hallway is the room's construction now, and the skirt matches the north face's visible height)   // up 22→30, corUp 12→16 (2026-09-03, depth pass): a room is a box you are inside, and height is the only cue a top-down view has for it   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
+  const WALL = { up: 30, corUp: 30, skirt: 40, side: 7, capH: 4, sideCap: 5, hullLit: 0.70, hullVoid: 0.34 };   // hullLit/hullVoid = the exterior's exposure at the deck line / at the skirt's foot (2026-09-06, the shell fade — see the EXTERIOR EXPOSURE note)   // corUp 16→30, skirt 32→40 (2026-09-05, Andrew: the south wall read shorter than the north, hallways "way shorter" than rooms — a hallway is the room's construction now, and the skirt matches the north face's visible height)   // up 22→30, corUp 12→16 (2026-09-03, depth pass): a room is a box you are inside, and height is the only cue a top-down view has for it   // up 9→14 (2026-07-24): the wall materials need surface to live on · corUp 0→8 (2026-07-28): a hallway stands too, just lower than a hall · up 14→22, corUp 8→12, capH 3→4 (2026-08-08): at 14 the standing face was ~1/8 of a room's frame against 130+px of deck, so the room read as a TRAY seen from above rather than a box you are inside. Height is the only cue a top-down view has for "interior"; the ratio of visible WALL to visible FLOOR is what sells it, and that ratio scales with `up`. 22 is inside the range 'Towering' (32) already exercised, and corUp rises with it so the hallway↔hall difference is preserved
   /* VIEWPORT holes punched by the wall pass this bake. buildLightMap cuts the ambient mask over
      them — without that the sky behind a window renders at the interior's 23% and reads as a
      black pane. Reset per bake alongside the wall palette cache. */
@@ -447,15 +447,34 @@ const StationBake = (() => {
      the lit deck inside it. Nothing lights a hull in vacuum but starlight, so every hull palette, in every
      skin, is scaled by one exposure factor here: hue kept, only the light on it changes. The hull look-lock
      test scales its expected tones by the same constant. */
-  const HULL_EXPOSURE = 0.4;   // 0.6 was not close, 0.25 "basically pitch black" — 0.4 is the dial (Andrew, 2026-09-03): "PITCH BLACK darkness out in the void" — the shell is barely lit
+  /* ...AND THE LIGHT ON IT FADES (2026-09-06, Andrew, with a frame of the default hab: "the shell lighting might
+     be just a tad bit too pitch black dark, i think it should have a fade and a bit more brightness but not too
+     much"). The flat 0.4 (0.6 "not close", 0.25 "basically pitch black", 2026-09-03) put every stop of the skirt
+     ramp within ~20 units of black, so the 40px wall read as a cut-out DARKER than the nebula behind it — a hole,
+     not a surface. The light on a hull is not flat: the deck's own light spills over the crown onto the plate
+     ring and the top of the skirt and falls away toward the void. So the exposure is two poles now —
+     `WALL.hullLit` at the deck line (the plate ring, its rim, bolts and seams, every skin's hshade lift, and the
+     top of the skirt) fading to `WALL.hullVoid` at the skirt's foot — stepped per ramp stop, the same six hard
+     bands the skirt always had (see fadeBands). Both are crtlab dials under WALL HEIGHT; the hull look-lock reads
+     them back through HULL_EXPOSURE / hullRampExposure.
+     THE DIAL, measured on the seeded hab down the middle of the south wall (base+light bake, luma): the flat 0.4
+     skirt read top-3 rows 21 / upper body 11 / lower body 7 / foot 5 (mean 9.6) under a crown of ~120 and a lit
+     deck of ~45. lit .70 / void .34 reads 33 / 15 / 8.5 / 4.6 (mean 12.8) — the top of the wall visibly catches
+     the room's light and the foot stays as dark as it was. lit .62 / void .28 barely moved the body (13.9) and
+     .76 / .38 (mean 13.7) was already drifting toward the flat 0.6 he called "not close"; the fade is what buys
+     the brightness at the top without lifting the whole slab. */
+  const hullLit = () => Math.max(0.05, Math.min(1.5, +WALL.hullLit || 0.4));
+  const hullVoid = () => Math.max(0, Math.min(hullLit(), +WALL.hullVoid || 0));
   // a hull tone shaded at draw time: darkening as usual, but any LIFT is scaled by the exposure too, so a
   // skin's own highlights (mortar, crests, rivets) cannot climb back out of the dark the palette was put in
-  const hshade = (hex, f) => U.shade(hex, f > 0 ? f * HULL_EXPOSURE : f);
-  const exposeHex = hex => {
+  const hshade = (hex, f) => U.shade(hex, f > 0 ? f * hullLit() : f);
+  // a pure exposure step on a hex tone — every channel by one factor, hue untouched
+  const scaleHex = (hex, k) => {
     const n = parseInt(hex.slice(1), 16);
-    const c = v => Math.max(0, Math.min(255, Math.round(v * HULL_EXPOSURE)));
+    const c = v => Math.max(0, Math.min(255, Math.round(v * k)));
     return '#' + ((1 << 24) | (c((n >> 16) & 255) << 16) | (c((n >> 8) & 255) << 8) | c(n & 255)).toString(16).slice(1);
   };
+  const exposeHex = hex => scaleHex(hex, hullLit());
   const expose = v => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v)) ? exposeHex(v)
     : Array.isArray(v) ? v.map(expose)
     : (v && typeof v === 'object') ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, expose(x)]))
@@ -507,6 +526,22 @@ const StationBake = (() => {
   const ramp6 = (pal, skirt, lo, hi) => rampStops(skirt).map((dy, i) => [dy, U.shade(pal.base, lo + (hi - lo) * RAMP_T[i])]);
   // the shell's own gradient — `station` keeps its six literal tones so the legacy look is exact
   const rampBands = (pal, skirt) => rampStops(skirt).map((dy, i) => [dy, pal.bands[i]]);
+  /* THE FADE — the exposure read down the skirt. A stamp at dy owns the rows between its own dy and the next
+     (smaller) one, so its light is read at the middle of that span: 0 at the deck line, 1 at the skirt's foot.
+     The palette is already exposed at hullLit, so each band is scaled DOWN toward hullVoid — the top band is
+     untouched and the plate ring above it never fades. Linear in depth: light spilling over an edge falls off
+     evenly, and the ramp's own ladder already puts the hard steps where the eye reads them. Applied at both
+     sites that stamp a band list (the bake and the REFIT chip) so the chip shows the wall it promises. */
+  const hullFadeK = (mid, skirt) => {
+    const lit = hullLit(), dark = hullVoid();
+    const d = skirt > 0 ? Math.max(0, Math.min(1, mid / skirt)) : 0;
+    return (dark + (lit - dark) * (1 - d)) / lit;
+  };
+  const bandMid = (bands, i, skirt) => (Math.min(bands[i][0], skirt) + (i + 1 < bands.length ? bands[i + 1][0] : 0)) / 2;
+  const fadeBands = (bands, skirt) => bands.map(([dy, c], i) =>
+    [dy, (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? scaleHex(c, hullFadeK(bandMid(bands, i, skirt), skirt)) : c]);
+  // the six effective exposures down the ladder, foot first — what the hull look-lock scales its expected ramp by
+  const hullRampExposure = skirt => { const st = rampStops(skirt).map(dy => [dy]); return st.map((_, i) => hullLit() * hullFadeK(bandMid(st, i, skirt), skirt)); };
 
   /* THE COURSED-WALL VEIN. Every masonry-ish shell is the same three decisions — how tall a course
      is, how wide a unit is, and whether the joint reads LIGHT (mortar between bricks) or DARK (the
@@ -4014,7 +4049,7 @@ const StationBake = (() => {
         tg.globalCompositeOperation = 'source-in'; tg.fillStyle = c; tg.fillRect(0, 0, CW, CH2);
         tg.globalCompositeOperation = 'source-over'; fg.drawImage(tmp, 0, 0);
       };
-      for (const [dy, c] of (recipe.bands || rampBands)(pal, skirt)) stamp(dy, c);
+      for (const [dy, c] of fadeBands((recipe.bands || rampBands)(pal, skirt), skirt)) stamp(dy, c);
       fg.globalCompositeOperation = 'destination-out'; fg.drawImage(sil, 0, 0);
       fg.globalCompositeOperation = 'source-over';
       /* cut this group back to the pixels it actually owns. Without it the group that drew first
@@ -5114,7 +5149,7 @@ const StationBake = (() => {
          between its own dy and the next smaller one, so painting them in order — each as a rect
          from the ring down to its dy — reproduces the stack exactly (see the SKIRT BANDS note). */
       const skirtH = h - ringH;
-      const bands = (recipe.bands || rampBands)(pal, skirtH);
+      const bands = fadeBands((recipe.bands || rampBands)(pal, skirtH), skirtH);
       for (const [dy, c] of bands) {
         const d = Math.max(1, Math.min(skirtH, Math.round(dy)));
         ctx.fillStyle = c; ctx.fillRect(0, ringH, w, d);
@@ -5135,7 +5170,7 @@ const StationBake = (() => {
      doorway and keeps its sill, track, guide ticks and light spill. */
   const seamOpenJoins = geo => [...classifyJoins(geo)].sort();
 
-  return { bake, bakeIncremental, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE, HULL_EXPOSURE };
+  return { bake, bakeIncremental, dirtyChunks, visibleChunks, missingVisibleChunks, drawBase, drawLight, sampleMaterial, sampleWall, sampleHull, seamOpenJoins, CHUNK_PX, LIGHT, WALL, DEPTH, SHAPE, get HULL_EXPOSURE() { return hullLit(); }, hullRampExposure };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = StationBake;
