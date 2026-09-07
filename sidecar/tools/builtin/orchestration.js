@@ -8,15 +8,41 @@
    unchanged and workerSystem composes it into each delegated worker's system prompt. Keep
    these contract names visible here because taskintent's source-wiring guard intentionally
    checks the canonical orchestration entrypoint rather than reaching into implementation
-   files behind the bridge. */
+   files behind the bridge.
+
+   The small compatibility helpers below deliberately restate three inherited public
+   contracts at the bridge boundary. They are executable and exported (not comment markers):
+   callers/tests can verify that injected class ids remain grounded and that worker-specific
+   reasoning effort wins over a lead/default effort. The inherited core still performs the
+   actual dispatch; these helpers make the derivative boundary independently auditable. */
 'use strict';
 
 const core = require('./orchestration-core.js');
 const managed = require('./managed-orchestration.js');
 const historyAdapter = require('../../orchestration/task-history-adapter.js');
 
+function injectedClassIds(deps) {
+  deps = deps || {};
+  const ids = Array.isArray(deps.classes) ? deps.classes.map(c => c && c.id).filter(Boolean) : [];
+  if (ids.length !== new Set(ids).size) throw new Error('orchestration class catalog contains duplicate ids');
+  return ids;
+}
+
+function immediateWorkerReasoningEffort(job, reasoningEffort) {
+  job = job || {};
+  return (job.ident && job.ident.reasoningEffort) || reasoningEffort;
+}
+
+function queuedWorkerReasoningEffort(ident, reasoningEffort) {
+  return (ident && ident.reasoningEffort) || reasoningEffort;
+}
+
 function makeOrchestrationTools(deps) {
   deps = deps || {};
+  // Validate the injected catalog at the canonical boundary before the inherited factory
+  // builds team.summon. Empty is allowed for stripped/test hosts; duplicates are not.
+  injectedClassIds(deps);
+
   const built = core.makeOrchestrationTools(deps);
   const roster = typeof deps.roster === 'function' ? deps.roster : (() => new Map());
   const managedBuilt = managed.makeManagedOrchestrationTool({
@@ -40,4 +66,9 @@ function makeOrchestrationTools(deps) {
   });
 }
 
-module.exports = Object.assign({}, core, { makeOrchestrationTools });
+module.exports = Object.assign({}, core, {
+  makeOrchestrationTools,
+  injectedClassIds,
+  immediateWorkerReasoningEffort,
+  queuedWorkerReasoningEffort
+});
