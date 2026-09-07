@@ -25,6 +25,10 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Derivative verification contract
+        run: |
+          node test/moe-feature-evidence.test.js
+
       - name: Derivative orchestration contracts
         run: |
           node test/orchestration-role-policy.test.js
