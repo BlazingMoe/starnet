@@ -68,7 +68,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://example.invalid/releases/latest/download/latest.json"
+        "https://github.com/BlazingMoe/starnet/releases/latest/download/latest.json"
       ]
     }
   }
