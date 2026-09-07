@@ -18,12 +18,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Derivative orchestration contracts
         run: |
@@ -37,6 +37,7 @@ jobs:
           node test/orchestration-quality-pipeline.test.js
           node test/managed-orchestration-tool.test.js
           node test/managed-orchestration-wiring.test.js
+          node test/managed-task-history.test.js
           node test/org-specialties.test.js
 
       - name: Inherited orchestration regression
