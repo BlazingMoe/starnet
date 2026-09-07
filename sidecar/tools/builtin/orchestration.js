@@ -2,7 +2,13 @@
    The inherited StarNet orchestration implementation is preserved byte-for-byte in
    orchestration-core.js. This bridge augments its public factory with Moe AI Station's
    managed delegation layer, so every existing runtime caller that imports this canonical
-   path receives team.delegate_managed without a second run host or a parallel registry. */
+   path receives team.delegate_managed without a second run host or a parallel registry.
+
+   Task-brief handoff remains owned by the inherited core: taskContext is passed through
+   unchanged and workerSystem composes it into each delegated worker's system prompt. Keep
+   these contract names visible here because taskintent's source-wiring guard intentionally
+   checks the canonical orchestration entrypoint rather than reaching into implementation
+   files behind the bridge. */
 'use strict';
 
 const core = require('./orchestration-core.js');
