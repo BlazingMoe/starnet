@@ -1,0 +1,52 @@
+{
+  "schema": "moe-ai-station.product-claims.v1",
+  "product": "Moe AI Station",
+  "publicReleaseReady": false,
+  "claims": [
+    {
+      "id": "local-first-agent-harness",
+      "status": "inherited-verified",
+      "claim": "The application runs its agent harness locally and can use user-selected model providers."
+    },
+    {
+      "id": "hierarchical-agent-organization",
+      "status": "implementation-in-progress",
+      "claim": "Commander, Manager, Specialist, and Worker organization roles can govern typed delegation without granting tool permissions."
+    },
+    {
+      "id": "managed-delegation",
+      "status": "implementation-in-progress",
+      "claim": "Consequential delegated tasks can use task contracts, deterministic acceptance checks, bounded revisions, and optional independent audit."
+    },
+    {
+      "id": "permission-boundary-preserved",
+      "status": "verified-by-ci",
+      "claim": "Derivative orchestration does not bypass the inherited capability, consent, permission, or E-STOP boundaries."
+    },
+    {
+      "id": "upstream-update-isolation",
+      "status": "verified-by-ci",
+      "claim": "The derivative does not use StarNet upstream release or update infrastructure."
+    },
+    {
+      "id": "own-signed-update-channel",
+      "status": "blocked",
+      "claim": "Public builds update through a Moe AI Station controlled and signed release channel."
+    },
+    {
+      "id": "independent-branding",
+      "status": "blocked",
+      "claim": "Distributed builds contain no StarNet-protected name, logo, station artwork, or misleading publisher identity."
+    },
+    {
+      "id": "data-path-migration",
+      "status": "blocked",
+      "claim": "Existing compatible workspace/state data survives the future application identifier migration."
+    }
+  ],
+  "releaseBlockers": [
+    "own-signed-update-channel",
+    "independent-branding",
+    "data-path-migration"
+  ]
+}
