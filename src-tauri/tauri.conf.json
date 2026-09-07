@@ -65,5 +65,11 @@
       "voice-deps/node_modules": "node_modules"
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://example.invalid/releases/latest/download/latest.json"
+      ]
+    }
+  }
 }
