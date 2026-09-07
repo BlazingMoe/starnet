@@ -1,0 +1,52 @@
+name: Moe AI Station CI
+
+on:
+  push:
+    branches:
+      - dev/mo-ai-station
+  pull_request:
+    branches:
+      - feat/harness-backend
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orchestration-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Derivative orchestration contracts
+        run: |
+          node test/orchestration-role-policy.test.js
+          node test/org-role.test.js
+          node test/delegation-adapter.test.js
+          node test/result-envelope.test.js
+          node test/review-gate.test.js
+          node test/managed-delegation.test.js
+          node test/orchestration-auditor.test.js
+          node test/orchestration-quality-pipeline.test.js
+          node test/managed-orchestration-tool.test.js
+          node test/org-specialties.test.js
+
+      - name: Inherited orchestration regression
+        run: |
+          node test/orchestration.test.js
+          node test/subagents.test.js
+
+      - name: Security boundary regression
+        run: |
+          node test/permissions.test.js
+          node test/permgrants.test.js
+          node test/capgate.test.js
+          node test/consent.interactive.test.js
+          node test/halt.test.js
