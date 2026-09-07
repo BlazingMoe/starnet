@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "moe.feature-evidence.v1",
+  "updatedAt": "2026-09-08",
+  "features": [
+    {
+      "id": "fork.update-isolation",
+      "name": "Fork update isolation",
+      "status": "verified",
+      "code": ["src-tauri/tauri.conf.json", "frontend/app/updates.js", "website/app/app/updates.js"],
+      "tests": ["test/fork-update-isolation.test.js", "test/update-state-parity.test.js"],
+      "integrationEvidence": ["fast-gate update/release tests reached green after derivative adaptation"],
+      "notes": "No upstream StarNet update endpoint remains authoritative; updater artifacts remain disabled until derivative signing exists."
+    },
+    {
+      "id": "orchestration.org-roles",
+      "name": "Commander/Manager/Specialist/Worker organizational roles",
+      "status": "implemented",
+      "code": ["sidecar/orchestration/org-role.js", "sidecar/orchestration/role-policy.js"],
+      "tests": ["test/org-role.test.js", "test/orchestration-role-policy.test.js"],
+      "integrationEvidence": ["organizational role policy is consumed by managed delegation adapter"],
+      "notes": "Legacy orchestrator/specialist runtime roles remain for compatibility."
+    },
+    {
+      "id": "orchestration.managed-delegation",
+      "name": "Managed delegation with typed task contracts",
+      "status": "verified",
+      "code": ["sidecar/tools/builtin/managed-orchestration.js", "sidecar/tools/builtin/orchestration.js", "sidecar/orchestration/delegation-adapter.js"],
+      "tests": ["test/delegation-adapter.test.js", "test/managed-orchestration-tool.test.js", "test/managed-orchestration-wiring.test.js", "test/orchestration.test.js", "test/subagents.test.js"],
+      "integrationEvidence": ["Moe AI Station CI runtime wiring, inherited orchestration and security-boundary suites passed"],
+      "notes": "Uses inherited team.dispatch executor and preserves consent/capability gates."
+    },
+    {
+      "id": "orchestration.review-gate",
+      "name": "Deterministic acceptance/revision gate",
+      "status": "verified",
+      "code": ["sidecar/orchestration/review-gate.js", "sidecar/orchestration/quality-pipeline.js"],
+      "tests": ["test/review-gate.test.js", "test/orchestration-quality-pipeline.test.js", "test/managed-orchestration-tool.test.js"],
+      "integrationEvidence": ["managed delegation invokes deterministic review before optional auditor"],
+      "notes": "Bounded revisions; budget and acceptance evidence are host-validated."
+    },
+    {
+      "id": "orchestration.independent-auditor",
+      "name": "Independent auditor stage",
+      "status": "verified",
+      "code": ["sidecar/orchestration/auditor.js", "sidecar/orchestration/quality-pipeline.js", "sidecar/tools/builtin/managed-orchestration.js"],
+      "tests": ["test/orchestration-auditor.test.js", "test/orchestration-quality-pipeline.test.js", "test/managed-orchestration-tool.test.js"],
+      "integrationEvidence": ["worker self-audit and lead self-audit are rejected before audit dispatch"],
+      "notes": "Auditor result is structured and host-validated."
+    },
+    {
+      "id": "telemetry.managed-task-history",
+      "name": "Persistent managed-task history",
+      "status": "implemented",
+      "code": ["sidecar/orchestration/task-history.js", "sidecar/orchestration/task-history-adapter.js", "sidecar/tools/builtin/orchestration.js"],
+      "tests": ["test/managed-task-history.test.js", "test/managed-task-history-adapter.test.js"],
+      "integrationEvidence": ["runtime bridge accepts managedTaskHistory and records final managed results"],
+      "notes": "Disk host wiring and read-only telemetry API still required before verified status."
+    },
+    {
+      "id": "control-mode.telemetry-api",
+      "name": "Control Mode telemetry API",
+      "status": "planned",
+      "code": [],
+      "tests": [],
+      "integrationEvidence": [],
+      "notes": "Planned endpoints: managed task list/detail/summary plus agent and cost aggregates."
+    },
+    {
+      "id": "release.derivative-signing",
+      "name": "Derivative installer/update signing",
+      "status": "blocked",
+      "code": [],
+      "tests": ["test/release-cut.test.js", "test/minisign-verify.test.js"],
+      "integrationEvidence": [],
+      "notes": "Updater artifacts intentionally disabled until own signing keys and release channel exist."
+    },
+    {
+      "id": "branding.derivative-assets",
+      "name": "Complete derivative branding and artwork replacement",
+      "status": "blocked",
+      "code": [],
+      "tests": [],
+      "integrationEvidence": [],
+      "notes": "StarNet name/logo/station artwork are not licensed as derivative brand assets and must be fully replaced before distribution."
+    },
+    {
+      "id": "migration.derivative-app-id",
+      "name": "Safe app identity and data-path migration",
+      "status": "blocked",
+      "code": [],
+      "tests": ["test/desktop-workspace-migration.test.js", "test/rename-migrate.test.js"],
+      "integrationEvidence": [],
+      "notes": "Do not change package/app identifiers until migration preserves existing workspaces and credentials."
+    }
+  ]
+}
