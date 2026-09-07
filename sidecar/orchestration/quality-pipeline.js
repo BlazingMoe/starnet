@@ -12,14 +12,13 @@
 
   async function evaluate(opts) {
     opts = opts || {};
-    const formal = reviewGate.evaluate({
-      contract: opts.contract,
-      envelope: opts.envelope,
+    const formal = reviewGate.review(opts.contract, opts.envelope, {
       spentUsd: opts.spentUsd,
-      completedAt: opts.completedAt
+      completedAt: opts.completedAt,
+      requireEvidence: opts.requireEvidence
     });
     if (!formal || formal.accepted !== true) {
-      return { accepted: false, stage: 'formal', action: 'revise', formal, audit: null };
+      return { accepted: false, stage: 'formal', action: (formal && formal.verdict) || 'revise', formal, audit: null };
     }
 
     if (!opts.requireAudit) return { accepted: true, stage: 'formal', action: 'accept', formal, audit: null };
