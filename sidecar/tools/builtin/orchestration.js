@@ -13,6 +13,7 @@
 
 const core = require('./orchestration-core.js');
 const managed = require('./managed-orchestration.js');
+const historyAdapter = require('../../orchestration/task-history-adapter.js');
 
 function makeOrchestrationTools(deps) {
   deps = deps || {};
@@ -22,7 +23,11 @@ function makeOrchestrationTools(deps) {
     dispatchTool: built.dispatchTool,
     roster
   });
-  const managedDispatchTool = managedBuilt.managedDispatchTool;
+  const managedDispatchTool = historyAdapter.attachTaskHistory(
+    managedBuilt.managedDispatchTool,
+    deps.managedTaskHistory || null,
+    deps.clock || null
+  );
   const inheritedRegister = built.register;
 
   return Object.assign({}, built, {
