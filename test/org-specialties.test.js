@@ -1,0 +1,14 @@
+/* node test/org-specialties.test.js — derivative manager/auditor/worker template catalog. */
+'use strict';
+const A = require('./_assert.js');
+const org = require('../shared/org-specialties.js');
+
+const all = org.list();
+A.ok(all.length >= 6, 'catalog contains initial manager/reviewer/worker roles');
+A.eq(org.get('research-manager').orgRole, 'manager', 'research manager is organizational manager');
+A.eq(org.get('engineering-manager').runtimeRole, 'specialist', 'manager preserves legacy runtime compatibility');
+A.eq(org.get('independent-auditor').orgRole, 'specialist', 'auditor is a delegable specialist');
+A.ok(org.get('independent-auditor').constraints.indexOf('must not audit own work') >= 0, 'auditor template pins independence rule');
+A.ok(org.forOrgRole('worker').length >= 2, 'worker templates are queryable by org role');
+A.eq(org.get('missing'), null, 'unknown template is explicit null');
+A.report('org-specialties.test');
