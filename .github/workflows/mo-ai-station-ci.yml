@@ -48,6 +48,7 @@ jobs:
           node test/managed-task-history-http.test.js
           node test/managed-task-history-host.test.js
           node test/managed-task-history-host-wiring.test.js
+          node test/managed-task-metrics.test.js
           node test/org-specialties.test.js
 
       - name: Inherited orchestration regression
