@@ -9,6 +9,12 @@ A.ok(/makeAgentControlHttp\s*}\s*=\s*require\('\.\/control\/agent-http\.js'\)/.t
   'sidecar imports the sanitized agent control HTTP composer');
 A.ok(/agentControlHttp\s*=\s*makeAgentControlHttp\(\{[\s\S]{0,180}roster:\s*\(\)\s*=>\s*agentRoster[\s\S]{0,180}respondJson/.test(src),
   'Control Mode reads the authoritative live agentRoster through a thunk');
+A.ok(/agentControlHttp\s*=\s*makeAgentControlHttp\(\{[\s\S]{0,260}statusByAgent:\s*agentRuntimeStatus/.test(src),
+  'Control Mode receives runtime status from the host live-run authority');
+A.ok(/function agentRuntimeStatus\(agentId\)[\s\S]{0,320}collectLiveRunRecords\(\)/.test(src),
+  'agent status is derived from the shared live-run collector instead of a parallel status map');
+A.ok(/function handleStateSnapshot\(req, res\)[\s\S]{0,220}runs:\s*collectLiveRunRecords\(\)/.test(src),
+  '/api/state/snapshot and Control Mode share the same live-run collection path');
 A.ok(/\{\s*m:\s*'GET',\s*exact:\s*'\/api\/control\/agents',\s*h:\s*agentControlHttp\.serve\s*}/.test(src),
   'sidecar exposes exactly the read-only Control Mode agent endpoint');
 A.ok(!/\{\s*m:\s*'(?:POST|PUT|PATCH|DELETE)',\s*(?:prefix|exact|qsplit):\s*'\/api\/control\/agents/.test(src),
