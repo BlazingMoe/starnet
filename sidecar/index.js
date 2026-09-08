@@ -296,6 +296,7 @@ const { makeVerifyTool } = require('./tools/builtin/verify.js');    // the workb
 const { makeLspManager } = require('./lsp-manager.js');             // lazy installed-language-server edit diagnostics
 const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js');   // Stage 2: team.dispatch (lead->worker delegation)
 const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
+const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -9013,6 +9014,11 @@ async function handleGroups(req, res) {
     respondJson(res, 200, { ok: true, result: out });
   } catch (e) { if (!res.headersSent) respondJson(res, e.status || 400, { ok: false, error: redact(String(e.message || e)) }); }
 }
+const agentControlHttp = makeAgentControlHttp({
+  roster: () => agentRoster,
+  respondJson
+});
+
 const ROUTES = [
   { m: 'GET', qsplit: '/api/groups', h: handleGroups },
   { m: 'POST', exact: '/api/groups', h: handleGroups },
@@ -9344,6 +9350,7 @@ const ROUTES = [
   { m: 'POST', exact: '/api/growth/ratings/correction', h: handleGrowthRatingCorrection },   // consistency loop: the Commander's words after a short-of-the-mark verdict
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
   { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
+  { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions
