@@ -24,7 +24,19 @@ function makeTaskHistoryHttp(opts) {
       const url = new URL(String(req && req.url || ''), 'http://127.0.0.1');
       const pathname = url.pathname;
       if (pathname === '/api/managed-tasks/summary') {
-        return send(res, 200, { ok: true, summary: store.summary() });
+        return send(res, 200, {
+          ok: true,
+          summary: store.summary(),
+          live: typeof store.activeSummary === 'function' ? store.activeSummary() : null
+        });
+      }
+      if (pathname === '/api/managed-tasks/active') {
+        if (typeof store.activeList !== 'function' || typeof store.activeSummary !== 'function') {
+          return send(res, 503, { ok: false, error: 'managed task live telemetry unavailable' });
+        }
+        const agentId = clean(url.searchParams.get('agent'), 80);
+        const rows = store.activeList({ agentId }).slice(0, clampLimit(url.searchParams.get('limit')));
+        return send(res, 200, { ok: true, tasks: rows, summary: store.activeSummary() });
       }
       if (pathname === '/api/managed-tasks') {
         const agentId = clean(url.searchParams.get('agent'), 80);
