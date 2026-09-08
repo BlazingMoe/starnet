@@ -37,6 +37,21 @@ function rowFromManaged(args, ctx, result, startedAt, completedAt) {
   };
 }
 
+function liveEntry(args, ctx, startedAt) {
+  args = args || {}; ctx = ctx || {};
+  return {
+    taskId: String(args.taskId || ''),
+    parentTaskId: String(args.parentTaskId || ''),
+    parentRunId: String(ctx.runId || ''),
+    leadAgentId: String(ctx.agentId || ''),
+    workerAgentId: String(args.agentId || ''),
+    auditorAgentId: String(args.auditorAgentId || ''),
+    objective: String(args.objective || ''),
+    stage: 'dispatch',
+    startedAt
+  };
+}
+
 function attachTaskHistory(tool, store, clock) {
   if (!tool || typeof tool.run !== 'function') throw new Error('managed tool required');
   if (!store || typeof store.record !== 'function') return tool;
@@ -45,21 +60,31 @@ function attachTaskHistory(tool, store, clock) {
   return Object.assign({}, tool, {
     run: async (args, ctx) => {
       const startedAt = Number(clock.now());
+      let liveToken = '';
+      if (typeof store.activeBegin === 'function') {
+        try { liveToken = store.activeBegin(liveEntry(args, ctx, startedAt)) || ''; } catch (_) {}
+      }
       let out;
       try {
-        out = await originalRun(args, ctx);
-      } catch (error) {
+        try {
+          out = await originalRun(args, ctx);
+        } catch (error) {
+          const completedAt = Number(clock.now());
+          try { store.record(rowFromManaged(args, ctx, { accepted: false, stage: 'dispatch', error: String(error && error.message || error) }, startedAt, completedAt)); } catch (_) {}
+          throw error;
+        }
         const completedAt = Number(clock.now());
-        try { store.record(rowFromManaged(args, ctx, { accepted: false, stage: 'dispatch', error: String(error && error.message || error) }, startedAt, completedAt)); } catch (_) {}
-        throw error;
+        let parsed = null;
+        try { parsed = out && typeof out.content === 'string' ? JSON.parse(out.content) : null; } catch (_) {}
+        try { store.record(rowFromManaged(args, ctx, parsed || { accepted: false, stage: 'dispatch' }, startedAt, completedAt)); } catch (_) {}
+        return out;
+      } finally {
+        if (liveToken && typeof store.activeEnd === 'function') {
+          try { store.activeEnd(liveToken); } catch (_) {}
+        }
       }
-      const completedAt = Number(clock.now());
-      let parsed = null;
-      try { parsed = out && typeof out.content === 'string' ? JSON.parse(out.content) : null; } catch (_) {}
-      try { store.record(rowFromManaged(args, ctx, parsed || { accepted: false, stage: 'dispatch' }, startedAt, completedAt)); } catch (_) {}
-      return out;
     }
   });
 }
 
-module.exports = { statusFor, rowFromManaged, attachTaskHistory };
+module.exports = { statusFor, rowFromManaged, liveEntry, attachTaskHistory };
