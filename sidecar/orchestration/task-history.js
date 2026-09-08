@@ -2,6 +2,8 @@
    Pure store: injected io + clock, bounded RAM mirror, no network/model access. */
 'use strict';
 
+const { summarizeManagedTasks } = require('./task-metrics.js');
+
 const STATUS = new Set(['accepted', 'revised', 'rejected', 'dispatch_error', 'audit_error', 'contract_error']);
 const STAGE = new Set(['contract', 'dispatch', 'revision', 'formal-review', 'audit', 'accepted']);
 const MAX_ROWS = 10000;
@@ -51,9 +53,13 @@ function makeTaskHistoryStore(opts) {
   const ramMax = Math.max(1, Math.floor(num(opts.ramMax) || MAX_ROWS));
   const defaultLimit = Math.max(1, Math.floor(num(opts.limit) || DEFAULT_LIMIT));
   let rows = [];
+  let truncated = false;
   try {
     const loaded = io.readAll();
-    if (Array.isArray(loaded)) rows = loaded.filter(x => x && typeof x === 'object').slice(-ramMax);
+    if (Array.isArray(loaded)) {
+      truncated = loaded.length > ramMax;
+      rows = loaded.filter(x => x && typeof x === 'object').slice(-ramMax);
+    }
   } catch (_) { rows = []; }
 
   function record(entry) {
@@ -61,7 +67,10 @@ function makeTaskHistoryStore(opts) {
     if (!row.taskId || !row.leadAgentId || !row.workerAgentId) throw new Error('task history requires taskId, leadAgentId, workerAgentId');
     io.append(row);
     rows.push(row);
-    if (rows.length > ramMax) rows.splice(0, rows.length - ramMax);
+    if (rows.length > ramMax) {
+      truncated = true;
+      rows.splice(0, rows.length - ramMax);
+    }
     return row;
   }
 
@@ -77,21 +86,7 @@ function makeTaskHistoryStore(opts) {
   }
 
   function summary() {
-    let accepted = 0, rejected = 0, usd = 0, attempts = 0;
-    for (const r of rows) {
-      if (r.accepted) accepted++; else rejected++;
-      usd += r.usd;
-      attempts += r.attempts;
-    }
-    return {
-      schemaVersion: 'moe.managed-task-summary.v1',
-      total: rows.length,
-      accepted,
-      rejected,
-      acceptanceRate: rows.length ? accepted / rows.length : 0,
-      usd,
-      attempts
-    };
+    return summarizeManagedTasks(rows, { windowCapacity: ramMax, truncated });
   }
 
   return { record, list: listRows, all: () => rows.map(r => Object.assign({}, r)), count: () => rows.length, summary };
