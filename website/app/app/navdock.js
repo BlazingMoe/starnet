@@ -204,4 +204,30 @@
   const mo = new MutationObserver(syncGroupState);
   mo.observe(bar, { subtree: true, attributes: true, attributeFilter: ['class', 'style'], childList: true, characterData: true });
   syncGroupState();
+
+  /* Moe AI Station derivative extension: load the read-only Control Mode surface through
+     the already-booted navigation shell instead of modifying the large station host files.
+     The projection layer loads first; the UI installs its own SYSTEM-dock menuitem only
+     after that dependency is ready. Both scripts are same-origin and idempotent.
+
+     Some inherited source-level/mobile reachability tests execute this module against a
+     deliberately tiny DOM shim. In that environment getElementById/querySelector exist so
+     the dock logic is testable, while createElement/head do not. Treat that as a host with
+     no dynamic-script facility instead of crashing the navigation module. */
+  function loadOnce(src, id, done) {
+    const existing = document.getElementById(id);
+    if (existing) { if (done) done(); return; }
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    const s = document.createElement('script');
+    s.id = id; s.src = src; s.async = false;
+    if (done && typeof s.addEventListener === 'function') s.addEventListener('load', done, { once: true });
+    document.head.appendChild(s);
+  }
+  function bootControlMode() {
+    if (window.ControlModeUI) return;
+    const loadUi = () => loadOnce('app/controlmode.js', 'mo-control-mode-ui');
+    if (window.ControlModeView) loadUi();
+    else loadOnce('app/controlmodeview.js', 'mo-control-mode-view', loadUi);
+  }
+  bootControlMode();
 })();
