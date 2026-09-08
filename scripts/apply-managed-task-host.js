@@ -14,6 +14,7 @@ const DONE = [
   "const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');",
   'const managedTaskHistoryHost = makeTaskHistoryHost({',
   'managedTaskHistory: managedTaskHistoryHost.store,',
+  'clock: { now: () => Date.now() },',
   "{ m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },"
 ];
 if (DONE.every(marker => src.includes(marker))) {
@@ -53,7 +54,8 @@ replaceOnce(
 const classAnchor = "    classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)";
 replaceOnce(
   classAnchor,
-  "    managedTaskHistory: managedTaskHistoryHost.store,   // shared durable history for team.delegate_managed\n" + classAnchor,
+  "    managedTaskHistory: managedTaskHistoryHost.store,   // shared durable history for team.delegate_managed\n" +
+  "    clock: { now: () => Date.now() },   // ambient host clock injected into deterministic derivative orchestration\n" + classAnchor,
   'orchestration history injection'
 );
 

@@ -14,6 +14,8 @@ A.ok(/managedTaskHistoryHost\s*=\s*makeTaskHistoryHost\(\{[\s\S]{0,400}workspace
   'managed history is composed from the canonical workspace, bounded JSONL reader, durable append and responder');
 A.ok(/managedTaskHistory:\s*managedTaskHistoryHost\.store/.test(src),
   'team.delegate_managed receives the singleton durable managed task store');
+A.ok(/managedTaskHistory:\s*managedTaskHistoryHost\.store[\s\S]{0,220}clock:\s*\{\s*now:\s*\(\)\s*=>\s*Date\.now\(\)\s*\}/.test(src),
+  'composition root injects the ambient clock into deterministic managed orchestration');
 A.ok(/\{\s*m:\s*'GET',\s*prefix:\s*'\/api\/managed-tasks',\s*h:\s*managedTaskHistoryHost\.serve\s*}/.test(src),
   'the host exposes exactly a GET-only managed-task telemetry route');
 A.ok(!/\{\s*m:\s*'(?:POST|PUT|PATCH|DELETE)',\s*(?:prefix|exact|qsplit):\s*'\/api\/managed-tasks/.test(src),

@@ -23,6 +23,7 @@ const runOnce = async (o) => ({
     roster: () => roster,
     key: 'test-key',
     model: 'test-model',
+    clock: { now: () => 1700000000000 },
     perWorker: 1,
     newId: (() => { let n = 0; return () => 'wire_' + (++n); })()
   });

@@ -29,7 +29,8 @@ function workerEnvelope(taskId, agentId, pass) {
       return { content: JSON.stringify([{ agentId: 'worker', reason: 'done', usd: 0.2, result: JSON.stringify(workerEnvelope('t1', 'worker', workerPass)) }]) };
     }
   };
-  const { managedDispatchTool } = makeManagedOrchestrationTool({ dispatchTool, roster: () => roster });
+  const clock = { now: () => 1700000000000 };
+  const { managedDispatchTool } = makeManagedOrchestrationTool({ dispatchTool, roster: () => roster, clock });
   A.eq(managedDispatchTool.capability, 'orchestrator', 'managed tool keeps inherited orchestrator capability gate');
   A.eq(managedDispatchTool.scope, 'execute', 'managed tool is execute-scoped');
   A.eq(managedDispatchTool.requiresConsent, true, 'managed delegation remains consent-gated');
@@ -56,7 +57,7 @@ function workerEnvelope(taskId, agentId, pass) {
     ['lead', { role: 'specialist', orgRole: 'worker' }],
     ['manager', { role: 'specialist', orgRole: 'manager' }]
   ]);
-  const { managedDispatchTool: upward } = makeManagedOrchestrationTool({ dispatchTool, roster: () => upwardRoster });
+  const { managedDispatchTool: upward } = makeManagedOrchestrationTool({ dispatchTool, roster: () => upwardRoster, clock });
   const denied = await upward.run({ taskId: 't2', agentId: 'manager', objective: 'manage me' }, { agentId: 'lead' });
   const deniedParsed = JSON.parse(denied.content);
   A.eq(deniedParsed.accepted, false, 'upward delegation is rejected before inherited dispatch');
