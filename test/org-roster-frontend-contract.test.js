@@ -21,4 +21,6 @@ A.ok(/agent = \{ id: 'agent', name, role: 'orchestrator', orgRole: 'commander', 
 A.ok(/id, name: nm, role: 'specialist'[\s\S]{0,300}orgRole:\s*orgRoleOf\(\{ orgRole: spec && spec\.orgRole, role: 'specialist' \}\)[\s\S]{0,220}parentAgentId:\s*summonParentAgentId\(opts\)/.test(src),
   'summoned crew receive explicit org role and creation parent');
 A.eq(mirror, src, 'website mirror carries identical org metadata logic');
+A.ok(/summonAgent\(spec, \{ activate: false, desk: true, parentAgentId: ev\.agentId \}\)/.test(src),
+  'backend-initiated summon preserves the requesting agent as the explicit parent edge');
 A.report('org-roster-frontend-contract.test');

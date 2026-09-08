@@ -1447,7 +1447,7 @@ const App = (() => {
     // per-agent prop it needs to sit and work. See summonAgent: the seed is that agent's desk and nothing
     // else; the Commander can move or reclaim it in REFIT like any placed prop.
     let a = null;
-    try { a = summonAgent(spec, { activate: false, desk: true }); } catch (_) { a = null; }
+    try { a = summonAgent(spec, { activate: false, desk: true, parentAgentId: ev.agentId }); } catch (_) { a = null; }
     if (!a) return null;
     let rosterLanded = false;
     try { rosterLanded = (await lastRosterPush) === true; } catch (_) {}
