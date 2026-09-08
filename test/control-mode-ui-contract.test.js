@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const A = require('./_assert.js');
 const src = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlmode.js'), 'utf8');
+const nav = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'navdock.js'), 'utf8');
 
 A.ok(src.includes("'/api/managed-tasks/summary'"), 'Control Mode reads managed summary telemetry');
 A.ok(src.includes("'/api/managed-tasks/active?limit=100'"), 'Control Mode reads in-flight telemetry');
@@ -18,5 +19,8 @@ A.ok(src.includes('clearInterval(timer)'), 'polling is stopped when Control Mode
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(src), 'Control Mode performs no mutating API calls');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(src), 'Control Mode contains no raw mutating HTTP fallback');
 A.ok(!/\b(cancel|approve|reject|dispatch|spawn|steer)\b[^\n]{0,40}addEventListener\s*\(/i.test(src), 'v1 exposes no task mutation controls');
+A.ok(nav.includes("loadOnce('app/controlmodeview.js', 'mo-control-mode-view', loadUi)"), 'nav dock loads the tested projection layer before the UI');
+A.ok(nav.includes("loadOnce('app/controlmode.js', 'mo-control-mode-ui')"), 'nav dock bootstraps the read-only Control Mode UI');
+A.ok(nav.includes('if (window.ControlModeUI) return;'), 'Control Mode bootstrap is idempotent');
 
 A.report('control-mode-ui-contract.test');
