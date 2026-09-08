@@ -1,6 +1,7 @@
 /* Idempotent source patch for wiring Moe AI Station managed-task history into sidecar/index.js.
    This deliberately uses exact, single-occurrence anchors. If upstream/source drift changes an
-   anchor, the script aborts instead of guessing at a new insertion point. */
+   anchor, the script aborts instead of guessing at a new insertion point.
+   Re-run marker: host wiring is intentionally verified through CI before the patch is committed. */
 'use strict';
 
 const fs = require('node:fs');
