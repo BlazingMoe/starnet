@@ -19,4 +19,4 @@ A.ok(/\{\s*m:\s*'GET',\s*prefix:\s*'\/api\/managed-tasks',\s*h:\s*managedTaskHis
 A.ok(!/\{\s*m:\s*'(?:POST|PUT|PATCH|DELETE)',\s*(?:prefix|exact|qsplit):\s*'\/api\/managed-tasks/.test(src),
   'managed task telemetry has no mutation route');
 
-console.log('managed-task-history-host-wiring: ok');
+A.report('managed-task-history-host-wiring.test');
