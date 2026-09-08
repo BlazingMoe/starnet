@@ -55,7 +55,7 @@ function liveEntry(args, ctx, startedAt) {
 function attachTaskHistory(tool, store, clock) {
   if (!tool || typeof tool.run !== 'function') throw new Error('managed tool required');
   if (!store || typeof store.record !== 'function') return tool;
-  clock = clock || { now() { return Date.now(); } };
+  if (!clock || typeof clock.now !== 'function') throw new Error('task history adapter requires injected clock');
   const originalRun = tool.run.bind(tool);
   return Object.assign({}, tool, {
     run: async (args, ctx) => {

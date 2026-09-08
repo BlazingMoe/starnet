@@ -60,7 +60,14 @@
     deps = deps || {};
     const dispatchTool = deps.dispatchTool;
     const rosterFn = typeof deps.roster === 'function' ? deps.roster : function () { return new Map(); };
+    const clock = deps.clock || null;
     if (!dispatchTool || typeof dispatchTool.run !== 'function') throw new Error('managed orchestration requires inherited dispatchTool');
+    function completedAt() {
+      if (!clock || typeof clock.now !== 'function') throw new Error('managed orchestration requires injected clock');
+      const value = Number(clock.now());
+      if (!Number.isFinite(value)) throw new Error('managed orchestration clock returned non-finite time');
+      return value;
+    }
 
     async function dispatchOne(worker, ctx) {
       const out = await dispatchTool.run({ workers: [worker], parallel: false, background: false }, ctx);
@@ -135,7 +142,7 @@
         if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'dispatch', error: current.error, attempts: 1 }), summary: 'managed dispatch failed' };
 
         while (attempt < maxRevisions) {
-          const formal = reviewGate.review(contract, current.envelope, { spentUsd: current.row.usd, completedAt: Date.now() });
+          const formal = reviewGate.review(contract, current.envelope, { spentUsd: current.row.usd, completedAt: completedAt() });
           if (formal && formal.accepted) break;
           const brief = reviewGate.revisionBrief(formal);
           attempt++;
@@ -165,7 +172,7 @@
           contract,
           envelope: current.envelope,
           spentUsd: current.row.usd,
-          completedAt: Date.now(),
+          completedAt: completedAt(),
           requireAudit,
           runAuditor
         });

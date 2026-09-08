@@ -15408,6 +15408,7 @@ async function runOnce(o) {
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
     managedTaskHistory: managedTaskHistoryHost.store,   // shared durable history for team.delegate_managed
+    clock: { now: () => Date.now() },   // ambient host clock injected into deterministic derivative orchestration
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     taskContext: taskContextBlock,   // workers inherit settled task decisions without re-questioning the Commander

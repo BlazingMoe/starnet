@@ -49,7 +49,8 @@ function sanitize(entry, now) {
 function makeTaskHistoryStore(opts) {
   opts = opts || {};
   const io = opts.io || { readAll() { return []; }, append() {} };
-  const clock = opts.clock || { now() { return Date.now(); } };
+  const clock = opts.clock;
+  if (!clock || typeof clock.now !== 'function') throw new Error('task history store requires injected clock');
   const ramMax = Math.max(1, Math.floor(num(opts.ramMax) || MAX_ROWS));
   const defaultLimit = Math.max(1, Math.floor(num(opts.limit) || DEFAULT_LIMIT));
   let rows = [];

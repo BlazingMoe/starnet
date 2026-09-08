@@ -70,7 +70,8 @@ function makeOrchestrationTools(deps) {
   const roster = typeof deps.roster === 'function' ? deps.roster : (() => new Map());
   const managedBuilt = managed.makeManagedOrchestrationTool({
     dispatchTool: built.dispatchTool,
-    roster
+    roster,
+    clock: deps.clock || null
   });
   const managedDispatchTool = historyAdapter.attachTaskHistory(
     managedBuilt.managedDispatchTool,

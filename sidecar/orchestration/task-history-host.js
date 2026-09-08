@@ -9,7 +9,8 @@ const { makeTaskLiveTracker } = require('./task-live.js');
 
 function makeTaskHistoryHost(opts) {
   opts = opts || {};
-  const clock = opts.clock || { now: () => Date.now() };
+  const clock = opts.clock;
+  if (!clock || typeof clock.now !== 'function') throw new Error('task history host requires injected clock');
   const disk = makeTaskHistoryDiskIo({
     path: opts.path,
     fs: opts.fs,

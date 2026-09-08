@@ -8,7 +8,8 @@ function finite(v) { return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 
 function makeTaskLiveTracker(opts) {
   opts = opts || {};
-  const clock = opts.clock || { now: () => Date.now() };
+  const clock = opts.clock;
+  if (!clock || typeof clock.now !== 'function') throw new Error('task live tracker requires injected clock');
   const maxActive = Math.max(1, Math.min(10000, Math.floor(finite(opts.maxActive) || 1000)));
   const active = new Map();
   let seq = 0;
