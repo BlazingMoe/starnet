@@ -7,6 +7,10 @@ const rows = [
   { taskId: 't1', leadAgentId: 'lead', workerAgentId: 'worker', status: 'accepted', accepted: true },
   { taskId: 't2', leadAgentId: 'lead', workerAgentId: 'worker2', status: 'rejected', accepted: false }
 ];
+const activeRows = [
+  { taskId: 'live1', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'dispatch', elapsedMs: 50 },
+  { taskId: 'live2', leadAgentId: 'lead2', workerAgentId: 'worker2', stage: 'audit', elapsedMs: 25 }
+];
 const store = {
   list(filter, options) {
     let out = rows.slice();
@@ -15,7 +19,13 @@ const store = {
     if (filter.status) out = out.filter(x => x.status === filter.status);
     return out.slice(0, options.limit);
   },
-  summary() { return { total: 2, accepted: 1, rejected: 1, acceptanceRate: 0.5 }; }
+  summary() { return { total: 2, accepted: 1, rejected: 1, acceptanceRate: 0.5 }; },
+  activeList(filter) {
+    let out = activeRows.slice();
+    if (filter.agentId) out = out.filter(x => x.leadAgentId === filter.agentId || x.workerAgentId === filter.agentId);
+    return out;
+  },
+  activeSummary() { return { active: 2, byStage: { dispatch: 1, audit: 1 } }; }
 };
 const sent = [];
 const api = makeTaskHistoryHttp({ store, respondJson(res, code, body) { sent.push({ code, body }); return body; } });
@@ -35,6 +45,11 @@ A.eq(r.code, 400, 'unknown status fails closed');
 r = hit('/api/managed-tasks/summary');
 A.eq(r.code, 200, 'summary route returns 200');
 A.eq(r.body.summary.acceptanceRate, 0.5, 'summary comes from authoritative store');
+A.eq(r.body.live.active, 2, 'summary includes authoritative in-flight count');
+r = hit('/api/managed-tasks/active?agent=worker&limit=1');
+A.eq(r.code, 200, 'active route returns 200');
+A.eq(r.body.tasks.map(x => x.taskId), ['live1'], 'active route applies agent filter and limit');
+A.eq(r.body.summary.byStage.audit, 1, 'active route includes live summary');
 r = hit('/api/managed-tasks/t1');
 A.eq(r.code, 200, 'task drilldown returns 200');
 A.eq(r.body.history[0].taskId, 't1', 'task drilldown is exact');
@@ -42,6 +57,10 @@ r = hit('/api/managed-tasks/missing');
 A.eq(r.code, 404, 'missing task returns honest 404');
 r = hit('/api/managed-tasks/a%2Fb');
 A.eq(r.code, 400, 'encoded slash cannot escape task-id segment');
+
+const noLive = makeTaskHistoryHttp({ store: { list: store.list, summary: store.summary }, respondJson(res, code, body) { sent.push({ code, body }); } });
+sent.length = 0; noLive.serve({ url: '/api/managed-tasks/active' }, {});
+A.eq(sent[0].code, 503, 'active route reports unavailable tracker honestly');
 
 const broken = makeTaskHistoryHttp({ store: { list() { throw new Error('disk'); }, summary: store.summary }, respondJson(res, code, body) { sent.push({ code, body }); } });
 sent.length = 0; broken.serve({ url: '/api/managed-tasks' }, {});
