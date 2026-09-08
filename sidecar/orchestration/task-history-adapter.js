@@ -1,5 +1,7 @@
 'use strict';
 
+const { note: failNote } = require('../failopen.js');
+
 function statusFor(result) {
   if (!result || typeof result !== 'object') return 'dispatch_error';
   if (result.accepted === true) return 'accepted';
@@ -62,7 +64,8 @@ function attachTaskHistory(tool, store, clock) {
       const startedAt = Number(clock.now());
       let liveToken = '';
       if (typeof store.activeBegin === 'function') {
-        try { liveToken = store.activeBegin(liveEntry(args, ctx, startedAt)) || ''; } catch (_) {}
+        try { liveToken = store.activeBegin(liveEntry(args, ctx, startedAt)) || ''; }
+        catch (error) { failNote('managed.history.active_begin', error); }
       }
       let out;
       try {
@@ -70,17 +73,21 @@ function attachTaskHistory(tool, store, clock) {
           out = await originalRun(args, ctx);
         } catch (error) {
           const completedAt = Number(clock.now());
-          try { store.record(rowFromManaged(args, ctx, { accepted: false, stage: 'dispatch', error: String(error && error.message || error) }, startedAt, completedAt)); } catch (_) {}
+          try { store.record(rowFromManaged(args, ctx, { accepted: false, stage: 'dispatch', error: String(error && error.message || error) }, startedAt, completedAt)); }
+          catch (recordError) { failNote('managed.history.record_error', recordError); }
           throw error;
         }
         const completedAt = Number(clock.now());
         let parsed = null;
-        try { parsed = out && typeof out.content === 'string' ? JSON.parse(out.content) : null; } catch (_) {}
-        try { store.record(rowFromManaged(args, ctx, parsed || { accepted: false, stage: 'dispatch' }, startedAt, completedAt)); } catch (_) {}
+        try { parsed = out && typeof out.content === 'string' ? JSON.parse(out.content) : null; }
+        catch (_) { parsed = null; }
+        try { store.record(rowFromManaged(args, ctx, parsed || { accepted: false, stage: 'dispatch' }, startedAt, completedAt)); }
+        catch (recordError) { failNote('managed.history.record_complete', recordError); }
         return out;
       } finally {
         if (liveToken && typeof store.activeEnd === 'function') {
-          try { store.activeEnd(liveToken); } catch (_) {}
+          try { store.activeEnd(liveToken); }
+          catch (error) { failNote('managed.history.active_end', error); }
         }
       }
     }

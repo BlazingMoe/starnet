@@ -22,12 +22,22 @@
 (function (root, factory) {
   const api = factory(
     typeof require === 'function' ? require('../../domain-task.js') : (root.SK && root.SK.domainTask),
-    typeof require === 'function' ? require('../../../shared/schema.js') : (root.SK && root.SK.schema)
+    typeof require === 'function' ? require('../../../shared/schema.js') : (root.SK && root.SK.schema),
+    typeof require === 'function' ? require('../../failopen.js') : (root.SK && root.SK.failopen)
   );
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).orchestration = api; }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (domainTask, schemaLib) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (domainTask, schemaLib, failopen) {
   'use strict';
+
+  function noteFailure(tag, error) {
+    if (failopen && typeof failopen.note === 'function') { failopen.note(tag, error); return; }
+    try { console.warn('[failopen] ' + tag + ':', (error && error.message) || error); } catch (_) { return; }
+  }
+  function swallowFailure(tag) {
+    if (failopen && typeof failopen.swallow === 'function') return failopen.swallow(tag);
+    return error => { noteFailure(tag, error); };
+  }
 
   const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
   // events forwarded from a child run onto the LEAD's bus — ENOUGH to animate the handoff + keep cost honest,
@@ -47,7 +57,13 @@
   };
 
   // abort without ever throwing out of a timer callback (AbortController.abort(reason) is not universal).
-  function abort(ac) { try { ac.abort(new Error('worker wall clock')); } catch (_) { try { ac.abort(); } catch (_) {} } }
+  function abort(ac) {
+    try { ac.abort(new Error('worker wall clock')); }
+    catch (_) {
+      try { ac.abort(); }
+      catch (error) { noteFailure('orchestration.abort.fallback', error); }
+    }
+  }
   /* A fresh AbortController CHAINED to a parent signal: aborting the parent (E-STOP, the lead's run ending, the
      registry's own per-call timeout) still cascades down, but aborting the child stops ONE worker without
      touching its siblings or the lead. Mirrors registry.js's childAbort; kept local because this file is a
@@ -61,8 +77,11 @@
         const onAbort = () => abort(ac);
         try {
           parent.addEventListener('abort', onAbort, { once: true });
-          detach = () => { try { parent.removeEventListener('abort', onAbort); } catch (_) {} };
-        } catch (_) {}
+          detach = () => {
+            try { parent.removeEventListener('abort', onAbort); }
+            catch (error) { noteFailure('orchestration.abort.detach', error); }
+          };
+        } catch (error) { noteFailure('orchestration.abort.listen', error); }
       }
     }
     return { ac, detach };
@@ -352,8 +371,8 @@
           streamId: job.streamId, sessionTitle: job.sessionTitle || job.session || '',
           agentId: job.agentId, runId: runId || ''
         });
-        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
-      } catch (_) {}
+        if (pending && typeof pending.catch === 'function') pending.catch(swallowFailure('orchestration.session.activity.async'));
+      } catch (error) { noteFailure('orchestration.session.activity.sync', error); }
     }
 
     const dispatchTool = {
@@ -409,7 +428,7 @@
         const overflowNote = overflow.length ? ' — ' + overflow.length + ' NOT dispatched (max ' + maxWorkers + ' per call; dispatch the rest in a follow-up call)' : '';
 
         // forward ONLY lifecycle/cost from children onto the lead's bus (the floor animation reads agent.run.start).
-        const childEmit = (name, payload) => { if (FORWARD[name] && ctx && typeof ctx.emit === 'function') { try { ctx.emit(name, payload); } catch (_) {} } };
+        const childEmit = (name, payload) => { if (FORWARD[name] && ctx && typeof ctx.emit === 'function') { try { ctx.emit(name, payload); } catch (error) { noteFailure('orchestration.child.emit', error); } } };
 
         // validate every target up front: a real, live, OTHER worker (never self, never an unknown agentId).
         const jobs = reqs.map(w => {
@@ -710,7 +729,7 @@
 
         // forward ONLY lifecycle/cost onto the lead's bus so the floor materializes/pops the Meeseeks live; the
         // durable record (via h.emit) keeps the full watch tail for team.subagents/interrupt/resume.
-        const childEmit = (name, payload) => { if (FORWARD[name] && ctx && typeof ctx.emit === 'function') { try { ctx.emit(name, payload); } catch (_) {} } };
+        const childEmit = (name, payload) => { if (FORWARD[name] && ctx && typeof ctx.emit === 'function') { try { ctx.emit(name, payload); } catch (error) { noteFailure('orchestration.child.emit', error); } } };
 
         const spawnOne = (task, i) => {
           const label = task.label;
@@ -733,7 +752,7 @@
                                                             // composes its own caps for its (narrowed) toolset
                 messages: [{ role: 'user', content: contractedPrompt }],
                 agentId: ephemeralId, isTask: true,
-                emit: (n, p) => { try { h.emit(n, p); } catch (_) {} childEmit(n, p); },   // durable record + lead stream
+                emit: (n, p) => { try { h.emit(n, p); } catch (error) { noteFailure('orchestration.subagent.emit', error); } childEmit(n, p); },   // durable record + lead stream
                 signal: h.signal, runId: h.runId,
                 parentRunId: ctx && ctx.runId,
                 trigger: 'directive', surface: 'autonomous',
@@ -765,7 +784,7 @@
                 messages: [{ role: 'user', content: contractedPrompt }, { role: 'assistant', content: firstText },
                   { role: 'user', content: '[STRUCTURED RESULT REPAIR] The prior result failed host validation:\n- ' + errors.slice(0, 20).join('\n- ') + '\nReturn ONLY strict JSON matching: ' + JSON.stringify(task.resultSchema) }],
                 agentId: ephemeralId, isTask: true,
-                emit: (n, p) => { try { h.emit(n, p); } catch (_) {} childEmit(n, p); },
+                emit: (n, p) => { try { h.emit(n, p); } catch (error) { noteFailure('orchestration.subagent.emit', error); } childEmit(n, p); },
                 signal: h.signal, runId: repairRunId, parentRunId: ctx && ctx.runId,
                 trigger: 'directive', surface: 'autonomous', consent: ctx && ctx.consent,
                 extraObjects: WORKER_KIT, maxCostUsd: perWorker > 0 ? remaining : 0,

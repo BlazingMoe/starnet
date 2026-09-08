@@ -16,8 +16,10 @@
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
     const text = String(raw == null ? '' : raw).trim();
     if (text) {
-      try { const parsed = JSON.parse(text); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed; }
-      catch (_) {}
+      let parsed = null;
+      try { parsed = JSON.parse(text); }
+      catch (_) { parsed = null; }
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
     }
     return {
       taskId: fallback.taskId,

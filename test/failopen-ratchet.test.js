@@ -41,7 +41,6 @@ const BASELINE = {
   'terminal-sessions.js': 1,          // opportunistic pid identity pin
   'tools/builtin/browser.js': 9,      // CDP best-effort sends on adopt/close/failRequest seams
   'tools/builtin/image.js': 1,        // r.json() value default
-  'tools/builtin/orchestration.js': 1,// pending-promise guard (result read elsewhere)
   'tools/builtin/webreader.js': 1,    // debugger session close on teardown
 };
 
@@ -216,7 +215,6 @@ const SYNC_BASELINE = {
   'tools/builtin/connectors.js': 2,
   'tools/builtin/fs.js': 3,
   'tools/builtin/notebook.js': 1,
-  'tools/builtin/orchestration.js': 8,
   'tools/builtin/quests.js': 1,
   'tools/builtin/shell.js': 12,
   'tools/builtin/skills.js': 4,
