@@ -312,9 +312,14 @@ const { makeNativeStt } = require('./native-stt.js');                // keyless 
 const Classify = require('../frontend/app/classify.js');   // the SAME task-vs-talk classifier the browser uses
 const Pipeline = require('../frontend/app/pipeline.js');   // the ONE routing-plan compiler/resolver (router.js loads the same module) — used here for a side-effect-free dispatch peek
 const sharedSpecialties = require('../shared/specialties.js');   // Class Loadouts S1: the ONE class catalog — no hardcoded class prose here
-// the specialist classes as {id, tagline}, composed from the shared catalog so team.summon's class list +
-// the [ORCHESTRATION] teamNote never drift from the Recruitment Bay (single source of truth).
-const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({ id: s.id, tagline: s.tagline || '' }));
+const sharedOrgSpecialties = require('../shared/org-specialties.js');   // Moe AI Station: organizational metadata for those same real classes
+// the specialist classes as {id, tagline,orgRole}, composed from the shared catalogs so team.summon's class list +
+// the Recruitment Bay and Control Mode never drift. orgRole remains metadata/policy, never a capability grant.
+const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({
+  id: s.id,
+  tagline: s.tagline || '',
+  orgRole: sharedOrgSpecialties.roleForSpecialty(s.id)
+}));
 
 // ---- Skynet→StarNet env back-compat ------------------------------------------------------------
 // The project was renamed Skynet → StarNet; its env vars moved SKYNET_* → STARNET_*. ENV() reads the

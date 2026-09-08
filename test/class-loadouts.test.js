@@ -420,6 +420,11 @@ const orch = fs.readFileSync(path.join(__dirname, '../sidecar/tools/builtin/orch
 A.ok(/deps\.classes[\s\S]{0,120}\.map\(c => c && c\.id\)/.test(orch), 'team.summon SPEC_IDS is composed from the injected shared catalog');
 A.ok(/SPECIALIST_CLASSES\s*=\s*\(sharedSpecialties\.BUILTINS/.test(idx), 'the sidecar composes the class list from the shared catalog');
 A.ok(/classes:\s*SPECIALIST_CLASSES/.test(idx), 'the shared class list is injected into the orchestration tools');
+A.ok(/sharedOrgSpecialties\s*=\s*require\('\.\.\/shared\/org-specialties\.js'\)/.test(idx), 'sidecar reads organizational roles from the shared derivative catalog');
+A.ok(/orgRole:\s*sharedOrgSpecialties\.roleForSpecialty\(s\.id\)/.test(idx), 'team.summon class metadata carries the same org role as the Recruitment Bay');
+const orchCore = fs.readFileSync(path.join(__dirname, '../sidecar/tools/builtin/orchestration-core.js'), 'utf8');
+A.ok(/ORG_CLASS_HINTS[\s\S]{0,500}c\.id \+ '=' \+ c\.orgRole/.test(orchCore), 'team.summon tells the lead which real classes are manager/worker roles');
+A.ok(/Organizational role never grants capabilities/.test(orchCore), 'team.summon role hint explicitly preserves capability authority');
 
 /* ---------- 4. SHARED-GEAR SKILL AVAILABILITY: a desk-only specialist still gets its class skills ---------- */
 // THE POINT of the rework: a specialist owns only a desk, but its SKILL PACKAGE (recipes) must reach its runs when
