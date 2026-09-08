@@ -44,9 +44,18 @@ const runOnce = async (o) => ({
   A.ok(names.includes('team.delegate_managed'), 'runtime registry now receives team.delegate_managed');
   A.eq(names.filter(n => n === 'team.delegate_managed').length, 1, 'managed tool is registered exactly once');
 
-  const out = await tools.managedDispatchTool.run({
-    taskId: 'wire-1', agentId: 'worker', objective: 'prove runtime wiring', acceptanceCriteria: []
-  }, { agentId: 'lead', runId: 'lead-wire' });
+  // The inherited dispatcher deliberately uses unref'd timers. Keep one referenced handle alive
+  // while awaiting the managed run so Node cannot drain the event loop before this test reaches
+  // its post-dispatch assertions/report. This changes test lifetime only, never runtime behavior.
+  const keepAlive = setInterval(() => {}, 1000);
+  let out;
+  try {
+    out = await tools.managedDispatchTool.run({
+      taskId: 'wire-1', agentId: 'worker', objective: 'prove runtime wiring', acceptanceCriteria: []
+    }, { agentId: 'lead', runId: 'lead-wire' });
+  } finally {
+    clearInterval(keepAlive);
+  }
   const parsed = JSON.parse(out.content);
   A.eq(parsed.accepted, true, 'managed runtime path executes through inherited dispatch and accepts a valid envelope');
   A.eq(parsed.workerAgentId, 'worker', 'managed runtime result preserves the delegated worker identity');
