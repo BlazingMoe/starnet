@@ -207,8 +207,8 @@
 
   /* Moe AI Station derivative extension: load the read-only Control Mode surface through
      the already-booted navigation shell instead of modifying the large station host files.
-     The projection layer loads first; the UI installs its own SYSTEM-dock menuitem only
-     after that dependency is ready. Both scripts are same-origin and idempotent.
+     The task projection layer loads first, then the dashboard, then the independent live
+     organization pane. All scripts are same-origin and idempotent.
 
      Some inherited source-level/mobile reachability tests execute this module against a
      deliberately tiny DOM shim. In that environment getElementById/querySelector exist so
@@ -224,8 +224,9 @@
     document.head.appendChild(s);
   }
   function bootControlMode() {
-    if (window.ControlModeUI) return;
-    const loadUi = () => loadOnce('app/controlmode.js', 'mo-control-mode-ui');
+    const loadAgents = () => loadOnce('app/controlagents.js', 'mo-control-mode-agents');
+    const loadUi = () => loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents);
+    if (window.ControlModeUI) { loadAgents(); return; }
     if (window.ControlModeView) loadUi();
     else loadOnce('app/controlmodeview.js', 'mo-control-mode-view', loadUi);
   }
