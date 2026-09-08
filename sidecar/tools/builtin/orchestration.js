@@ -30,11 +30,17 @@ function injectedClassIds(deps) {
 
 function immediateWorkerReasoningEffort(job, reasoningEffort) {
   job = job || {};
-  return (job.ident && job.ident.reasoningEffort) || reasoningEffort;
+  const contract = {
+    reasoningEffort: (job.ident && job.ident.reasoningEffort) || reasoningEffort
+  };
+  return contract.reasoningEffort;
 }
 
 function queuedWorkerReasoningEffort(ident, reasoningEffort) {
-  return (ident && ident.reasoningEffort) || reasoningEffort;
+  const contract = {
+    reasoningEffort: (ident && ident.reasoningEffort) || reasoningEffort
+  };
+  return contract.reasoningEffort;
 }
 
 function makeOrchestrationTools(deps) {
