@@ -858,7 +858,8 @@ const App = (() => {
   // the persisted shape of a crew member (systemPrompt is derived, recomposed on rehydrate).
   function serializeAgentLite(a) {
     return { id: a.id, name: a.name, color: a.color, skin: a.skin || DATA.DEFAULT_SKIN, model: a.model, provider: a.provider || null, reasoningEffort: a.reasoningEffort || null, personaId: a.personaId,
-             role: a.role || (a.id === 'agent' ? 'orchestrator' : 'specialist'), voiceTraits: a.voiceTraits || null, customVoice: a.customVoice || '',
+             role: a.role || (a.id === 'agent' ? 'orchestrator' : 'specialist'), orgRole: orgRoleOf(a), parentAgentId: parentAgentIdOf(a),
+             voiceTraits: a.voiceTraits || null, customVoice: a.customVoice || '',
              approvalMode: a.approvalMode || 'ask', executionProfile: executionProfileOf(a), workshop: !!a.workshop, purpose: a.purpose || null, specialtyId: a.specialtyId || null, docs: a.docs,
              skills: Array.isArray(a.skills) ? a.skills.slice() : [],   // Class Loadouts S1: per-agent skill package persists
              stats: a.stats || null, createdAt: a.createdAt };
@@ -871,7 +872,8 @@ const App = (() => {
       if (!s || !s.id || s.id === 'agent' || agents.has(s.id)) continue;   // hero already registered; skip dups (so the 'specialist' default below is always correct here — the orchestrator never routes through this path)
       const a = { id: s.id, name: s.name, color: s.color, skin: s.skin || DATA.DEFAULT_SKIN, model: s.model || (agent && agent.model),
                   provider: s.provider || (agent && agent.provider) || null, reasoningEffort: s.reasoningEffort || (agent && agent.reasoningEffort) || null,   // #4: per-agent provider+effort (fall back to the hero's)
-                  personaId: s.personaId, role: s.role || 'specialist', voiceTraits: s.voiceTraits || null, customVoice: s.customVoice || '',
+                  personaId: s.personaId, role: s.role || 'specialist', orgRole: orgRoleOf(s), parentAgentId: parentAgentIdOf(s),
+                  voiceTraits: s.voiceTraits || null, customVoice: s.customVoice || '',
                   approvalMode: s.approvalMode || 'ask', executionProfile: executionProfileOf(s), workshop: !!s.workshop, purpose: s.purpose || null, specialtyId: s.specialtyId || null,
                   skills: Array.isArray(s.skills) ? s.skills.slice() : [],   // Class Loadouts S1: restore the per-agent skill package
                   docs: s.docs, stats: (s.stats && typeof s.stats === 'object') ? s.stats : null, createdAt: s.createdAt || Date.now() };
@@ -1019,7 +1021,9 @@ const App = (() => {
       ? AgentId.normalizeName(requestedName)
       : AgentId.allocName((spec && spec.name) || 'AGENT', liveAgents());
     const a = {
-      id, name: nm, role: 'specialist',   // summoned crew are specialists under the Orchestrator
+      id, name: nm, role: 'specialist',   // inherited runtime role stays compatible
+      orgRole: orgRoleOf({ orgRole: spec && spec.orgRole, role: 'specialist' }),
+      parentAgentId: summonParentAgentId(opts),
       color: SUITS[agents.size % SUITS.length], skin: (spec && spec.skin) || DATA.DEFAULT_SKIN,
       model: (pin && pin.model) || agent.model,
       provider: (pin && pin.provider) || agent.provider || null,
@@ -1367,10 +1371,30 @@ const App = (() => {
     if (!a || typeof Xp === 'undefined' || !Xp.credential || !a.stats) return '';
     try { return Xp.credential(a.stats).text || ''; } catch (_) { return ''; }
   }
+  const ORG_ROLE_IDS = new Set(['commander', 'manager', 'specialist', 'worker']);
+  function orgRoleOf(a) {
+    const explicit = String((a && a.orgRole) || '').trim().toLowerCase();
+    if (ORG_ROLE_IDS.has(explicit)) return explicit;
+    const runtime = String((a && a.role) || '').trim().toLowerCase();
+    if (runtime === 'orchestrator') return 'commander';
+    if (runtime === 'specialist') return 'specialist';
+    return null;
+  }
+  function parentAgentIdOf(a) {
+    const id = String((a && a.parentAgentId) || '').trim();
+    return /^[A-Za-z0-9_-]{1,40}$/.test(id) ? id : null;
+  }
+  function summonParentAgentId(opts) {
+    const requested = String((opts && opts.parentAgentId) || '').trim();
+    if (requested && agents.has(requested)) return requested;
+    return agents.has('agent') ? 'agent' : null;
+  }
   function pushRoster() {
     try {
       const fallbackProv = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter';
-      const list = liveAgents().map(a => ({ agentId: a.id, system: a.systemPrompt || '', name: a.name || a.id, model: a.model || '', provider: a.provider || fallbackProv, role: rosterRole(a), approvalMode: (a.approvalMode === 'full' ? 'full' : 'ask'), executionProfile: executionProfileOf(a),
+      const list = liveAgents().map(a => ({ agentId: a.id, system: a.systemPrompt || '', name: a.name || a.id, model: a.model || '', provider: a.provider || fallbackProv, role: rosterRole(a),
+        orgRole: orgRoleOf(a), parentAgentId: parentAgentIdOf(a),
+        approvalMode: (a.approvalMode === 'full' ? 'full' : 'ask'), executionProfile: executionProfileOf(a),
         track: rosterTrack(a),    // S3: this agent's EARNED track record, so the lead's dispatch briefing can pick on evidence (see rosterTrack)
         workshop: !!a.workshop,   // W3: the away-build grant travels with the roster so the consent broker can honor it
         skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null }));   // #4: each agent's OWN provider; Class Loadouts S1: per-agent skill package + applied effort
@@ -2784,7 +2808,7 @@ const App = (() => {
     // the FIRST agent is always the station's OVERSEER — the orchestrating lead the Commander commissions before
     // any specialist. Its voice is the archetype + fine-tune dials + free-text note; its APPROVAL mode (ask vs
     // full access) drives the real consent broker, while the mission/context/orders are authored in the awakening.
-    agent = { id: 'agent', name, role: 'orchestrator', color: pickedColor, skin: pickedSkin || DATA.DEFAULT_SKIN, model,
+    agent = { id: 'agent', name, role: 'orchestrator', orgRole: 'commander', parentAgentId: null, color: pickedColor, skin: pickedSkin || DATA.DEFAULT_SKIN, model,
               provider: (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter',   // #4: stamp the chosen provider+effort onto the hero so a later agent-switch can restore them
               reasoningEffort: (typeof Harness !== 'undefined' && Harness.getReasoningEffort) ? Harness.getReasoningEffort() : 'medium',
               personaId: pickedPersona, voiceTraits: Object.assign({}, pickedTraits), customVoice: pickedCustomVoice.trim(),
