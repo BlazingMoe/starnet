@@ -50,9 +50,24 @@
 
   const BY_ID = Object.freeze(TEMPLATES.reduce(function (m, t) { m[t.id] = t; return m; }, {}));
 
+  // Organizational roles for the REAL Recruitment Bay catalog. This is intentionally conservative:
+  // only classes whose existing execution contract clearly matches a hierarchy tier are promoted.
+  // Everything else remains a specialist. A role is metadata/policy only; it never grants capabilities.
+  const SPECIALTY_ROLE_OVERRIDES = Object.freeze({
+    foreman: 'manager',
+    harvester: 'worker',
+    apptester: 'worker',
+    processwriter: 'worker'
+  });
+
+  function roleForSpecialty(id) {
+    const key = String(id || '').trim();
+    return SPECIALTY_ROLE_OVERRIDES[key] || 'specialist';
+  }
+
   function get(id) { return BY_ID[String(id || '').trim()] || null; }
   function list() { return TEMPLATES.slice(); }
   function forOrgRole(role) { const r = String(role || '').trim().toLowerCase(); return TEMPLATES.filter(t => t.orgRole === r); }
 
-  return { TEMPLATES, get, list, forOrgRole };
+  return { TEMPLATES, SPECIALTY_ROLE_OVERRIDES, roleForSpecialty, get, list, forOrgRole };
 });
