@@ -9,12 +9,16 @@ const nav = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'navdo
 A.ok(src.includes("'/api/managed-tasks/summary'"), 'Control Mode reads managed summary telemetry');
 A.ok(src.includes("'/api/managed-tasks/active?limit=100'"), 'Control Mode reads in-flight telemetry');
 A.ok(src.includes("'/api/managed-tasks?limit=20'"), 'Control Mode reads recent managed history');
+A.ok(src.includes("get('/api/managed-tasks/' + encodeURIComponent(taskId))"), 'task drilldown uses the exact read-only managed-task history route');
 A.ok(src.includes('ControlModeView.project'), 'Control Mode renders through the tested pure projection layer');
 A.ok(src.includes('Promise.allSettled'), 'partial endpoint failure cannot erase the whole dashboard');
 A.ok(src.includes('unknown values remain shown as —'), 'unknown telemetry stays distinct from zero');
 A.ok(src.includes("button.id = 'bb-control-mode'"), 'Control Mode owns a deterministic SYSTEM-dock entry');
 A.ok(src.includes("button.setAttribute('role', 'menuitem')"), 'SYSTEM-dock entry remains keyboard semantics compatible');
-A.ok(src.includes("ev.key === 'Escape'"), 'Control Mode has an explicit keyboard close path');
+A.ok(src.includes("row.setAttribute('role', 'button')"), 'completed task drilldowns are keyboard-reachable');
+A.ok(src.includes("ev.key === 'Enter' || ev.key === ' '"), 'task drilldown supports Enter and Space activation');
+A.ok(src.includes('No missing detail is inferred.'), 'failed drilldown stays explicitly unknown');
+A.ok(src.includes("ev.key !== 'Escape'"), 'Control Mode has layered Escape handling');
 A.ok(src.includes('clearInterval(timer)'), 'polling is stopped when Control Mode closes');
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(src), 'Control Mode performs no mutating API calls');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(src), 'Control Mode contains no raw mutating HTTP fallback');
