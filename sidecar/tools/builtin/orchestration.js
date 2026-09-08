@@ -10,11 +10,12 @@
    checks the canonical orchestration entrypoint rather than reaching into implementation
    files behind the bridge.
 
-   The small compatibility helpers below deliberately restate three inherited public
-   contracts at the bridge boundary. They are executable and exported (not comment markers):
-   callers/tests can verify that injected class ids remain grounded and that worker-specific
-   reasoning effort wins over a lead/default effort. The inherited core still performs the
-   actual dispatch; these helpers make the derivative boundary independently auditable. */
+   The small compatibility helpers below deliberately restate inherited public contracts at
+   the bridge boundary. They are executable and exported (not comment markers): callers/tests
+   can verify that injected class ids remain grounded, worker-specific reasoning effort wins
+   over a lead/default effort, and delegated-worker iteration limits remain opt-in and can only
+   be lowered by a narrower task contract. The inherited core still performs the actual
+   dispatch; these helpers make the derivative boundary independently auditable. */
 'use strict';
 
 const core = require('./orchestration-core.js');
@@ -41,6 +42,22 @@ function queuedWorkerReasoningEffort(ident, reasoningEffort) {
     reasoningEffort: (ident && ident.reasoningEffort) || reasoningEffort
   };
   return contract.reasoningEffort;
+}
+
+function workerIterationContract(deps, bounded) {
+  deps = deps || {};
+  const workerMaxIters = (typeof deps.workerMaxIters === 'number' && isFinite(deps.workerMaxIters) && deps.workerMaxIters > 0)
+    ? Math.floor(deps.workerMaxIters)
+    : 0;
+  const lowerPositive = (a, b) => {
+    const aa = (typeof a === 'number' && isFinite(a) && a > 0) ? Math.floor(a) : 0;
+    const bb = (typeof b === 'number' && isFinite(b) && b > 0) ? Math.floor(b) : 0;
+    if (aa && bb) return Math.min(aa, bb);
+    return aa || bb || 0;
+  };
+  return {
+    maxIters: bounded ? lowerPositive(workerMaxIters, bounded.workerMaxIters) : workerMaxIters
+  };
 }
 
 function makeOrchestrationTools(deps) {
@@ -76,5 +93,6 @@ module.exports = Object.assign({}, core, {
   makeOrchestrationTools,
   injectedClassIds,
   immediateWorkerReasoningEffort,
-  queuedWorkerReasoningEffort
+  queuedWorkerReasoningEffort,
+  workerIterationContract
 });
