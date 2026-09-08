@@ -1466,12 +1466,16 @@ function replaceAgentRoster(list) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) continue;
     if (a && typeof a === 'object') agentRosterRaw.set(id, a);   // stash the raw record so unknown fields survive re-save
     const approvalMode = ((a && a.approvalMode) === 'full') ? 'full' : 'ask';
+    const orgRoleId = String((a && a.orgRole) || '').trim().toLowerCase();
+    const parentAgentId = String((a && a.parentAgentId) || '').trim();
     agentRoster.set(id, {
       system: String((a && a.system) || ''),
       name: String((a && a.name) || id).slice(0, 40),
       model: (a && a.model) ? String(a.model) : null,
       provider: normalizeProviderId((a && a.provider) || ''),
       role: String((a && a.role) || '').slice(0, 120),
+      orgRole: ['commander', 'manager', 'specialist', 'worker'].includes(orgRoleId) ? orgRoleId : null,
+      parentAgentId: /^[A-Za-z0-9_-]{1,40}$/.test(parentAgentId) ? parentAgentId : null,
       approvalMode: approvalMode,   // per-agent consent posture: 'full' bypasses the gate (see runOnce)
       executionProfile: executionProfiles.normalizeId(a && a.executionProfile, {
         approvalMode,
@@ -1503,7 +1507,7 @@ function loadAgentRoster() {
 // P1.1: the fields saveAgentRoster() rebuilds from the live Map — the KNOWN shape. Preserved unknown fields (any
 // key a newer frontend added that this sidecar doesn't model) are spread UNDER these on save, so they survive a
 // re-save by older code rather than being dropped. agentId is always rebuilt (identity), never preserved raw.
-const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
+const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'orgRole', 'parentAgentId', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
 // saveAgentRoster(updatedAt?) — persist the live roster. The optional updatedAt is the CLIENT's freshness stamp
 // (from POST /api/roster body.updatedAt); handleRoster passes it after its anti-clobber gate accepts a push, so the
 // stored envelope records the exact stamp we accepted (a later push older than it is refused). Server-internal
@@ -1513,7 +1517,7 @@ function saveAgentRoster(updatedAt) {
   try {
     fs.mkdirSync(WORKSPACES, { recursive: true });
     const agents = [...agentRoster].map(([agentId, a]) => {
-      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
+      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', orgRole: a.orgRole || null, parentAgentId: a.parentAgentId || null, approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
       // P1.1: forward-compat field preservation — carry any UNKNOWN keys from the last-seen raw record under the
       // known ones, so a field a newer frontend added isn't silently eaten when older sidecar code re-saves.
       const rawRec = agentRosterRaw.get(agentId);
@@ -1545,7 +1549,7 @@ function persistAgentFullAccess(agentId) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return false;
   const had = agentRoster.has(id);
   const previous = agentRoster.get(id);
-  const base = previous || { system: '', name: id, model: null, provider: null, role: '', approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
+  const base = previous || { system: '', name: id, model: null, provider: null, role: '', orgRole: null, parentAgentId: null, approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
   agentRoster.set(id, Object.assign({}, base, { approvalMode: 'full' }));
   if (saveAgentRoster()) return true;
   if (had) agentRoster.set(id, previous); else agentRoster.delete(id);
