@@ -10,9 +10,54 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  apply-managed-task-host:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev/mo-ai-station'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout derivative branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev/mo-ai-station
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Apply fail-closed host patch
+        run: node scripts/apply-managed-task-host.js
+
+      - name: Syntax check host
+        run: node --check sidecar/index.js
+
+      - name: Verify managed task host before commit
+        run: |
+          node test/managed-task-history.test.js
+          node test/managed-task-history-adapter.test.js
+          node test/managed-task-history-disk.test.js
+          node test/managed-task-history-http.test.js
+          node test/managed-task-history-host.test.js
+          node test/managed-task-history-host-wiring.test.js
+          node test/managed-orchestration-wiring.test.js
+          node test/orchestration-bridge-contract.test.js
+          git diff --check
+
+      - name: Commit verified host wiring if needed
+        run: |
+          if git diff --quiet -- sidecar/index.js; then
+            echo "Host wiring already present; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sidecar/index.js
+          git commit -m "feat: wire durable managed task history into host"
+          git push origin HEAD:dev/mo-ai-station
+
   orchestration-safety:
     runs-on: ubuntu-latest
     timeout-minutes: 15
