@@ -12,23 +12,45 @@ function currentSource() {
   return fs.readFileSync(indexPath, 'utf8');
 }
 
-test('action host patch wires only the durable run journal source', () => {
-  const before = currentSource();
+function unwiredSource() {
+  let source = currentSource();
+  const actionImport = "\nconst { makeActionControlHttp } = require('./control/action-http.js');   // Moe AI Station: read-only durable action trace";
+  const actionBlock = [
+    '// Durable run-journal remains the only action-history source; this adapter only pages and projects it.',
+    'const actionControlHttp = makeActionControlHttp({',
+    '  recoverPage: (options) => runJournal.recoverPage(options),',
+    '  respondJson',
+    '});',
+    ''
+  ].join('\n');
+  const actionRoute = "\n  { m: 'GET', exact: '/api/control/actions', h: actionControlHttp.serve },   // Control Mode: read-only durable run-journal action trace";
+  assert.equal(source.includes(actionImport), true, 'current host contains action import');
+  assert.equal(source.includes(actionBlock), true, 'current host contains action handler');
+  assert.equal(source.includes(actionRoute), true, 'current host contains action route');
+  source = source.replace(actionImport, '').replace(actionBlock, '').replace(actionRoute, '');
+  return source;
+}
+
+test('current host is wired only to the durable run journal source', () => {
+  const source = currentSource();
+  assert.match(source, /makeActionControlHttp/);
+  assert.match(source, /recoverPage: \(options\) => runJournal\.recoverPage\(options\)/);
+  assert.match(source, /exact: '\/api\/control\/actions', h: actionControlHttp\.serve/);
+  assert.doesNotMatch(source, /actionTrace\s*=\s*new (?:Map|Set)/);
+  assert.doesNotMatch(source, /actionHistory\s*=\s*new (?:Map|Set)/);
+  assert.doesNotMatch(source, /controlActions\s*=\s*new (?:Map|Set)/);
+  assert.doesNotMatch(source, /runStore\.all\(\).*action/i);
+  assert.throws(() => patchSource(source), /wiring already present/);
+});
+
+test('action host patch reproduces the committed wiring from an unwired host', () => {
+  const before = unwiredSource();
   const after = patchSource(before);
-
-  assert.match(after, /makeActionControlHttp/);
-  assert.match(after, /recoverPage: \(options\) => runJournal\.recoverPage\(options\)/);
-  assert.match(after, /exact: '\/api\/control\/actions', h: actionControlHttp\.serve/);
-
-  assert.doesNotMatch(after, /actionTrace\s*=\s*new (?:Map|Set)/);
-  assert.doesNotMatch(after, /actionHistory\s*=\s*new (?:Map|Set)/);
-  assert.doesNotMatch(after, /controlActions\s*=\s*new (?:Map|Set)/);
-  assert.doesNotMatch(after, /runStore\.all\(\).*action/i);
-  assert.throws(() => patchSource(after), /wiring already present/);
+  assert.equal(after, currentSource());
 });
 
 test('action host patch fails closed when expected host anchors drift', () => {
-  const before = currentSource();
+  const before = unwiredSource();
   const drifted = before.replace(
     "const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview",
     "const { makeApprovalControlHttp } = require('./control/approval-http.js');"
@@ -37,7 +59,7 @@ test('action host patch fails closed when expected host anchors drift', () => {
 });
 
 test('action host patch refuses a host without the authoritative run journal', () => {
-  const before = currentSource();
+  const before = unwiredSource();
   const withoutJournal = before.replace(/runJournal\./g, 'legacyJournal.');
   assert.throws(() => patchSource(withoutJournal), /authoritative runJournal source not found/);
 });
