@@ -9,10 +9,15 @@ const nav = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'navdo
 A.ok(src.includes("'/api/managed-tasks/summary'"), 'Control Mode reads managed summary telemetry');
 A.ok(src.includes("'/api/managed-tasks/active?limit=100'"), 'Control Mode reads in-flight telemetry');
 A.ok(src.includes("'/api/managed-tasks?limit=20'"), 'Control Mode reads recent managed history');
+A.ok(src.includes("'/api/state/snapshot'"), 'Control Mode reuses the authoritative runtime snapshot for live runs and queues');
 A.ok(src.includes("get('/api/managed-tasks/' + encodeURIComponent(taskId))"), 'task drilldown uses the exact read-only managed-task history route');
 A.ok(src.includes('ControlModeView.project'), 'Control Mode renders through the tested pure projection layer');
 A.ok(src.includes('Promise.allSettled'), 'partial endpoint failure cannot erase the whole dashboard');
 A.ok(src.includes('unknown values remain shown as —'), 'unknown telemetry stays distinct from zero');
+A.ok(src.includes('LIVE RUNTIME RUNS'), 'Control Mode renders general live runtime runs separately from managed tasks');
+A.ok(src.includes('QUEUE DEPTH'), 'Control Mode renders authoritative per-agent queue depth');
+A.ok(src.includes('Runtime snapshot unavailable — no live runs are inferred.'), 'runtime outage never becomes a fabricated empty system');
+A.ok(src.includes('Queue snapshot unavailable — no queue depth is inferred.'), 'queue outage never becomes fabricated zero depth');
 A.ok(src.includes("button.id = 'bb-control-mode'"), 'Control Mode owns a deterministic SYSTEM-dock entry');
 A.ok(src.includes("button.setAttribute('role', 'menuitem')"), 'SYSTEM-dock entry remains keyboard semantics compatible');
 A.ok(src.includes("row.setAttribute('role', 'button')"), 'completed task drilldowns are keyboard-reachable');

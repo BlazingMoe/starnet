@@ -32,7 +32,28 @@
     };
   }
 
-  function project(summaryResponse, activeResponse, recentResponse) {
+  function runtimeRun(row, snapshotTs) {
+    row = row && typeof row === 'object' ? row : {};
+    const startedAt = Math.max(0, finite(row.startedAt));
+    const at = Math.max(0, finite(snapshotTs));
+    return {
+      runId: text(row.runId),
+      agentId: text(row.agentId),
+      source: text(row.source) || 'unknown',
+      startedAt,
+      durationMs: startedAt && at >= startedAt ? at - startedAt : null
+    };
+  }
+
+  function queueRow(row) {
+    row = row && typeof row === 'object' ? row : {};
+    return {
+      agentId: text(row.agentId),
+      depth: Math.max(0, Math.floor(finite(row.depth)))
+    };
+  }
+
+  function project(summaryResponse, activeResponse, recentResponse, runtimeResponse) {
     const sr = summaryResponse && summaryResponse.ok === true ? summaryResponse : null;
     const ar = activeResponse && activeResponse.ok === true ? activeResponse : null;
     const rr = recentResponse && recentResponse.ok === true ? recentResponse : null;
@@ -43,15 +64,22 @@
 
     const historicalKnown = !!sr;
     const liveKnown = !!(ar || (sr && sr.live));
+    const runtimeKnown = !!(runtimeResponse && typeof runtimeResponse === 'object'
+      && Array.isArray(runtimeResponse.runs) && Array.isArray(runtimeResponse.queues));
+    const runtimeRuns = runtimeKnown ? rows(runtimeResponse.runs).map(r => runtimeRun(r, runtimeResponse.ts)).filter(r => r.runId) : [];
+    const queues = runtimeKnown ? rows(runtimeResponse.queues).map(queueRow).filter(r => r.agentId && r.depth > 0) : [];
     return {
       evidence: {
         historicalKnown,
         liveKnown,
         recentKnown: !!rr,
+        runtimeKnown,
         historyWindowTruncated: !!(summary.window && summary.window.truncated)
       },
       cards: {
         active: liveKnown ? Math.max(0, Math.floor(finite(liveSummary.active))) : null,
+        liveRuns: runtimeKnown ? runtimeRuns.length : null,
+        queuedWork: runtimeKnown ? queues.reduce((sum, row) => sum + row.depth, 0) : null,
         completed: historicalKnown ? Math.max(0, Math.floor(finite(summary.total))) : null,
         acceptancePct: historicalKnown ? pct(summary.acceptanceRate) : null,
         revisionPct: historicalKnown ? pct(summary.revisionRate) : null,
@@ -62,6 +90,8 @@
         averageDurationMs: historicalKnown ? Math.max(0, finite(summary.averageDurationMs)) : null
       },
       activeTasks: ar ? rows(ar.tasks).map(r => taskRow(r, true)) : [],
+      runtimeRuns,
+      queues,
       recentTasks: rr ? rows(rr.tasks).map(r => taskRow(r, false)) : [],
       workers: historicalKnown ? rows(summary.workers).map(w => ({
         workerAgentId: text(w && w.workerAgentId),
@@ -75,5 +105,5 @@
     };
   }
 
-  return { project, taskRow, pct };
+  return { project, taskRow, runtimeRun, queueRow, pct };
 });

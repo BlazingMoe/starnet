@@ -10,7 +10,8 @@
   const API = {
     summary: '/api/managed-tasks/summary',
     active: '/api/managed-tasks/active?limit=100',
-    recent: '/api/managed-tasks?limit=20'
+    recent: '/api/managed-tasks?limit=20',
+    runtime: '/api/state/snapshot'
   };
   const POLL_MS = 3000;
   let timer = 0;
@@ -113,9 +114,9 @@
     const left = make('div');
     left.append(make('div', 'cm-kicker', 'MOE AI STATION · READ-ONLY TELEMETRY'));
     const title = make('div', 'cm-title', 'CONTROL MODE'); title.id = 'cm-title'; left.appendChild(title);
-    const knownCount = [model.evidence.historicalKnown, model.evidence.liveKnown, model.evidence.recentKnown].filter(Boolean).length;
+    const knownCount = [model.evidence.historicalKnown, model.evidence.liveKnown, model.evidence.recentKnown, model.evidence.runtimeKnown].filter(Boolean).length;
     const status = make('div', 'cm-status');
-    status.append(make('span', 'cm-dot'), make('span', '', knownCount === 3 ? 'LIVE' : knownCount ? 'PARTIAL TELEMETRY' : 'SIDECAR OFFLINE'));
+    status.append(make('span', 'cm-dot'), make('span', '', knownCount === 4 ? 'LIVE' : knownCount ? 'PARTIAL TELEMETRY' : 'SIDECAR OFFLINE'));
     left.appendChild(status);
     const actions = make('div', 'cm-actions');
     const refresh = make('button', 'cm-refresh', refreshing ? 'REFRESHING…' : 'REFRESH'); refresh.type = 'button'; refresh.disabled = refreshing; refresh.addEventListener('click', refreshNow);
@@ -126,6 +127,8 @@
     const cards = make('div', 'cm-grid');
     cards.append(
       renderCard('ACTIVE TASKS', fmtInt(c.active)),
+      renderCard('LIVE RUNS', fmtInt(c.liveRuns)),
+      renderCard('QUEUED WORK', fmtInt(c.queuedWork)),
       renderCard('COMPLETED', fmtInt(c.completed)),
       renderCard('ACCEPTANCE', fmtPct(c.acceptancePct)),
       renderCard('ERROR RATE', fmtPct(c.errorPct)),
@@ -139,6 +142,29 @@
 
     const active = make('section', 'cm-section'); active.appendChild(make('h3', '', 'ACTIVE MANAGED WORK'));
     const activeList = make('div', 'cm-list'); active.appendChild(activeList); renderTaskRows(activeList, model.activeTasks, model.evidence.liveKnown, true); shell.appendChild(active);
+
+    const runtime = make('div', 'cm-two');
+    const liveRuns = make('section', 'cm-section'); liveRuns.appendChild(make('h3', '', 'LIVE RUNTIME RUNS'));
+    const liveRunsList = make('div', 'cm-list'); liveRuns.appendChild(liveRunsList);
+    if (!model.evidence.runtimeKnown) liveRunsList.appendChild(make('div', 'cm-empty', 'Runtime snapshot unavailable — no live runs are inferred.'));
+    else if (!model.runtimeRuns.length) liveRunsList.appendChild(make('div', 'cm-empty', 'No runtime runs are currently in flight.'));
+    else model.runtimeRuns.forEach(r => {
+      const row = make('div', 'cm-row');
+      const main = make('div', 'cm-row-main');
+      main.append(make('div', 'cm-objective', r.agentId || 'unknown agent'), make('div', 'cm-meta', r.runId));
+      row.append(main, make('div', 'cm-state', r.source || 'unknown'), make('div', 'cm-hide-small', fmtDuration(r.durationMs)), make('div', 'cm-hide-small', 'RUNNING'));
+      liveRunsList.appendChild(row);
+    });
+    const queued = make('section', 'cm-section'); queued.appendChild(make('h3', '', 'QUEUE DEPTH'));
+    const queueList = make('div', 'cm-list'); queued.appendChild(queueList);
+    if (!model.evidence.runtimeKnown) queueList.appendChild(make('div', 'cm-empty', 'Queue snapshot unavailable — no queue depth is inferred.'));
+    else if (!model.queues.length) queueList.appendChild(make('div', 'cm-empty', 'No queued work is waiting.'));
+    else model.queues.forEach(q => {
+      const row = make('div', 'cm-rank');
+      row.append(make('div', '', q.agentId), make('div', '', q.depth + ' queued'), make('div', '', ''));
+      queueList.appendChild(row);
+    });
+    runtime.append(liveRuns, queued); shell.appendChild(runtime);
 
     const two = make('div', 'cm-two');
     const workers = make('section', 'cm-section'); workers.appendChild(make('h3', '', 'WORKER QUALITY'));
@@ -244,11 +270,11 @@
     if (refreshing || panel.hidden) return;
     refreshing = true;
     const token = ++generation;
-    const results = await Promise.allSettled([get(API.summary), get(API.active), get(API.recent)]);
+    const results = await Promise.allSettled([get(API.summary), get(API.active), get(API.recent), get(API.runtime)]);
     if (token !== generation || panel.hidden) { refreshing = false; return; }
     const values = results.map(r => r.status === 'fulfilled' ? r.value : null);
     const errors = results.filter(r => r.status === 'rejected');
-    const model = window.ControlModeView.project(values[0], values[1], values[2]);
+    const model = window.ControlModeView.project(values[0], values[1], values[2], values[3]);
     refreshing = false;
     render(model, errors);
   }
