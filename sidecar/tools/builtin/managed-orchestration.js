@@ -148,10 +148,10 @@
         let current = await runWorker(prepared.value.prompt, prepared.value.context);
         if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'dispatch', error: current.error, attempts: 1 }), summary: 'managed dispatch failed' };
 
-        while (attempt < maxRevisions) {
+        while (true) {
           reportStage(ctx, 'formal-review');
           const formal = reviewGate.review(contract, current.envelope, { spentUsd: current.row.usd, completedAt: completedAt() });
-          if (formal && formal.accepted) break;
+          if ((formal && formal.accepted) || attempt >= maxRevisions) break;
           const brief = reviewGate.revisionBrief(formal);
           attempt++;
           reportStage(ctx, 'revision');
@@ -180,7 +180,6 @@
           return value;
         } : null;
 
-        reportStage(ctx, 'formal-review');
         const quality = await qualityPipeline.evaluate({
           contract,
           envelope: current.envelope,
@@ -190,14 +189,16 @@
           runAuditor
         });
 
-        const finalStage = quality.accepted ? 'accepted' : quality.stage;
+        const qualityStage = quality.stage;
+        const projectedStage = qualityStage === 'formal' ? 'formal-review' : qualityStage;
+        const finalStage = quality.accepted ? 'accepted' : projectedStage;
         reportStage(ctx, finalStage, requireAudit ? { auditorAgentId: auditorId } : null);
 
         return {
           content: JSON.stringify({
             accepted: !!quality.accepted,
             stage: finalStage,
-            qualityStage: quality.stage,
+            qualityStage: qualityStage,
             action: quality.action,
             taskId: contract.id,
             workerAgentId: workerId,
