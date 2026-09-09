@@ -299,6 +299,7 @@ const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
 const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
+const { makeProviderControlHttp } = require('./control/provider-http.js');   // Moe AI Station: read-only registry + observed quota evidence
 const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview
 const { makeActionControlHttp } = require('./control/action-http.js');   // Moe AI Station: read-only durable action trace
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
@@ -9053,6 +9054,12 @@ const costControlHttp = makeCostControlHttp({
   caps: () => Object.assign({}, effectiveCaps),
   respondJson
 });
+// Registry metadata and providers/ratelimits remain the only provider-signal truth sources.
+const providerControlHttp = makeProviderControlHttp({
+  profiles: () => require('./providers/registry.js').listProviderProfiles(),
+  rateLimits: () => rateLimits.snapshot(),
+  respondJson
+});
 const memoryControlHttp = makeMemoryControlHttp({
   roster: () => agentRoster,
   recordsForAgent: (agentId) => {
@@ -9402,6 +9409,7 @@ const ROUTES = [
   { m: 'GET', exact: '/api/control/actions', h: actionControlHttp.serve },   // Control Mode: read-only durable run-journal action trace
   { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
   { m: 'GET', exact: '/api/control/costs', h: costControlHttp.serve },   // Control Mode: authoritative spend ledger + budget governor
+  { m: 'GET', exact: '/api/control/providers', h: providerControlHttp.serve },   // Control Mode: registry metadata + actually observed quota evidence
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions
