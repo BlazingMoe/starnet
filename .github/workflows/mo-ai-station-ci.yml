@@ -57,6 +57,7 @@ jobs:
           node test/control-mode-lifecycle-contract.test.js
           node test/control-mode-http-failure-contract.test.js
           node test/control-mode-e2e-contract.test.js
+          node test/control-mode-accessibility-contract.test.js
           node test/control-agent-view.test.js
           node test/control-agent-http.test.js
           node test/control-agent-host-wiring.test.js
