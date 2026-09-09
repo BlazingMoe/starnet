@@ -40,11 +40,17 @@ A.ok(gate.review(contract, noEvidence, { requireEvidence: false }).accepted, 'ev
 
 r = gate.review(contract, good, { spentUsd: 2.01 });
 A.ok(!r.accepted && r.failures.some(x => /budget/.test(x)), 'budget excess rejects');
+A.eq(r.retryable, false, 'spent budget cannot be repaired by spending more on a revision');
+A.eq(r.verdict, 'reject', 'budget excess is a terminal rejection rather than a revision request');
+A.eq(r.terminalFailures, ['task budget exceeded'], 'terminal budget failure is explicit for orchestration policy');
 
 r = gate.review(contract, good, { completedAt: 2001 });
 A.ok(r.accepted && r.warnings.some(x => /deadline/.test(x)), 'late completion warns but does not erase valid work');
 
-const rev = gate.revisionBrief(gate.review(contract, missing));
+const repairable = gate.review(contract, missing);
+A.eq(repairable.retryable, true, 'content acceptance failure remains eligible for bounded revision');
+A.eq(repairable.verdict, 'revise', 'repairable content failure requests revision');
+const rev = gate.revisionBrief(repairable);
 A.ok(/REVISION REQUIRED/.test(rev) && /missing acceptance criterion/.test(rev), 'revision brief carries exact failures');
 
 A.report('review-gate.test');
