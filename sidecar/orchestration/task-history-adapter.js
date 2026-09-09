@@ -67,10 +67,20 @@ function attachTaskHistory(tool, store, clock) {
         try { liveToken = store.activeBegin(liveEntry(args, ctx, startedAt)) || ''; }
         catch (error) { failNote('managed.history.active_begin', error); }
       }
+
+      const executionCtx = Object.assign({}, ctx || {});
+      if (liveToken && typeof store.activeUpdate === 'function') {
+        executionCtx.reportManagedTaskStage = (stage, patch) => {
+          const next = Object.assign({}, patch || {}, { stage: String(stage || '') });
+          try { store.activeUpdate(liveToken, next); }
+          catch (error) { failNote('managed.history.active_update', error); }
+        };
+      }
+
       let out;
       try {
         try {
-          out = await originalRun(args, ctx);
+          out = await originalRun(args, executionCtx);
         } catch (error) {
           const completedAt = Number(clock.now());
           try { store.record(rowFromManaged(args, ctx, { accepted: false, stage: 'dispatch', error: String(error && error.message || error) }, startedAt, completedAt)); }
