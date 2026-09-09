@@ -60,7 +60,7 @@
   function render(body) {
     const root = ensureHost(); if (!root) return;
     root.replaceChildren();
-    const org = body && body.ok && body.organization ? body.organization : null;
+    const org = body && body.ok && body.organization && body.organization.schemaVersion === 'moe.control-agents.v1' ? body.organization : null;
     const head = make('div', 'cm-org-head');
     const proof = org && org.evidence
       ? ('ROSTER ' + (org.evidence.rosterKnown ? 'KNOWN' : 'UNKNOWN') + ' · ' + Number(org.evidence.hierarchyEdgesExplicit || 0) + ' EXPLICIT EDGES · 0 INFERRED')
