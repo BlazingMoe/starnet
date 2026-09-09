@@ -185,8 +185,19 @@
       .observe(panel, { attributes:true, attributeFilter:['hidden'] });
     if (isOpen()) start();
   }
+  function loadApprovalPane() {
+    if (window.ControlModeApprovals) return;
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    if (document.getElementById('mo-control-mode-approvals')) return;
+    const script = document.createElement('script');
+    script.id = 'mo-control-mode-approvals';
+    script.src = 'app/controlapprovals.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 
   installStyle();
   watchPanel();
+  loadApprovalPane();
   window.ControlModeMemory = Object.freeze({ refresh, endpoint: ENDPOINT, host: () => ensureHost() });
 })();
