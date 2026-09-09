@@ -6,7 +6,7 @@ Extend the inherited StarNet multi-agent runtime into an explicit organizational
 
 ## Existing runtime we keep
 
-`sidecar/tools/builtin/orchestration.js` already provides real delegated agent execution through `team.dispatch` and related team tools. Delegated agents run independent agent loops, consume their own concurrency/budget entries, inherit cancellation from the lead, and return bounded results to the lead. Existing dispatch behavior also includes:
+`sidecar/tools/builtin/orchestration.js` provides real delegated agent execution through `team.dispatch` and related team tools. Delegated agents run independent agent loops, consume their own concurrency/budget entries, inherit cancellation from the lead, and return bounded results to the lead. Existing dispatch behavior also includes:
 
 - worker-specific model/provider resolution;
 - per-worker USD and iteration ceilings;
@@ -23,7 +23,7 @@ Extend the inherited StarNet multi-agent runtime into an explicit organizational
 
 These mechanisms remain the execution substrate.
 
-## New derivative policy layer
+## Derivative policy layer
 
 `sidecar/orchestration/role-policy.js` introduces the logical hierarchy:
 
@@ -51,7 +51,7 @@ This policy does **not** confer capabilities. A role being allowed to delegate d
 
 ## Task contract v1
 
-Every hierarchy-aware delegation will normalize into a versioned task contract before execution.
+Hierarchy-aware delegation normalizes into a versioned task contract before execution.
 
 Required fields:
 
@@ -75,27 +75,40 @@ The policy rejects invalid roles, upward delegation, missing core fields, invali
 
 ## Compatibility with inherited roles
 
-The inherited frontend currently distinguishes primarily between the persistent lead/orchestrator and specialist roster members, while `team.dispatch` treats a delegated run as a worker execution. We will therefore migrate in stages instead of rewriting existing role values in place.
+The derivative uses additive organizational metadata rather than rewriting inherited runtime role strings in place:
 
-Planned compatibility mapping:
+- inherited persistent `orchestrator` / overseer lead maps compatibly to derivative `commander`;
+- inherited persistent `specialist` maps to derivative `specialist` by default;
+- derivative `manager` is represented as organizational metadata without implicit capabilities;
+- derivative `worker` is the lowest organizational execution role and can describe bounded delegated work.
 
-- inherited persistent `orchestrator` / overseer lead → derivative `commander`;
-- inherited persistent `specialist` → derivative `specialist` by default;
-- derivative `manager` becomes a new persistent organizational role;
-- derivative `worker` describes a lowest-level execution role and may be either persistent or ephemeral depending on the later scheduler/roster implementation.
+Recruitment/summon paths use the shared organizational-specialty catalog, and explicit parent metadata is persisted when the runtime has real parent evidence. No hierarchy edge is invented merely to complete a tree.
 
-No existing save is rewritten until a migration-safe role field is added.
+## Integrated implementation sequence
 
-## Integration sequence
+1. **Policy module** — implemented and verified.
+2. **Unit/contract tests** — implemented and in derivative CI.
+3. **Role metadata boundary** — implemented additively without replacing inherited runtime roles.
+4. **Dispatch adapter** — implemented over the existing `team.dispatch` execution substrate.
+5. **Manager support** — implemented as bounded downward delegation authority with no implicit tool privileges.
+6. **Reviewer contracts** — deterministic acceptance/revision gate plus optional independent auditor implemented.
+7. **Managed-task history** — durable completion history plus bounded live task state, cost/provenance and drilldown implemented against a single host-composed store.
+8. **Control Mode v1** — implemented as evidence-backed read-only presentation over the same runtime truth sources.
 
-1. **Policy module** — done.
-2. **Unit tests** — initial hierarchy/contract tests added.
-3. **Role metadata boundary** — add derivative organizational role metadata without replacing inherited runtime role strings.
-4. **Dispatch adapter** — translate an approved Task Contract v1 into the existing `team.dispatch`/spawn substrate.
-5. **Manager support** — managers receive bounded delegation authority but no implicit tool privileges.
-6. **Reviewer contracts** — introduce independent reviewer/auditor task types and acceptance verdicts.
-7. **Task ledger** — persist parent/child relationships, status, cost, provenance and final verdict.
-8. **Control Mode** — render the same hierarchy and task graph from durable runtime truth.
+## Control Mode truth boundary
+
+Control Mode is deliberately an observability surface rather than a second control plane. Its dedicated v1 projections are read-only and use existing authoritative sources:
+
+- **Agents** — live roster plus explicit organizational-parent/runtime-status evidence.
+- **Memory** — existing memory records projected as provenance/trust metadata; memory text stays hidden.
+- **Approvals** — permanent grants, session grants and the existing consent-wait pending state.
+- **Actions** — durable run journal tool-intent/dispatch/result evidence; no parallel action trace buffer.
+- **Costs** — durable spend ledger plus the existing budget governor/caps.
+- **Providers** — provider registry metadata plus actually observed rate-limit/quota evidence.
+
+Provider registry metadata is not a liveness probe. The v1 surface does not infer provider health, availability, credential validity, uptime, latency, success rate or a synthetic health score when no authoritative source exists.
+
+All dedicated Control Mode endpoints are GET/HEAD-only, mutation methods fail closed, schema versions are checked by the UIs, endpoint/source failures remain unavailable/unknown rather than fabricated as zero, and desktop/website surfaces are kept byte-aligned by CI contracts.
 
 ## Non-negotiable safety invariants
 
@@ -104,11 +117,15 @@ No existing save is rewritten until a migration-safe role field is added.
 - No role implies Full Access.
 - No manager/specialist may grant itself new capabilities.
 - Workers cannot delegate upward or sideways.
-- Cancellation and E-STOP must propagate through the complete task tree.
-- Budgets must be enforceable at global, project, parent-task and child-task levels.
+- Cancellation and E-STOP propagate through the inherited execution substrate.
+- Budgets remain enforced by the existing budget/capability mechanisms rather than duplicated in orchestration metadata.
 - A task cannot be marked complete merely because a child model returned text; acceptance criteria and reviewer policy determine completion where configured.
-- Provenance must identify who requested the work, who executed it, which parent task spawned it and what result/artifacts were produced.
+- Provenance identifies requester/executor/parent relationships only when the runtime has evidence for them.
+- Control Mode must never create a parallel truth store to make a dashboard look complete.
+- Missing runtime evidence is reported as unknown/unavailable, never converted into invented telemetry.
 
-## Current boundary
+## Current verified boundary
 
-The new role policy is intentionally not wired directly into `orchestration.js` yet because the inherited roster/save schema does not carry the new organizational roles. Enforcing it prematurely would either misclassify existing specialists or break current delegation. The next code change is therefore the additive role-metadata boundary plus compatibility mapping, followed by the dispatch adapter.
+The internal derivative v1 orchestration/control scope is wired and verification-backed: organizational roles, managed delegation, bounded review/revision, independent audit, durable managed-task history and read-only Control Mode observability are integrated with the inherited execution, permission, consent and E-STOP boundaries.
+
+This is **not** equivalent to public distribution readiness. Independent branding/artwork, derivative installer/update signing and safe application-identity/data-path migration remain explicit release prerequisites and are tracked separately in `qa/moe-feature-evidence.json` and `qa/product-perfect/moe-claims.json`.
