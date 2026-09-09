@@ -52,6 +52,7 @@ jobs:
           node test/managed-task-live.test.js
           node test/control-mode-view.test.js
           node test/control-mode-ui-contract.test.js
+          node test/control-mode-surface-contract.test.js
           node test/control-agent-view.test.js
           node test/control-agent-http.test.js
           node test/control-agent-host-wiring.test.js
