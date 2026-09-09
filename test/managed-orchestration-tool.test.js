@@ -49,7 +49,7 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(calls.length, 2, 'one worker run plus one independent audit run');
   A.eq(calls[0].workers[0].resultSchema.required.indexOf('acceptance') >= 0, true, 'worker is forced into strict result envelope');
   A.eq(calls[1].workers[0].agentId, 'auditor', 'audit is dispatched to distinct auditor agent');
-  A.eq(stages.map(x => x.stage), ['contract', 'dispatch', 'formal-review', 'formal-review', 'audit', 'accepted'], 'managed execution reports authoritative lifecycle transitions in order');
+  A.eq(stages.map(x => x.stage), ['contract', 'dispatch', 'formal-review', 'audit', 'accepted'], 'managed execution reports authoritative lifecycle transitions in order');
   A.eq(stages.find(x => x.stage === 'audit').patch.auditorAgentId, 'auditor', 'audit lifecycle identifies the active independent auditor');
 
   calls.length = 0;
@@ -71,7 +71,7 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(JSON.parse(revised.content).accepted, false, 'still-failing replacement remains rejected after bounded revision');
   A.eq(calls.length, 2, 'exactly one bounded revision is attempted');
   A.ok(revisionStages.map(x => x.stage).includes('revision'), 'bounded repair is exposed as a live revision stage');
-  A.eq(revisionStages.at(-1).stage, 'formal', 'terminal rejection preserves the quality-pipeline formal stage');
+  A.eq(revisionStages.at(-1).stage, 'formal-review', 'terminal rejection remains on the normalized formal-review lifecycle stage');
 
   const upwardRoster = new Map([
     ['lead', { role: 'specialist', orgRole: 'worker' }],
