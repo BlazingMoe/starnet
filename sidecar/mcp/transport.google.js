@@ -35,7 +35,21 @@ const TOOLS = {
     tool('list_calendars', 'List the signed-in account’s calendars.', { pageToken: STR }, [], true),
     tool('list_events', 'Read calendar events. Dates are RFC3339; calendarId defaults to primary.', { calendarId: STR, timeMin: STR, timeMax: STR, pageToken: STR, query: STR }, [], true),
     tool('get_event', 'Read one calendar event.', { calendarId: STR, eventId: STR }, ['eventId'], true),
-    tool('free_busy', 'Read free/busy availability for calendar IDs between two RFC3339 timestamps.', { timeMin: STR, timeMax: STR, calendarIds: { type: 'array', items: STR, minItems: 1, maxItems: 50 } }, ['timeMin', 'timeMax', 'calendarIds'], true)
+    tool('free_busy', 'Read free/busy availability for calendar IDs between two RFC3339 timestamps.', { timeMin: STR, timeMax: STR, calendarIds: { type: 'array', items: STR, minItems: 1, maxItems: 50 } }, ['timeMin', 'timeMax', 'calendarIds'], true),
+    tool('create_event', 'Create a calendar event. event is a Google Calendar Event resource. Invitations are not emailed unless sendUpdates is explicitly set to all or externalOnly.', {
+      calendarId: STR, event: { type: 'object' }, sendUpdates: { type: 'string', enum: ['all', 'externalOnly', 'none'] },
+      conferenceDataVersion: { type: 'integer', minimum: 0, maximum: 1 }
+    }, ['event']),
+    tool('patch_event', 'Partially update a calendar event. Array fields replace the existing array; read the event first before changing attendees or recurrence. Notifications are sent only when sendUpdates is explicitly requested.', {
+      calendarId: STR, eventId: STR, patch: { type: 'object' }, sendUpdates: { type: 'string', enum: ['all', 'externalOnly', 'none'] },
+      conferenceDataVersion: { type: 'integer', minimum: 0, maximum: 1 }
+    }, ['eventId', 'patch']),
+    tool('delete_event', 'Delete a calendar event. This is destructive. Attendee cancellation emails are sent only when sendUpdates is explicitly requested.', {
+      calendarId: STR, eventId: STR, sendUpdates: { type: 'string', enum: ['all', 'externalOnly', 'none'] }
+    }, ['eventId']),
+    tool('respond_event', 'Accept, tentatively accept, decline, or reset YOUR OWN attendee response on an invitation. The connector reads the event, finds the attendee marked self:true, then patches only that attendee response.', {
+      calendarId: STR, eventId: STR, responseStatus: { type: 'string', enum: ['accepted', 'tentative', 'declined', 'needsAction'] }, comment: STR
+    }, ['eventId', 'responseStatus'])
   ],
   'google-docs': [
     tool('get_document', 'Read a Google document and its structured content.', { documentId: STR }, ['documentId'], true),
@@ -89,10 +103,15 @@ function requestFor(product, name, a) {
     if (name === 'update_file') return write('/files/' + segment(a.fileId), a.metadata, 'PATCH');
   }
   if (product === 'google-calendar') {
+    const calendarId = segment(a.calendarId || 'primary');
+    const eventPath = a.eventId ? '/calendars/' + calendarId + '/events/' + segment(a.eventId) : '';
     if (name === 'list_calendars') return get('/users/me/calendarList', { pageToken: a.pageToken, maxResults: 100 });
-    if (name === 'list_events') return get('/calendars/' + segment(a.calendarId || 'primary') + '/events', { timeMin: a.timeMin, timeMax: a.timeMax, pageToken: a.pageToken, q: a.query, maxResults: 100, singleEvents: true, orderBy: 'startTime' });
-    if (name === 'get_event') return get('/calendars/' + segment(a.calendarId || 'primary') + '/events/' + segment(a.eventId));
+    if (name === 'list_events') return get('/calendars/' + calendarId + '/events', { timeMin: a.timeMin, timeMax: a.timeMax, pageToken: a.pageToken, q: a.query, maxResults: 100, singleEvents: true, orderBy: 'startTime' });
+    if (name === 'get_event') return get(eventPath);
     if (name === 'free_busy') return write('/freeBusy', { timeMin: a.timeMin, timeMax: a.timeMax, items: a.calendarIds.map(id => ({ id })) });
+    if (name === 'create_event') return write('/calendars/' + calendarId + '/events', a.event, 'POST', { sendUpdates: a.sendUpdates, conferenceDataVersion: a.conferenceDataVersion });
+    if (name === 'patch_event') return write(eventPath, a.patch, 'PATCH', { sendUpdates: a.sendUpdates, conferenceDataVersion: a.conferenceDataVersion });
+    if (name === 'delete_event') return write(eventPath, undefined, 'DELETE', { sendUpdates: a.sendUpdates });
   }
   if (product === 'google-docs') {
     if (name === 'get_document') return get('/' + segment(a.documentId));
@@ -157,7 +176,23 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
         const def = TOOLS[product].find(t => t.name === msg.params?.name);
         if (!def) throw new Error('Unknown Google tool');
         const args = msg.params.arguments || {}; validate(def, args);
-        const value = await request(requestFor(product, def.name, args));
+        let value;
+        if (product === 'google-calendar' && def.name === 'respond_event') {
+          const calendarId = segment(args.calendarId || 'primary');
+          const eventPath = '/calendars/' + calendarId + '/events/' + segment(args.eventId);
+          const event = await request({ url: url + eventPath, method: 'GET' });
+          const self = Array.isArray(event && event.attendees) ? event.attendees.find(a => a && a.self === true && typeof a.email === 'string' && a.email) : null;
+          if (!self) throw new Error('Cannot respond to event: the signed-in account is not present as a self attendee');
+          const attendee = { email: self.email, responseStatus: args.responseStatus };
+          if (args.comment) attendee.comment = args.comment;
+          value = await request({
+            url: url + eventPath,
+            method: 'PATCH',
+            body: { attendeesOmitted: true, attendees: [attendee] }
+          });
+        } else {
+          value = await request(requestFor(product, def.name, args));
+        }
         result = { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }], isError: false };
       } else if (msg.method === 'ping') result = {};
       else throw new Error('Unsupported Google MCP method');
