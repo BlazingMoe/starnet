@@ -9,8 +9,12 @@ const mirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app
 const memory = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlmemory.js'), 'utf8');
 
 A.ok(src.includes("const ENDPOINT = '/api/control/approvals'"), 'approval pane reads the dedicated read-only endpoint');
-A.ok(src.includes("body.schemaVersion === 'moe.control-approvals.v1'"), 'approval pane requires the expected projection schema');
-A.ok(src.includes("body.mode === 'read-only'"), 'approval pane refuses to treat non-read-only payloads as authoritative');
+A.ok(src.includes("body.overview.schemaVersion === 'moe.control-approvals.v1'"), 'approval pane requires the expected projection schema from the HTTP overview envelope');
+A.ok(src.includes("body.overview.mode === 'read-only'"), 'approval pane refuses to treat non-read-only overview payloads as authoritative');
+A.ok(src.includes('const overview = body && body.ok && body.overview'), 'approval pane consumes the same overview envelope emitted by approval-http');
+A.ok(src.includes('rows(overview.permanent)'), 'permanent grants are read from the authoritative overview');
+A.ok(src.includes('rows(overview.sessions)'), 'session grants are read from the authoritative overview');
+A.ok(src.includes('rows(overview.pending)'), 'pending prompts are read from the authoritative overview');
 A.ok(src.includes('PERMANENT GRANTS'), 'approval pane renders permanent grants');
 A.ok(src.includes('SESSION GRANTS'), 'approval pane renders session grants');
 A.ok(src.includes('WAITING FOR CONSENT'), 'approval pane renders live pending prompt IDs');
