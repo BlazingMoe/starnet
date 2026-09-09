@@ -90,7 +90,7 @@
           usd: Math.max(0, Number(row.usd || 0))
         };
       }
-      return { ok: true, row };
+      return { ok: true, row, usd: Math.max(0, Number(row.usd || 0)) };
     }
 
     const tool = {
@@ -148,12 +148,15 @@
           const d = await dispatchOne({ agentId: workerId, prompt, context, resultSchema: RESULT_ENVELOPE_SCHEMA }, ctx);
           if (!d.ok) return d;
           const env = parseEnvelope(d.row);
-          if (!env.ok) return { ok: false, reason: 'invalid-result-envelope', error: env.error, row: d.row, usd: Math.max(0, Number(d.row.usd || 0)) };
-          return { ok: true, row: d.row, envelope: env.value };
+          if (!env.ok) return { ok: false, reason: 'invalid-result-envelope', error: env.error, row: d.row, usd: d.usd };
+          return { ok: true, row: d.row, envelope: env.value, usd: d.usd };
         }
 
         let attempt = 0;
+        let workerUsd = 0;
+        let auditUsd = 0;
         let current = await runWorker(prepared.value.prompt, prepared.value.context);
+        workerUsd += Math.max(0, Number(current.usd || 0));
         if (!current.ok) {
           return {
             content: JSON.stringify({
@@ -164,7 +167,9 @@
               taskId: contract.id,
               workerAgentId: workerId,
               attempts: 1,
-              usd: Math.max(0, Number(current.usd || (current.row && current.row.usd) || 0))
+              usd: workerUsd,
+              workerUsd,
+              auditUsd
             }),
             summary: 'managed dispatch failed'
           };
@@ -172,13 +177,14 @@
 
         while (true) {
           reportStage(ctx, 'formal-review');
-          const formal = reviewGate.review(contract, current.envelope, { spentUsd: current.row.usd, completedAt: completedAt() });
-          if ((formal && formal.accepted) || attempt >= maxRevisions) break;
+          const formal = reviewGate.review(contract, current.envelope, { spentUsd: workerUsd, completedAt: completedAt() });
+          if ((formal && formal.accepted) || attempt >= maxRevisions || (formal && formal.retryable === false)) break;
           const brief = reviewGate.revisionBrief(formal);
           attempt++;
           reportStage(ctx, 'revision');
           const revisionPrompt = contract.objective + '\n\n' + brief + '\n\nReturn a COMPLETE replacement result envelope for taskId ' + contract.id + ', not a patch or commentary.';
           current = await runWorker(revisionPrompt, prepared.value.context);
+          workerUsd += Math.max(0, Number(current.usd || 0));
           if (!current.ok) {
             return {
               content: JSON.stringify({
@@ -189,7 +195,9 @@
                 taskId: contract.id,
                 workerAgentId: workerId,
                 attempts: attempt + 1,
-                usd: Math.max(0, Number(current.usd || (current.row && current.row.usd) || 0))
+                usd: workerUsd,
+                workerUsd,
+                auditUsd
               }),
               summary: 'managed revision failed'
             };
@@ -200,17 +208,18 @@
         let auditorId = String(args.auditorAgentId || '');
         if (requireAudit && (!auditorId || !roster.has(auditorId))) {
           reportStage(ctx, 'audit', { auditorAgentId: auditorId });
-          return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'required auditor is not in the live roster', taskId: contract.id }), summary: 'auditor unavailable' };
+          return { content: JSON.stringify({ accepted: false, stage: 'audit', reason: 'auditor-unavailable', error: 'required auditor is not in the live roster', taskId: contract.id, workerAgentId: workerId, auditorAgentId: auditorId || null, attempts: attempt + 1, usd: workerUsd, workerUsd, auditUsd }), summary: 'auditor unavailable' };
         }
         if (requireAudit && (auditorId === workerId || auditorId === leadId)) {
           reportStage(ctx, 'audit', { auditorAgentId: auditorId });
-          return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'auditor must be independent from lead and worker', taskId: contract.id }), summary: 'auditor invalid' };
+          return { content: JSON.stringify({ accepted: false, stage: 'audit', reason: 'auditor-not-independent', error: 'auditor must be independent from lead and worker', taskId: contract.id, workerAgentId: workerId, auditorAgentId: auditorId, attempts: attempt + 1, usd: workerUsd, workerUsd, auditUsd }), summary: 'auditor invalid' };
         }
 
         let auditDispatchReason = '';
         const runAuditor = requireAudit ? async (auditReq) => {
           reportStage(ctx, 'audit', { auditorAgentId: auditorId });
           const d = await dispatchOne({ agentId: auditorId, prompt: auditReq.prompt, resultSchema: auditReq.resultSchema }, ctx);
+          auditUsd += Math.max(0, Number(d.usd || 0));
           if (!d.ok) {
             auditDispatchReason = d.reason || 'auditor-dispatch-failed';
             throw new Error(d.error || 'auditor dispatch failed');
@@ -227,7 +236,7 @@
         const quality = await qualityPipeline.evaluate({
           contract,
           envelope: current.envelope,
-          spentUsd: current.row.usd,
+          spentUsd: workerUsd,
           completedAt: completedAt(),
           requireAudit,
           runAuditor
@@ -235,29 +244,41 @@
 
         const qualityStage = quality.stage;
         const projectedStage = qualityStage === 'formal' ? 'formal-review' : qualityStage;
-        const finalStage = quality.accepted ? 'accepted' : projectedStage;
+        const totalUsd = workerUsd + auditUsd;
+        const budgetUsd = contract.budgetUsd == null ? null : Number(contract.budgetUsd);
+        const overBudget = budgetUsd != null && Number.isFinite(budgetUsd) && totalUsd > budgetUsd;
+        const finalAccepted = !!quality.accepted && !overBudget;
+        const finalAction = overBudget ? 'reject' : quality.action;
+        const finalReason = overBudget ? 'task-budget-exceeded' : (auditDispatchReason || quality.reason || null);
+        const finalError = overBudget
+          ? ('managed task spent ' + totalUsd.toFixed(6) + ' against budget ' + budgetUsd.toFixed(6))
+          : (quality.error || null);
+        const finalStage = finalAccepted ? 'accepted' : projectedStage;
         reportStage(ctx, finalStage, requireAudit ? { auditorAgentId: auditorId } : null);
 
         return {
           content: JSON.stringify({
-            accepted: !!quality.accepted,
+            accepted: finalAccepted,
             stage: finalStage,
             qualityStage: qualityStage,
-            action: quality.action,
+            action: finalAction,
             taskId: contract.id,
             workerAgentId: workerId,
             auditorAgentId: requireAudit ? auditorId : null,
             attempts: attempt + 1,
-            usd: Number(current.row.usd || 0),
+            usd: totalUsd,
+            workerUsd,
+            auditUsd,
+            budgetUsd,
             result: current.envelope,
             formal: quality.formal,
             audit: quality.audit && quality.audit.ok ? quality.audit.value : null,
             findings: quality.findings || [],
             riskFlags: quality.riskFlags || [],
-            reason: auditDispatchReason || quality.reason || null,
-            error: quality.error || null
+            reason: finalReason,
+            error: finalError
           }),
-          summary: quality.accepted ? 'managed task accepted' : ('managed task ' + (quality.action || 'rejected'))
+          summary: finalAccepted ? 'managed task accepted' : ('managed task ' + (finalAction || 'rejected'))
         };
       }
     };
