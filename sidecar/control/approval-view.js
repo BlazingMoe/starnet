@@ -1,12 +1,27 @@
 /* sidecar/control/approval-view.js — pure, read-only Control Mode approval projection.
    Standing grants come from permgrants.snapshot(); session grants come from permissions.snapshot();
-   live pending prompts come from the SAME consentwait Map used by the response/ack path. The pending
-   Map only owns prompt IDs, so this projection deliberately does not invent agent/tool/action metadata. */
+   live pending prompts come from the SAME consentwait Map(s) used by the response/ack path. Pending
+   state only owns prompt IDs, so this projection deliberately does not invent agent/tool/action metadata. */
 'use strict';
 
 function text(v,max){const s=v==null?'':String(v).trim();return s?s.slice(0,max||160):'';}
 function finiteOrNull(v){return typeof v==='number'&&Number.isFinite(v)?v:null;}
 function list(v){return Array.isArray(v)?v:[];}
+
+function collectPendingIds(pending){
+  const ids=[];
+  function add(id){const clean=text(id,160);if(clean)ids.push(clean);}
+  if(pending instanceof Map){
+    let nested=false;
+    for(const value of pending.values()){
+      if(value instanceof Map){nested=true;for(const id of value.keys())add(id);}
+    }
+    if(!nested){for(const id of pending.keys())add(id);}
+  }else if(Array.isArray(pending)){
+    for(const id of pending)add(id);
+  }
+  return Array.from(new Set(ids)).sort();
+}
 
 function projectApprovalCenter(grantSnapshot, consentSnapshot, pending){
   const standing=grantSnapshot&&typeof grantSnapshot==='object'?grantSnapshot:{};
@@ -27,16 +42,7 @@ function projectApprovalCenter(grantSnapshot, consentSnapshot, pending){
     if(keys.length) sessions.push({sessionId:text(sessionId,120),grants:keys});
   }
 
-  const pendingIds=[];
-  if(pending instanceof Map){
-    for(const id of pending.keys()){
-      const clean=text(id,160);
-      if(clean) pendingIds.push(clean);
-    }
-  }else if(Array.isArray(pending)){
-    for(const id of pending){const clean=text(id,160);if(clean)pendingIds.push(clean);}
-  }
-  pendingIds.sort();
+  const pendingIds=collectPendingIds(pending);
 
   return {
     schemaVersion:'moe.control-approvals.v1',
@@ -54,4 +60,4 @@ function projectApprovalCenter(grantSnapshot, consentSnapshot, pending){
   };
 }
 
-module.exports={projectApprovalCenter};
+module.exports={projectApprovalCenter,collectPendingIds};
