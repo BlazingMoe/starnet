@@ -10,27 +10,38 @@
 - Prefer extending proven existing subsystems over duplicating them.
 - Every consequential action must be permissioned, auditable, budget-aware, and reversible where practical.
 - Self-improvement is controlled: experiences may become proposed lessons/skills, but code/config changes require validation and policy checks.
+- Missing runtime evidence stays unknown/unavailable; dashboards must not invent state merely to look complete.
 
 ## Status legend
 
-- **Existing** — substantial implementation already exists in the inherited codebase.
-- **Partial** — useful primitives exist, but the target feature needs expansion/integration.
+- **Existing** — substantial implementation exists and the target behavior is present.
+- **Existing/Partial** — a verified useful implementation exists, while broader roadmap extensions remain future work.
+- **Partial** — useful primitives exist, but the full target feature needs expansion/integration.
 - **Missing** — requires a new subsystem or major implementation.
 - **Audit** — presence is known, but behavior/security/coverage still needs code-level verification.
+- **Blocked** — intentionally not completed because an explicit prerequisite is absent.
+
+## Current verified derivative v1 boundary
+
+The current internal derivative v1 is verification-backed for the command/orchestration and read-only Control Mode scope. It includes Commander/Manager/Specialist/Worker organizational metadata, typed managed delegation over the inherited executor, deterministic acceptance/revision checks, optional independent audit, durable managed-task history, and a read-only Control Mode with dedicated Agent, Memory Provenance, Approval, Action Trace, Cost/Budget and Provider Signals surfaces.
+
+This boundary intentionally does **not** claim a second control plane. Control Mode mutations such as approve/reject, hierarchy editing, dispatch, cancel/steer, budget editing or provider-health actions remain outside v1. Provider registry data is not treated as liveness evidence: health, credential validity, latency, uptime, success rate and synthetic health scores are not inferred.
+
+Public distribution is also **not** ready yet. Independent branding/artwork, derivative installer/update signing, and safe application-identifier/data-path migration remain explicit release blockers tracked in `qa/moe-feature-evidence.json` and `qa/product-perfect/moe-claims.json`.
 
 ## Feature matrix
 
 | Area | Feature | Status | Current foundation | Target / improvement | Priority |
 |---|---|---:|---|---|---:|
 | Runtime | Core agent loop | Existing | `sidecar/loop.js` | Harden loop lifecycle, observability, cancellation, retries | P0 |
-| Runtime | Multi-provider models | Existing | `sidecar/providers/` | Unified capability metadata, fallback/routing policy, health checks | P0 |
+| Runtime | Multi-provider models | Existing | `sidecar/providers/` | Unified capability metadata, fallback/routing policy; liveness only when authoritative evidence exists | P0 |
 | Runtime | Per-agent model selection | Existing | Agent/provider configuration | Cost/quality profiles and automatic policy routing | P0 |
-| Runtime | Commander/orchestrator | Partial | Delegation/spawn primitives | Explicit Commander → Manager → Specialist → Worker hierarchy | P0 |
-| Runtime | Agent delegation | Existing | Dispatch/spawn/summon behavior | Structured contracts, deadlines, provenance, result scoring | P0 |
+| Runtime | Commander/orchestrator | Existing | Verified organizational-role compatibility layer | Continue migration-safe role metadata without implicit capabilities | P0 |
+| Runtime | Agent delegation | Existing | Dispatch/spawn/summon plus managed delegation | Continue scheduler/backpressure and richer task-pool policy | P0 |
 | Runtime | Parallel agent execution | Existing | Bay/concurrency model | Global scheduler, quotas, task pools, backpressure | P0 |
-| Runtime | Agent personas/roles | Existing | Agent configuration | Versioned role templates with skills, tools, budgets and quality gates | P1 |
+| Runtime | Agent personas/roles | Existing | Agent configuration + organizational metadata | Versioned role templates with skills, tools, budgets and quality gates | P1 |
 | Runtime | Agent lifecycle | Partial | Roster/runtime state | Pause/resume/drain/restart/recovery policies | P1 |
-| Runtime | Structured task contracts | Partial | Existing task/dispatch flow | Typed input/output schemas, acceptance criteria, SLA/deadlines | P1 |
+| Runtime | Structured task contracts | Existing/Partial | Typed managed task contract, acceptance criteria and provenance | SLA/deadline breadth and wider workflow adoption | P1 |
 | Tools | Capability gating | Existing | `sidecar/capability/` | Fine-grained read/write/execute/send/delete permissions | P0 |
 | Tools | Filesystem | Existing | `sidecar/tools/` | Workspace scoping, path policies, write approvals | P0 |
 | Tools | Shell/terminal | Existing | `sidecar/tools/` | Sandboxing, command policy, resource/time limits | P0 |
@@ -56,7 +67,7 @@
 | Workflow | Loops | Existing/Partial | Controlled loop concepts | Iteration budgets, convergence checks, escape conditions | P0 |
 | Workflow | Retries/timeouts | Partial | Runtime/tool error handling | Central retry policy, backoff, idempotency metadata | P0 |
 | Workflow | Model fallback | Partial | Multi-provider layer | Policy-based fallback by error/cost/quality/context | P1 |
-| Workflow | Human approvals | Partial | Permission system | Approval inbox with action preview, expiry and delegation | P0 |
+| Workflow | Human approvals | Existing/Partial | Permission system + verified read-only Approval Center | Future mutation UX only with existing consent/grant stores as authority | P0 |
 | Workflow | Recipes/templates | Existing | Recipes/workstreams | Versioning, parameters, marketplace/local catalog | P1 |
 | Scheduling | Cron/schedules | Existing | Sidecar cron/scheduling | UI scheduler, timezone handling, missed-run policy | P1 |
 | Scheduling | Event-driven triggers | Partial | Channels/runtime events | Webhooks, file/email/calendar/CI triggers | P2 |
@@ -69,10 +80,10 @@
 | Safety | Permission grants | Existing | `permissions.js`, `permgrants.js` | Capability + resource + action + duration scopes | P0 |
 | Safety | API authentication | Existing | `apiauth.js` | Threat-model audit, local bind defaults, token rotation | P0 |
 | Safety | Secret storage | Existing/Partial | Tauri credentials/keychain/channel secrets | Unified secret broker; never expose raw secrets to agents by default | P0 |
-| Safety | Audit log | Partial | Events/ledger/tool traces | Append-only action audit with actor/tool/resource/result | P0 |
+| Safety | Audit log | Existing/Partial | Durable run journal + managed-task history | Broader append-only actor/resource/result coverage | P0 |
 | Safety | Sandboxing | Partial | Existing capability and workspace boundaries | OS/process/network limits where feasible | P0 |
 | Cost | Token/cost ledger | Existing | Cost/spend/ledger files | Per-agent/task/project/provider attribution | P1 |
-| Cost | Budgets | Existing/Partial | Spend controls | Hard/soft limits, alerts, fallback models, daily/monthly budgets | P1 |
+| Cost | Budgets | Existing/Partial | Spend controls + read-only budget projection | Hard/soft alerts, fallback models, daily/monthly policy breadth | P1 |
 | Memory | Working/context memory | Existing | `context.js` | Explicit scopes, compression strategy, provenance | P0 |
 | Memory | Agent long-term memory | Existing | `memcore.js` and agent memory concepts | Retrieval quality, TTL/importance, contradiction handling | P0 |
 | Memory | Project memory | Partial | Workspace/memory primitives | Shared project knowledge with access control | P1 |
@@ -84,92 +95,76 @@
 | Learning | Mistake/lesson memory | Partial | Memory + feedback | Verified lessons generated from failures/successes | P1 |
 | Learning | Skill extraction | Partial | Skills system exists | Experience → proposed reusable skill → validation → publish | P1 |
 | Learning | Skill evolution | Missing/Partial | Skills + memory | Version skills, benchmark, promote/rollback | P2 |
-| Evaluation | Reviewer/auditor agents | Missing/Partial | Multi-agent delegation | Independent reviewer roles and rubric-based checks | P1 |
-| Evaluation | Automated evals | Partial | Test infrastructure | Golden tasks, workflow evals, tool safety regressions | P1 |
+| Evaluation | Reviewer/auditor agents | Existing | Verified deterministic review and optional independent auditor | Broader rubric/eval adoption across workflows | P1 |
+| Evaluation | Automated evals | Existing/Partial | Test/eval infrastructure | Golden tasks, workflow evals, tool safety regressions | P1 |
 | UI | Pixel/Game Mode | Existing | `frontend/app/world.js` etc. | Rebrand/re-art while preserving functional visualization | P1 |
-| UI | Control Mode dashboard | Missing | Existing frontend state/events | Professional task/agent/cost/tool/memory dashboard | P1 |
-| UI | Agent tree/org chart | Missing/Partial | Roster/agent state | Commander hierarchy, status, queues, budgets | P1 |
-| UI | Approval inbox | Missing/Partial | Permission primitives | Central review/approve/reject/edit action UI | P0 |
-| UI | Observability | Partial | SSE/events/logs | Live traces, timings, model/tool calls, errors, costs | P0 |
+| UI | Control Mode dashboard | Existing/Partial | Verified read-only managed-task dashboard + six dedicated evidence surfaces | Future safe mutations only where existing authoritative stores support them | P1 |
+| UI | Agent tree/org chart | Existing/Partial | Authoritative roster projection with explicit parent edges | Richer visualization without inferring hierarchy | P1 |
+| UI | Approval inbox | Existing/Partial | Read-only permanent/session/pending approval center | Approve/reject/edit UX remains future and must reuse consent authority | P0 |
+| UI | Observability | Existing/Partial | Managed-task telemetry, run-journal action trace, costs and provider signals | Broader timings/tool/provider evidence when authoritative | P0 |
 | UI | Mobile/remote management | Partial | Web/channel architecture | Responsive control surface and secure remote access | P3 |
 | Storage | Local-first workspaces | Existing | Sidecar workspace model | Versioned schema and backup/restore | P0 |
 | Storage | Migration system | Partial | Fresh-start/lifecycle code | Safe StarNet → derivative data migration and rollback | P0 |
 | Interop | Import/export | Partial | Save/cloudsave/skills/MCP | Portable agents, workflows, skills, memory bundles | P2 |
 | Reliability | Durable task queue | Missing/Partial | Runtime/autonomy state | Crash-safe queues/checkpoints and resume | P1 |
-| Reliability | Health monitoring | Missing/Partial | Runtime state | Provider/tool/agent health, circuit breakers | P1 |
+| Reliability | Health monitoring | Partial | Provider registry + observed rate-limit signals | Add actual liveness/circuit-breaker sources before claiming health | P1 |
 | Reliability | Backups | Partial | Local workspace | Scheduled encrypted backups and restore verification | P2 |
-| DevEx | Test suites | Existing | `test/`, fast/http/full scripts | Add derivative regression/e2e/security tests | P0 |
-| DevEx | CI | Audit | `.github/` workflows to inspect | Branch CI, lint/test/package/security checks | P0 |
+| DevEx | Test suites | Existing | `test/`, fast/http/full scripts + derivative contracts | Continue regression/e2e/security expansion | P0 |
+| DevEx | CI | Existing | Moe AI Station CI + inherited gates | Maintain release/security checks as scope grows | P0 |
 | DevEx | Plugin/extension SDK | Partial | Tools/MCP/providers/channels | Stable manifests, schemas, permissions and examples | P2 |
 | Business | Research workflows | Partial | Browser + agents + workflows | Source-diverse research teams with reviewer synthesis | P1 |
 | Business | Content workflows | Partial | Agents/workflows | Brief → research → draft → review → publish approval | P2 |
 | Business | Outreach workflows | Partial | Browser/channels | Lead/research/draft flows; sending gated by policy | P3 |
 | Business | E-commerce workflows | Partial | Browser/workflows | Catalog/research/support/ops integrations with approvals | P3 |
-| Branding | Own product name | Missing | Current Tauri product is StarNet | Rename after migration plan is ready | P0 |
-| Branding | Own identifier/data path | Missing | `ai.skynet.harness` | New identifier plus one-time migration importer | P0 |
-| Branding | Own logo/icons/artwork | Missing | StarNet assets still present | Replace all excluded brand/art assets before distribution | P0 |
-| Distribution | Independent updater | Missing | Upstream updater detached on derivative branch | Add own signed releases only after release pipeline exists | P1 |
-| Distribution | Independent signing/releases | Missing | Tauri bundling | Own keys, CI builds, release provenance, rollback channel | P1 |
+| Branding | Own product name | Blocked | Current derivative work name exists, inherited identity remains in distributable surfaces | Rename only with migration-safe boundary | P0 |
+| Branding | Own identifier/data path | Blocked | `ai.skynet.harness` remains migration-sensitive | New identifier plus tested one-time migration importer | P0 |
+| Branding | Own logo/icons/artwork | Blocked | StarNet assets still present | Replace all excluded brand/art assets before distribution | P0 |
+| Distribution | Independent updater | Blocked | Upstream updater detached | Add own signed releases only after derivative signing/channel exists | P1 |
+| Distribution | Independent signing/releases | Blocked | Tauri bundling exists | Own keys, CI builds, release provenance, rollback channel | P1 |
 
 ## Phase plan
 
-### Phase 0 — Fork isolation and audit (current)
+### Phase 0 — Fork isolation and audit
 
-1. Develop only on `dev/mo-ai-station`.
-2. Detach the upstream StarNet updater.
-3. Inventory trademarks/artwork, external services, account/cloud dependencies and hard-coded StarNet URLs.
-4. Audit existing CI/tests and establish a baseline.
-5. Design data migration before changing `ai.skynet.harness`.
+Core fork/update isolation is complete and verified. Remaining brand, distribution and migration audits stay open because they are public-release prerequisites rather than reasons to invent or prematurely change runtime identity.
 
 ### Phase 1 — Safe derivative foundation
 
-1. Introduce derivative product metadata behind a migration-safe boundary.
-2. Replace icons, installer art and station art with original assets.
-3. Add a centralized product/branding configuration instead of scattered literals.
-4. Add derivative-specific test coverage.
-5. Establish independent signing/update configuration, initially disabled by default.
+Derivative CI/evidence tracking and upstream update isolation exist. Product-identity migration, asset replacement and independent signing remain intentionally blocked until their prerequisites are available and tested.
 
 ### Phase 2 — Command architecture
 
-1. Formalize Commander/Manager/Specialist/Worker roles.
-2. Add typed task contracts, acceptance criteria and result provenance.
-3. Implement central scheduler, quotas, deadlines and cancellation.
-4. Add reviewer/auditor agents and quality gates.
-5. Expand permissions from broad tool access to resource/action scopes.
+The current v1 role policy, managed delegation, acceptance/revision gate, independent auditor and durable managed-task history are implemented and verification-backed. Broader scheduler/resource-scope enhancements remain roadmap work.
 
 ### Phase 3 — Memory and learning
 
-1. Separate working, agent, project and global memory scopes.
-2. Add episodic task memory and decision records.
-3. Add retrospective/evaluation pipeline.
-4. Implement controlled lesson extraction.
-5. Implement proposed-skill generation, validation, versioning and rollback.
+Existing inherited memory/feedback/skills foundations remain available. The verified Control Mode v1 only projects content-free memory provenance/trust; it does not claim the broader learning/skill-evolution roadmap is complete.
 
 ### Phase 4 — Workflow and autonomy
 
-1. Formal workflow IR for visual and programmatic execution.
-2. Add deterministic branches, retries, timeouts and model fallbacks.
-3. Add durable execution/checkpoints and crash recovery.
-4. Formalize autonomy levels: Manual, Assist, Execute, Autonomous, Scheduled, Event-driven, Night Shift.
-5. Build approval inbox and escalation rules.
+Inherited workflow/autonomy primitives remain substantial but the complete formal workflow IR, durable cross-workflow checkpointing and all autonomy-level product UX remain future scope. The v1 Approval Center is observe-only rather than a new consent mutation system.
 
 ### Phase 5 — Control Mode
 
-1. Agent organization tree and live state.
-2. Task queues and workflow runs.
-3. Tool-call/action trace.
-4. Memory inspector and provenance viewer.
-5. Cost/budget dashboard.
-6. Permission/approval center.
-7. Provider/tool health center.
+Read-only v1 is implemented and verification-backed:
+
+1. Agent organization and explicit live-state evidence — delivered.
+2. Managed task/workflow telemetry — delivered for the managed-task substrate.
+3. Tool-call/action trace — delivered from the durable run journal.
+4. Memory provenance viewer — delivered; memory content intentionally hidden.
+5. Cost/budget dashboard — delivered from spend ledger/budget governor.
+6. Permission/approval center — delivered read-only from existing grant/consent stores.
+7. Provider signals — delivered from registry metadata plus observed quota/rate-limit evidence; **provider health is not claimed** because no authoritative liveness source exists.
 
 ### Phase 6 — Integrations and productionization
 
-1. First-class GitHub, email and calendar integrations.
-2. Documents/PDF/spreadsheet/data workflows.
+Still open beyond the verified internal v1 boundary:
+
+1. First-class GitHub, email and calendar product integrations.
+2. Documents/PDF/spreadsheet/data workflow expansion.
 3. Webhook/event triggers and additional communication channels.
-4. Plugin SDK and MCP management.
-5. Backups, release signing, independent updater and migration tooling.
+4. Plugin SDK and MCP management expansion.
+5. Backups, independent release signing/updater and safe app-identity/data migration.
 
 ## Controlled self-improvement loop
 
@@ -191,16 +186,17 @@ Task
 
 No component receives unrestricted authority to rewrite production code, permissions, secrets, safety policy or release configuration.
 
-## Immediate audit checklist
+## Current verification checklist
 
 - [x] Create derivative development branch.
 - [x] Identify and detach upstream release endpoint.
-- [ ] Inventory all `StarNet`, `starnet`, `starnetos.com`, `androoAGI`, `ai.skynet.harness` references.
-- [ ] Inventory logo/icon/sprite/installer/station assets requiring replacement.
-- [ ] Inventory cloud/account/telemetry/update endpoints.
-- [ ] Inspect Tauri updater calls and ensure absence of hidden upstream update paths.
-- [ ] Inspect CI workflows and current test baseline.
-- [ ] Map current permission granularity.
-- [ ] Map current memory schemas and persistence.
-- [ ] Map task/delegation schemas.
-- [ ] Define migration plan for product identifier and workspace data.
+- [x] Verify organizational-role compatibility and managed delegation against inherited permission/consent boundaries.
+- [x] Verify deterministic review/revision and independent-auditor contracts.
+- [x] Verify durable managed-task history and read-only Control Mode wiring.
+- [x] Verify six dedicated Control Mode surfaces for schema, lifecycle, source failure, E2E read-only behavior and accessibility semantics.
+- [x] Keep product claims aligned with derivative feature evidence in CI.
+- [ ] Complete inventory/replacement of StarNet name/logo/sprite/installer/station assets before distribution.
+- [ ] Establish derivative signing keys and independent release/update channel.
+- [ ] Define and test migration for product identifier/workspace/credential data before changing `ai.skynet.harness`.
+
+The unchecked items are explicit **public-distribution blockers**, not hidden or synthetic runtime features.
