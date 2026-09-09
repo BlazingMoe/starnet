@@ -31,6 +31,7 @@ function rowFromManaged(args, ctx, result, startedAt, completedAt) {
     workerUsd: Number(result.workerUsd || 0),
     auditUsd: Number(result.auditUsd || 0),
     budgetUsd: result.budgetUsd == null ? null : Number(result.budgetUsd),
+    budgetExceeded: result.budgetExceeded === true,
     findings: Array.isArray(result.findings) ? result.findings : [],
     riskFlags: Array.isArray(result.riskFlags) ? result.riskFlags : [],
     reason: String(result.reason || ''),
