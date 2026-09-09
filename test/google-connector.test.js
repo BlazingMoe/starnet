@@ -25,10 +25,19 @@ const catalog = require('../sidecar/mcp/catalog.js');
   assert.equal(legacy.custom, false);
   assert.equal(legacy.entry.url, ENDPOINTS.gmail);
   assert.equal(resolveConnectorOauthTarget('gmail', catalog, [{ id: 'gmail', oauth: true, transport: 'http', url: 'https://custom.example/mcp' }]).custom, true);
+  const gmailCatalog = catalog.get('gmail');
+  assert.ok(gmailCatalog.staticOauth.scopes.includes('https://www.googleapis.com/auth/gmail.modify'),
+    'Gmail requests explicit modify scope before exposing inbox/label mutations');
 
   const examples = {
     search_messages: { query: 'from:test@example.invalid', pageToken: 'next&evil=1' }, read_message: { messageId: 'message-1' },
     read_thread: { threadId: 'thread-1' }, read_attachment: { messageId: 'message-1', attachmentId: 'attachment-1' },
+    list_labels: {},
+    mark_read: { messageId: 'message-1' },
+    mark_unread: { messageId: 'message-1' },
+    archive_message: { messageId: 'message-1' },
+    move_to_inbox: { messageId: 'message-1' },
+    modify_labels: { messageId: 'message-1', addLabelIds: ['STARRED', 'Label_123', 'Label_123'], removeLabelIds: ['IMPORTANT'] },
     compose_draft: { to: ['test@example.invalid'], cc: ['copy@example.invalid'], subject: 'Geschäft €', bodyText: 'Hello\nWorld', threadId: 'thread-1', inReplyTo: '<msg-1@example.invalid>', references: '<root@example.invalid> <msg-1@example.invalid>' },
     reply_draft: { messageId: 'message-1', bodyText: 'Thanks\nConfirmed' },
     create_draft: { raw: Buffer.from('To: test@example.invalid\r\nSubject: Test\r\n\r\nHello').toString('base64url') }, send_draft: { draftId: 'draft-1' },
@@ -97,6 +106,25 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.deepEqual(JSON.parse(calls.at(-1).opts.body).values, [['Acme', 'qualified', 82]]);
       }
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
+      if (def.name === 'list_labels') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'GET');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/users\/me\/labels$/);
+      }
+      if (['mark_read', 'mark_unread', 'archive_message', 'move_to_inbox', 'modify_labels'].includes(def.name)) {
+        assert.equal(toolCalls.length, 1, def.name + ' is one reversible Gmail modify request');
+        assert.equal(toolCalls[0].opts.method, 'POST');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/users\/me\/messages\/message-1\/modify$/);
+        const patch = JSON.parse(toolCalls[0].opts.body);
+        const expected = {
+          mark_read: { removeLabelIds: ['UNREAD'] },
+          mark_unread: { addLabelIds: ['UNREAD'] },
+          archive_message: { removeLabelIds: ['INBOX'] },
+          move_to_inbox: { addLabelIds: ['INBOX'] },
+          modify_labels: { addLabelIds: ['STARRED', 'Label_123'], removeLabelIds: ['IMPORTANT'] }
+        }[def.name];
+        assert.deepEqual(patch, expected, def.name + ' emits only the intended label delta');
+      }
       if (def.name === 'compose_draft') {
         assert.equal(toolCalls.length, 1);
         assert.equal(toolCalls[0].opts.method, 'POST');
@@ -249,7 +277,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
   }
 
   {
-    const gmailWrites = new Set(['compose_draft', 'reply_draft', 'create_draft', 'send_draft']);
+    const gmailWrites = new Set(['mark_read', 'mark_unread', 'archive_message', 'move_to_inbox', 'modify_labels', 'compose_draft', 'reply_draft', 'create_draft', 'send_draft']);
     for (const raw of TOOLS.gmail) {
       const projected = makeMcpToolDef({
         connectorId: 'gmail',
@@ -288,6 +316,21 @@ const catalog = require('../sidecar/mcp/catalog.js');
       /Invalid argument: to/
     );
     assert.equal(calls.length, before, 'empty recipient list is rejected before Gmail is called');
+    await assert.rejects(
+      client.callTool('modify_labels', { messageId: 'message-1', addLabelIds: [], removeLabelIds: [] }),
+      /At least one Gmail label change is required/
+    );
+    assert.equal(calls.length, before, 'empty Gmail label mutation is rejected before network');
+    await assert.rejects(
+      client.callTool('modify_labels', { messageId: 'message-1', addLabelIds: ['STARRED'], removeLabelIds: ['STARRED'] }),
+      /cannot be added and removed in the same operation/
+    );
+    assert.equal(calls.length, before, 'contradictory Gmail label mutation is rejected before network');
+    await assert.rejects(
+      client.callTool('modify_labels', { messageId: 'message-1', addLabelIds: ['ok\r\nINBOX'], removeLabelIds: [] }),
+      /Invalid add label id/
+    );
+    assert.equal(calls.length, before, 'control characters in Gmail label IDs are rejected before network');
     client.close();
   }
 
