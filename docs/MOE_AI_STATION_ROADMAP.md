@@ -12,6 +12,12 @@
 - Self-improvement is controlled: experiences may become proposed lessons/skills, but code/config changes require validation and policy checks.
 - Missing runtime evidence stays unknown/unavailable; dashboards must not invent state merely to look complete.
 
+## Private-use objective
+
+Moe AI Station is an exclusively private StarNet fork for one operator. The active product goal is a reliable, highly capable personal agent system for revenue-generating/business work plus general research, coding, automation, files, communication, scheduling and other supported tasks. Public redistribution, marketplace launch, independent branding, installer signing and product-identity migration are not active deliverables unless that objective is explicitly changed later.
+
+Engineering priority therefore follows this order: runtime correctness and recovery; truthful cost/budget control; useful autonomy and orchestration; high-value integrations; research/data/document workflows; operator UX/observability; then optional convenience work. Public-distribution work must not displace those priorities.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.
@@ -20,6 +26,7 @@
 - **Missing** — requires a new subsystem or major implementation.
 - **Audit** — presence is known, but behavior/security/coverage still needs code-level verification.
 - **Blocked** — intentionally not completed because an explicit prerequisite is absent.
+- **Out of scope** — deliberately excluded from the current private-use target; reassess only if the product objective changes.
 
 ## Current verified derivative v1 boundary
 
@@ -27,7 +34,7 @@ The current internal derivative v1 is verification-backed for the command/orches
 
 This boundary intentionally does **not** claim a second control plane. Control Mode mutations such as approve/reject, hierarchy editing, dispatch, cancel/steer, budget editing or provider-health actions remain outside v1. Provider registry data is not treated as liveness evidence: health, credential validity, latency, uptime, success rate and synthetic health scores are not inferred.
 
-Public distribution is also **not** ready yet. Independent branding/artwork, derivative installer/update signing, and safe application-identifier/data-path migration remain explicit release blockers tracked in `qa/moe-feature-evidence.json` and `qa/product-perfect/moe-claims.json`.
+Public distribution is intentionally **outside the current product target**. Independent branding/artwork, derivative installer/update signing, and application-identifier/data-path migration are therefore not active blockers for private use; they are tracked as out-of-scope safeguards and must be reassessed only if redistribution becomes a future goal.
 
 ## Feature matrix
 
@@ -116,21 +123,21 @@ Public distribution is also **not** ready yet. Independent branding/artwork, der
 | Business | Content workflows | Partial | Agents/workflows | Brief → research → draft → review → publish approval | P2 |
 | Business | Outreach workflows | Partial | Browser/channels | Lead/research/draft flows; sending gated by policy | P3 |
 | Business | E-commerce workflows | Partial | Browser/workflows | Catalog/research/support/ops integrations with approvals | P3 |
-| Branding | Own product name | Blocked | Current derivative work name exists, inherited identity remains in distributable surfaces | Rename only with migration-safe boundary | P0 |
-| Branding | Own identifier/data path | Blocked | `ai.skynet.harness` remains migration-sensitive | New identifier plus tested one-time migration importer | P0 |
-| Branding | Own logo/icons/artwork | Blocked | StarNet assets still present | Replace all excluded brand/art assets before distribution | P0 |
-| Distribution | Independent updater | Blocked | Upstream updater detached | Add own signed releases only after derivative signing/channel exists | P1 |
-| Distribution | Independent signing/releases | Blocked | Tauri bundling exists | Own keys, CI builds, release provenance, rollback channel | P1 |
+| Branding | Own product name | Out of scope | Private fork can retain inherited-compatible identity | Reassess only before any redistribution | — |
+| Branding | Own identifier/data path | Out of scope | `ai.skynet.harness` remains migration-sensitive and preserves compatible private state | Change only for a future distribution requirement with tested migration | — |
+| Branding | Own logo/icons/artwork | Out of scope | StarNet assets remain acceptable for private use | Replace before any future redistribution | — |
+| Distribution | Independent updater | Out of scope | Upstream updater is detached | Add a private/independent signed channel only if update distribution becomes necessary | — |
+| Distribution | Independent signing/releases | Out of scope | Tauri bundling exists | Reassess signing/release provenance only if installers are distributed | — |
 
 ## Phase plan
 
 ### Phase 0 — Fork isolation and audit
 
-Core fork/update isolation is complete and verified. Remaining brand, distribution and migration audits stay open because they are public-release prerequisites rather than reasons to invent or prematurely change runtime identity.
+Core fork/update isolation is complete and verified. Branding, distribution and product-identity migration are explicitly outside the private-use target and do not block runtime development.
 
 ### Phase 1 — Safe derivative foundation
 
-Derivative CI/evidence tracking and upstream update isolation exist. Product-identity migration, asset replacement and independent signing remain intentionally blocked until their prerequisites are available and tested.
+Derivative CI/evidence tracking and upstream update isolation exist. Product-identity migration, asset replacement and independent signing remain intentionally untouched because they provide no private-use capability benefit and introduce unnecessary migration risk.
 
 ### Phase 2 — Command architecture
 
@@ -164,7 +171,7 @@ Still open beyond the verified internal v1 boundary:
 2. Documents/PDF/spreadsheet/data workflow expansion.
 3. Webhook/event triggers and additional communication channels.
 4. Plugin SDK and MCP management expansion.
-5. Backups, independent release signing/updater and safe app-identity/data migration.
+5. Backups, restore verification and private operational recovery. Public release signing/updater and app-identity migration remain outside scope.
 
 ## Controlled self-improvement loop
 
@@ -195,8 +202,8 @@ No component receives unrestricted authority to rewrite production code, permiss
 - [x] Verify durable managed-task history and read-only Control Mode wiring.
 - [x] Verify six dedicated Control Mode surfaces for schema, lifecycle, source failure, E2E read-only behavior and accessibility semantics.
 - [x] Keep product claims aligned with derivative feature evidence in CI.
-- [ ] Complete inventory/replacement of StarNet name/logo/sprite/installer/station assets before distribution.
-- [ ] Establish derivative signing keys and independent release/update channel.
-- [ ] Define and test migration for product identifier/workspace/credential data before changing `ai.skynet.harness`.
+- [x] Classify branding/art replacement as outside the private-use target.
+- [x] Classify derivative public signing/update distribution as outside the private-use target.
+- [x] Preserve the compatible application identifier/data path unless a future functional need justifies migration.
 
-The unchecked items are explicit **public-distribution blockers**, not hidden or synthetic runtime features.
+Future redistribution would reopen separate branding, licensing, signing/update-provenance and migration work. None of those items blocks the private system from becoming fully usable for its intended operator.
