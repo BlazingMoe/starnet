@@ -32,6 +32,10 @@ const catalog = require('../sidecar/mcp/catalog.js');
     list_files: { query: "name contains 'test'" }, get_file: { fileId: 'file-1' }, export_file: { fileId: 'file-1', mimeType: 'text/plain' },
     create_file: { metadata: { name: 'Test' } }, update_file: { fileId: 'file-1', metadata: { name: 'Updated' } },
     list_calendars: {}, list_events: {}, get_event: { eventId: 'event-1' }, free_busy: { timeMin: '2026-09-06T00:00:00Z', timeMax: '2026-09-07T00:00:00Z', calendarIds: ['primary'] },
+    create_event: { event: { summary: 'Test event', start: { dateTime: '2026-09-10T14:00:00+02:00' }, end: { dateTime: '2026-09-10T15:00:00+02:00' } }, sendUpdates: 'none' },
+    patch_event: { eventId: 'event-1', patch: { location: 'Kassel' }, sendUpdates: 'none' },
+    delete_event: { eventId: 'event-1', sendUpdates: 'none' },
+    respond_event: { eventId: 'event-1', responseStatus: 'accepted', comment: 'Confirmed' },
     get_document: { documentId: 'document-1' }, create_document: { title: 'Test' },
     get_spreadsheet: { spreadsheetId: 'sheet-1' }, read_values: { spreadsheetId: 'sheet-1', range: "'Sheet 1'!A1:B2" },
     create_spreadsheet: { title: 'Test' }, write_values: { spreadsheetId: 'sheet-1', range: 'A1', values: [['=1+1']] }
@@ -44,7 +48,11 @@ const catalog = require('../sidecar/mcp/catalog.js');
       assert.equal(opts.headers.Authorization, 'Bearer TEST_TOKEN');
       assert.equal(opts.redirect, 'error');
       assert.ok(!target.includes('TEST_TOKEN'));
-      return new Response(JSON.stringify({ id: 'fixture', messages: [{ id: 'message-1' }] }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({
+        id: 'fixture',
+        messages: [{ id: 'message-1' }],
+        attendees: [{ email: 'self@example.invalid', self: true, responseStatus: 'needsAction' }]
+      }), { headers: { 'Content-Type': 'application/json' } });
     } }) });
     await client.initialize();
     assert.equal(calls.length, 1, product + ' verifies Google before connected');
@@ -52,11 +60,45 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(defs.length, TOOLS[product].length);
     for (const def of defs) {
       const args = def.name === 'batch_update' ? product === 'google-docs' ? { documentId: 'document-1', requests: [{ insertText: { text: 'hi', endOfSegmentLocation: {} } }] } : { spreadsheetId: 'sheet-1', requests: [{ addSheet: { properties: { title: 'New' } } }] } : examples[def.name];
+      const beforeCall = calls.length;
       const response = await client.callTool(def.name, args);
+      const toolCalls = calls.slice(beforeCall);
       assert.equal(response.isError, false);
       assert.ok(calls.at(-1).target.startsWith(url));
       if (def.name === 'write_values') assert.equal(new URL(calls.at(-1).target).searchParams.get('valueInputOption'), 'RAW');
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
+      if (def.name === 'create_event') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'POST');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/calendars\/primary\/events$/);
+        assert.equal(new URL(toolCalls[0].target).searchParams.get('sendUpdates'), 'none');
+        assert.equal(JSON.parse(toolCalls[0].opts.body).summary, 'Test event');
+      }
+      if (def.name === 'patch_event') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'PATCH');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/calendars\/primary\/events\/event-1$/);
+        assert.deepEqual(JSON.parse(toolCalls[0].opts.body), { location: 'Kassel' });
+      }
+      if (def.name === 'delete_event') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'DELETE');
+        assert.equal(toolCalls[0].opts.body, undefined);
+      }
+      if (def.name === 'respond_event') {
+        assert.equal(toolCalls.length, 2, 'RSVP uses read-then-patch so the self attendee is never guessed');
+        assert.equal(toolCalls[0].opts.method, 'GET');
+        assert.equal(toolCalls[1].opts.method, 'PATCH');
+        assert.deepEqual(JSON.parse(toolCalls[1].opts.body), {
+          attendeesOmitted: true,
+          attendees: [{ email: 'self@example.invalid', responseStatus: 'accepted', comment: 'Confirmed' }]
+        });
+      }
+      if (product === 'google-calendar') {
+        const writeNames = new Set(['create_event', 'patch_event', 'delete_event', 'respond_event']);
+        assert.equal(def.annotations.readOnlyHint, !writeNames.has(def.name), def.name + ' read-only annotation matches its side-effect class');
+        assert.equal(def.annotations.destructiveHint, writeNames.has(def.name), def.name + ' destructive annotation matches its side-effect class');
+      }
       exercised++;
     }
     const before = calls.length;
