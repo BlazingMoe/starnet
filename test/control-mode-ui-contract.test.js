@@ -30,9 +30,9 @@ A.ok(src.includes("ev.key === 'Enter' || ev.key === ' '"), 'task drilldown suppo
 A.ok(src.includes('No missing detail is inferred.'), 'failed drilldown stays explicitly unknown');
 A.ok(src.includes("field(grid, 'FAILURE REASON', latest.reason)"), 'task drilldown exposes the preserved machine-readable failure reason');
 A.ok(src.includes("field(grid, 'ERROR', latest.error)"), 'task drilldown exposes the bounded managed failure diagnostic');
-A.ok(src.includes("field(grid, 'WORKER SPEND', latest.workerUsd)"), 'task drilldown separates worker spend from total spend');
-A.ok(src.includes("field(grid, 'AUDIT SPEND', latest.auditUsd)"), 'task drilldown separates independent-audit spend');
-A.ok(src.includes("field(grid, 'TASK BUDGET', latest.budgetUsd)"), 'task drilldown shows the task budget alongside spend');
+A.ok(src.includes("field(grid, 'WORKER SPEND', latest.workerUsd == null ? '' : fmtUsd(latest.workerUsd))"), 'task drilldown separates worker spend from total spend');
+A.ok(src.includes("field(grid, 'AUDIT SPEND', latest.auditUsd == null ? '' : fmtUsd(latest.auditUsd))"), 'task drilldown separates independent-audit spend');
+A.ok(src.includes("field(grid, 'TASK BUDGET', latest.budgetUsd == null ? '' : fmtUsd(latest.budgetUsd))"), 'task drilldown shows the task budget alongside spend');
 A.ok(src.includes("field(grid, 'BUDGET EXCEEDED', latest.budgetExceeded === true ? 'YES' : '')"), 'task drilldown explicitly flags verified budget overruns');
 A.ok(src.includes("ev.key !== 'Escape'"), 'Control Mode has layered Escape handling');
 A.ok(src.includes('clearInterval(timer)'), 'polling is stopped when Control Mode closes');
