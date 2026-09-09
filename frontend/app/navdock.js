@@ -224,7 +224,8 @@
     document.head.appendChild(s);
   }
   function bootControlMode() {
-    const loadAgents = () => loadOnce('app/controlagents.js', 'mo-control-mode-agents');
+    const loadMemory = () => loadOnce('app/controlmemory.js', 'mo-control-mode-memory');
+    const loadAgents = () => loadOnce('app/controlagents.js', 'mo-control-mode-agents', loadMemory);
     const loadUi = () => loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents);
     if (window.ControlModeUI) { loadAgents(); return; }
     if (window.ControlModeView) loadUi();

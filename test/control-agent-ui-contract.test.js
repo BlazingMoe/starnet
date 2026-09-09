@@ -16,7 +16,7 @@ A.ok(src.includes("attributeFilter: ['hidden']"), 'polling follows Control Mode 
 A.ok(src.includes('clearInterval(timer)'), 'organization polling stops when Control Mode closes');
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(src), 'organization pane performs no mutating Harness API calls');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(src), 'organization pane has no raw mutating HTTP fallback');
-A.ok(nav.includes("loadOnce('app/controlagents.js', 'mo-control-mode-agents')"), 'navigation loader boots organization pane after Control Mode');
+A.ok(nav.includes("loadOnce('app/controlagents.js', 'mo-control-mode-agents', loadMemory)"), 'navigation loader boots organization pane after Control Mode and then chains memory provenance');
 A.ok(nav.includes("if (window.ControlModeUI) { loadAgents(); return; }"), 'already-loaded Control Mode still receives organization pane');
 
 A.report('control-agent-ui-contract.test');

@@ -35,7 +35,9 @@ A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.
 A.ok(!/\b(cancel|approve|reject|dispatch|spawn|steer)\b[^\n]{0,40}addEventListener\s*\(/i.test(src), 'v1 exposes no task mutation controls');
 A.ok(!/a\.summary\b/.test(src), 'Control Mode action trace does not render persisted tool summary text');
 A.ok(nav.includes("loadOnce('app/controlmodeview.js', 'mo-control-mode-view', loadUi)"), 'nav dock loads the tested projection layer before the UI');
-A.ok(nav.includes("loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents)"), 'nav dock bootstraps the read-only Control Mode UI before chaining the organization pane');
-A.ok(nav.includes("if (window.ControlModeUI) { loadAgents(); return; }"), 'Control Mode bootstrap is idempotent while still attaching the organization pane');
+A.ok(nav.includes("loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents)"), 'nav dock bootstraps the read-only Control Mode UI before chaining supplementary panes');
+A.ok(nav.includes("loadOnce('app/controlagents.js', 'mo-control-mode-agents', loadMemory)"), 'organization pane chains into the content-free memory provenance pane');
+A.ok(nav.includes("loadOnce('app/controlmemory.js', 'mo-control-mode-memory')"), 'nav dock loads the read-only memory provenance pane');
+A.ok(nav.includes("if (window.ControlModeUI) { loadAgents(); return; }"), 'Control Mode bootstrap is idempotent while still attaching supplementary panes');
 
 A.report('control-mode-ui-contract.test');
