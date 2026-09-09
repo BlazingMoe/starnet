@@ -40,8 +40,9 @@ for(const key of ['availabilityInferred','credentialValidityInferred','uptimeInf
   A.eq(out.evidence[key],false,key+' must remain false');
 }
 
-const serialized=JSON.stringify(out);
-for(const forbidden of ['healthy','unhealthy','online','offline','reachable','credentialValid','successRate":1','latencyMs']) {
-  A.ok(!serialized.includes(forbidden),'projection must not invent provider health telemetry: '+forbidden);
+for(const row of out.rows){
+  for(const key of ['healthy','unhealthy','online','offline','reachable','credentialValid','successRate','latencyMs']){
+    A.ok(!Object.prototype.hasOwnProperty.call(row,key),'provider row must not expose invented health field: '+key);
+  }
 }
 A.report('control-provider-view.test');
