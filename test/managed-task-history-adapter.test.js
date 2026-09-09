@@ -60,6 +60,24 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   A.eq(records[1].status, 'dispatch_error', 'thrown execution is still recorded as dispatch error');
   A.eq(liveEvents.slice(beforeThrow).map(x => x.type), ['begin', 'end'], 'throwing managed call still enters and leaves live state in finally');
 
+  const diagnosticBase = {
+    run: async () => ({ content: JSON.stringify({
+      accepted: false,
+      stage: 'dispatch',
+      reason: 'timeout',
+      error: 'worker exceeded managed wall clock',
+      taskId: 't-diagnostic',
+      workerAgentId: 'worker',
+      attempts: 1,
+      usd: 0.12
+    }) })
+  };
+  const diagnostic = attachTaskHistory(diagnosticBase, store, clock);
+  await diagnostic.run({ taskId: 't-diagnostic', agentId: 'worker', objective: 'x' }, { agentId: 'lead' });
+  A.eq(records[2].reason, 'timeout', 'history adapter preserves machine-readable managed failure reason');
+  A.eq(records[2].error, 'worker exceeded managed wall clock', 'history adapter preserves bounded diagnostic text');
+  A.eq(records[2].usd, 0.12, 'history adapter preserves billed spend on failed managed work');
+
   const failOpenRecords = [];
   const failOpen = attachTaskHistory({
     run: async (_args, ctx) => {
