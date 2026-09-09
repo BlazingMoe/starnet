@@ -162,11 +162,12 @@
 
         const requireAudit = args.requireAudit === true;
         let auditorId = String(args.auditorAgentId || '');
-        if (requireAudit) reportStage(ctx, 'audit', { auditorAgentId: auditorId });
         if (requireAudit && (!auditorId || !roster.has(auditorId))) {
+          reportStage(ctx, 'audit', { auditorAgentId: auditorId });
           return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'required auditor is not in the live roster', taskId: contract.id }), summary: 'auditor unavailable' };
         }
         if (requireAudit && (auditorId === workerId || auditorId === leadId)) {
+          reportStage(ctx, 'audit', { auditorAgentId: auditorId });
           return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'auditor must be independent from lead and worker', taskId: contract.id }), summary: 'auditor invalid' };
         }
 
