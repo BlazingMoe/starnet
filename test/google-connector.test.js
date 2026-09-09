@@ -44,7 +44,8 @@ const catalog = require('../sidecar/mcp/catalog.js');
     respond_event: { eventId: 'event-1', responseStatus: 'accepted', comment: 'Confirmed' },
     get_document: { documentId: 'document-1' }, create_document: { title: 'Test' },
     get_spreadsheet: { spreadsheetId: 'sheet-1' }, read_values: { spreadsheetId: 'sheet-1', range: "'Sheet 1'!A1:B2" },
-    create_spreadsheet: { title: 'Test' }, write_values: { spreadsheetId: 'sheet-1', range: 'A1', values: [['=1+1']] }
+    create_spreadsheet: { title: 'Test' }, write_values: { spreadsheetId: 'sheet-1', range: 'A1', values: [['=1+1']] },
+    append_values: { spreadsheetId: 'sheet-1', range: "'Pipeline'!A:H", values: [['Acme', 'qualified', 82]], valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS' }
   };
   let exercised = 0;
   for (const [product, url] of Object.entries(ENDPOINTS)) {
@@ -85,6 +86,15 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.ok(calls.at(-1).target.startsWith(url));
       }
       if (def.name === 'write_values') assert.equal(new URL(calls.at(-1).target).searchParams.get('valueInputOption'), 'RAW');
+      if (def.name === 'append_values') {
+        const u = new URL(calls.at(-1).target);
+        assert.equal(calls.at(-1).opts.method, 'POST');
+        assert.match(u.pathname, /\/spreadsheets\/sheet-1\/values\/.+:append$/);
+        assert.equal(u.searchParams.get('valueInputOption'), 'RAW');
+        assert.equal(u.searchParams.get('insertDataOption'), 'INSERT_ROWS');
+        assert.equal(u.searchParams.get('includeValuesInResponse'), 'false');
+        assert.deepEqual(JSON.parse(calls.at(-1).opts.body).values, [['Acme', 'qualified', 82]]);
+      }
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
       if (def.name === 'compose_draft') {
         assert.equal(toolCalls.length, 1);
@@ -303,6 +313,21 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(calls.length, before + 1, 'unsafe thread metadata stops after source read');
     assert.equal(calls.at(-1).opts.method, 'GET', 'missing reply metadata never creates a draft');
     client.close();
+  }
+
+  {
+    const sheetsWrites = new Set(['create_spreadsheet', 'write_values', 'append_values', 'batch_update']);
+    for (const raw of TOOLS['google-sheets']) {
+      const projected = makeMcpToolDef({
+        connectorId: 'google-sheets',
+        label: 'Google Sheets',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains consent-gated at the host boundary');
+      assert.equal(projected.scope, sheetsWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows Sheets side-effect classification');
+      assert.equal(projected.readOnly, !sheetsWrites.has(raw.name), raw.name + ' read-only projection matches Sheets side effects');
+    }
   }
 
   {
