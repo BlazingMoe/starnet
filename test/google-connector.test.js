@@ -30,6 +30,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
     search_messages: { query: 'from:test@example.invalid', pageToken: 'next&evil=1' }, read_message: { messageId: 'message-1' },
     read_thread: { threadId: 'thread-1' }, read_attachment: { messageId: 'message-1', attachmentId: 'attachment-1' },
     compose_draft: { to: ['test@example.invalid'], cc: ['copy@example.invalid'], subject: 'Geschäft €', bodyText: 'Hello\nWorld', threadId: 'thread-1', inReplyTo: '<msg-1@example.invalid>', references: '<root@example.invalid> <msg-1@example.invalid>' },
+    reply_draft: { messageId: 'message-1', bodyText: 'Thanks\nConfirmed' },
     create_draft: { raw: Buffer.from('To: test@example.invalid\r\nSubject: Test\r\n\r\nHello').toString('base64url') }, send_draft: { draftId: 'draft-1' },
     list_files: { query: "name contains 'test'" }, get_file: { fileId: 'file-1' }, export_file: { fileId: 'file-1', mimeType: 'text/plain' },
     create_file: { metadata: { name: 'Test' } }, update_file: { fileId: 'file-1', metadata: { name: 'Updated' } },
@@ -52,7 +53,15 @@ const catalog = require('../sidecar/mcp/catalog.js');
       assert.ok(!target.includes('TEST_TOKEN'));
       return new Response(JSON.stringify({
         id: 'fixture',
+        threadId: 'thread-source-1',
         messages: [{ id: 'message-1' }],
+        payload: { headers: [
+          { name: 'From', value: 'Sender <sender@example.invalid>' },
+          { name: 'Reply-To', value: 'Replies <reply@example.invalid>' },
+          { name: 'Subject', value: 'Project update' },
+          { name: 'Message-ID', value: '<source-message@example.invalid>' },
+          { name: 'References', value: '<root-message@example.invalid>' }
+        ] },
         attendees: [{ email: 'self@example.invalid', self: true, responseStatus: 'needsAction' }]
       }), { headers: { 'Content-Type': 'application/json' } });
     } }) });
@@ -82,6 +91,23 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.match(mime, /In-Reply-To: <msg-1@example\.invalid>\r\n/);
         assert.match(mime, /References: <root@example\.invalid> <msg-1@example\.invalid>\r\n/);
         assert.ok(mime.endsWith('\r\n\r\nHello\r\nWorld'));
+      }
+      if (def.name === 'reply_draft') {
+        assert.equal(toolCalls.length, 2, 'reply draft reads the source before creating a draft');
+        assert.equal(toolCalls[0].opts.method, 'GET');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/users\/me\/messages\/message-1$/);
+        assert.equal(new URL(toolCalls[0].target).searchParams.get('format'), 'full');
+        assert.equal(toolCalls[1].opts.method, 'POST');
+        assert.match(new URL(toolCalls[1].target).pathname, /\/users\/me\/drafts$/);
+        const replyMessage = JSON.parse(toolCalls[1].opts.body).message;
+        assert.equal(replyMessage.threadId, 'thread-source-1');
+        const mime = Buffer.from(replyMessage.raw, 'base64url').toString('utf8');
+        assert.match(mime, /To: Replies <reply@example\.invalid>\r\n/, 'Reply-To wins over From');
+        assert.match(mime, /Subject: Project update\r\n/, 'source subject is preserved for Gmail threading');
+        assert.match(mime, /In-Reply-To: <source-message@example\.invalid>\r\n/);
+        assert.match(mime, /References: <root-message@example\.invalid> <source-message@example\.invalid>\r\n/);
+        assert.ok(mime.endsWith('\r\n\r\nThanks\r\nConfirmed'));
+        assert.ok(!/Cc:|Bcc:/.test(mime), 'reply_draft is sender-only and cannot silently reply-all');
       }
       if (def.name === 'create_event') {
         assert.equal(toolCalls.length, 1);
@@ -124,7 +150,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
     client.close();
   }
   {
-    const gmailWrites = new Set(['compose_draft', 'create_draft', 'send_draft']);
+    const gmailWrites = new Set(['compose_draft', 'reply_draft', 'create_draft', 'send_draft']);
     for (const raw of TOOLS.gmail) {
       const projected = makeMcpToolDef({
         connectorId: 'gmail',
@@ -163,6 +189,40 @@ const catalog = require('../sidecar/mcp/catalog.js');
       /Invalid argument: to/
     );
     assert.equal(calls.length, before, 'empty recipient list is rejected before Gmail is called');
+    client.close();
+  }
+
+  {
+    const calls = [];
+    const client = makeMcpClient({
+      timeoutMs: 1000,
+      transport: makeGoogleTransport({
+        url: ENDPOINTS.gmail,
+        token: 'TEST_TOKEN',
+        fetchImpl: async (target, opts) => {
+          calls.push({ target, opts });
+          if (new URL(target).pathname.endsWith('/profile')) {
+            return new Response(JSON.stringify({ emailAddress: 'self@example.invalid' }), { headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify({
+            id: 'source-without-message-id',
+            threadId: 'thread-source-2',
+            payload: { headers: [
+              { name: 'From', value: 'Sender <sender@example.invalid>' },
+              { name: 'Subject', value: 'Project update' }
+            ] }
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      })
+    });
+    await client.initialize();
+    const before = calls.length;
+    await assert.rejects(
+      client.callTool('reply_draft', { messageId: 'source-without-message-id', bodyText: 'reply' }),
+      /source message has no Message-ID header/
+    );
+    assert.equal(calls.length, before + 1, 'unsafe thread metadata stops after source read');
+    assert.equal(calls.at(-1).opts.method, 'GET', 'missing reply metadata never creates a draft');
     client.close();
   }
 
