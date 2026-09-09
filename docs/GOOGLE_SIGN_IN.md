@@ -53,9 +53,11 @@ different Google account. Simultaneous accounts within one service remain outsid
 this change's scope.
 
 Gmail supports search, message/thread/attachment reading, draft creation and draft
-sending. Calendar is read-only. Drive supports metadata, file search, text exports
-and file metadata creation/update; `drive.file` limits which files StarNet can
-modify. Docs and Sheets support read/create/edit. Tools return real API errors;
+sending. Calendar supports calendar/event reads, free/busy checks, event creation,
+partial event updates, deletion, and RSVP changes for the signed-in account's own
+`self:true` attendee entry. Drive supports metadata, file search, text exports and
+file metadata creation/update; `drive.file` limits which files StarNet can modify.
+Docs and Sheets support read/create/edit. Tools return real API errors;
 there is no simulated connection state. Responses are bounded to 8 MiB.
 
 References: [Google native OAuth](https://developers.google.com/identity/protocols/oauth2/native-app),
