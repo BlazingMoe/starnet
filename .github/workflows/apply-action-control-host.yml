@@ -28,10 +28,11 @@ jobs:
       - name: Apply fail-closed host patch
         run: node scripts/apply-action-control-host.js
 
-      - name: Verify focused action contracts
-        run: |
-          node test/control-action-view.test.js
-          node test/control-action-http.test.js
+      - name: Verify action view contract
+        run: node test/control-action-view.test.js
+
+      - name: Verify action HTTP contract
+        run: node test/control-action-http.test.js
 
       - name: Commit host wiring
         run: |
