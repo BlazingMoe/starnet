@@ -300,6 +300,7 @@ const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
 const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
 const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview
+const { makeActionControlHttp } = require('./control/action-http.js');   // Moe AI Station: read-only durable action trace
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -9040,6 +9041,11 @@ const approvalControlHttp = makeApprovalControlHttp({
   pending: () => pendingByRun,
   respondJson
 });
+// Durable run-journal remains the only action-history source; this adapter only pages and projects it.
+const actionControlHttp = makeActionControlHttp({
+  recoverPage: (options) => runJournal.recoverPage(options),
+  respondJson
+});
 const costControlHttp = makeCostControlHttp({
   ledgerRows: () => ledger.all(),
   roster: () => agentRoster,
@@ -9393,6 +9399,7 @@ const ROUTES = [
   { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
   { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
   { m: 'GET', exact: '/api/control/approvals', h: approvalControlHttp.serve },   // Control Mode: read-only authoritative permission/approval projection
+  { m: 'GET', exact: '/api/control/actions', h: actionControlHttp.serve },   // Control Mode: read-only durable run-journal action trace
   { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
   { m: 'GET', exact: '/api/control/costs', h: costControlHttp.serve },   // Control Mode: authoritative spend ledger + budget governor
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
