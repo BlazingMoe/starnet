@@ -21,6 +21,16 @@ const TOOLS = {
     tool('read_message', 'Read a Gmail message, including its MIME headers and base64url-encoded body parts.', { messageId: STR }, ['messageId'], true),
     tool('read_thread', 'Read the messages in a Gmail thread.', { threadId: STR }, ['threadId'], true),
     tool('read_attachment', 'Read a Gmail attachment as base64url data (bounded to 8 MiB).', { messageId: STR, attachmentId: STR }, ['messageId', 'attachmentId'], true),
+    tool('list_labels', 'List Gmail system and user labels so later label changes use real label IDs instead of guessed names.', {}, [], true),
+    tool('mark_read', 'Mark one Gmail message read by removing the reversible UNREAD label.', { messageId: STR }, ['messageId']),
+    tool('mark_unread', 'Mark one Gmail message unread by adding the reversible UNREAD label.', { messageId: STR }, ['messageId']),
+    tool('archive_message', 'Archive one Gmail message by removing the reversible INBOX label. This does not delete or trash the message.', { messageId: STR }, ['messageId']),
+    tool('move_to_inbox', 'Move one Gmail message back to the Inbox by adding the INBOX label.', { messageId: STR }, ['messageId']),
+    tool('modify_labels', 'Add or remove explicit Gmail label IDs on one message. Use list_labels first for user labels. This tool does not expose trash/delete.', {
+      messageId: STR,
+      addLabelIds: { type: 'array', items: STR, maxItems: 50 },
+      removeLabelIds: { type: 'array', items: STR, maxItems: 50 }
+    }, ['messageId']),
     tool('compose_draft', 'Create a plain-text Gmail draft from structured recipients, subject and body. The host builds the RFC 2822 MIME message and base64url encoding. This does NOT send the email.', {
       to: { type: 'array', items: STR, minItems: 1, maxItems: 50 },
       cc: { type: 'array', items: STR, maxItems: 50 },
@@ -205,6 +215,27 @@ function driveTextMultipart(a) {
     contentType: 'multipart/related; boundary=' + boundary
   };
 }
+function normalizeLabelIds(values, label) {
+  if (values == null) return [];
+  if (!Array.isArray(values) || values.length > 50) throw new Error('Invalid ' + label + ' label list');
+  const out = [];
+  const seen = new Set();
+  for (const raw of values) {
+    if (typeof raw !== 'string') throw new Error('Invalid ' + label + ' label id');
+    const id = raw.trim();
+    if (!id || id.length > 2048 || /[\x00-\x1f]/.test(id)) throw new Error('Invalid ' + label + ' label id');
+    if (!seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
+}
+function gmailLabelPatch(addRaw, removeRaw) {
+  const addLabelIds = normalizeLabelIds(addRaw, 'add');
+  const removeLabelIds = normalizeLabelIds(removeRaw, 'remove');
+  if (!addLabelIds.length && !removeLabelIds.length) throw new Error('At least one Gmail label change is required');
+  const remove = new Set(removeLabelIds);
+  for (const id of addLabelIds) if (remove.has(id)) throw new Error('A Gmail label cannot be added and removed in the same operation: ' + id);
+  return { addLabelIds, removeLabelIds };
+}
 function requestFor(product, name, a) {
   const base = ENDPOINTS[product];
   const get = (path, query) => ({ url: base + path, query, method: 'GET' });
@@ -214,6 +245,12 @@ function requestFor(product, name, a) {
     if (name === 'read_message') return get('/messages/' + segment(a.messageId), { format: 'full' });
     if (name === 'read_thread') return get('/threads/' + segment(a.threadId), { format: 'full' });
     if (name === 'read_attachment') return get('/messages/' + segment(a.messageId) + '/attachments/' + segment(a.attachmentId));
+    if (name === 'list_labels') return get('/labels');
+    if (name === 'mark_read') return write('/messages/' + segment(a.messageId) + '/modify', { removeLabelIds: ['UNREAD'] });
+    if (name === 'mark_unread') return write('/messages/' + segment(a.messageId) + '/modify', { addLabelIds: ['UNREAD'] });
+    if (name === 'archive_message') return write('/messages/' + segment(a.messageId) + '/modify', { removeLabelIds: ['INBOX'] });
+    if (name === 'move_to_inbox') return write('/messages/' + segment(a.messageId) + '/modify', { addLabelIds: ['INBOX'] });
+    if (name === 'modify_labels') return write('/messages/' + segment(a.messageId) + '/modify', gmailLabelPatch(a.addLabelIds, a.removeLabelIds));
     if (name === 'compose_draft') {
       const raw = composeDraftRaw(a);
       return write('/drafts', { message: { raw, ...(a.threadId ? { threadId: a.threadId } : {}) } });
@@ -372,4 +409,4 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   }
   return { send, onMessage(cb) { receive = cb; }, close() { closed = true; for (const ctrl of controllers) ctrl.abort(); controllers.clear(); } };
 }
-module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec, driveTextMultipart };
+module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec, driveTextMultipart, normalizeLabelIds, gmailLabelPatch };
