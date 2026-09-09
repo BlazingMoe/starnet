@@ -3,7 +3,7 @@
    must intentionally change those bytes (branding, updater URLs, product copy), so treating
    that ledger as terminal authority would either block all legitimate fork work or tempt us
    to falsify the upstream manifest. We do neither: upstream drift must remain visibly BLOCKED,
-   while the derivative has its own explicit claims ledger and release blockers. */
+   while the derivative has its own explicit claims ledger and scope declaration. */
 'use strict';
 
 const fs = require('node:fs');
@@ -25,23 +25,26 @@ const A = require('./_assert.js');
   A.eq(mode.upstreamClaimsAuthority, 'non-authoritative', 'upstream marketing ledger is not derivative authority');
   A.eq(mode.rules && mode.rules.neverTreatUpstreamSurfaceDriftAsGreen, true, 'surface drift may never be silently green');
   A.eq(mode.rules && mode.rules.neverReuseUpstreamReleaseInfrastructure, true, 'upstream release infrastructure reuse is forbidden');
-  A.eq(mode.rules && mode.rules.requireDerivativeClaimsLedgerBeforePublicRelease, true, 'own claims authority is required before release');
+  A.eq(mode.rules && mode.rules.requireDerivativeClaimsLedgerBeforePublicRelease, true, 'own claims authority is required before any future public release');
 
   A.eq(claims.schema, 'moe-ai-station.product-claims.v1', 'derivative claims schema is explicit');
   A.eq(claims.product, 'Moe AI Station', 'claims ledger belongs to the derivative');
-  A.eq(claims.publicReleaseReady, false, 'development branch cannot claim public-release readiness yet');
+  A.eq(claims.usageTarget, 'private-starnet-fork', 'current derivative target is explicitly private use');
+  A.eq(claims.publicReleaseReady, false, 'private-use scope never implies public-release readiness');
   A.ok(Array.isArray(claims.claims) && claims.claims.length >= 8, 'initial derivative material-claim inventory exists');
   const ids = claims.claims.map(row => String(row && row.id || ''));
   A.eq(new Set(ids).size, ids.length, 'derivative claim IDs are unique');
   A.ok(ids.every(Boolean), 'derivative claim IDs are nonblank');
 
   const blockers = Array.isArray(claims.releaseBlockers) ? claims.releaseBlockers : [];
-  A.ok(blockers.length >= 3, 'public release is explicitly blocked on unfinished derivative work');
-  for (const id of blockers) {
+  A.eq(blockers.length, 0, 'public release blockers are not active work items while redistribution is outside scope');
+  for (const id of ['own-signed-update-channel', 'independent-branding', 'data-path-migration']) {
     const row = claims.claims.find(item => item.id === id);
-    A.ok(!!row, 'release blocker names a real claim: ' + id);
-    A.eq(row && row.status, 'blocked', 'release blocker remains blocked: ' + id);
+    A.ok(!!row, 'private-use exclusion names a real claim: ' + id);
+    A.eq(row && row.status, 'out-of-scope-private-use', 'distribution-only work stays explicitly outside private-use scope: ' + id);
   }
+  A.ok(/public redistribution is not a project goal/i.test(String(claims.distributionNote || '')),
+    'claims ledger keeps public redistribution explicitly outside the active project goal');
 
   // Preserve the upstream ledger as historical evidence, but prove that it FAILS CLOSED once
   // derivative marketed bytes differ. We never rewrite it to pretend Moe AI Station is StarNet.
@@ -56,7 +59,8 @@ const A = require('./_assert.js');
   A.ok(/^[0-9a-f]{40}$/.test(String(upstream.candidateCommit || '')), 'candidate commit remains auditable');
 
   // The two release channels that previously escaped the fork boundary are independently locked
-  // by fork-update-isolation.test.js. This claims bridge makes the policy visible to the product QA lane.
+  // by fork-update-isolation.test.js. Keeping this guard matters even for private use: the fork must
+  // never silently consume upstream release artifacts or masquerade as upstream release authority.
   const conf = fs.readFileSync(path.join(repoRoot, 'src-tauri', 'tauri.conf.json'), 'utf8');
   const updates = fs.readFileSync(path.join(repoRoot, 'frontend', 'app', 'updates.js'), 'utf8');
   A.ok(!/androoAGI\/starnet-releases|starnetos\.com/i.test(conf + '\n' + updates),
