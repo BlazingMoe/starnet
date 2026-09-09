@@ -261,6 +261,7 @@
     field(grid, 'WORKER SPEND', latest.workerUsd == null ? '' : fmtUsd(latest.workerUsd));
     field(grid, 'AUDIT SPEND', latest.auditUsd == null ? '' : fmtUsd(latest.auditUsd));
     field(grid, 'TASK BUDGET', latest.budgetUsd == null ? '' : fmtUsd(latest.budgetUsd));
+    field(grid, 'BUDGET EXCEEDED', latest.budgetExceeded === true ? 'YES' : '');
     field(grid, 'DURATION', latest.durationMs == null ? '' : fmtDuration(latest.durationMs));
     field(grid, 'COMPLETED', fmtWhen(latest.completedAt || latest.ts));
     field(grid, 'PARENT TASK', latest.parentTaskId);
