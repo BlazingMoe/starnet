@@ -8,6 +8,7 @@ const { desktopClient, loadDesktopClient } = require('../sidecar/mcp/google-clie
 const { ENDPOINTS, TOOLS, makeGoogleTransport, productForUrl } = require('../sidecar/mcp/transport.google.js');
 const { makeMcpClient } = require('../sidecar/mcp/client.js');
 const { resolveConnectorOauthTarget } = require('../sidecar/mcp/oauth-target.js');
+const { makeMcpToolDef } = require('../sidecar/mcp/translate.js');
 const catalog = require('../sidecar/mcp/catalog.js');
 
 (async () => {
@@ -107,6 +108,45 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(calls.length, before, 'invalid tools never reach the network');
     client.close();
   }
+  {
+    const calendarWrites = new Set(['create_event', 'patch_event', 'delete_event', 'respond_event']);
+    for (const raw of TOOLS['google-calendar']) {
+      const projected = makeMcpToolDef({
+        connectorId: 'google-calendar',
+        label: 'Google Calendar',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains consent-gated at the host boundary');
+      assert.equal(projected.network, true, raw.name + ' remains an external network action');
+      assert.equal(projected.scope, calendarWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows side-effect classification');
+      if (calendarWrites.has(raw.name)) assert.equal(projected.readOnly, false, raw.name + ' can never be auto-classified as a read');
+    }
+  }
+
+  {
+    const calls = [];
+    const client = makeMcpClient({
+      timeoutMs: 1000,
+      transport: makeGoogleTransport({
+        url: ENDPOINTS['google-calendar'],
+        token: 'TEST_TOKEN',
+        fetchImpl: async (target, opts) => {
+          calls.push({ target, opts });
+          return new Response(JSON.stringify({ id: 'event-no-self', attendees: [{ email: 'other@example.invalid', self: false }] }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      })
+    });
+    await client.initialize();
+    await assert.rejects(
+      client.callTool('respond_event', { eventId: 'event-no-self', responseStatus: 'accepted' }),
+      /signed-in account is not present as a self attendee/
+    );
+    assert.equal(calls.length, 2, 'RSVP without a self attendee stops after the read and never patches someone else');
+    assert.equal(calls.at(-1).opts.method, 'GET', 'failed self lookup performs no mutation');
+    client.close();
+  }
+
   for (const status of [401, 403, 429, 500]) {
     const client = makeMcpClient({ transport: makeGoogleTransport({ url: ENDPOINTS.gmail, token: 'TEST_TOKEN', fetchImpl: async () => new Response('sensitive echoed token', { status }) }), timeoutMs: 1000 });
     await assert.rejects(client.initialize(), e => e.message.includes('HTTP ' + status) && !e.message.includes('sensitive'));
