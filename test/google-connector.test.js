@@ -29,6 +29,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
   const examples = {
     search_messages: { query: 'from:test@example.invalid', pageToken: 'next&evil=1' }, read_message: { messageId: 'message-1' },
     read_thread: { threadId: 'thread-1' }, read_attachment: { messageId: 'message-1', attachmentId: 'attachment-1' },
+    compose_draft: { to: ['test@example.invalid'], cc: ['copy@example.invalid'], subject: 'Geschäft €', bodyText: 'Hello\nWorld', threadId: 'thread-1', inReplyTo: '<msg-1@example.invalid>', references: '<root@example.invalid> <msg-1@example.invalid>' },
     create_draft: { raw: Buffer.from('To: test@example.invalid\r\nSubject: Test\r\n\r\nHello').toString('base64url') }, send_draft: { draftId: 'draft-1' },
     list_files: { query: "name contains 'test'" }, get_file: { fileId: 'file-1' }, export_file: { fileId: 'file-1', mimeType: 'text/plain' },
     create_file: { metadata: { name: 'Test' } }, update_file: { fileId: 'file-1', metadata: { name: 'Updated' } },
@@ -68,6 +69,20 @@ const catalog = require('../sidecar/mcp/catalog.js');
       assert.ok(calls.at(-1).target.startsWith(url));
       if (def.name === 'write_values') assert.equal(new URL(calls.at(-1).target).searchParams.get('valueInputOption'), 'RAW');
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
+      if (def.name === 'compose_draft') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'POST');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/users\/me\/drafts$/);
+        const message = JSON.parse(toolCalls[0].opts.body).message;
+        assert.equal(message.threadId, 'thread-1');
+        const mime = Buffer.from(message.raw, 'base64url').toString('utf8');
+        assert.match(mime, /To: test@example\.invalid\r\n/);
+        assert.match(mime, /Cc: copy@example\.invalid\r\n/);
+        assert.match(mime, /Subject: =\?UTF-8\?B\?.+\?=\r\n/);
+        assert.match(mime, /In-Reply-To: <msg-1@example\.invalid>\r\n/);
+        assert.match(mime, /References: <root@example\.invalid> <msg-1@example\.invalid>\r\n/);
+        assert.ok(mime.endsWith('\r\n\r\nHello\r\nWorld'));
+      }
       if (def.name === 'create_event') {
         assert.equal(toolCalls.length, 1);
         assert.equal(toolCalls[0].opts.method, 'POST');
@@ -108,6 +123,49 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(calls.length, before, 'invalid tools never reach the network');
     client.close();
   }
+  {
+    const gmailWrites = new Set(['compose_draft', 'create_draft', 'send_draft']);
+    for (const raw of TOOLS.gmail) {
+      const projected = makeMcpToolDef({
+        connectorId: 'gmail',
+        label: 'Gmail',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains consent-gated at the host boundary');
+      assert.equal(projected.scope, gmailWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows Gmail side-effect classification');
+      if (gmailWrites.has(raw.name)) assert.equal(projected.readOnly, false, raw.name + ' can never be auto-classified as a read');
+    }
+  }
+
+  {
+    const calls = [];
+    const client = makeMcpClient({
+      timeoutMs: 1000,
+      transport: makeGoogleTransport({
+        url: ENDPOINTS.gmail,
+        token: 'TEST_TOKEN',
+        fetchImpl: async (target, opts) => {
+          calls.push({ target, opts });
+          return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      })
+    });
+    await client.initialize();
+    const before = calls.length;
+    await assert.rejects(
+      client.callTool('compose_draft', { to: ['victim@example.invalid\r\nBcc: injected@example.invalid'], subject: 'x', bodyText: 'hello' }),
+      /Invalid To header value/
+    );
+    assert.equal(calls.length, before, 'header injection is rejected locally before Gmail is called');
+    await assert.rejects(
+      client.callTool('compose_draft', { to: [], subject: 'x', bodyText: 'hello' }),
+      /Invalid argument: to/
+    );
+    assert.equal(calls.length, before, 'empty recipient list is rejected before Gmail is called');
+    client.close();
+  }
+
   {
     const calendarWrites = new Set(['create_event', 'patch_event', 'delete_event', 'respond_event']);
     for (const raw of TOOLS['google-calendar']) {
