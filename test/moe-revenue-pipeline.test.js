@@ -33,7 +33,7 @@ A.ok(/evidence URL and as-of date/i.test(filled), 'pipeline preserves source pro
 A.ok(/engagement-value band with its assumptions/i.test(filled), 'opportunity value is assumption-backed instead of fabricated precision');
 A.ok(/stage \(researched \/ qualified \/ drafted \/ contacted \/ replied \/ meeting \/ won \/ lost \/ parked\)/i.test(filled),
   'pipeline preserves an explicit revenue funnel lifecycle');
-A.ok(/NEVER send, publish, purchase, or commit money/i.test(filled), 'pipeline cannot silently cross external-send or financial commitment boundaries');
+A.ok(/NEVER send, publish, purchase, or make a financial commitment/i.test(filled), 'pipeline cannot silently cross external-send or financial commitment boundaries');
 A.ok(/STAGE drafts for review/i.test(filled), 'connected Gmail may be used for reversible draft staging');
 A.ok(/replies\/wins\/losses/i.test(filled), 'later runs learn from observed funnel outcomes');
 A.ok(/three actions most likely to create revenue next/i.test(filled), 'output ends in prioritized revenue actions');
