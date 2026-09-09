@@ -143,8 +143,19 @@
       .observe(panel, { attributes:true, attributeFilter:['hidden'] });
     if (isOpen()) start();
   }
+  function loadActionPane() {
+    if (window.ControlModeActions) return;
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    if (document.getElementById('mo-control-mode-actions')) return;
+    const script = document.createElement('script');
+    script.id = 'mo-control-mode-actions';
+    script.src = 'app/controlactions.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 
   installStyle();
   watchPanel();
+  loadActionPane();
   window.ControlModeApprovals = Object.freeze({ refresh, endpoint: ENDPOINT, host: () => ensureHost() });
 })();
