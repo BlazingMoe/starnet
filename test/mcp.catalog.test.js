@@ -210,6 +210,9 @@ const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
     A.eq(C.installConfig(id), null, id + ' is not one-click-upsert installable (sign-in flow owns it)');
     A.ok(e.aliases.indexOf('google') >= 0 && e.aliases.indexOf('google workspace') >= 0, id + ' is findable by the google names');
   }
+  const calendarScopes = C.get('google-calendar').staticOauth.scopes;
+  A.ok(calendarScopes.indexOf('https://www.googleapis.com/auth/calendar.events') >= 0, 'Google Calendar requests event write access for create/edit/delete/RSVP');
+  A.ok(calendarScopes.indexOf('https://www.googleapis.com/auth/calendar.events.readonly') < 0, 'event write scope replaces the now-insufficient read-only event scope');
   // deep-clone guarantee for the new nested field: mutating a returned staticOauth must not leak into the seed.
   const g1 = C.get('gmail'); g1.staticOauth.scopes.push('MUTATED'); g1.staticOauth.extraAuthParams.prompt = 'MUTATED';
   const g2 = C.get('gmail');
