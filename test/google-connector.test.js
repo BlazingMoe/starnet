@@ -131,7 +131,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.match(toolCalls[0].opts.body, /"name":"pipeline\.csv"/);
         assert.match(toolCalls[0].opts.body, /"parents":\["folder-1"\]/);
         assert.match(toolCalls[0].opts.body, /Content-Type: text\/csv/);
-        assert.match(toolCalls[0].opts.body, /company,stage\r\nAcme,qualified/);
+        assert.match(toolCalls[0].opts.body, /company,stage\nAcme,qualified/, 'multipart upload preserves caller text line endings');
       }
       if (def.name === 'write_text_file') {
         assert.equal(toolCalls.length, 1);
