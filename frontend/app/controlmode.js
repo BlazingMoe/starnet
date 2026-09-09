@@ -11,7 +11,8 @@
     summary: '/api/managed-tasks/summary',
     active: '/api/managed-tasks/active?limit=100',
     recent: '/api/managed-tasks?limit=20',
-    runtime: '/api/state/snapshot'
+    runtime: '/api/state/snapshot',
+    runs: '/api/runs?agent=*&limit=20'
   };
   const POLL_MS = 3000;
   let timer = 0;
@@ -114,9 +115,9 @@
     const left = make('div');
     left.append(make('div', 'cm-kicker', 'MOE AI STATION · READ-ONLY TELEMETRY'));
     const title = make('div', 'cm-title', 'CONTROL MODE'); title.id = 'cm-title'; left.appendChild(title);
-    const knownCount = [model.evidence.historicalKnown, model.evidence.liveKnown, model.evidence.recentKnown, model.evidence.runtimeKnown].filter(Boolean).length;
+    const knownCount = [model.evidence.historicalKnown, model.evidence.liveKnown, model.evidence.recentKnown, model.evidence.runtimeKnown, model.evidence.runHistoryKnown].filter(Boolean).length;
     const status = make('div', 'cm-status');
-    status.append(make('span', 'cm-dot'), make('span', '', knownCount === 4 ? 'LIVE' : knownCount ? 'PARTIAL TELEMETRY' : 'SIDECAR OFFLINE'));
+    status.append(make('span', 'cm-dot'), make('span', '', knownCount === 5 ? 'LIVE' : knownCount ? 'PARTIAL TELEMETRY' : 'SIDECAR OFFLINE'));
     left.appendChild(status);
     const actions = make('div', 'cm-actions');
     const refresh = make('button', 'cm-refresh', refreshing ? 'REFRESHING…' : 'REFRESH'); refresh.type = 'button'; refresh.disabled = refreshing; refresh.addEventListener('click', refreshNow);
@@ -165,6 +166,26 @@
       queueList.appendChild(row);
     });
     runtime.append(liveRuns, queued); shell.appendChild(runtime);
+
+    const trace = make('section', 'cm-section'); trace.appendChild(make('h3', '', 'RECENT TOOL / ACTION TRACE'));
+    const traceList = make('div', 'cm-list'); trace.appendChild(traceList);
+    if (!model.evidence.runHistoryKnown) traceList.appendChild(make('div', 'cm-empty', 'Run history unavailable — no action trace is inferred.'));
+    else if (!model.actionTrace.length) traceList.appendChild(make('div', 'cm-empty', 'No recorded tool calls are present in the recent run window.'));
+    else model.actionTrace.forEach(a => {
+      const row = make('div', 'cm-row');
+      const main = make('div', 'cm-row-main');
+      main.append(make('div', 'cm-objective', a.name), make('div', 'cm-meta', [a.agentId, a.runId, a.callId].filter(Boolean).join(' · ')));
+      row.append(main, make('div', 'cm-state', a.state), make('div', 'cm-hide-small', fmtDuration(a.ms)), make('div', 'cm-hide-small', ''));
+      traceList.appendChild(row);
+    });
+    if (model.uncertainActions.length) {
+      const warning = make('div', 'cm-error');
+      warning.appendChild(make('div', '', 'UNCERTAIN MUTATIONS · REVIEW REQUIRED'));
+      model.uncertainActions.forEach(a => warning.appendChild(make('div', 'cm-meta', [a.name || 'unknown tool', a.agentId, a.runId, a.callId].filter(Boolean).join(' · '))));
+      trace.appendChild(warning);
+    }
+    trace.appendChild(make('div', 'cm-note', 'Trace metadata comes from the durable run ledger. Raw tool arguments and raw tool results are not displayed here.'));
+    shell.appendChild(trace);
 
     const two = make('div', 'cm-two');
     const workers = make('section', 'cm-section'); workers.appendChild(make('h3', '', 'WORKER QUALITY'));
@@ -270,11 +291,11 @@
     if (refreshing || panel.hidden) return;
     refreshing = true;
     const token = ++generation;
-    const results = await Promise.allSettled([get(API.summary), get(API.active), get(API.recent), get(API.runtime)]);
+    const results = await Promise.allSettled([get(API.summary), get(API.active), get(API.recent), get(API.runtime), get(API.runs)]);
     if (token !== generation || panel.hidden) { refreshing = false; return; }
     const values = results.map(r => r.status === 'fulfilled' ? r.value : null);
     const errors = results.filter(r => r.status === 'rejected');
-    const model = window.ControlModeView.project(values[0], values[1], values[2], values[3]);
+    const model = window.ControlModeView.project(values[0], values[1], values[2], values[3], values[4]);
     refreshing = false;
     render(model, errors);
   }

@@ -42,12 +42,25 @@ const runtime = {
     { agentId: 'researcher', depth: 1 }
   ]
 };
+const runs = {
+  runs: [
+    {
+      runId: 'done-run-1', agentId: 'researcher',
+      toolTrace: [
+        { callId: 'call-1', name: 'web.search', ok: true, isError: false, ms: 120, startedAt: 1000, endedAt: 1120, summary: 'must not be required by projection' },
+        { callId: 'call-2', name: 'fs.write', ok: false, isError: true, ms: 25 }
+      ],
+      uncertainMutations: [{ callId: 'call-3', name: 'browser.click', mutating: true, state: 'dispatched' }]
+    }
+  ]
+};
 
-const p = V.project(summary, active, recent, runtime);
+const p = V.project(summary, active, recent, runtime, runs);
 A.eq(p.evidence.historicalKnown, true, 'historical evidence is marked known only from a successful API response');
 A.eq(p.evidence.liveKnown, true, 'live evidence is marked known from successful active response');
 A.eq(p.evidence.historyWindowTruncated, true, 'bounded-history caveat survives projection');
 A.eq(p.evidence.runtimeKnown, true, 'runtime evidence is known only from a structurally valid server snapshot');
+A.eq(p.evidence.runHistoryKnown, true, 'action trace evidence is known only from a real run-history response');
 A.eq(p.cards.active, 1, 'dedicated active endpoint wins over stale embedded live summary');
 A.eq(p.cards.liveRuns, 2, 'live run card counts only authoritative snapshot runs');
 A.eq(p.cards.queuedWork, 4, 'queued work card sums authoritative per-agent queue depth');
@@ -63,15 +76,22 @@ A.eq(p.activeTasks[0].accepted, null, 'live task never invents final acceptance'
 A.eq(p.runtimeRuns[0].durationMs, 2000, 'runtime duration is derived from the server snapshot timestamp, not ambient browser time');
 A.eq(p.runtimeRuns[1].source, 'subagent', 'runtime source provenance survives projection');
 A.eq(p.queues[0], { agentId: 'writer', depth: 3 }, 'queue depth is preserved per authoritative agent');
+A.eq(p.actionTrace[0], { runId: 'done-run-1', agentId: 'researcher', callId: 'call-1', name: 'web.search', state: 'ok', ms: 120, startedAt: 1000, endedAt: 1120 }, 'tool trace projects only bounded action metadata');
+A.eq(p.actionTrace[1].state, 'error', 'tool errors remain explicit in action trace');
+A.eq(Object.prototype.hasOwnProperty.call(p.actionTrace[0], 'summary'), false, 'Control Mode projection intentionally drops tool summary text');
+A.eq(p.uncertainActions[0], { runId: 'done-run-1', agentId: 'researcher', callId: 'call-3', name: 'browser.click', state: 'uncertain' }, 'uncertain dispatched mutations remain visible and distinct');
 A.eq(p.recentTasks[0].accepted, true, 'completed task keeps recorded acceptance');
 A.eq(p.workers[0].acceptancePct, 67, 'worker success projection is deterministic');
 A.eq(p.topRiskFlags[0], { value: 'citation', count: 2 }, 'risk evidence is preserved');
 
-const unknown = V.project(null, null, null, null);
+const unknown = V.project(null, null, null, null, null);
 A.eq(unknown.cards.active, null, 'unknown live telemetry is null, never fake zero');
 A.eq(unknown.cards.liveRuns, null, 'unknown runtime snapshot never becomes fake zero live runs');
 A.eq(unknown.cards.queuedWork, null, 'unknown queue snapshot never becomes fake zero queued work');
 A.eq(unknown.evidence.runtimeKnown, false, 'missing runtime snapshot remains explicitly unknown');
+A.eq(unknown.evidence.runHistoryKnown, false, 'missing run history remains explicitly unknown');
+A.eq(unknown.actionTrace, [], 'missing run history produces no invented action trace');
+A.eq(unknown.uncertainActions, [], 'missing run history produces no invented mutation state');
 A.eq(unknown.cards.completed, null, 'unknown historical telemetry is null, never fake zero');
 A.eq(unknown.cards.acceptancePct, null, 'unknown rate is not rendered as 0%');
 A.eq(unknown.activeTasks, [], 'unknown active rows are an empty presentation list');

@@ -10,6 +10,7 @@ A.ok(src.includes("'/api/managed-tasks/summary'"), 'Control Mode reads managed s
 A.ok(src.includes("'/api/managed-tasks/active?limit=100'"), 'Control Mode reads in-flight telemetry');
 A.ok(src.includes("'/api/managed-tasks?limit=20'"), 'Control Mode reads recent managed history');
 A.ok(src.includes("'/api/state/snapshot'"), 'Control Mode reuses the authoritative runtime snapshot for live runs and queues');
+A.ok(src.includes("'/api/runs?agent=*&limit=20'"), 'Control Mode reuses the durable run history for action trace metadata');
 A.ok(src.includes("get('/api/managed-tasks/' + encodeURIComponent(taskId))"), 'task drilldown uses the exact read-only managed-task history route');
 A.ok(src.includes('ControlModeView.project'), 'Control Mode renders through the tested pure projection layer');
 A.ok(src.includes('Promise.allSettled'), 'partial endpoint failure cannot erase the whole dashboard');
@@ -18,6 +19,10 @@ A.ok(src.includes('LIVE RUNTIME RUNS'), 'Control Mode renders general live runti
 A.ok(src.includes('QUEUE DEPTH'), 'Control Mode renders authoritative per-agent queue depth');
 A.ok(src.includes('Runtime snapshot unavailable — no live runs are inferred.'), 'runtime outage never becomes a fabricated empty system');
 A.ok(src.includes('Queue snapshot unavailable — no queue depth is inferred.'), 'queue outage never becomes fabricated zero depth');
+A.ok(src.includes('RECENT TOOL / ACTION TRACE'), 'Control Mode exposes the durable recent action trace');
+A.ok(src.includes('UNCERTAIN MUTATIONS · REVIEW REQUIRED'), 'uncertain dispatched mutations remain visibly review-required');
+A.ok(src.includes('Raw tool arguments and raw tool results are not displayed here.'), 'action trace UI explicitly excludes raw tool payloads');
+A.ok(src.includes('Run history unavailable — no action trace is inferred.'), 'run-history outage never becomes fabricated no-op activity');
 A.ok(src.includes("button.id = 'bb-control-mode'"), 'Control Mode owns a deterministic SYSTEM-dock entry');
 A.ok(src.includes("button.setAttribute('role', 'menuitem')"), 'SYSTEM-dock entry remains keyboard semantics compatible');
 A.ok(src.includes("row.setAttribute('role', 'button')"), 'completed task drilldowns are keyboard-reachable');
@@ -28,6 +33,7 @@ A.ok(src.includes('clearInterval(timer)'), 'polling is stopped when Control Mode
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(src), 'Control Mode performs no mutating API calls');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(src), 'Control Mode contains no raw mutating HTTP fallback');
 A.ok(!/\b(cancel|approve|reject|dispatch|spawn|steer)\b[^\n]{0,40}addEventListener\s*\(/i.test(src), 'v1 exposes no task mutation controls');
+A.ok(!/a\.summary\b/.test(src), 'Control Mode action trace does not render persisted tool summary text');
 A.ok(nav.includes("loadOnce('app/controlmodeview.js', 'mo-control-mode-view', loadUi)"), 'nav dock loads the tested projection layer before the UI');
 A.ok(nav.includes("loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents)"), 'nav dock bootstraps the read-only Control Mode UI before chaining the organization pane');
 A.ok(nav.includes("if (window.ControlModeUI) { loadAgents(); return; }"), 'Control Mode bootstrap is idempotent while still attaching the organization pane');

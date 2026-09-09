@@ -53,7 +53,34 @@
     };
   }
 
-  function project(summaryResponse, activeResponse, recentResponse, runtimeResponse) {
+  function actionRow(run, tool) {
+    run = run && typeof run === 'object' ? run : {};
+    tool = tool && typeof tool === 'object' ? tool : {};
+    return {
+      runId: text(run.runId),
+      agentId: text(run.agentId),
+      callId: text(tool.callId),
+      name: text(tool.name),
+      state: tool.isError ? 'error' : (tool.ok === true ? 'ok' : 'unknown'),
+      ms: Math.max(0, finite(tool.ms)),
+      startedAt: Math.max(0, finite(tool.startedAt)),
+      endedAt: Math.max(0, finite(tool.endedAt))
+    };
+  }
+
+  function uncertainActionRow(run, item) {
+    run = run && typeof run === 'object' ? run : {};
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      runId: text(run.runId),
+      agentId: text(run.agentId),
+      callId: text(item.callId),
+      name: text(item.name),
+      state: 'uncertain'
+    };
+  }
+
+  function project(summaryResponse, activeResponse, recentResponse, runtimeResponse, runsResponse) {
     const sr = summaryResponse && summaryResponse.ok === true ? summaryResponse : null;
     const ar = activeResponse && activeResponse.ok === true ? activeResponse : null;
     const rr = recentResponse && recentResponse.ok === true ? recentResponse : null;
@@ -68,12 +95,32 @@
       && Array.isArray(runtimeResponse.runs) && Array.isArray(runtimeResponse.queues));
     const runtimeRuns = runtimeKnown ? rows(runtimeResponse.runs).map(r => runtimeRun(r, runtimeResponse.ts)).filter(r => r.runId) : [];
     const queues = runtimeKnown ? rows(runtimeResponse.queues).map(queueRow).filter(r => r.agentId && r.depth > 0) : [];
+    const runHistoryKnown = !!(runsResponse && typeof runsResponse === 'object' && Array.isArray(runsResponse.runs));
+    const recentRuns = runHistoryKnown ? rows(runsResponse.runs).slice(0, 20) : [];
+    const actionTrace = [];
+    const uncertainActions = [];
+    if (runHistoryKnown) {
+      for (const run of recentRuns) {
+        for (const tool of rows(run && run.toolTrace)) {
+          if (actionTrace.length >= 100) break;
+          const row = actionRow(run, tool);
+          if (row.runId && row.callId && row.name) actionTrace.push(row);
+        }
+        for (const item of rows(run && run.uncertainMutations)) {
+          if (uncertainActions.length >= 100) break;
+          const row = uncertainActionRow(run, item);
+          if (row.runId && row.callId) uncertainActions.push(row);
+        }
+        if (actionTrace.length >= 100 && uncertainActions.length >= 100) break;
+      }
+    }
     return {
       evidence: {
         historicalKnown,
         liveKnown,
         recentKnown: !!rr,
         runtimeKnown,
+        runHistoryKnown,
         historyWindowTruncated: !!(summary.window && summary.window.truncated)
       },
       cards: {
@@ -92,6 +139,8 @@
       activeTasks: ar ? rows(ar.tasks).map(r => taskRow(r, true)) : [],
       runtimeRuns,
       queues,
+      actionTrace,
+      uncertainActions,
       recentTasks: rr ? rows(rr.tasks).map(r => taskRow(r, false)) : [],
       workers: historicalKnown ? rows(summary.workers).map(w => ({
         workerAgentId: text(w && w.workerAgentId),
@@ -105,5 +154,5 @@
     };
   }
 
-  return { project, taskRow, runtimeRun, queueRow, pct };
+  return { project, taskRow, runtimeRun, queueRow, actionRow, uncertainActionRow, pct };
 });
