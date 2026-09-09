@@ -298,6 +298,7 @@ const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js'); 
 const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
+const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -9029,6 +9030,13 @@ const agentControlHttp = makeAgentControlHttp({
   statusByAgent: agentRuntimeStatus,
   respondJson
 });
+const costControlHttp = makeCostControlHttp({
+  ledgerRows: () => ledger.all(),
+  roster: () => agentRoster,
+  budgetStatus: () => budget.status(Date.now()),
+  caps: () => Object.assign({}, effectiveCaps),
+  respondJson
+});
 const memoryControlHttp = makeMemoryControlHttp({
   roster: () => agentRoster,
   recordsForAgent: (agentId) => {
@@ -9375,6 +9383,7 @@ const ROUTES = [
   { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
   { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
   { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
+  { m: 'GET', exact: '/api/control/costs', h: costControlHttp.serve },   // Control Mode: authoritative spend ledger + budget governor
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions

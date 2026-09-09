@@ -61,6 +61,9 @@ jobs:
           node test/control-memory-http.test.js
           node test/control-memory-host-wiring.test.js
           node test/control-memory-ui-contract.test.js
+          node test/control-cost-view.test.js
+          node test/control-cost-http.test.js
+          node test/control-cost-host-wiring.test.js
           node test/control-agent-ui-contract.test.js
           node test/org-specialties.test.js
 
