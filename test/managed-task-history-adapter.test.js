@@ -28,27 +28,53 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   const store = {
     record(x) { records.push(x); },
     activeBegin(x) { liveEvents.push({ type: 'begin', row: x }); return 'live-token'; },
+    activeUpdate(token, patch) { liveEvents.push({ type: 'update', token, patch }); return true; },
     activeEnd(token) { liveEvents.push({ type: 'end', token }); return true; }
   };
   const base = {
     name: 'team.delegate_managed',
-    run: async () => ({ content: JSON.stringify({ accepted: true, stage: 'accepted', taskId: 't2', workerAgentId: 'worker', attempts: 1, usd: 0.2, result: { artifacts: [], sources: ['s1'] } }) })
+    run: async (_args, ctx) => {
+      A.ok(typeof ctx.reportManagedTaskStage === 'function', 'history adapter injects a private live-stage reporter into managed execution');
+      ctx.reportManagedTaskStage('formal-review');
+      ctx.reportManagedTaskStage('audit', { auditorAgentId: 'auditor' });
+      ctx.reportManagedTaskStage('accepted');
+      return { content: JSON.stringify({ accepted: true, stage: 'accepted', taskId: 't2', workerAgentId: 'worker', auditorAgentId: 'auditor', attempts: 1, usd: 0.2, result: { artifacts: [], sources: ['s1'] } }) };
+    }
   };
   const wrapped = attachTaskHistory(base, store, clock);
   const out = await wrapped.run({ taskId: 't2', agentId: 'worker', objective: 'x' }, { agentId: 'lead', runId: 'run' });
   A.ok(out && out.content, 'wrapped tool preserves original result');
   A.eq(records.length, 1, 'one managed call creates one history row');
   A.eq(records[0].status, 'accepted', 'successful managed call is persisted as accepted');
-  A.eq(liveEvents[0].type, 'begin', 'successful managed call enters live state before execution');
-  A.eq(liveEvents[1], { type: 'end', token: 'live-token' }, 'successful managed call leaves live state in finally');
+  A.eq(records[0].stage, 'accepted', 'terminal accepted stage is durable history');
+  A.eq(liveEvents.map(x => x.type), ['begin', 'update', 'update', 'update', 'end'], 'live lifecycle wraps execution and forwards every stage transition');
+  A.eq(liveEvents.filter(x => x.type === 'update').map(x => x.patch.stage), ['formal-review', 'audit', 'accepted'], 'live tracker receives normalized managed lifecycle stages');
+  A.eq(liveEvents.find(x => x.type === 'update' && x.patch.stage === 'audit').patch.auditorAgentId, 'auditor', 'audit stage forwards authoritative auditor identity');
+  A.eq(liveEvents.at(-1), { type: 'end', token: 'live-token' }, 'successful managed call leaves live state in finally');
 
+  const beforeThrow = liveEvents.length;
   const throwing = attachTaskHistory({ run: async () => { throw new Error('boom'); } }, store, clock);
   let threw = false;
   try { await throwing.run({ taskId: 't3', agentId: 'worker', objective: 'x' }, { agentId: 'lead' }); } catch (_) { threw = true; }
   A.eq(threw, true, 'wrapper preserves thrown errors');
   A.eq(records[1].status, 'dispatch_error', 'thrown execution is still recorded as dispatch error');
-  A.eq(liveEvents[2].type, 'begin', 'throwing managed call still enters live state');
-  A.eq(liveEvents[3].type, 'end', 'throwing managed call is removed from live state in finally');
+  A.eq(liveEvents.slice(beforeThrow).map(x => x.type), ['begin', 'end'], 'throwing managed call still enters and leaves live state in finally');
+
+  const failOpenRecords = [];
+  const failOpen = attachTaskHistory({
+    run: async (_args, ctx) => {
+      ctx.reportManagedTaskStage('audit', { auditorAgentId: 'auditor' });
+      return { content: JSON.stringify({ accepted: false, stage: 'audit', taskId: 't4', workerAgentId: 'worker', auditorAgentId: 'auditor', attempts: 1, usd: 0 }) };
+    }
+  }, {
+    record(x) { failOpenRecords.push(x); },
+    activeBegin() { return 'bad-live-token'; },
+    activeUpdate() { throw new Error('telemetry unavailable'); },
+    activeEnd() { return true; }
+  }, clock);
+  const failOpenOut = await failOpen.run({ taskId: 't4', agentId: 'worker', objective: 'x' }, { agentId: 'lead' });
+  A.ok(failOpenOut && failOpenOut.content, 'live telemetry update failure never aborts managed execution');
+  A.eq(failOpenRecords.length, 1, 'durable completion history survives live-stage update failure');
 
   A.report('managed-task-history-adapter.test');
 })().catch(e => { console.error(e); process.exit(1); });
