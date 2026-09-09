@@ -176,6 +176,19 @@
       source: 'builtin', forkedFrom: null
     },
     {
+      id: 'revenue-pipeline', name: 'Revenue Pipeline', emoji: '◆', tagline: 'Evidence into qualified opportunities',
+      accent: '#7bc88a',
+      blurb: 'Builds a durable lead-to-opportunity pipeline that gets smarter each pass — evidence, scoring, drafts, and next actions without blind outreach.',
+      tags: { research: 0.7, general: 0.3 },
+      params: [
+        { key: 'offer', label: 'What you sell', placeholder: 'the service / product and the outcome it creates' },
+        { key: 'market', label: 'Who can buy it', placeholder: 'e.g. security installers in Germany, local restaurants, SaaS teams', required: false, default: 'the market where public evidence shows the strongest fit' }
+      ],
+      task: 'Build and maintain my revenue pipeline for {offer} in {market}. FIRST read the pipeline you saved from previous runs so this compounds instead of giving me the same names again. Define the buyer profile and the observable signal that proves they may need the outcome I sell. Then research the live public web for businesses with a CURRENT, sourceable reason to care — hiring, expansion, a weak current implementation, a launch, complaints, a tooling change, a deadline, or another dated signal. A category match alone is not a lead. For every candidate preserve the evidence URL and as-of date, then score fit, evidence strength, urgency, plausible ability to pay, and public business reachability; explain every score and never invent budget, revenue, headcount, contact details, or intent. De-duplicate against the existing pipeline and update an existing record when a signal changes rather than creating a second copy. Rank the strongest opportunities, estimate a conservative engagement-value band with its assumptions, and write a short personalized first-message draft for only the best few, anchored to the exact observation you verified. Prefer five defensible opportunities over fifty weak names. Save the updated pipeline as a durable file with stage (researched / qualified / drafted / contacted / replied / meeting / won / lost / parked), last touch, next action, and next-action date. If Gmail is connected and draft creation is permitted, you may STAGE drafts for review, but NEVER send, publish, purchase, or commit money as part of this pipeline run. On later runs lead with the delta: new qualified leads, stage changes, replies/wins/losses, overdue next actions, stale opportunities, and which source/signal patterns are actually converting. End with the three actions most likely to create revenue next.',
+      category: 'business', gear: ['dish', 'notebook', 'cabinet', 'connector'], skills: ['revenue-pipeline', 'lead-scouting', 'web-research'], cadence: 'weekly',
+      source: 'builtin', forkedFrom: null
+    },
+    {
       id: 'client-onboard-kit', name: 'Client Onboarding Kit', emoji: '⊞', tagline: 'Start the project properly',
       accent: '#6fbcc0',
       blurb: 'Everything a new client needs in week one — so the project starts clean instead of drifting.',
