@@ -24,6 +24,7 @@
     const contract = c.value;
     const envelope = e.value;
     const failures = [];
+    const terminalFailures = [];
     const warnings = [];
 
     if (envelope.taskId !== contract.id) failures.push('taskId mismatch');
@@ -55,9 +56,13 @@
     }
     if (contract.budgetUsd != null && opts.spentUsd != null) {
       const spentUsd = Number(opts.spentUsd);
-      if (Number.isFinite(spentUsd) && spentUsd > contract.budgetUsd) failures.push('task budget exceeded');
+      if (Number.isFinite(spentUsd) && spentUsd > contract.budgetUsd) {
+        failures.push('task budget exceeded');
+        terminalFailures.push('task budget exceeded');
+      }
     }
 
+    const retryable = failures.length > 0 && terminalFailures.length === 0;
     return {
       ok: true,
       accepted: failures.length === 0,
@@ -65,9 +70,11 @@
       taskId: contract.id,
       agentId: envelope.agentId,
       failures: failures,
+      terminalFailures: terminalFailures,
+      retryable: retryable,
       warnings: warnings,
       acceptance: { required: contract.acceptanceCriteria.length, reported: envelope.acceptance.length },
-      verdict: failures.length ? 'revise' : 'accept'
+      verdict: failures.length ? (retryable ? 'revise' : 'reject') : 'accept'
     };
   }
 
