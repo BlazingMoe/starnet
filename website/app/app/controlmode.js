@@ -19,6 +19,8 @@
   let refreshing = false;
   let generation = 0;
   let detailGeneration = 0;
+  let panelReturnFocus = null;
+  let detailReturnFocus = null;
 
   function make(tag, cls, text) {
     const node = document.createElement(tag);
@@ -41,6 +43,10 @@
     try { return new Date(ts).toLocaleString(); } catch (_) { return ''; }
   }
   function rows(v) { return Array.isArray(v) ? v : []; }
+  function focusIfPossible(node) {
+    if (!node || !node.isConnected || typeof node.focus !== 'function') return;
+    try { node.focus(); } catch (_) {}
+  }
 
   function installStyle() {
     if (document.getElementById('control-mode-style')) return;
@@ -48,22 +54,26 @@
     style.id = 'control-mode-style';
     style.textContent = `
 #control-mode-panel{position:fixed;inset:0;z-index:12000;background:rgba(4,7,10,.96);color:var(--fg,#d9f4df);padding:24px;overflow:auto;font-family:inherit}
-#control-mode-panel[hidden],.cm-detail[hidden]{display:none!important}.cm-shell{width:min(1180px,100%);margin:0 auto}.cm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid currentColor;padding-bottom:12px;margin-bottom:16px}.cm-kicker{opacity:.65;font-size:.9em}.cm-title{font-size:1.55rem;letter-spacing:.08em}.cm-status{display:inline-flex;align-items:center;gap:7px;margin-top:5px;opacity:.8}.cm-dot{width:8px;height:8px;border-radius:50%;background:currentColor}.cm-close{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;padding:6px 10px;cursor:pointer}.cm-close:focus-visible,.cm-refresh:focus-visible,.cm-row.cm-drill:focus-visible{outline:2px solid currentColor;outline-offset:2px}.cm-actions{display:flex;gap:8px}.cm-refresh{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;padding:6px 10px;cursor:pointer}.cm-grid{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin:0 0 18px}.cm-card{border:1px solid color-mix(in srgb,currentColor 40%,transparent);padding:10px;min-height:70px;background:rgba(255,255,255,.025)}.cm-card-l{opacity:.65;font-size:.82em;letter-spacing:.08em}.cm-card-v{font-size:1.45rem;margin-top:5px}.cm-section{border-top:1px solid color-mix(in srgb,currentColor 35%,transparent);padding-top:13px;margin-top:17px}.cm-section h3{margin:0 0 10px;font-size:1rem;letter-spacing:.08em}.cm-list{display:grid;gap:8px}.cm-row{display:grid;grid-template-columns:minmax(220px,2fr) minmax(100px,.8fr) minmax(110px,.8fr) minmax(80px,.5fr);gap:12px;align-items:center;border:1px solid color-mix(in srgb,currentColor 28%,transparent);padding:9px 10px}.cm-row.cm-drill{cursor:pointer}.cm-row.cm-drill:hover{background:rgba(255,255,255,.04)}.cm-row-main{min-width:0}.cm-objective{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-meta{opacity:.6;font-size:.82em;margin-top:3px}.cm-state{text-transform:uppercase}.cm-empty{opacity:.62;padding:10px 0}.cm-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}.cm-rank{display:grid;grid-template-columns:minmax(120px,1fr) auto auto;gap:12px;padding:7px 0;border-bottom:1px dotted color-mix(in srgb,currentColor 24%,transparent)}.cm-note{opacity:.62;margin-top:10px;font-size:.88em}.cm-error{border:1px solid currentColor;padding:10px;opacity:.8}.cm-detail{position:fixed;z-index:12010;top:0;right:0;width:min(560px,100vw);height:100vh;overflow:auto;padding:20px;background:rgba(7,11,15,.99);border-left:1px solid currentColor;box-shadow:-18px 0 40px rgba(0,0,0,.45)}.cm-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid currentColor;padding-bottom:10px;margin-bottom:12px}.cm-detail-title{font-size:1.25rem}.cm-detail-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 12px}.cm-detail-k{opacity:.58}.cm-detail-v{overflow-wrap:anywhere}.cm-detail-list{margin:5px 0 0;padding-left:18px}.cm-detail-block{border-top:1px solid color-mix(in srgb,currentColor 28%,transparent);padding-top:10px;margin-top:12px}.cm-detail-rev{border:1px solid color-mix(in srgb,currentColor 26%,transparent);padding:9px;margin-top:7px}@media(max-width:800px){#control-mode-panel{padding:14px}.cm-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}.cm-row{grid-template-columns:1fr auto}.cm-row .cm-hide-small{display:none}.cm-two{grid-template-columns:1fr}.cm-detail{width:100vw}.cm-detail-grid{grid-template-columns:105px 1fr}}`;
+#control-mode-panel[hidden],.cm-detail[hidden]{display:none!important}.cm-shell{width:min(1180px,100%);margin:0 auto}.cm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;border-bottom:1px solid currentColor;padding-bottom:12px;margin-bottom:16px}.cm-kicker{opacity:.65;font-size:.9em}.cm-title{font-size:1.55rem;letter-spacing:.08em}.cm-status{display:inline-flex;align-items:center;gap:7px;margin-top:5px;opacity:.8}.cm-dot{width:8px;height:8px;border-radius:50%;background:currentColor}.cm-close{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;padding:6px 10px;cursor:pointer}.cm-close:focus-visible,.cm-refresh:focus-visible,.cm-row.cm-drill:focus-visible,#control-mode-panel:focus-visible{outline:2px solid currentColor;outline-offset:2px}.cm-actions{display:flex;gap:8px}.cm-refresh{font:inherit;color:inherit;background:transparent;border:1px solid currentColor;padding:6px 10px;cursor:pointer}.cm-grid{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px;margin:0 0 18px}.cm-card{border:1px solid color-mix(in srgb,currentColor 40%,transparent);padding:10px;min-height:70px;background:rgba(255,255,255,.025)}.cm-card-l{opacity:.65;font-size:.82em;letter-spacing:.08em}.cm-card-v{font-size:1.45rem;margin-top:5px}.cm-section{border-top:1px solid color-mix(in srgb,currentColor 35%,transparent);padding-top:13px;margin-top:17px}.cm-section h3{margin:0 0 10px;font-size:1rem;letter-spacing:.08em}.cm-list{display:grid;gap:8px}.cm-row{display:grid;grid-template-columns:minmax(220px,2fr) minmax(100px,.8fr) minmax(110px,.8fr) minmax(80px,.5fr);gap:12px;align-items:center;border:1px solid color-mix(in srgb,currentColor 28%,transparent);padding:9px 10px}.cm-row.cm-drill{cursor:pointer}.cm-row.cm-drill:hover{background:rgba(255,255,255,.04)}.cm-row-main{min-width:0}.cm-objective{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cm-meta{opacity:.6;font-size:.82em;margin-top:3px}.cm-state{text-transform:uppercase}.cm-empty{opacity:.62;padding:10px 0}.cm-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}.cm-rank{display:grid;grid-template-columns:minmax(120px,1fr) auto auto;gap:12px;padding:7px 0;border-bottom:1px dotted color-mix(in srgb,currentColor 24%,transparent)}.cm-note{opacity:.62;margin-top:10px;font-size:.88em}.cm-error{border:1px solid currentColor;padding:10px;opacity:.8}.cm-detail{position:fixed;z-index:12010;top:0;right:0;width:min(560px,100vw);height:100vh;overflow:auto;padding:20px;background:rgba(7,11,15,.99);border-left:1px solid currentColor;box-shadow:-18px 0 40px rgba(0,0,0,.45)}.cm-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:1px solid currentColor;padding-bottom:10px;margin-bottom:12px}.cm-detail-title{font-size:1.25rem}.cm-detail-grid{display:grid;grid-template-columns:130px 1fr;gap:7px 12px}.cm-detail-k{opacity:.58}.cm-detail-v{overflow-wrap:anywhere}.cm-detail-list{margin:5px 0 0;padding-left:18px}.cm-detail-block{border-top:1px solid color-mix(in srgb,currentColor 28%,transparent);padding-top:10px;margin-top:12px}.cm-detail-rev{border:1px solid color-mix(in srgb,currentColor 26%,transparent);padding:9px;margin-top:7px}@media(max-width:800px){#control-mode-panel{padding:14px}.cm-grid{grid-template-columns:repeat(2,minmax(120px,1fr))}.cm-row{grid-template-columns:1fr auto}.cm-row .cm-hide-small{display:none}.cm-two{grid-template-columns:1fr}.cm-detail{width:100vw}.cm-detail-grid{grid-template-columns:105px 1fr}}`;
     document.head.appendChild(style);
   }
 
   const panel = make('section');
   panel.id = 'control-mode-panel';
   panel.hidden = true;
+  panel.tabIndex = -1;
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-labelledby', 'cm-title');
+  panel.setAttribute('aria-hidden', 'true');
   const shell = make('div', 'cm-shell');
   const detail = make('aside', 'cm-detail');
   detail.id = 'cm-task-detail';
   detail.hidden = true;
   detail.setAttribute('role', 'dialog');
   detail.setAttribute('aria-modal', 'true');
+  detail.setAttribute('aria-label', 'Managed task details');
+  detail.setAttribute('aria-hidden', 'true');
   panel.append(shell, detail);
   document.body.appendChild(panel);
   installStyle();
@@ -89,8 +99,8 @@
         row.tabIndex = 0;
         row.setAttribute('role', 'button');
         row.setAttribute('aria-label', 'Open task details for ' + t.objective);
-        row.addEventListener('click', () => openTaskDetail(t.taskId));
-        row.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openTaskDetail(t.taskId); } });
+        row.addEventListener('click', () => openTaskDetail(t.taskId, row));
+        row.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openTaskDetail(t.taskId, row); } });
       }
       host.appendChild(row);
     });
@@ -219,9 +229,13 @@
     block.appendChild(list); host.appendChild(block);
   }
   function closeDetail() {
+    const target = detailReturnFocus;
+    detailReturnFocus = null;
     detailGeneration++;
     detail.hidden = true;
+    detail.setAttribute('aria-hidden', 'true');
     detail.replaceChildren();
+    if (!panel.hidden) focusIfPossible(target);
   }
   function renderTaskDetail(body, taskId) {
     detail.replaceChildren();
@@ -231,7 +245,7 @@
     const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail);
     head.append(left, close); detail.appendChild(head);
     const history = rows(body && body.history);
-    if (!history.length) { detail.appendChild(make('div', 'cm-error', 'No durable history is available for this task.')); return; }
+    if (!history.length) { detail.appendChild(make('div', 'cm-error', 'No durable history is available for this task.')); focusIfPossible(close); return; }
     const latest = history[0] || {};
     const grid = make('div', 'cm-detail-grid');
     field(grid, 'OBJECTIVE', latest.objective);
@@ -261,12 +275,15 @@
       });
       detail.appendChild(block);
     }
-    try { close.focus(); } catch (_) {}
+    focusIfPossible(close);
   }
-  async function openTaskDetail(taskId) {
+  async function openTaskDetail(taskId, returnFocus) {
     if (!taskId) return;
+    const fallback = document.activeElement;
+    detailReturnFocus = returnFocus && returnFocus.isConnected ? returnFocus : (fallback && fallback.isConnected ? fallback : null);
     const token = ++detailGeneration;
     detail.hidden = false;
+    detail.setAttribute('aria-hidden', 'false');
     detail.replaceChildren(make('div', 'cm-empty', 'Loading durable task history…'));
     try {
       const body = await get('/api/managed-tasks/' + encodeURIComponent(taskId));
@@ -279,6 +296,7 @@
       head.append(make('div', 'cm-detail-title', taskId));
       const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail); head.appendChild(close);
       detail.append(head, make('div', 'cm-error', 'Task history could not be loaded. No missing detail is inferred.'));
+      focusIfPossible(close);
     }
   }
 
@@ -305,20 +323,26 @@
     timer = setInterval(() => { if (!panel.hidden) refreshNow(); }, POLL_MS);
   }
   function openPanel() {
+    const active = document.activeElement;
+    panelReturnFocus = active && active.isConnected ? active : null;
     panel.hidden = false;
     panel.setAttribute('aria-hidden', 'false');
     document.body.classList.add('control-mode-open');
     schedule();
     refreshNow();
-    const close = panel.querySelector('.cm-close'); if (close) { try { close.focus(); } catch (_) {} }
+    focusIfPossible(panel);
   }
   function closePanel() {
+    const target = panelReturnFocus;
+    panelReturnFocus = null;
+    detailReturnFocus = null;
     generation++;
     closeDetail();
     panel.hidden = true;
     panel.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('control-mode-open');
     if (timer) { clearInterval(timer); timer = 0; }
+    focusIfPossible(target);
   }
 
   const system = document.querySelector('#bottombar .bb-group[data-group="system"]');
