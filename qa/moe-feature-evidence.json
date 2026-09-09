@@ -255,10 +255,13 @@
       ],
       "integrationEvidence": [
         "Google connector contract exercises stable Gmail, Drive, Calendar, Docs and Sheets API paths through the real local transport adapter",
+        "Gmail contract verifies structured MIME draft composition, thread-safe sender reply drafts, header-injection rejection and separate send authority",
+        "Drive contract verifies bounded text/Markdown/CSV/JSON artifact create/read/update paths, upload endpoint confinement and binary-read rejection",
         "Calendar contract verifies create, patch, delete and read-then-patch self-attendee RSVP semantics",
+        "Docs and Sheets contracts verify simple document text append and table-row append in addition to the advanced batch APIs",
         "host projection keeps Google connector mutations execute-scoped and consent-gated"
       ],
-      "notes": "Gmail search/read/draft/send, Drive metadata/search/export, Calendar read/free-busy/event management, Docs read/create/edit and Sheets read/create/edit are implemented. Automated provider fixtures verify protocol behavior; a real private operator account remains an external acceptance step rather than fabricated CI evidence."
+      "notes": "Gmail search/read/structured-draft/reply-draft/send, Drive metadata/search/export plus bounded text artifact content IO, Calendar read/free-busy/event management, Docs read/create/append/edit and Sheets read/create/write/append/edit are implemented. Automated provider fixtures verify protocol behavior; a real private operator account remains an external acceptance step rather than fabricated CI evidence."
     },
     {
       "id": "release.derivative-signing",
