@@ -56,6 +56,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
       assert.ok(!target.includes('TEST_TOKEN'));
       return new Response(JSON.stringify({
         id: 'fixture',
+        mimeType: 'text/csv',
         threadId: 'thread-source-1',
         messages: [{ id: 'message-1' }],
         payload: { headers: [
@@ -117,9 +118,11 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.ok(!/Cc:|Bcc:/.test(mime), 'reply_draft is sender-only and cannot silently reply-all');
       }
       if (def.name === 'download_text_file') {
-        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls.length, 2, 'text download validates authoritative Drive metadata before reading bytes');
         assert.equal(toolCalls[0].opts.method, 'GET');
-        assert.equal(new URL(toolCalls[0].target).searchParams.get('alt'), 'media');
+        assert.equal(new URL(toolCalls[0].target).searchParams.get('fields'), 'id,name,mimeType,size');
+        assert.equal(toolCalls[1].opts.method, 'GET');
+        assert.equal(new URL(toolCalls[1].target).searchParams.get('alt'), 'media');
       }
       if (def.name === 'create_text_file') {
         assert.equal(toolCalls.length, 1);
@@ -195,6 +198,34 @@ const catalog = require('../sidecar/mcp/catalog.js');
       assert.equal(projected.scope, driveWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows Drive side-effect classification');
       assert.equal(projected.readOnly, !driveWrites.has(raw.name), raw.name + ' read-only projection matches Drive side effects');
     }
+  }
+
+  {
+    const calls = [];
+    const client = makeMcpClient({
+      timeoutMs: 1000,
+      transport: makeGoogleTransport({
+        url: ENDPOINTS['google-drive'],
+        token: 'TEST_TOKEN',
+        fetchImpl: async (target, opts) => {
+          calls.push({ target, opts });
+          const u = new URL(target);
+          if (u.pathname.endsWith('/files') && !u.pathname.includes('/file-')) {
+            return new Response(JSON.stringify({ files: [] }), { headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify({ id: 'binary-1', name: 'contract.pdf', mimeType: 'application/pdf', size: '1234' }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      })
+    });
+    await client.initialize();
+    const before = calls.length;
+    await assert.rejects(
+      client.callTool('download_text_file', { fileId: 'binary-1' }),
+      /Cannot download as text: Drive file mimeType is application\/pdf/
+    );
+    assert.equal(calls.length, before + 1, 'binary text read stops after metadata check');
+    assert.equal(new URL(calls.at(-1).target).searchParams.get('alt'), null, 'binary file bytes are never fetched through the text tool');
+    client.close();
   }
 
   {
