@@ -73,6 +73,41 @@ function workerEnvelope(taskId, agentId, pass) {
   A.ok(revisionStages.map(x => x.stage).includes('revision'), 'bounded repair is exposed as a live revision stage');
   A.eq(revisionStages.at(-1).stage, 'formal-review', 'terminal rejection remains on the normalized formal-review lifecycle stage');
 
+  const infrastructureReasons = ['timeout', 'refused', 'not-dispatched', 'error'];
+  for (const reason of infrastructureReasons) {
+    let failureCalls = 0;
+    const failureDispatch = {
+      timeoutMs: 10000,
+      run: async () => {
+        failureCalls++;
+        return { content: JSON.stringify([{ agentId: 'worker', reason, usd: reason === 'timeout' ? 0.13 : 0, result: 'explicit ' + reason + ' from inherited dispatch' }]) };
+      }
+    };
+    const { managedDispatchTool: failing } = makeManagedOrchestrationTool({ dispatchTool: failureDispatch, roster: () => roster, clock });
+    const failed = JSON.parse((await failing.run(
+      { taskId: 'fail-' + reason, agentId: 'worker', objective: 'exercise ' + reason },
+      { agentId: 'lead', runId: 'failure-run' }
+    )).content);
+    A.eq(failed.accepted, false, reason + ' cannot be misreported as a valid managed result');
+    A.eq(failed.stage, 'dispatch', reason + ' remains a dispatch-stage failure');
+    A.eq(failed.reason, reason, reason + ' survives as the machine-readable failure reason');
+    A.ok(String(failed.error).includes(reason), reason + ' keeps the inherited diagnostic text');
+    A.eq(failed.usd, reason === 'timeout' ? 0.13 : 0, reason + ' preserves authoritative dispatch spend');
+    A.eq(failureCalls, 1, reason + ' is not blindly retried by managed orchestration');
+  }
+
+  const invalidEnvelopeDispatch = {
+    timeoutMs: 10000,
+    run: async () => ({ content: JSON.stringify([{ agentId: 'worker', reason: 'done', usd: 0.07, result: 'not-json' }]) })
+  };
+  const { managedDispatchTool: invalidEnvelopeTool } = makeManagedOrchestrationTool({ dispatchTool: invalidEnvelopeDispatch, roster: () => roster, clock });
+  const invalidEnvelope = JSON.parse((await invalidEnvelopeTool.run(
+    { taskId: 'bad-envelope', agentId: 'worker', objective: 'return structured data' },
+    { agentId: 'lead', runId: 'bad-envelope-run' }
+  )).content);
+  A.eq(invalidEnvelope.reason, 'invalid-result-envelope', 'malformed worker JSON is distinct from infrastructure dispatch failure');
+  A.eq(invalidEnvelope.usd, 0.07, 'invalid structured output still preserves work already billed');
+
   const upwardRoster = new Map([
     ['lead', { role: 'specialist', orgRole: 'worker' }],
     ['manager', { role: 'specialist', orgRole: 'manager' }]
