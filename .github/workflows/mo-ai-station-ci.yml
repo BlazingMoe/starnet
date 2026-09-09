@@ -66,6 +66,10 @@ jobs:
           node test/control-cost-http.test.js
           node test/control-cost-host-wiring.test.js
           node test/control-cost-ui-contract.test.js
+          node test/control-provider-view.test.js
+          node test/control-provider-http.test.js
+          node test/control-provider-host-wiring.test.js
+          node test/control-provider-ui-contract.test.js
           node test/control-approval-ui-contract.test.js
           node test/control-action-view.test.js
           node test/control-action-http.test.js
