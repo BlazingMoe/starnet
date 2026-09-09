@@ -54,6 +54,7 @@ jobs:
           node test/control-mode-ui-contract.test.js
           node test/control-mode-surface-contract.test.js
           node test/control-mode-schema-contract.test.js
+          node test/control-mode-lifecycle-contract.test.js
           node test/control-agent-view.test.js
           node test/control-agent-http.test.js
           node test/control-agent-host-wiring.test.js
