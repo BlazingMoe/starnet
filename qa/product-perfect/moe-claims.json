@@ -10,13 +10,18 @@
     },
     {
       "id": "hierarchical-agent-organization",
-      "status": "implementation-in-progress",
+      "status": "verified-by-ci",
       "claim": "Commander, Manager, Specialist, and Worker organization roles can govern typed delegation without granting tool permissions."
     },
     {
       "id": "managed-delegation",
-      "status": "implementation-in-progress",
+      "status": "verified-by-ci",
       "claim": "Consequential delegated tasks can use task contracts, deterministic acceptance checks, bounded revisions, and optional independent audit."
+    },
+    {
+      "id": "control-mode-read-only-observability",
+      "status": "verified-by-ci",
+      "claim": "Control Mode exposes evidence-backed read-only agent, memory-provenance, approval, action, cost, and provider-signal surfaces without inventing unavailable runtime state."
     },
     {
       "id": "permission-boundary-preserved",
