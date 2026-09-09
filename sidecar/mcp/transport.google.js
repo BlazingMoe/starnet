@@ -37,6 +37,13 @@ const TOOLS = {
     tool('list_files', 'Search Drive with a Drive query; follows pageToken for pagination.', { query: STR, pageToken: STR, pageSize: { type: 'integer', minimum: 1, maximum: 100 } }, [], true),
     tool('get_file', 'Get Drive file metadata.', { fileId: STR }, ['fileId'], true),
     tool('export_file', 'Export a Google Workspace file as text/plain, text/csv, or text/html. Binary exports are not supported by this tool.', { fileId: STR, mimeType: { type: 'string', enum: ['text/plain', 'text/csv', 'text/html'] } }, ['fileId', 'mimeType'], true),
+    tool('download_text_file', 'Read the content of a non-Google-Workspace text/CSV/Markdown/JSON Drive file. Use export_file for Docs/Sheets. Response size remains bounded by the connector.', { fileId: STR }, ['fileId'], true),
+    tool('create_text_file', 'Create a small text/Markdown/CSV/JSON file in Drive with metadata and content in one multipart upload.', {
+      name: STR, content: STR, mimeType: { type: 'string', enum: ['text/plain', 'text/markdown', 'text/csv', 'application/json'] }, parentId: STR
+    }, ['name', 'content', 'mimeType']),
+    tool('write_text_file', 'Replace the content of an existing Drive text/Markdown/CSV/JSON file accessible to StarNet. File metadata such as its name is preserved.', {
+      fileId: STR, content: STR, mimeType: { type: 'string', enum: ['text/plain', 'text/markdown', 'text/csv', 'application/json'] }
+    }, ['fileId', 'content', 'mimeType']),
     tool('create_file', 'Create Drive file metadata, including folders. File access follows the permissions granted to StarNet.', { metadata: { type: 'object' } }, ['metadata']),
     tool('update_file', 'Update metadata for a Drive file accessible to StarNet, including name or description.', { fileId: STR, metadata: { type: 'object' } }, ['fileId', 'metadata'])
   ],
@@ -156,6 +163,39 @@ function replyDraftSpec(message, bodyText) {
   });
   return { url: ENDPOINTS.gmail + '/drafts', method: 'POST', body: { message: { raw, threadId } } };
 }
+function driveTextMultipart(a) {
+  const name = typeof a.name === 'string' ? a.name.trim() : '';
+  if (!name || name.length > 500 || /[\x00-\x1f]/.test(name)) throw new Error('Invalid Drive file name');
+  const content = String(a.content == null ? '' : a.content);
+  const parentId = a.parentId ? String(a.parentId) : '';
+  if (parentId) segment(parentId);
+  let hash = 2166136261;
+  const seed = name + '\n' + a.mimeType + '\n' + content;
+  for (let i = 0; i < seed.length; i++) { hash ^= seed.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+  let boundary = 'starnet_drive_' + (hash >>> 0).toString(16);
+  while (content.includes(boundary)) boundary += '_x';
+  const metadata = { name, mimeType: a.mimeType };
+  if (parentId) metadata.parents = [parentId];
+  const body = [
+    '--' + boundary,
+    'Content-Type: application/json; charset=UTF-8',
+    '',
+    JSON.stringify(metadata),
+    '--' + boundary,
+    'Content-Type: ' + a.mimeType,
+    '',
+    content,
+    '--' + boundary + '--',
+    ''
+  ].join('\r\n');
+  return {
+    url: 'https://www.googleapis.com/upload/drive/v3/files',
+    method: 'POST',
+    query: { uploadType: 'multipart', fields: 'id,name,mimeType,modifiedTime,webViewLink,parents,size' },
+    rawBody: body,
+    contentType: 'multipart/related; boundary=' + boundary
+  };
+}
 function requestFor(product, name, a) {
   const base = ENDPOINTS[product];
   const get = (path, query) => ({ url: base + path, query, method: 'GET' });
@@ -179,6 +219,15 @@ function requestFor(product, name, a) {
     if (name === 'list_files') return get('/files', { q: a.query, pageToken: a.pageToken, pageSize: a.pageSize || 25, fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)' });
     if (name === 'get_file') return get('/files/' + segment(a.fileId), { fields: 'id,name,mimeType,description,modifiedTime,webViewLink,parents,size' });
     if (name === 'export_file') return { ...get('/files/' + segment(a.fileId) + '/export', { mimeType: a.mimeType }), text: true };
+    if (name === 'download_text_file') return { ...get('/files/' + segment(a.fileId), { alt: 'media' }), text: true };
+    if (name === 'create_text_file') return driveTextMultipart(a);
+    if (name === 'write_text_file') return {
+      url: 'https://www.googleapis.com/upload/drive/v3/files/' + segment(a.fileId),
+      method: 'PATCH',
+      query: { uploadType: 'media', fields: 'id,name,mimeType,modifiedTime,webViewLink,size' },
+      rawBody: String(a.content == null ? '' : a.content),
+      contentType: a.mimeType
+    };
     if (name === 'create_file') return write('/files', a.metadata);
     if (name === 'update_file') return write('/files/' + segment(a.fileId), a.metadata, 'PATCH');
   }
@@ -222,10 +271,10 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
     let timer;
     try {
       return await Promise.race([new Promise((_, reject) => { timer = setTimeout(() => { ctrl.abort(); reject(new Error('Google request timed out')); }, timeoutMs); }), (async () => {
-        const body = spec.body ? JSON.stringify(spec.body) : undefined;
+        const body = spec.rawBody != null ? String(spec.rawBody) : (spec.body ? JSON.stringify(spec.body) : undefined);
         if (body && Buffer.byteLength(body) > 2 * 1024 * 1024) throw new Error('Google request exceeds 2 MiB; split the edit');
         let r;
-        try { r = await fetchImpl(target.href, { method: spec.method || 'GET', headers: { Authorization: 'Bearer ' + token, Accept: spec.text ? 'text/plain' : 'application/json', 'Content-Type': 'application/json' }, body, redirect: 'error', signal: ctrl.signal }); }
+        try { r = await fetchImpl(target.href, { method: spec.method || 'GET', headers: { Authorization: 'Bearer ' + token, Accept: spec.text ? 'text/plain' : 'application/json', 'Content-Type': spec.contentType || 'application/json' }, body, redirect: 'error', signal: ctrl.signal }); }
         catch (_) { throw new Error('Google request failed or was cancelled'); }
         if (!r.ok) { try { await r.body?.cancel(); } catch (_) { ctrl.abort(); } throw new Error('connector HTTP ' + r.status + (r.status === 403 ? ' — Google denied access; check the permissions granted to StarNet' : '')); }
         const reader = r.body?.getReader(); let text = '';
@@ -288,4 +337,4 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   }
   return { send, onMessage(cb) { receive = cb; }, close() { closed = true; for (const ctrl of controllers) ctrl.abort(); controllers.clear(); } };
 }
-module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec };
+module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec, driveTextMultipart };
