@@ -30,6 +30,8 @@ function rowFromManaged(args, ctx, result, startedAt, completedAt) {
     usd: Number(result.usd || 0),
     findings: Array.isArray(result.findings) ? result.findings : [],
     riskFlags: Array.isArray(result.riskFlags) ? result.riskFlags : [],
+    reason: String(result.reason || ''),
+    error: String(result.error || ''),
     acceptanceCriteria: Array.isArray(args.acceptanceCriteria) ? args.acceptanceCriteria : [],
     artifacts: Array.isArray(envelope.artifacts) ? envelope.artifacts : [],
     sources: Array.isArray(envelope.sources) ? envelope.sources : [],
