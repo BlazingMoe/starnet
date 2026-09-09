@@ -17,6 +17,9 @@ durable structure rather than a one-time task.
 
 - **BRAIN.md** — 5-minute orientation for any session opening the repo; the fastest on-ramp to
   StarNet's core concept (local-first AI-agent harness rendered as a pixel-art station).
+- **MOE_PRIVATE_OPERATOR_RUNBOOK.md** — active private-fork operating path: local startup,
+  providers/connectors, Revenue Pipeline, unattended operation, Control Mode and verified recovery
+  without public release/signing prerequisites.
 - **HARNESS_ARCHITECTURE.md** — engineering reference for the sidecar/backend: the target
   module map and the event contract each build step works toward.
 - **harness-runtime-spec.md** — the build spec for the sidecar runtime, layered on the frozen
