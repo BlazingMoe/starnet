@@ -21,7 +21,13 @@ const TOOLS = {
     tool('read_message', 'Read a Gmail message, including its MIME headers and base64url-encoded body parts.', { messageId: STR }, ['messageId'], true),
     tool('read_thread', 'Read the messages in a Gmail thread.', { threadId: STR }, ['threadId'], true),
     tool('read_attachment', 'Read a Gmail attachment as base64url data (bounded to 8 MiB).', { messageId: STR, attachmentId: STR }, ['messageId', 'attachmentId'], true),
-    tool('create_draft', 'Save an email draft. Does not send. raw is a base64url-encoded RFC 2822 MIME message.', { raw: STR, threadId: STR }, ['raw']),
+    tool('compose_draft', 'Create a plain-text Gmail draft from structured recipients, subject and body. The host builds the RFC 2822 MIME message and base64url encoding. This does NOT send the email.', {
+      to: { type: 'array', items: STR, minItems: 1, maxItems: 50 },
+      cc: { type: 'array', items: STR, maxItems: 50 },
+      bcc: { type: 'array', items: STR, maxItems: 50 },
+      subject: STR, bodyText: STR, threadId: STR, inReplyTo: STR, references: STR
+    }, ['to', 'subject', 'bodyText']),
+    tool('create_draft', 'Advanced: save an email draft from an already base64url-encoded RFC 2822 MIME message. Prefer compose_draft for normal email drafting.', { raw: STR, threadId: STR }, ['raw']),
     tool('send_draft', 'SEND an existing draft to its recipients. This is an external message; obtain the user’s authorization before sending.', { draftId: STR }, ['draftId'])
   ],
   'google-drive': [
@@ -80,6 +86,46 @@ function validate(def, args) {
   }
   for (const k of def.inputSchema.required) if (!(k in args)) throw new Error('Missing argument: ' + k);
 }
+function headerValue(value, label, allowEmpty) {
+  if (typeof value !== 'string') throw new Error(label + ' must be a string');
+  const s = value.trim();
+  if (!allowEmpty && !s) throw new Error(label + ' must not be empty');
+  if (s.length > 998 || /[\r\n\x00]/.test(s)) throw new Error('Invalid ' + label + ' header value');
+  return s;
+}
+function recipientHeader(values, label) {
+  if (!Array.isArray(values) || !values.length || values.length > 50) throw new Error('Invalid ' + label + ' recipients');
+  return values.map(v => headerValue(v, label, false)).join(', ');
+}
+function optionalRecipientHeader(values, label) {
+  if (values == null) return '';
+  if (!Array.isArray(values) || values.length > 50) throw new Error('Invalid ' + label + ' recipients');
+  return values.map(v => headerValue(v, label, false)).join(', ');
+}
+function subjectHeader(value) {
+  const s = headerValue(value, 'subject', true);
+  if (!s || /^[\x20-\x7e]*$/.test(s)) return s;
+  return '=?UTF-8?B?' + Buffer.from(s, 'utf8').toString('base64') + '?=';
+}
+function composeDraftRaw(a) {
+  const to = recipientHeader(a.to, 'To');
+  const cc = optionalRecipientHeader(a.cc, 'Cc');
+  const bcc = optionalRecipientHeader(a.bcc, 'Bcc');
+  const lines = [
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
+    'To: ' + to
+  ];
+  if (cc) lines.push('Cc: ' + cc);
+  if (bcc) lines.push('Bcc: ' + bcc);
+  lines.push('Subject: ' + subjectHeader(a.subject));
+  if (a.inReplyTo) lines.push('In-Reply-To: ' + headerValue(a.inReplyTo, 'In-Reply-To', false));
+  if (a.references) lines.push('References: ' + headerValue(a.references, 'References', false));
+  const body = String(a.bodyText == null ? '' : a.bodyText).replace(/\r?\n/g, '\r\n');
+  const mime = lines.join('\r\n') + '\r\n\r\n' + body;
+  return Buffer.from(mime, 'utf8').toString('base64url');
+}
 function requestFor(product, name, a) {
   const base = ENDPOINTS[product];
   const get = (path, query) => ({ url: base + path, query, method: 'GET' });
@@ -89,6 +135,10 @@ function requestFor(product, name, a) {
     if (name === 'read_message') return get('/messages/' + segment(a.messageId), { format: 'full' });
     if (name === 'read_thread') return get('/threads/' + segment(a.threadId), { format: 'full' });
     if (name === 'read_attachment') return get('/messages/' + segment(a.messageId) + '/attachments/' + segment(a.attachmentId));
+    if (name === 'compose_draft') {
+      const raw = composeDraftRaw(a);
+      return write('/drafts', { message: { raw, ...(a.threadId ? { threadId: a.threadId } : {}) } });
+    }
     if (name === 'create_draft') {
       if (!/^[A-Za-z0-9_-]+={0,2}$/.test(a.raw)) throw new Error('raw must be a base64url MIME message');
       return write('/drafts', { message: { raw: a.raw, ...(a.threadId ? { threadId: a.threadId } : {}) } });
@@ -205,4 +255,4 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   }
   return { send, onMessage(cb) { receive = cb; }, close() { closed = true; for (const ctrl of controllers) ctrl.abort(); controllers.clear(); } };
 }
-module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate };
+module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw };
