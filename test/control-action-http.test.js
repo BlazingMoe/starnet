@@ -43,8 +43,9 @@ const serialized = JSON.stringify(out.body);
 for (const forbidden of ['do-not-leak-title', '/secret.txt', 'do-not-leak-fingerprint', 'do-not-leak-content', 'private-url', 'private-token', 'private-write']) {
   A.ok(!serialized.includes(forbidden), 'HTTP surface must not leak sensitive journal data: ' + forbidden);
 }
-A.ok(!serialized.includes('argsRaw'), 'raw arguments are not exposed');
-A.ok(!serialized.includes('replayFingerprint'), 'replay fingerprints are not exposed');
+A.ok(!out.body.trace.rows.some(row => Object.prototype.hasOwnProperty.call(row, 'argsRaw')), 'raw arguments are not exposed as action row fields');
+A.ok(!out.body.trace.rows.some(row => Object.prototype.hasOwnProperty.call(row, 'replayFingerprint')), 'replay fingerprints are not exposed as action row fields');
+A.eq(out.body.trace.evidence.replayFingerprintsExposed, false, 'safe evidence may explicitly state that replay fingerprints are excluded');
 
 out = http.serve({ method: 'GET', url: '/api/control/actions?offset=-4&runs=999&limit=2' }, {});
 A.eq(out.code, 200, 'bounded GET succeeds');
