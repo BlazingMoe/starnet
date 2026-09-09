@@ -14,7 +14,7 @@ const store = makeTaskHistoryStore({ io, clock, ramMax: 3, limit: 10 });
 const first = store.record({
   taskId: 't1', parentTaskId: 'root', parentRunId: 'r1', leadAgentId: 'lead', workerAgentId: 'worker',
   auditorAgentId: 'auditor', objective: 'research', status: 'accepted', stage: 'accepted', accepted: true,
-  attempts: 1, usd: 0.2, workerUsd: 0.2, auditUsd: 0, budgetUsd: 1, acceptanceCriteria: ['two sources'], findings: [], riskFlags: [], sources: ['s1','s2'], artifacts: ['a.md'],
+  attempts: 1, usd: 0.2, workerUsd: 0.2, auditUsd: 0, budgetUsd: 1, budgetExceeded: false, acceptanceCriteria: ['two sources'], findings: [], riskFlags: [], sources: ['s1','s2'], artifacts: ['a.md'],
   reason: '', error: ''
 });
 A.eq(first.schemaVersion, 'moe.managed-task-history.v1', 'history rows are versioned');
@@ -24,14 +24,16 @@ A.eq(store.list({ taskId: 't1' })[0].workerAgentId, 'worker', 'task lookup retur
 A.eq(first.workerUsd, 0.2, 'history sanitization preserves worker spend');
 A.eq(first.auditUsd, 0, 'history sanitization preserves zero audit spend');
 A.eq(first.budgetUsd, 1, 'history sanitization preserves task budget');
+A.eq(first.budgetExceeded, false, 'history sanitization preserves non-overrun budget state');
 A.eq(store.list({ agentId: 'auditor' }).length, 1, 'agent lookup includes auditor role');
 
 store.record({ taskId: 't2', leadAgentId: 'lead', workerAgentId: 'w2', objective: 'code', status: 'rejected', stage: 'formal-review', attempts: 2, usd: 0.3 });
-const failed = store.record({ taskId: 't3', leadAgentId: 'lead', workerAgentId: 'w3', objective: 'write', status: 'dispatch_error', stage: 'dispatch', attempts: 1, usd: 0.12, workerUsd: 0.12, auditUsd: 0, budgetUsd: 0.1, reason: 'timeout', error: 'worker exceeded wall clock' });
+const failed = store.record({ taskId: 't3', leadAgentId: 'lead', workerAgentId: 'w3', objective: 'write', status: 'dispatch_error', stage: 'dispatch', attempts: 1, usd: 0.12, workerUsd: 0.12, auditUsd: 0, budgetUsd: 0.1, budgetExceeded: true, reason: 'timeout', error: 'worker exceeded wall clock' });
 A.eq(failed.reason, 'timeout', 'history row retains machine-readable failure reason');
 A.eq(failed.error, 'worker exceeded wall clock', 'history row retains bounded diagnostic text');
 A.eq(failed.workerUsd, 0.12, 'failed history row keeps billed worker spend');
 A.eq(failed.budgetUsd, 0.1, 'failed history row keeps budget context');
+A.eq(failed.budgetExceeded, true, 'failed history row keeps verified budget-overrun state');
 store.record({ taskId: 't4', leadAgentId: 'lead', workerAgentId: 'w4', objective: 'analyze', status: 'accepted', stage: 'accepted', accepted: true, attempts: 1, usd: 0.5 });
 A.eq(store.count(), 3, 'RAM mirror is bounded independently from durable log');
 A.eq(disk.length, 4, 'durable append log is not truncated by RAM bound');
