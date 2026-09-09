@@ -77,6 +77,11 @@ const TOOLS = {
     tool('read_values', 'Read cells from an A1 range.', { spreadsheetId: STR, range: STR }, ['spreadsheetId', 'range'], true),
     tool('create_spreadsheet', 'Create a spreadsheet with a title.', { title: STR }, ['title']),
     tool('write_values', 'Write cell values to an A1 range. Uses RAW values by default; USER_ENTERED evaluates formulas.', { spreadsheetId: STR, range: STR, values: { type: 'array', items: { type: 'array' }, maxItems: 10000 }, valueInputOption: { type: 'string', enum: ['RAW', 'USER_ENTERED'] } }, ['spreadsheetId', 'range', 'values']),
+    tool('append_values', 'Append rows after the existing table found in an A1 range, so callers do not need to guess the next empty row. Uses RAW values by default.', {
+      spreadsheetId: STR, range: STR, values: { type: 'array', items: { type: 'array' }, minItems: 1, maxItems: 10000 },
+      valueInputOption: { type: 'string', enum: ['RAW', 'USER_ENTERED'] },
+      insertDataOption: { type: 'string', enum: ['OVERWRITE', 'INSERT_ROWS'] }
+    }, ['spreadsheetId', 'range', 'values']),
     tool('batch_update', 'Edit spreadsheet structure and formatting with Sheets API batchUpdate requests.', { spreadsheetId: STR, requests: { type: 'array', items: { type: 'object' }, minItems: 1, maxItems: 100 } }, ['spreadsheetId', 'requests'])
   ]
 };
@@ -254,6 +259,11 @@ function requestFor(product, name, a) {
     if (name === 'read_values') return get(sheet + '/values/' + segment(a.range));
     if (name === 'create_spreadsheet') return write('', { properties: { title: a.title } });
     if (name === 'write_values') return write(sheet + '/values/' + segment(a.range), { range: a.range, values: a.values }, 'PUT', { valueInputOption: a.valueInputOption || 'RAW' });
+    if (name === 'append_values') return write(sheet + '/values/' + segment(a.range) + ':append', { range: a.range, values: a.values }, 'POST', {
+      valueInputOption: a.valueInputOption || 'RAW',
+      insertDataOption: a.insertDataOption || 'INSERT_ROWS',
+      includeValuesInResponse: false
+    });
     if (name === 'batch_update') return write(sheet + ':batchUpdate', { requests: a.requests });
   }
   throw new Error('Unknown Google tool');
