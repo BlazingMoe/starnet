@@ -108,6 +108,29 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(invalidEnvelope.reason, 'invalid-result-envelope', 'malformed worker JSON is distinct from infrastructure dispatch failure');
   A.eq(invalidEnvelope.usd, 0.07, 'invalid structured output still preserves work already billed');
 
+  let auditFailureCalls = 0;
+  const auditFailureDispatch = {
+    timeoutMs: 10000,
+    run: async (args) => {
+      auditFailureCalls++;
+      const w = args.workers[0];
+      if (w.agentId === 'auditor') {
+        return { content: JSON.stringify([{ agentId: 'auditor', reason: 'timeout', usd: 0.03, result: 'auditor exceeded wall clock' }]) };
+      }
+      return { content: JSON.stringify([{ agentId: 'worker', reason: 'done', usd: 0.2, result: JSON.stringify(workerEnvelope('audit-fail', 'worker', true)) }]) };
+    }
+  };
+  const { managedDispatchTool: auditFailureTool } = makeManagedOrchestrationTool({ dispatchTool: auditFailureDispatch, roster: () => roster, clock });
+  const auditFailure = JSON.parse((await auditFailureTool.run(
+    { taskId: 'audit-fail', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], requireAudit: true, auditorAgentId: 'auditor' },
+    { agentId: 'lead', runId: 'audit-failure-run' }
+  )).content);
+  A.eq(auditFailure.accepted, false, 'required auditor infrastructure failure fails closed');
+  A.eq(auditFailure.stage, 'audit', 'auditor infrastructure failure remains an audit-stage failure');
+  A.eq(auditFailure.reason, 'timeout', 'auditor dispatch timeout survives quality-pipeline wrapping');
+  A.ok(String(auditFailure.error).includes('auditor exceeded wall clock'), 'auditor timeout keeps inherited diagnostic text');
+  A.eq(auditFailureCalls, 2, 'auditor failure does not trigger an unbounded retry loop');
+
   const upwardRoster = new Map([
     ['lead', { role: 'specialist', orgRole: 'worker' }],
     ['manager', { role: 'specialist', orgRole: 'manager' }]
