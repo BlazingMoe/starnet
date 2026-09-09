@@ -84,6 +84,12 @@ jobs:
           node test/control-agent-ui-contract.test.js
           node test/org-specialties.test.js
 
+      - name: Private operator capability contracts
+        run: |
+          node test/google-connector.test.js
+          node test/recovery-policy.test.js
+          node test/moe-revenue-pipeline.test.js
+
       - name: Inherited orchestration regression
         run: |
           node test/orchestration.test.js
