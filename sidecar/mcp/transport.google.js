@@ -70,6 +70,9 @@ const TOOLS = {
   'google-docs': [
     tool('get_document', 'Read a Google document and its structured content.', { documentId: STR }, ['documentId'], true),
     tool('create_document', 'Create a Google document with a title.', { title: STR }, ['title']),
+    tool('append_text', 'Append plain text to the end of a Google document body (or a specific tab when tabId is supplied) without requiring raw Docs API request construction.', {
+      documentId: STR, text: STR, tabId: STR, writeControl: { type: 'object' }
+    }, ['documentId', 'text']),
     tool('batch_update', 'Edit a Google document using Docs API batchUpdate requests. Use writeControl to avoid overwriting concurrent edits.', { documentId: STR, requests: { type: 'array', items: { type: 'object' }, minItems: 1, maxItems: 100 }, writeControl: { type: 'object' } }, ['documentId', 'requests'])
   ],
   'google-sheets': [
@@ -251,6 +254,14 @@ function requestFor(product, name, a) {
   if (product === 'google-docs') {
     if (name === 'get_document') return get('/' + segment(a.documentId));
     if (name === 'create_document') return write('', { title: a.title });
+    if (name === 'append_text') {
+      if (!String(a.text == null ? '' : a.text).length) throw new Error('text must not be empty');
+      const end = a.tabId ? { tabId: a.tabId } : {};
+      return write('/' + segment(a.documentId) + ':batchUpdate', {
+        requests: [{ insertText: { text: a.text, endOfSegmentLocation: end } }],
+        ...(a.writeControl ? { writeControl: a.writeControl } : {})
+      });
+    }
     if (name === 'batch_update') return write('/' + segment(a.documentId) + ':batchUpdate', { requests: a.requests, ...(a.writeControl ? { writeControl: a.writeControl } : {}) });
   }
   if (product === 'google-sheets') {
