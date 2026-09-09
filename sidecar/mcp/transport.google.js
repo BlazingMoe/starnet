@@ -27,6 +27,9 @@ const TOOLS = {
       bcc: { type: 'array', items: STR, maxItems: 50 },
       subject: STR, bodyText: STR, threadId: STR, inReplyTo: STR, references: STR
     }, ['to', 'subject', 'bodyText']),
+    tool('reply_draft', 'Create a plain-text reply DRAFT to the sender of an existing Gmail message. The host reads the real threadId, Subject, Message-ID and Reply-To/From headers so threading metadata is not guessed. This is sender-only, not reply-all, and does NOT send.', {
+      messageId: STR, bodyText: STR
+    }, ['messageId', 'bodyText']),
     tool('create_draft', 'Advanced: save an email draft from an already base64url-encoded RFC 2822 MIME message. Prefer compose_draft for normal email drafting.', { raw: STR, threadId: STR }, ['raw']),
     tool('send_draft', 'SEND an existing draft to its recipients. This is an external message; obtain the user’s authorization before sending.', { draftId: STR }, ['draftId'])
   ],
@@ -125,6 +128,33 @@ function composeDraftRaw(a) {
   const body = String(a.bodyText == null ? '' : a.bodyText).replace(/\r?\n/g, '\r\n');
   const mime = lines.join('\r\n') + '\r\n\r\n' + body;
   return Buffer.from(mime, 'utf8').toString('base64url');
+}
+function messageHeader(message, name) {
+  const headers = message && message.payload && Array.isArray(message.payload.headers) ? message.payload.headers : [];
+  const wanted = String(name || '').toLowerCase();
+  const row = headers.find(h => h && String(h.name || '').toLowerCase() === wanted);
+  return row && typeof row.value === 'string' ? row.value : '';
+}
+function replyDraftSpec(message, bodyText) {
+  if (!message || typeof message !== 'object') throw new Error('Cannot draft reply: source message is unavailable');
+  const threadId = typeof message.threadId === 'string' ? message.threadId.trim() : '';
+  if (!threadId || threadId.length > 2048 || /[\x00-\x1f]/.test(threadId)) throw new Error('Cannot draft reply: source message has no valid threadId');
+  const to = messageHeader(message, 'Reply-To') || messageHeader(message, 'From');
+  const subject = messageHeader(message, 'Subject');
+  const messageId = messageHeader(message, 'Message-ID');
+  const priorRefs = messageHeader(message, 'References');
+  if (!to) throw new Error('Cannot draft reply: source message has no Reply-To or From header');
+  if (!subject) throw new Error('Cannot draft reply: source message has no Subject header');
+  if (!messageId) throw new Error('Cannot draft reply: source message has no Message-ID header');
+  const references = priorRefs ? (priorRefs.trim() + ' ' + messageId.trim()) : messageId.trim();
+  const raw = composeDraftRaw({
+    to: [to],
+    subject,
+    bodyText: String(bodyText == null ? '' : bodyText),
+    inReplyTo: messageId,
+    references
+  });
+  return { url: ENDPOINTS.gmail + '/drafts', method: 'POST', body: { message: { raw, threadId } } };
 }
 function requestFor(product, name, a) {
   const base = ENDPOINTS[product];
@@ -227,7 +257,10 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
         if (!def) throw new Error('Unknown Google tool');
         const args = msg.params.arguments || {}; validate(def, args);
         let value;
-        if (product === 'google-calendar' && def.name === 'respond_event') {
+        if (product === 'gmail' && def.name === 'reply_draft') {
+          const source = await request({ url: url + '/messages/' + segment(args.messageId), method: 'GET', query: { format: 'full' } });
+          value = await request(replyDraftSpec(source, args.bodyText));
+        } else if (product === 'google-calendar' && def.name === 'respond_event') {
           const calendarId = segment(args.calendarId || 'primary');
           const eventPath = '/calendars/' + calendarId + '/events/' + segment(args.eventId);
           const event = await request({ url: url + eventPath, method: 'GET' });
@@ -255,4 +288,4 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   }
   return { send, onMessage(cb) { receive = cb; }, close() { closed = true; for (const ctrl of controllers) ctrl.abort(); controllers.clear(); } };
 }
-module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw };
+module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec };
