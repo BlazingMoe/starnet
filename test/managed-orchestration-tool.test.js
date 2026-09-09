@@ -46,6 +46,9 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(parsed.accepted, true, 'worker plus independent accepting auditor passes');
   A.eq(parsed.stage, 'accepted', 'accepted managed task exposes a terminal accepted lifecycle stage');
   A.eq(parsed.qualityStage, 'audit', 'accepted result preserves the quality-pipeline stage separately');
+  A.eq(parsed.usd, 0.25, 'managed total spend includes worker and independent auditor');
+  A.eq(parsed.workerUsd, 0.2, 'managed result exposes cumulative worker spend');
+  A.eq(parsed.auditUsd, 0.05, 'managed result exposes independent audit spend');
   A.eq(calls.length, 2, 'one worker run plus one independent audit run');
   A.eq(calls[0].workers[0].resultSchema.required.indexOf('acceptance') >= 0, true, 'worker is forced into strict result envelope');
   A.eq(calls[1].workers[0].agentId, 'auditor', 'audit is dispatched to distinct auditor agent');
@@ -68,10 +71,38 @@ function workerEnvelope(taskId, agentId, pass) {
     { taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], maxRevisions: 1 },
     { agentId: 'lead', runId: 'lead-run', reportManagedTaskStage(stage, patch) { revisionStages.push({ stage, patch: patch || {} }); } }
   );
-  A.eq(JSON.parse(revised.content).accepted, false, 'still-failing replacement remains rejected after bounded revision');
+  const revisedParsed = JSON.parse(revised.content);
+  A.eq(revisedParsed.accepted, false, 'still-failing replacement remains rejected after bounded revision');
+  A.eq(revisedParsed.usd, 0.4, 'managed spend accumulates the original worker run plus its revision');
+  A.eq(revisedParsed.workerUsd, 0.4, 'worker spend is cumulative across bounded revisions');
+  A.eq(revisedParsed.auditUsd, 0, 'non-audited revisions report zero audit spend');
   A.eq(calls.length, 2, 'exactly one bounded revision is attempted');
   A.ok(revisionStages.map(x => x.stage).includes('revision'), 'bounded repair is exposed as a live revision stage');
   A.eq(revisionStages.at(-1).stage, 'formal-review', 'terminal rejection remains on the normalized formal-review lifecycle stage');
+
+  calls.length = 0; workerPass = true;
+  const budgetTerminal = JSON.parse((await managedDispatchTool.run(
+    { taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], budgetUsd: 0.1, maxRevisions: 3 },
+    ctx
+  )).content);
+  A.eq(budgetTerminal.accepted, false, 'worker result that exceeds the task budget is rejected');
+  A.eq(budgetTerminal.reason, 'task-budget-exceeded', 'budget rejection has a machine-readable reason');
+  A.eq(budgetTerminal.action, 'reject', 'spent budget is terminal instead of requesting a cost-increasing revision');
+  A.eq(budgetTerminal.usd, 0.2, 'budget rejection reports the actual first-attempt spend');
+  A.eq(calls.length, 1, 'already-exceeded budget prevents all further managed revisions');
+
+  calls.length = 0;
+  const auditBudget = JSON.parse((await managedDispatchTool.run(
+    { taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], budgetUsd: 0.22, requireAudit: true, auditorAgentId: 'auditor' },
+    ctx
+  )).content);
+  A.eq(auditBudget.accepted, false, 'audit cost can push an otherwise valid task over its total budget');
+  A.eq(auditBudget.stage, 'audit', 'post-audit budget failure remains attributable to the audit stage');
+  A.eq(auditBudget.reason, 'task-budget-exceeded', 'post-audit overrun is explicit');
+  A.eq(auditBudget.usd, 0.25, 'post-audit budget check uses worker plus auditor spend');
+  A.eq(auditBudget.workerUsd, 0.2, 'post-audit result retains worker spend separately');
+  A.eq(auditBudget.auditUsd, 0.05, 'post-audit result retains audit spend separately');
+  A.eq(calls.length, 2, 'budget that is still available after worker review permits exactly the requested audit');
 
   const infrastructureReasons = ['timeout', 'refused', 'not-dispatched', 'error'];
   for (const reason of infrastructureReasons) {
