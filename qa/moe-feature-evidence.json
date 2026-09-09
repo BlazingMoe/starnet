@@ -1,6 +1,6 @@
 {
   "schemaVersion": "moe.feature-evidence.v1",
-  "updatedAt": "2026-09-08",
+  "updatedAt": "2026-09-09",
   "features": [
     {
       "id": "fork.update-isolation",
@@ -172,6 +172,61 @@
         "Moe AI Station CI, eval-gates, fast-gate and secret-history are green on the integrated branch head"
       ],
       "notes": "V1 is intentionally read-only: task/agent telemetry is observable, bounded and evidence-backed; no dispatch, approve, reject, cancel, steer or hierarchy mutation controls are exposed."
+    },
+    {
+      "id": "control-mode.read-only-surfaces",
+      "name": "Verified read-only Control Mode surfaces",
+      "status": "verified",
+      "code": [
+        "sidecar/control/agent-view.js",
+        "sidecar/control/agent-http.js",
+        "sidecar/control/memory-view.js",
+        "sidecar/control/memory-http.js",
+        "sidecar/control/approval-view.js",
+        "sidecar/control/approval-http.js",
+        "sidecar/control/action-view.js",
+        "sidecar/control/action-http.js",
+        "sidecar/control/cost-view.js",
+        "sidecar/control/cost-http.js",
+        "sidecar/control/provider-view.js",
+        "sidecar/control/provider-http.js",
+        "sidecar/index.js",
+        "frontend/app/controlmode.js",
+        "frontend/app/controlagents.js",
+        "frontend/app/controlmemory.js",
+        "frontend/app/controlapprovals.js",
+        "frontend/app/controlactions.js",
+        "frontend/app/controlcosts.js",
+        "frontend/app/controlproviders.js",
+        "website/app/app/controlmode.js",
+        "website/app/app/controlagents.js",
+        "website/app/app/controlmemory.js",
+        "website/app/app/controlapprovals.js",
+        "website/app/app/controlactions.js",
+        "website/app/app/controlcosts.js",
+        "website/app/app/controlproviders.js"
+      ],
+      "tests": [
+        "test/control-mode-surface-contract.test.js",
+        "test/control-mode-schema-contract.test.js",
+        "test/control-mode-lifecycle-contract.test.js",
+        "test/control-mode-http-failure-contract.test.js",
+        "test/control-mode-e2e-contract.test.js",
+        "test/control-mode-accessibility-contract.test.js",
+        "test/control-agent-ui-contract.test.js",
+        "test/control-memory-ui-contract.test.js",
+        "test/control-approval-ui-contract.test.js",
+        "test/control-action-ui-contract.test.js",
+        "test/control-cost-ui-contract.test.js",
+        "test/control-provider-ui-contract.test.js"
+      ],
+      "integrationEvidence": [
+        "six dedicated Control Mode projections are wired as GET/HEAD-only surfaces against existing authoritative runtime stores",
+        "aggregate E2E, schema, lifecycle and HTTP-failure contracts verify fail-closed behavior instead of fabricated empty state",
+        "desktop and website surfaces are byte-mirrored and the accessibility contract verifies dialog focus restoration, keyboard drilldown and semantic section labels",
+        "provider signals combine only registry metadata and observed rate-limit evidence; health, credential validity, uptime, latency, success rate and health scores are never inferred"
+      ],
+      "notes": "The verified v1 boundary is intentionally observe-only. Agents, memory provenance, approvals, action trace, costs and provider signals expose evidence-backed state without adding mutation controls or parallel truth stores."
     },
     {
       "id": "release.derivative-signing",
