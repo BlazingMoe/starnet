@@ -56,6 +56,11 @@
     return Object.assign({ id: id, agentId: id, role: fallbackRole || 'specialist' }, raw || {});
   }
 
+  function reportStage(ctx, stage, patch) {
+    if (!ctx || typeof ctx.reportManagedTaskStage !== 'function') return;
+    try { ctx.reportManagedTaskStage(stage, patch || {}); } catch (_) {}
+  }
+
   function makeManagedOrchestrationTool(deps) {
     deps = deps || {};
     const dispatchTool = deps.dispatchTool;
@@ -103,6 +108,7 @@
       },
       run: async (args, ctx) => {
         args = args || {}; ctx = ctx || {};
+        reportStage(ctx, 'contract');
         const leadId = String(ctx.agentId || '');
         const workerId = String(args.agentId || '');
         const roster = rosterFn() || new Map();
@@ -130,6 +136,7 @@
         const maxRevisions = Math.max(0, Math.min(3, Number.isFinite(Number(args.maxRevisions)) ? Math.floor(Number(args.maxRevisions)) : 1));
 
         async function runWorker(prompt, context) {
+          reportStage(ctx, 'dispatch');
           const d = await dispatchOne({ agentId: workerId, prompt, context, resultSchema: RESULT_ENVELOPE_SCHEMA }, ctx);
           if (!d.ok) return d;
           const env = parseEnvelope(d.row);
@@ -142,10 +149,12 @@
         if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'dispatch', error: current.error, attempts: 1 }), summary: 'managed dispatch failed' };
 
         while (attempt < maxRevisions) {
+          reportStage(ctx, 'formal-review');
           const formal = reviewGate.review(contract, current.envelope, { spentUsd: current.row.usd, completedAt: completedAt() });
           if (formal && formal.accepted) break;
           const brief = reviewGate.revisionBrief(formal);
           attempt++;
+          reportStage(ctx, 'revision');
           const revisionPrompt = contract.objective + '\n\n' + brief + '\n\nReturn a COMPLETE replacement result envelope for taskId ' + contract.id + ', not a patch or commentary.';
           current = await runWorker(revisionPrompt, prepared.value.context);
           if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'revision', error: current.error, attempts: attempt + 1 }), summary: 'managed revision failed' };
@@ -153,6 +162,7 @@
 
         const requireAudit = args.requireAudit === true;
         let auditorId = String(args.auditorAgentId || '');
+        if (requireAudit) reportStage(ctx, 'audit', { auditorAgentId: auditorId });
         if (requireAudit && (!auditorId || !roster.has(auditorId))) {
           return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'required auditor is not in the live roster', taskId: contract.id }), summary: 'auditor unavailable' };
         }
@@ -161,6 +171,7 @@
         }
 
         const runAuditor = requireAudit ? async (auditReq) => {
+          reportStage(ctx, 'audit', { auditorAgentId: auditorId });
           const d = await dispatchOne({ agentId: auditorId, prompt: auditReq.prompt, resultSchema: auditReq.resultSchema }, ctx);
           if (!d.ok) throw new Error(d.error || 'auditor dispatch failed');
           let value;
@@ -168,6 +179,7 @@
           return value;
         } : null;
 
+        reportStage(ctx, 'formal-review');
         const quality = await qualityPipeline.evaluate({
           contract,
           envelope: current.envelope,
@@ -177,10 +189,14 @@
           runAuditor
         });
 
+        const finalStage = quality.accepted ? 'accepted' : quality.stage;
+        reportStage(ctx, finalStage, requireAudit ? { auditorAgentId: auditorId } : null);
+
         return {
           content: JSON.stringify({
             accepted: !!quality.accepted,
-            stage: quality.stage,
+            stage: finalStage,
+            qualityStage: quality.stage,
             action: quality.action,
             taskId: contract.id,
             workerAgentId: workerId,
