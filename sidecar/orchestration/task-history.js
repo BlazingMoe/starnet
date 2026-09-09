@@ -36,6 +36,8 @@ function sanitize(entry, now) {
     usd: Math.max(0, num(entry.usd)),
     findings: list(entry.findings, 50, 500),
     riskFlags: list(entry.riskFlags, 50, 120),
+    reason: str(entry.reason, 120),
+    error: str(entry.error, 1000),
     acceptanceCriteria: list(entry.acceptanceCriteria, 50, 500),
     artifacts: list(entry.artifacts, 50, 500),
     sources: list(entry.sources, 100, 1000),
