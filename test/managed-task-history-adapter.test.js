@@ -38,7 +38,7 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
       ctx.reportManagedTaskStage('formal-review');
       ctx.reportManagedTaskStage('audit', { auditorAgentId: 'auditor' });
       ctx.reportManagedTaskStage('accepted');
-      return { content: JSON.stringify({ accepted: true, stage: 'accepted', taskId: 't2', workerAgentId: 'worker', auditorAgentId: 'auditor', attempts: 1, usd: 0.2, result: { artifacts: [], sources: ['s1'] } }) };
+      return { content: JSON.stringify({ accepted: true, stage: 'accepted', taskId: 't2', workerAgentId: 'worker', auditorAgentId: 'auditor', attempts: 1, usd: 0.25, workerUsd: 0.2, auditUsd: 0.05, budgetUsd: 0.5, result: { artifacts: [], sources: ['s1'] } }) };
     }
   };
   const wrapped = attachTaskHistory(base, store, clock);
@@ -47,6 +47,10 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   A.eq(records.length, 1, 'one managed call creates one history row');
   A.eq(records[0].status, 'accepted', 'successful managed call is persisted as accepted');
   A.eq(records[0].stage, 'accepted', 'terminal accepted stage is durable history');
+  A.eq(records[0].usd, 0.25, 'history adapter persists total managed spend');
+  A.eq(records[0].workerUsd, 0.2, 'history adapter persists cumulative worker spend');
+  A.eq(records[0].auditUsd, 0.05, 'history adapter persists audit spend');
+  A.eq(records[0].budgetUsd, 0.5, 'history adapter persists the task budget for comparison');
   A.eq(liveEvents.map(x => x.type), ['begin', 'update', 'update', 'update', 'end'], 'live lifecycle wraps execution and forwards every stage transition');
   A.eq(liveEvents.filter(x => x.type === 'update').map(x => x.patch.stage), ['formal-review', 'audit', 'accepted'], 'live tracker receives normalized managed lifecycle stages');
   A.eq(liveEvents.find(x => x.type === 'update' && x.patch.stage === 'audit').patch.auditorAgentId, 'auditor', 'audit stage forwards authoritative auditor identity');
@@ -69,7 +73,10 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
       taskId: 't-diagnostic',
       workerAgentId: 'worker',
       attempts: 1,
-      usd: 0.12
+      usd: 0.12,
+      workerUsd: 0.12,
+      auditUsd: 0,
+      budgetUsd: 0.1
     }) })
   };
   const diagnostic = attachTaskHistory(diagnosticBase, store, clock);
@@ -77,6 +84,8 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   A.eq(records[2].reason, 'timeout', 'history adapter preserves machine-readable managed failure reason');
   A.eq(records[2].error, 'worker exceeded managed wall clock', 'history adapter preserves bounded diagnostic text');
   A.eq(records[2].usd, 0.12, 'history adapter preserves billed spend on failed managed work');
+  A.eq(records[2].workerUsd, 0.12, 'failed managed work keeps worker spend breakdown');
+  A.eq(records[2].budgetUsd, 0.1, 'failed managed work keeps the task budget that was exceeded');
 
   const failOpenRecords = [];
   const failOpen = attachTaskHistory({
