@@ -33,6 +33,9 @@ const catalog = require('../sidecar/mcp/catalog.js');
     reply_draft: { messageId: 'message-1', bodyText: 'Thanks\nConfirmed' },
     create_draft: { raw: Buffer.from('To: test@example.invalid\r\nSubject: Test\r\n\r\nHello').toString('base64url') }, send_draft: { draftId: 'draft-1' },
     list_files: { query: "name contains 'test'" }, get_file: { fileId: 'file-1' }, export_file: { fileId: 'file-1', mimeType: 'text/plain' },
+    download_text_file: { fileId: 'file-1' },
+    create_text_file: { name: 'pipeline.csv', content: 'company,stage\nAcme,qualified', mimeType: 'text/csv', parentId: 'folder-1' },
+    write_text_file: { fileId: 'file-1', content: 'company,stage\nAcme,replied', mimeType: 'text/csv' },
     create_file: { metadata: { name: 'Test' } }, update_file: { fileId: 'file-1', metadata: { name: 'Updated' } },
     list_calendars: {}, list_events: {}, get_event: { eventId: 'event-1' }, free_busy: { timeMin: '2026-09-06T00:00:00Z', timeMax: '2026-09-07T00:00:00Z', calendarIds: ['primary'] },
     create_event: { event: { summary: 'Test event', start: { dateTime: '2026-09-10T14:00:00+02:00' }, end: { dateTime: '2026-09-10T15:00:00+02:00' } }, sendUpdates: 'none' },
@@ -75,7 +78,11 @@ const catalog = require('../sidecar/mcp/catalog.js');
       const response = await client.callTool(def.name, args);
       const toolCalls = calls.slice(beforeCall);
       assert.equal(response.isError, false);
-      assert.ok(calls.at(-1).target.startsWith(url));
+      if (product === 'google-drive' && (def.name === 'create_text_file' || def.name === 'write_text_file')) {
+        assert.ok(calls.at(-1).target.startsWith('https://www.googleapis.com/upload/drive/v3/'), def.name + ' uses the Drive upload endpoint');
+      } else {
+        assert.ok(calls.at(-1).target.startsWith(url));
+      }
       if (def.name === 'write_values') assert.equal(new URL(calls.at(-1).target).searchParams.get('valueInputOption'), 'RAW');
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
       if (def.name === 'compose_draft') {
@@ -108,6 +115,32 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.match(mime, /References: <root-message@example\.invalid> <source-message@example\.invalid>\r\n/);
         assert.ok(mime.endsWith('\r\n\r\nThanks\r\nConfirmed'));
         assert.ok(!/Cc:|Bcc:/.test(mime), 'reply_draft is sender-only and cannot silently reply-all');
+      }
+      if (def.name === 'download_text_file') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'GET');
+        assert.equal(new URL(toolCalls[0].target).searchParams.get('alt'), 'media');
+      }
+      if (def.name === 'create_text_file') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'POST');
+        const u = new URL(toolCalls[0].target);
+        assert.equal(u.pathname, '/upload/drive/v3/files');
+        assert.equal(u.searchParams.get('uploadType'), 'multipart');
+        assert.match(toolCalls[0].opts.headers['Content-Type'], /^multipart\/related; boundary=starnet_drive_/);
+        assert.match(toolCalls[0].opts.body, /"name":"pipeline\.csv"/);
+        assert.match(toolCalls[0].opts.body, /"parents":\["folder-1"\]/);
+        assert.match(toolCalls[0].opts.body, /Content-Type: text\/csv/);
+        assert.match(toolCalls[0].opts.body, /company,stage\r\nAcme,qualified/);
+      }
+      if (def.name === 'write_text_file') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'PATCH');
+        const u = new URL(toolCalls[0].target);
+        assert.equal(u.pathname, '/upload/drive/v3/files/file-1');
+        assert.equal(u.searchParams.get('uploadType'), 'media');
+        assert.equal(toolCalls[0].opts.headers['Content-Type'], 'text/csv');
+        assert.equal(toolCalls[0].opts.body, 'company,stage\nAcme,replied');
       }
       if (def.name === 'create_event') {
         assert.equal(toolCalls.length, 1);
@@ -149,6 +182,21 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(calls.length, before, 'invalid tools never reach the network');
     client.close();
   }
+  {
+    const driveWrites = new Set(['create_text_file', 'write_text_file', 'create_file', 'update_file']);
+    for (const raw of TOOLS['google-drive']) {
+      const projected = makeMcpToolDef({
+        connectorId: 'google-drive',
+        label: 'Google Drive',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains consent-gated at the host boundary');
+      assert.equal(projected.scope, driveWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows Drive side-effect classification');
+      assert.equal(projected.readOnly, !driveWrites.has(raw.name), raw.name + ' read-only projection matches Drive side effects');
+    }
+  }
+
   {
     const gmailWrites = new Set(['compose_draft', 'reply_draft', 'create_draft', 'send_draft']);
     for (const raw of TOOLS.gmail) {
