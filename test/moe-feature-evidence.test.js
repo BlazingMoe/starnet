@@ -9,7 +9,15 @@ const ledger = JSON.parse(fs.readFileSync(file, 'utf8'));
 A.eq(ledger.schemaVersion, 'moe.feature-evidence.v1', 'known evidence ledger schema');
 A.ok(Array.isArray(ledger.features) && ledger.features.length > 0, 'feature evidence ledger is non-empty');
 
-const validStatus = new Set(['planned', 'partial', 'implemented', 'verified', 'blocked']);
+const validStatus = new Set([
+  'planned',
+  'partial',
+  'implemented',
+  'verified',
+  'blocked',
+  'design-boundary',
+  'out-of-scope-private-use'
+]);
 const seen = new Set();
 for (const f of ledger.features) {
   A.ok(f && typeof f === 'object', 'feature row is an object');
@@ -30,6 +38,14 @@ for (const f of ledger.features) {
   }
   if (f.status === 'verified') {
     A.ok(f.integrationEvidence.length > 0, 'verified feature has integration evidence: ' + f.id);
+  }
+
+  if (f.status === 'design-boundary') {
+    A.ok(f.integrationEvidence.length > 0, 'design boundary records the architectural evidence it preserves: ' + f.id);
+  }
+
+  if (f.status === 'out-of-scope-private-use') {
+    A.ok(ledger.usageTarget === 'private-starnet-fork', 'private-use exclusions are only valid for the private fork target: ' + f.id);
   }
 }
 
