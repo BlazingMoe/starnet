@@ -159,8 +159,19 @@
     new MutationObserver(() => { if (isOpen()) start(); else stop(); }).observe(panel, { attributes:true, attributeFilter:['hidden'] });
     if (isOpen()) start();
   }
+  function loadProviderPane() {
+    if (window.ControlModeProviders) return;
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    if (document.getElementById('mo-control-mode-providers')) return;
+    const script = document.createElement('script');
+    script.id = 'mo-control-mode-providers';
+    script.src = 'app/controlproviders.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 
   installStyle();
   watchPanel();
+  loadProviderPane();
   window.ControlModeCosts = Object.freeze({ refresh, endpoint: ENDPOINT, host: () => ensureHost() });
 })();
