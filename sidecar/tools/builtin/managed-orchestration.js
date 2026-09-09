@@ -77,10 +77,18 @@
     async function dispatchOne(worker, ctx) {
       const out = await dispatchTool.run({ workers: [worker], parallel: false, background: false }, ctx);
       const parsed = parseRows(out);
-      if (!parsed.ok) return { ok: false, error: parsed.error, raw: out };
+      if (!parsed.ok) return { ok: false, reason: 'invalid-dispatch-response', error: parsed.error, raw: out, usd: 0 };
       const row = parsed.rows[0];
-      if (!row || row.reason === 'error' || row.reason === 'not-dispatched') {
-        return { ok: false, error: String((row && row.result) || 'worker dispatch failed'), row };
+      if (!row) return { ok: false, reason: 'missing-dispatch-row', error: 'worker dispatch returned no row', row: null, usd: 0 };
+      const reason = String(row.reason || 'unknown');
+      if (reason !== 'done') {
+        return {
+          ok: false,
+          reason,
+          error: String(row.result || ('worker dispatch ended with reason ' + reason)),
+          row,
+          usd: Math.max(0, Number(row.usd || 0))
+        };
       }
       return { ok: true, row };
     }
@@ -140,13 +148,27 @@
           const d = await dispatchOne({ agentId: workerId, prompt, context, resultSchema: RESULT_ENVELOPE_SCHEMA }, ctx);
           if (!d.ok) return d;
           const env = parseEnvelope(d.row);
-          if (!env.ok) return { ok: false, error: env.error, row: d.row };
+          if (!env.ok) return { ok: false, reason: 'invalid-result-envelope', error: env.error, row: d.row, usd: Math.max(0, Number(d.row.usd || 0)) };
           return { ok: true, row: d.row, envelope: env.value };
         }
 
         let attempt = 0;
         let current = await runWorker(prepared.value.prompt, prepared.value.context);
-        if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'dispatch', error: current.error, attempts: 1 }), summary: 'managed dispatch failed' };
+        if (!current.ok) {
+          return {
+            content: JSON.stringify({
+              accepted: false,
+              stage: 'dispatch',
+              reason: current.reason || 'dispatch-failed',
+              error: current.error,
+              taskId: contract.id,
+              workerAgentId: workerId,
+              attempts: 1,
+              usd: Math.max(0, Number(current.usd || (current.row && current.row.usd) || 0))
+            }),
+            summary: 'managed dispatch failed'
+          };
+        }
 
         while (true) {
           reportStage(ctx, 'formal-review');
@@ -157,7 +179,21 @@
           reportStage(ctx, 'revision');
           const revisionPrompt = contract.objective + '\n\n' + brief + '\n\nReturn a COMPLETE replacement result envelope for taskId ' + contract.id + ', not a patch or commentary.';
           current = await runWorker(revisionPrompt, prepared.value.context);
-          if (!current.ok) return { content: JSON.stringify({ accepted: false, stage: 'revision', error: current.error, attempts: attempt + 1 }), summary: 'managed revision failed' };
+          if (!current.ok) {
+            return {
+              content: JSON.stringify({
+                accepted: false,
+                stage: 'revision',
+                reason: current.reason || 'revision-dispatch-failed',
+                error: current.error,
+                taskId: contract.id,
+                workerAgentId: workerId,
+                attempts: attempt + 1,
+                usd: Math.max(0, Number(current.usd || (current.row && current.row.usd) || 0))
+              }),
+              summary: 'managed revision failed'
+            };
+          }
         }
 
         const requireAudit = args.requireAudit === true;
@@ -171,12 +207,20 @@
           return { content: JSON.stringify({ accepted: false, stage: 'audit', error: 'auditor must be independent from lead and worker', taskId: contract.id }), summary: 'auditor invalid' };
         }
 
+        let auditDispatchReason = '';
         const runAuditor = requireAudit ? async (auditReq) => {
           reportStage(ctx, 'audit', { auditorAgentId: auditorId });
           const d = await dispatchOne({ agentId: auditorId, prompt: auditReq.prompt, resultSchema: auditReq.resultSchema }, ctx);
-          if (!d.ok) throw new Error(d.error || 'auditor dispatch failed');
+          if (!d.ok) {
+            auditDispatchReason = d.reason || 'auditor-dispatch-failed';
+            throw new Error(d.error || 'auditor dispatch failed');
+          }
           let value;
-          try { value = JSON.parse(String(d.row.result || '')); } catch (e) { throw new Error('auditor returned invalid JSON'); }
+          try { value = JSON.parse(String(d.row.result || '')); }
+          catch (e) {
+            auditDispatchReason = 'invalid-auditor-envelope';
+            throw new Error('auditor returned invalid JSON');
+          }
           return value;
         } : null;
 
@@ -210,7 +254,8 @@
             audit: quality.audit && quality.audit.ok ? quality.audit.value : null,
             findings: quality.findings || [],
             riskFlags: quality.riskFlags || [],
-            reason: quality.reason || null
+            reason: auditDispatchReason || quality.reason || null,
+            error: quality.error || null
           }),
           summary: quality.accepted ? 'managed task accepted' : ('managed task ' + (quality.action || 'rejected'))
         };
