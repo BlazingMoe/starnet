@@ -21,14 +21,16 @@ jobs:
         with:
           ref: dev/mo-ai-station
 
+      - name: Verify fail-closed patch contract
+        run: node test/control-approval-host-wiring.test.js
+
       - name: Apply fail-closed host patch
         run: node scripts/apply-approval-control-host.js
 
-      - name: Verify focused contracts
+      - name: Verify focused approval contracts
         run: |
           node test/control-approval-view.test.js
           node test/control-approval-http.test.js
-          node test/control-approval-host-wiring.test.js
 
       - name: Commit host wiring
         run: |
