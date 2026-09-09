@@ -258,6 +258,9 @@
     field(grid, 'AUDITOR', latest.auditorAgentId);
     field(grid, 'ATTEMPTS', latest.attempts == null ? '' : String(latest.attempts));
     field(grid, 'SPEND', latest.usd == null ? '' : fmtUsd(latest.usd));
+    field(grid, 'WORKER SPEND', latest.workerUsd == null ? '' : fmtUsd(latest.workerUsd));
+    field(grid, 'AUDIT SPEND', latest.auditUsd == null ? '' : fmtUsd(latest.auditUsd));
+    field(grid, 'TASK BUDGET', latest.budgetUsd == null ? '' : fmtUsd(latest.budgetUsd));
     field(grid, 'DURATION', latest.durationMs == null ? '' : fmtDuration(latest.durationMs));
     field(grid, 'COMPLETED', fmtWhen(latest.completedAt || latest.ts));
     field(grid, 'PARENT TASK', latest.parentTaskId);
