@@ -251,6 +251,8 @@
     field(grid, 'OBJECTIVE', latest.objective);
     field(grid, 'STATUS', latest.status);
     field(grid, 'STAGE', latest.stage);
+    field(grid, 'FAILURE REASON', latest.reason);
+    field(grid, 'ERROR', latest.error);
     field(grid, 'LEAD', latest.leadAgentId);
     field(grid, 'WORKER', latest.workerAgentId);
     field(grid, 'AUDITOR', latest.auditorAgentId);
