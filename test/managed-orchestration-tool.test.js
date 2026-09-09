@@ -35,33 +35,58 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(managedDispatchTool.scope, 'execute', 'managed tool is execute-scoped');
   A.eq(managedDispatchTool.requiresConsent, true, 'managed delegation remains consent-gated');
 
-  const ctx = { agentId: 'lead', runId: 'lead-run' };
+  const stages = [];
+  const ctx = {
+    agentId: 'lead',
+    runId: 'lead-run',
+    reportManagedTaskStage(stage, patch) { stages.push({ stage, patch: patch || {} }); }
+  };
   const out = await managedDispatchTool.run({ taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], requireAudit: true, auditorAgentId: 'auditor' }, ctx);
   const parsed = JSON.parse(out.content);
   A.eq(parsed.accepted, true, 'worker plus independent accepting auditor passes');
+  A.eq(parsed.stage, 'accepted', 'accepted managed task exposes a terminal accepted lifecycle stage');
+  A.eq(parsed.qualityStage, 'audit', 'accepted result preserves the quality-pipeline stage separately');
   A.eq(calls.length, 2, 'one worker run plus one independent audit run');
   A.eq(calls[0].workers[0].resultSchema.required.indexOf('acceptance') >= 0, true, 'worker is forced into strict result envelope');
   A.eq(calls[1].workers[0].agentId, 'auditor', 'audit is dispatched to distinct auditor agent');
+  A.eq(stages.map(x => x.stage), ['contract', 'dispatch', 'formal-review', 'formal-review', 'audit', 'accepted'], 'managed execution reports authoritative lifecycle transitions in order');
+  A.eq(stages.find(x => x.stage === 'audit').patch.auditorAgentId, 'auditor', 'audit lifecycle identifies the active independent auditor');
 
   calls.length = 0;
-  const sameAuditor = await managedDispatchTool.run({ taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], requireAudit: true, auditorAgentId: 'worker' }, ctx);
+  const sameAuditorStages = [];
+  const sameAuditor = await managedDispatchTool.run(
+    { taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], requireAudit: true, auditorAgentId: 'worker' },
+    { agentId: 'lead', runId: 'lead-run', reportManagedTaskStage(stage, patch) { sameAuditorStages.push({ stage, patch: patch || {} }); } }
+  );
   A.eq(JSON.parse(sameAuditor.content).accepted, false, 'worker cannot audit its own work');
   A.eq(calls.length, 1, 'self-audit is refused after worker result and before audit dispatch');
+  A.eq(sameAuditorStages.at(-1).stage, 'audit', 'invalid independent-auditor configuration fails while visibly in audit stage');
 
   calls.length = 0; workerPass = false;
-  const revised = await managedDispatchTool.run({ taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], maxRevisions: 1 }, ctx);
+  const revisionStages = [];
+  const revised = await managedDispatchTool.run(
+    { taskId: 't1', agentId: 'worker', objective: 'research x', acceptanceCriteria: ['two sources'], maxRevisions: 1 },
+    { agentId: 'lead', runId: 'lead-run', reportManagedTaskStage(stage, patch) { revisionStages.push({ stage, patch: patch || {} }); } }
+  );
   A.eq(JSON.parse(revised.content).accepted, false, 'still-failing replacement remains rejected after bounded revision');
   A.eq(calls.length, 2, 'exactly one bounded revision is attempted');
+  A.ok(revisionStages.map(x => x.stage).includes('revision'), 'bounded repair is exposed as a live revision stage');
+  A.eq(revisionStages.at(-1).stage, 'formal', 'terminal rejection preserves the quality-pipeline formal stage');
 
   const upwardRoster = new Map([
     ['lead', { role: 'specialist', orgRole: 'worker' }],
     ['manager', { role: 'specialist', orgRole: 'manager' }]
   ]);
   const { managedDispatchTool: upward } = makeManagedOrchestrationTool({ dispatchTool, roster: () => upwardRoster, clock });
-  const denied = await upward.run({ taskId: 't2', agentId: 'manager', objective: 'manage me' }, { agentId: 'lead' });
+  const deniedStages = [];
+  const denied = await upward.run(
+    { taskId: 't2', agentId: 'manager', objective: 'manage me' },
+    { agentId: 'lead', reportManagedTaskStage(stage) { deniedStages.push(stage); } }
+  );
   const deniedParsed = JSON.parse(denied.content);
   A.eq(deniedParsed.accepted, false, 'upward delegation is rejected before inherited dispatch');
   A.eq(deniedParsed.stage, 'contract', 'hierarchy refusal is a contract-stage failure');
+  A.eq(deniedStages, ['contract'], 'contract rejection never claims a later runtime stage');
 
   A.report('managed-orchestration-tool.test');
 })().catch(e => { console.error(e); process.exit(1); });
