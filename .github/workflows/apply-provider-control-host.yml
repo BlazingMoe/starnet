@@ -7,6 +7,8 @@ on:
     paths:
       - scripts/apply-provider-control-host.js
       - test/control-provider-host-wiring.test.js
+      - test/control-provider-view.test.js
+      - test/control-provider-http.test.js
       - .github/workflows/apply-provider-control-host.yml
 
 permissions:
