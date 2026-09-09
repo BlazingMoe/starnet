@@ -23,19 +23,32 @@
     {
       "id": "orchestration.org-roles",
       "name": "Commander/Manager/Specialist/Worker organizational roles",
-      "status": "implemented",
+      "status": "verified",
       "code": [
         "sidecar/orchestration/org-role.js",
-        "sidecar/orchestration/role-policy.js"
+        "sidecar/orchestration/role-policy.js",
+        "shared/org-specialties.js",
+        "frontend/app/specialties.js",
+        "frontend/app/app.js",
+        "sidecar/tools/builtin/orchestration-core.js",
+        "sidecar/index.js"
       ],
       "tests": [
         "test/org-role.test.js",
-        "test/orchestration-role-policy.test.js"
+        "test/orchestration-role-policy.test.js",
+        "test/org-specialties.test.js",
+        "test/specialties.test.js",
+        "test/class-loadouts.test.js",
+        "test/org-roster-frontend-contract.test.js",
+        "test/control-agent-roster-e2e.test.js"
       ],
       "integrationEvidence": [
-        "organizational role policy is consumed by managed delegation adapter"
+        "real Recruitment Bay classes resolve through the shared org-specialties catalog so Team Lead maps to manager and bounded collector/tester/writer classes map to worker",
+        "team.summon receives the same shared organizational class metadata and explicitly states that role metadata does not grant capabilities",
+        "browser summon persistence writes orgRole and the requesting agent as explicit parentAgentId; Control Mode reads the same durable roster after restart",
+        "Moe AI Station CI, eval-gates, fast-gate and secret-history passed on the integrated role-aware branch"
       ],
-      "notes": "Legacy orchestrator/specialist runtime roles remain for compatibility."
+      "notes": "Commander/Manager/Specialist/Worker are first-class organizational metadata layered over legacy orchestrator/specialist runtime roles. Hierarchy never grants tools or approvals; capability and consent gates remain authoritative."
     },
     {
       "id": "orchestration.managed-delegation",
