@@ -57,8 +57,8 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Tools | Web research | Partial | Browser/network/provider primitives | Dedicated research toolchain with source ranking/citations | P1 |
 | Tools | Python/code execution | Partial | Shell/notebook primitives | Managed runtimes, artifacts, dependency policy | P1 |
 | Tools | GitHub | Partial | MCP/external integrations possible | First-class repo/issues/PR/CI agent integration | P1 |
-| Tools | Gmail | Missing | MCP/channel primitives | Read/search/draft/send with per-action permission scopes | P2 |
-| Tools | Calendar | Missing | MCP/external primitives | Search/free-busy/create/update/respond permissions | P2 |
+| Tools | Gmail | Existing/Partial | Local Google stable-API connector: search, message/thread/attachment read, draft creation and approved draft send | Real-account acceptance/reconnect evidence when the private operator OAuth registration is configured | P2 |
+| Tools | Calendar | Existing/Partial | Local Google Calendar stable-API connector: calendars/events/free-busy plus create/patch/delete/RSVP | Real-account acceptance/reconnect evidence when the private operator OAuth registration is configured | P2 |
 | Tools | Documents/PDFs | Partial | Files/tools | Parse/create/edit/export/document provenance | P2 |
 | Tools | Spreadsheets/data | Partial | Files/notebook | Table operations, formulas, charts, validation | P2 |
 | Tools | Images | Existing/Partial | Image tool | Generation/editing pipeline plus asset provenance | P2 |
@@ -72,8 +72,8 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Workflow | Conditions/branches | Partial | Existing filters/routing | Typed conditions and deterministic branch traces | P1 |
 | Workflow | Split/join parallelism | Existing/Partial | Splitter/joiner concepts | Failure policy, quorum and aggregation strategies | P1 |
 | Workflow | Loops | Existing/Partial | Controlled loop concepts | Iteration budgets, convergence checks, escape conditions | P0 |
-| Workflow | Retries/timeouts | Partial | Runtime/tool error handling | Central retry policy, backoff, idempotency metadata | P0 |
-| Workflow | Model fallback | Partial | Multi-provider layer | Policy-based fallback by error/cost/quality/context | P1 |
+| Workflow | Retries/timeouts | Existing/Partial | Central `recovery-policy.js`, bounded provider retry/fallback/compression and transient host-read retry | Extend idempotency metadata and workflow-specific retry policy without retrying mutations blindly | P0 |
+| Workflow | Model fallback | Existing/Partial | Central provider-failure policy plus existing multi-provider fallback/credential rotation paths | Broaden cost/quality/context-aware routing policy | P1 |
 | Workflow | Human approvals | Existing/Partial | Permission system + verified read-only Approval Center | Future mutation UX only with existing consent/grant stores as authority | P0 |
 | Workflow | Recipes/templates | Existing | Recipes/workstreams | Versioning, parameters, marketplace/local catalog | P1 |
 | Scheduling | Cron/schedules | Existing | Sidecar cron/scheduling | UI scheduler, timezone handling, missed-run policy | P1 |
@@ -82,7 +82,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Autonomy | Assist mode | Partial | Existing trust/capability model | Research/plan without side effects | P0 |
 | Autonomy | Execute mode | Partial | Permissions/tools | Allowed actions without per-step confirmation | P0 |
 | Autonomy | Autonomous mode | Existing/Partial | Delegation/night-shift primitives | Goal decomposition, budgets, checkpoints, escalation | P1 |
-| Autonomy | Night Shift | Existing/Partial | Night-shift/autonomy features | Durable queues, checkpoint recovery, morning report | P1 |
+| Autonomy | Night Shift | Existing/Partial | Server night-shift driver, persisted leash accounting, readiness precheck, E-STOP abort and decision/outcome ledger | Continue unattended workflow breadth, checkpoint recovery and operator digest polish | P1 |
 | Safety | Emergency stop | Existing | Halt/E-STOP subsystem | Global and scoped stop, durable kill state, UI visibility | P0 |
 | Safety | Permission grants | Existing | `permissions.js`, `permgrants.js` | Capability + resource + action + duration scopes | P0 |
 | Safety | API authentication | Existing | `apiauth.js` | Threat-model audit, local bind defaults, token rotation | P0 |
@@ -167,7 +167,7 @@ Read-only v1 is implemented and verification-backed:
 
 Still open beyond the verified internal v1 boundary:
 
-1. First-class GitHub, email and calendar product integrations.
+1. First-class GitHub product integration and real-account acceptance evidence for the implemented Google Workspace connectors.
 2. Documents/PDF/spreadsheet/data workflow expansion.
 3. Webhook/event triggers and additional communication channels.
 4. Plugin SDK and MCP management expansion.
