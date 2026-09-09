@@ -89,6 +89,7 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(budgetTerminal.reason, 'task-budget-exceeded', 'budget rejection has a machine-readable reason');
   A.eq(budgetTerminal.action, 'reject', 'spent budget is terminal instead of requesting a cost-increasing revision');
   A.eq(budgetTerminal.usd, 0.2, 'budget rejection reports the actual first-attempt spend');
+  A.eq(budgetTerminal.budgetExceeded, true, 'worker budget overrun is explicit in the managed result');
   A.eq(calls.length, 1, 'already-exceeded budget prevents all further managed revisions');
 
   calls.length = 0;
@@ -102,6 +103,7 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(auditBudget.usd, 0.25, 'post-audit budget check uses worker plus auditor spend');
   A.eq(auditBudget.workerUsd, 0.2, 'post-audit result retains worker spend separately');
   A.eq(auditBudget.auditUsd, 0.05, 'post-audit result retains audit spend separately');
+  A.eq(auditBudget.budgetExceeded, true, 'audit-caused budget overrun is explicit in the managed result');
   A.eq(calls.length, 2, 'budget that is still available after worker review permits exactly the requested audit');
 
   const infrastructureReasons = ['timeout', 'refused', 'not-dispatched', 'error'];
@@ -160,6 +162,9 @@ function workerEnvelope(taskId, agentId, pass) {
   A.eq(auditFailure.stage, 'audit', 'auditor infrastructure failure remains an audit-stage failure');
   A.eq(auditFailure.reason, 'timeout', 'auditor dispatch timeout survives quality-pipeline wrapping');
   A.ok(String(auditFailure.error).includes('auditor exceeded wall clock'), 'auditor timeout keeps inherited diagnostic text');
+  A.eq(auditFailure.usd, 0.23, 'failed audit still contributes its billed cost to managed spend');
+  A.eq(auditFailure.workerUsd, 0.2, 'failed audit result preserves worker spend');
+  A.eq(auditFailure.auditUsd, 0.03, 'failed audit result preserves billed auditor spend');
   A.eq(auditFailureCalls, 2, 'auditor failure does not trigger an unbounded retry loop');
 
   const upwardRoster = new Map([
