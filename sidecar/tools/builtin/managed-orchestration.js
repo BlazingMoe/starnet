@@ -176,8 +176,8 @@
           };
         }
 
-        async function runWorker(prompt, context) {
-          reportStage(ctx, 'dispatch');
+        async function runWorker(prompt, context, stage) {
+          reportStage(ctx, stage || 'dispatch');
           const d = await dispatchOne({ agentId: workerId, prompt, context, resultSchema: RESULT_ENVELOPE_SCHEMA }, ctx);
           if (!d.ok) return d;
           const env = parseEnvelope(d.row);
@@ -194,7 +194,7 @@
         }
 
         let attempt = 0;
-        let current = await runWorker(prepared.value.prompt, prepared.value.context);
+        let current = await runWorker(prepared.value.prompt, prepared.value.context, 'dispatch');
         workerUsd += money(current.usd);
 
         if (!current.ok) {
@@ -225,9 +225,8 @@
 
           const brief = reviewGate.revisionBrief(formal);
           attempt++;
-          reportStage(ctx, 'revision');
           const revisionPrompt = contract.objective + '\n\n' + brief + '\n\nReturn a COMPLETE replacement result envelope for taskId ' + contract.id + ', not a patch or commentary.';
-          current = await runWorker(revisionPrompt, prepared.value.context);
+          current = await runWorker(revisionPrompt, prepared.value.context, 'revision');
           workerUsd += money(current.usd);
 
           if (!current.ok) {
