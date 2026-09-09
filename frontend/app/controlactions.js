@@ -118,8 +118,19 @@
     new MutationObserver(() => { if (isOpen()) start(); else stop(); }).observe(panel, { attributes:true, attributeFilter:['hidden'] });
     if (isOpen()) start();
   }
+  function loadCostPane() {
+    if (window.ControlModeCosts) return;
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    if (document.getElementById('mo-control-mode-costs')) return;
+    const script = document.createElement('script');
+    script.id = 'mo-control-mode-costs';
+    script.src = 'app/controlcosts.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
 
   installStyle();
   watchPanel();
+  loadCostPane();
   window.ControlModeActions = Object.freeze({ refresh, endpoint: ENDPOINT, host: () => ensureHost() });
 })();
