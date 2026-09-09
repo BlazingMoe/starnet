@@ -28,6 +28,7 @@ jobs:
       - name: Derivative verification contract
         run: |
           node test/moe-feature-evidence.test.js
+          node test/moe-claims-evidence-alignment.test.js
 
       - name: Derivative orchestration contracts
         run: |
