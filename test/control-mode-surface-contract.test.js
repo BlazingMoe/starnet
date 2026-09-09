@@ -40,7 +40,7 @@ A.ok(index.includes("{ m: 'GET', exact: '/api/control/providers'"), 'provider pr
 A.ok(index.includes('recoverPage: (options) => runJournal.recoverPage(options)'), 'action surface keeps durable runJournal as its only host source');
 A.ok(!/actionTrace\s*=\s*new (?:Map|Set)/.test(index), 'host does not introduce a parallel action trace store');
 A.ok(!/controlActions\s*=\s*new (?:Map|Set)/.test(index), 'host does not introduce a parallel Control Mode action store');
-A.ok(index.includes('profiles: () => listProviderProfiles()'), 'provider surface reads registry profiles directly');
+A.ok(index.includes("profiles: () => require('./providers/registry.js').listProviderProfiles()"), 'provider surface reads registry profiles directly');
 A.ok(index.includes('rateLimits: () => rateLimits.snapshot()'), 'provider surface reads the existing rate-limit store directly');
 A.ok(!/providerHealth\s*=\s*new (?:Map|Set)/.test(index), 'host does not introduce a parallel provider health store');
 A.ok(!/controlProviders\s*=\s*new (?:Map|Set)/.test(index), 'host does not introduce a parallel Control Mode provider store');
