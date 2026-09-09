@@ -76,7 +76,8 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
       usd: 0.12,
       workerUsd: 0.12,
       auditUsd: 0,
-      budgetUsd: 0.1
+      budgetUsd: 0.1,
+      budgetExceeded: true
     }) })
   };
   const diagnostic = attachTaskHistory(diagnosticBase, store, clock);
@@ -86,6 +87,7 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   A.eq(records[2].usd, 0.12, 'history adapter preserves billed spend on failed managed work');
   A.eq(records[2].workerUsd, 0.12, 'failed managed work keeps worker spend breakdown');
   A.eq(records[2].budgetUsd, 0.1, 'failed managed work keeps the task budget that was exceeded');
+  A.eq(records[2].budgetExceeded, true, 'history adapter preserves verified budget-overrun state');
 
   const failOpenRecords = [];
   const failOpen = attachTaskHistory({
