@@ -57,6 +57,9 @@ jobs:
           node test/control-agent-host-wiring.test.js
           node test/control-agent-roster-e2e.test.js
           node test/org-roster-frontend-contract.test.js
+          node test/control-memory-view.test.js
+          node test/control-memory-http.test.js
+          node test/control-memory-host-wiring.test.js
           node test/control-agent-ui-contract.test.js
           node test/org-specialties.test.js
 

@@ -297,6 +297,7 @@ const { makeLspManager } = require('./lsp-manager.js');             // lazy inst
 const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js');   // Stage 2: team.dispatch (lead->worker delegation)
 const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
+const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -9028,6 +9029,18 @@ const agentControlHttp = makeAgentControlHttp({
   statusByAgent: agentRuntimeStatus,
   respondJson
 });
+const memoryControlHttp = makeMemoryControlHttp({
+  roster: () => agentRoster,
+  recordsForAgent: (agentId) => {
+    const read = notebookStore.readKey('notebook:' + agentId);
+    const bad = storeFailure(read);
+    if (bad) throw new Error(String(bad.error || 'memory store unavailable'));
+    const raw = read.value;
+    const nowMs = Date.now();
+    return Array.isArray(raw) ? raw.map(r => memcore.projectRecord(r, nowMs)) : [];
+  },
+  respondJson
+});
 
 const ROUTES = [
   { m: 'GET', qsplit: '/api/groups', h: handleGroups },
@@ -9361,6 +9374,7 @@ const ROUTES = [
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
   { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
   { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
+  { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions
