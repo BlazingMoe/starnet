@@ -81,7 +81,7 @@
   function render(body) {
     const root = ensureHost(); if (!root) return;
     root.replaceChildren();
-    const overview = body && body.ok && body.overview ? body.overview : null;
+    const overview = body && body.ok && body.overview && body.overview.schemaVersion === 'moe.control-memory.v1' ? body.overview : null;
     const head = make('div', 'cm-memory-head');
     head.append(
       make('div', 'cm-memory-title', 'MEMORY / PROVENANCE'),
