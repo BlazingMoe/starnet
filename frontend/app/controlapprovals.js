@@ -71,18 +71,19 @@
   function render(body) {
     const root = ensureHost(); if (!root) return;
     root.replaceChildren();
-    const ok = body && body.ok !== false && body.schemaVersion === 'moe.control-approvals.v1' && body.mode === 'read-only';
-    header(root, ok);
-    if (!ok) {
+    const overview = body && body.ok && body.overview && body.overview.schemaVersion === 'moe.control-approvals.v1' && body.overview.mode === 'read-only'
+      ? body.overview : null;
+    header(root, !!overview);
+    if (!overview) {
       root.appendChild(make('div', 'cm-approval-error', 'Approval state unavailable — no grants or prompts are inferred.'));
       return;
     }
 
-    const evidence = body.evidence || {};
+    const evidence = overview.evidence || {};
     const grid = make('div', 'cm-approval-grid');
 
     const permanent = make('section', 'cm-approval-card'); permanent.appendChild(make('h4', '', 'PERMANENT GRANTS'));
-    const standing = rows(body.permanent);
+    const standing = rows(overview.permanent);
     if (!standing.length) permanent.appendChild(make('div', 'cm-approval-empty', 'No permanent grants are recorded.'));
     else standing.forEach(grant => {
       const row = make('div', 'cm-approval-row');
@@ -91,7 +92,7 @@
     });
 
     const sessions = make('section', 'cm-approval-card'); sessions.appendChild(make('h4', '', 'SESSION GRANTS'));
-    const sessionRows = rows(body.sessions);
+    const sessionRows = rows(overview.sessions);
     if (!sessionRows.length) sessions.appendChild(make('div', 'cm-approval-empty', 'No session grants are recorded.'));
     else sessionRows.forEach(session => {
       const row = make('div', 'cm-approval-row');
@@ -100,7 +101,7 @@
     });
 
     const pending = make('section', 'cm-approval-card'); pending.appendChild(make('h4', '', 'WAITING FOR CONSENT'));
-    const pendingRows = rows(body.pending);
+    const pendingRows = rows(overview.pending);
     if (!pendingRows.length) pending.appendChild(make('div', 'cm-approval-empty', 'No consent prompts are currently waiting.'));
     else pendingRows.forEach(item => {
       const row = make('div', 'cm-approval-row');
