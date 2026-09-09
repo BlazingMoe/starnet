@@ -169,13 +169,14 @@ function driveTextMultipart(a) {
   const content = String(a.content == null ? '' : a.content);
   const parentId = a.parentId ? String(a.parentId) : '';
   if (parentId) segment(parentId);
+  const metadata = { name, mimeType: a.mimeType };
+  if (parentId) metadata.parents = [parentId];
   let hash = 2166136261;
   const seed = name + '\n' + a.mimeType + '\n' + content;
   for (let i = 0; i < seed.length; i++) { hash ^= seed.charCodeAt(i); hash = Math.imul(hash, 16777619); }
   let boundary = 'starnet_drive_' + (hash >>> 0).toString(16);
-  while (content.includes(boundary)) boundary += '_x';
-  const metadata = { name, mimeType: a.mimeType };
-  if (parentId) metadata.parents = [parentId];
+  const collisionSurface = JSON.stringify(metadata) + '\n' + content;
+  while (collisionSurface.includes(boundary)) boundary += '_x';
   const body = [
     '--' + boundary,
     'Content-Type: application/json; charset=UTF-8',
@@ -306,7 +307,20 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
         if (!def) throw new Error('Unknown Google tool');
         const args = msg.params.arguments || {}; validate(def, args);
         let value;
-        if (product === 'gmail' && def.name === 'reply_draft') {
+        if (product === 'google-drive' && def.name === 'download_text_file') {
+          const fileId = segment(args.fileId);
+          const meta = await request({
+            url: url + '/files/' + fileId,
+            method: 'GET',
+            query: { fields: 'id,name,mimeType,size' }
+          });
+          const mime = String(meta && meta.mimeType || '').toLowerCase();
+          const allowed = new Set(['text/plain', 'text/markdown', 'text/csv', 'application/json']);
+          if (!allowed.has(mime)) {
+            throw new Error('Cannot download as text: Drive file mimeType is ' + (mime || 'unknown') + '; use export_file for Google Workspace files');
+          }
+          value = await request({ url: url + '/files/' + fileId, method: 'GET', query: { alt: 'media' }, text: true });
+        } else if (product === 'gmail' && def.name === 'reply_draft') {
           const source = await request({ url: url + '/messages/' + segment(args.messageId), method: 'GET', query: { format: 'full' } });
           value = await request(replyDraftSpec(source, args.bodyText));
         } else if (product === 'google-calendar' && def.name === 'respond_event') {
