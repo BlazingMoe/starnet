@@ -43,6 +43,7 @@ const catalog = require('../sidecar/mcp/catalog.js');
     delete_event: { eventId: 'event-1', sendUpdates: 'none' },
     respond_event: { eventId: 'event-1', responseStatus: 'accepted', comment: 'Confirmed' },
     get_document: { documentId: 'document-1' }, create_document: { title: 'Test' },
+    append_text: { documentId: 'document-1', text: '\nRevenue summary\n', tabId: 'tab-1', writeControl: { requiredRevisionId: 'rev-1' } },
     get_spreadsheet: { spreadsheetId: 'sheet-1' }, read_values: { spreadsheetId: 'sheet-1', range: "'Sheet 1'!A1:B2" },
     create_spreadsheet: { title: 'Test' }, write_values: { spreadsheetId: 'sheet-1', range: 'A1', values: [['=1+1']] },
     append_values: { spreadsheetId: 'sheet-1', range: "'Pipeline'!A:H", values: [['Acme', 'qualified', 82]], valueInputOption: 'RAW', insertDataOption: 'INSERT_ROWS' }
@@ -154,6 +155,15 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.equal(u.searchParams.get('uploadType'), 'media');
         assert.equal(toolCalls[0].opts.headers['Content-Type'], 'text/csv');
         assert.equal(toolCalls[0].opts.body, 'company,stage\nAcme,replied');
+      }
+      if (product === 'google-docs' && def.name === 'append_text') {
+        assert.equal(toolCalls.length, 1);
+        assert.equal(toolCalls[0].opts.method, 'POST');
+        assert.match(new URL(toolCalls[0].target).pathname, /\/documents\/document-1:batchUpdate$/);
+        assert.deepEqual(JSON.parse(toolCalls[0].opts.body), {
+          requests: [{ insertText: { text: '\nRevenue summary\n', endOfSegmentLocation: { tabId: 'tab-1' } } }],
+          writeControl: { requiredRevisionId: 'rev-1' }
+        });
       }
       if (def.name === 'create_event') {
         assert.equal(toolCalls.length, 1);
@@ -313,6 +323,21 @@ const catalog = require('../sidecar/mcp/catalog.js');
     assert.equal(calls.length, before + 1, 'unsafe thread metadata stops after source read');
     assert.equal(calls.at(-1).opts.method, 'GET', 'missing reply metadata never creates a draft');
     client.close();
+  }
+
+  {
+    const docsWrites = new Set(['create_document', 'append_text', 'batch_update']);
+    for (const raw of TOOLS['google-docs']) {
+      const projected = makeMcpToolDef({
+        connectorId: 'google-docs',
+        label: 'Google Docs',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains consent-gated at the host boundary');
+      assert.equal(projected.scope, docsWrites.has(raw.name) ? 'execute' : 'read', raw.name + ' host scope follows Docs side-effect classification');
+      assert.equal(projected.readOnly, !docsWrites.has(raw.name), raw.name + ' read-only projection matches Docs side effects');
+    }
   }
 
   {
