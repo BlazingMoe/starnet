@@ -1,6 +1,7 @@
 {
   "schema": "moe-ai-station.product-claims.v1",
   "product": "Moe AI Station",
+  "usageTarget": "private-starnet-fork",
   "publicReleaseReady": false,
   "claims": [
     {
@@ -29,29 +30,31 @@
       "claim": "Derivative orchestration does not bypass the inherited capability, consent, permission, or E-STOP boundaries."
     },
     {
+      "id": "starnet-subsystem-reuse",
+      "status": "design-boundary",
+      "claim": "Private Moe AI Station development prefers reusing compatible StarNet runtime, tools, providers, permissions, workflows, memory, channels, MCP, UI and other proven subsystems instead of replacing them without functional need."
+    },
+    {
       "id": "upstream-update-isolation",
       "status": "verified-by-ci",
-      "claim": "The derivative does not use StarNet upstream release or update infrastructure."
+      "claim": "The private fork does not automatically consume StarNet upstream release artifacts through the detached updater path."
     },
     {
       "id": "own-signed-update-channel",
-      "status": "blocked",
-      "claim": "Public builds update through a Moe AI Station controlled and signed release channel."
+      "status": "out-of-scope-private-use",
+      "claim": "A separately signed Moe AI Station public update channel is not required for the private-use target."
     },
     {
       "id": "independent-branding",
-      "status": "blocked",
-      "claim": "Distributed builds contain no StarNet-protected name, logo, station artwork, or misleading publisher identity."
+      "status": "out-of-scope-private-use",
+      "claim": "Full independent branding is not required for the private-use target; redistribution remains outside scope."
     },
     {
       "id": "data-path-migration",
-      "status": "blocked",
-      "claim": "Existing compatible workspace/state data survives the future application identifier migration."
+      "status": "out-of-scope-private-use",
+      "claim": "A forced application-identifier/data-path migration is not required for the private-use target and should not risk existing compatible state without a functional reason."
     }
   ],
-  "releaseBlockers": [
-    "own-signed-update-channel",
-    "independent-branding",
-    "data-path-migration"
-  ]
+  "releaseBlockers": [],
+  "distributionNote": "Public redistribution is not a project goal. If that goal changes, branding, licensing, signing/update provenance and app-identity migration must be reassessed before distribution."
 }
