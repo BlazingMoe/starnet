@@ -16,7 +16,7 @@ A.eq(out.totals.meteredUsd,2.25,'unmetered subscription estimates do not count a
 A.eq(out.totals.reportedUsd,4.25,'provider-reported amount remains separately observable');
 A.eq(out.totals.unmeteredRuns,1,'unmetered runs remain visible as work');
 A.eq(out.liveUsd,.2,'live governor spend is preserved separately');
-A.eq(out.budgets.day.fraction,.245,'day pool fraction uses the governor status');
+A.ok(Math.abs(out.budgets.day.fraction - .245) < 1e-12, 'day pool fraction uses the governor status');
 A.eq(out.budgets.perRun,2,'effective per-run cap is projected');
 A.eq(out.agents.length,3,'historical deleted-agent spend is not erased by current roster');
 A.eq(out.agents.find(a=>a.agentId==='deleted').current,false,'historical agent is marked non-current');
