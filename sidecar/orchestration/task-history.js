@@ -5,7 +5,7 @@
 const { summarizeManagedTasks } = require('./task-metrics.js');
 
 const STATUS = new Set(['accepted', 'revised', 'rejected', 'dispatch_error', 'audit_error', 'contract_error']);
-const STAGE = new Set(['contract', 'dispatch', 'revision', 'formal-review', 'audit', 'accepted']);
+const STAGE = new Set(['contract', 'resume-claimed', 'dispatch', 'revision', 'formal-review', 'audit', 'accepted']);
 const MAX_ROWS = 10000;
 const DEFAULT_LIMIT = 200;
 
@@ -70,6 +70,8 @@ function sanitizeCheckpoint(entry, now) {
     requireAudit: entry.requireAudit === true,
     maxRevisions: Math.max(0, Math.min(3, Math.floor(num(entry.maxRevisions)))),
     stage: STAGE.has(entry.stage) ? entry.stage : 'dispatch',
+    recoveryClaimId: str(entry.recoveryClaimId, 120),
+    recoveryClaimedAt: entry.recoveryClaimedAt == null ? null : Math.max(0, num(entry.recoveryClaimedAt)),
     startedAt: Math.max(0, num(entry.startedAt)),
     ts: now
   };
@@ -81,6 +83,9 @@ function recoveryDisposition(checkpoint) {
   }
   if (checkpoint.stage === 'contract') {
     return { disposition: 'SAFE_RESTART', executionMayHaveStarted: false, reason: 'last-durable-stage-pre-dispatch' };
+  }
+  if (checkpoint.stage === 'resume-claimed') {
+    return { disposition: 'RECONCILE_BEFORE_RETRY', executionMayHaveStarted: false, reason: 'recovery-claim-active' };
   }
   return { disposition: 'RECONCILE_BEFORE_RETRY', executionMayHaveStarted: true, reason: 'checkpoint-at-or-after-side-effect-boundary' };
 }
@@ -166,6 +171,40 @@ function makeTaskHistoryStore(opts) {
     return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null, disposition: 'BLOCKED_NO_EVIDENCE', executionMayHaveStarted: null, reason: 'no-durable-task-evidence' };
   }
 
+  function claimSafeRestart(taskId, claimId) {
+    taskId = str(taskId, 120);
+    claimId = str(claimId, 120);
+    if (!taskId || !claimId) return { ok: false, reason: 'claim-identity-required', recovery: recovery(taskId) };
+
+    const current = recovery(taskId);
+    if (current.state !== 'RESUME_REQUIRED' || current.disposition !== 'SAFE_RESTART' || !current.checkpoint) {
+      return { ok: false, reason: 'not-safe-to-claim', recovery: current };
+    }
+
+    const claimedAt = num(clock.now());
+    const checkpoint = recordCheckpoint(Object.assign({}, current.checkpoint, {
+      stage: 'resume-claimed',
+      recoveryClaimId: claimId,
+      recoveryClaimedAt: claimedAt
+    }));
+    return { ok: true, claimId, checkpoint, recovery: recovery(taskId) };
+  }
+
+  function releaseSafeRestartClaim(taskId, claimId) {
+    taskId = str(taskId, 120);
+    claimId = str(claimId, 120);
+    const checkpoint = latestCheckpoint(taskId);
+    if (!taskId || !claimId || !checkpoint || checkpoint.stage !== 'resume-claimed' || checkpoint.recoveryClaimId !== claimId) {
+      return { ok: false, reason: 'claim-not-owned', recovery: recovery(taskId) };
+    }
+    const released = recordCheckpoint(Object.assign({}, checkpoint, {
+      stage: 'contract',
+      recoveryClaimId: '',
+      recoveryClaimedAt: null
+    }));
+    return { ok: true, checkpoint: released, recovery: recovery(taskId) };
+  }
+
   function listRows(filter, options) {
     filter = filter || {};
     options = options || {};
@@ -186,6 +225,8 @@ function makeTaskHistoryStore(opts) {
     recordCheckpoint,
     latestCheckpoint,
     recovery,
+    claimSafeRestart,
+    releaseSafeRestartClaim,
     list: listRows,
     all: () => rows.map(r => Object.assign({}, r)),
     count: () => rows.length,
