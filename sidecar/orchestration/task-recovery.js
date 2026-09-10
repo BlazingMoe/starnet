@@ -128,13 +128,14 @@ function claimManagedSafeRestart(store, taskId, claimId, ambientCtx) {
     return { ok: false, reason: 'claimed-state-unverified' };
   }
 
+  const managedRecovery = Object.freeze(Object.assign({}, context.ctx.managedRecovery || {}, { claimId }));
   return {
     ok: true,
     disposition: 'SAFE_RESTART',
     taskId,
     claimId,
     args: request.args,
-    ctx: context.ctx,
+    ctx: Object.assign({}, context.ctx, { managedRecovery }),
     provenance: context.provenance,
     claimedCheckpoint: Object.assign({}, checkpoint),
     executionMayHaveStarted: false,
@@ -142,4 +143,95 @@ function claimManagedSafeRestart(store, taskId, claimId, ambientCtx) {
   };
 }
 
-module.exports = { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart };
+function recoveryBoundaryError(reason) {
+  return {
+    ok: false,
+    isError: true,
+    content: 'managed recovery dispatch blocked: ' + String(reason || 'recovery fence failed'),
+    summary: 'managed-recovery-fence-failed',
+    control: { final: true, reason: 'error', text: 'Managed recovery stopped before the tool ran because its durable dispatch fence failed.' }
+  };
+}
+
+/* Execute an already-claimed SAFE_RESTART through the ordinary tool registry. The durable
+   claim -> dispatch transition happens inside registry's final pre-tool boundary, so all
+   capability/consent/pre-tool-hook refusals occur before we change the durable recovery
+   disposition. Claims are released only when that boundary was provably never crossed. */
+async function executeClaimedManagedRestart(registry, store, plan) {
+  plan = plan || {};
+  if (!registry || typeof registry.dispatch !== 'function') return { ok: false, reason: 'managed-registry-unavailable' };
+  if (!store || typeof store.recovery !== 'function' || typeof store.fenceSafeRestartClaim !== 'function' || typeof store.releaseSafeRestartClaim !== 'function') {
+    return { ok: false, reason: 'recovery-authority-unavailable' };
+  }
+  if (plan.ok !== true || plan.disposition !== 'SAFE_RESTART') return { ok: false, reason: 'invalid-claimed-restart' };
+
+  const taskId = String(plan.taskId || '');
+  const claimId = String(plan.claimId || '');
+  if (!taskId || !claimId || !plan.args || String(plan.args.taskId || '') !== taskId || !plan.ctx) {
+    return { ok: false, reason: 'invalid-claimed-restart' };
+  }
+
+  let current;
+  try { current = store.recovery(taskId); }
+  catch (_) { return { ok: false, reason: 'recovery-read-failed' }; }
+  const checkpoint = current && current.checkpoint;
+  if (!checkpoint || checkpoint.stage !== 'resume-claimed' || String(checkpoint.recoveryClaimId || '') !== claimId) {
+    return { ok: false, reason: 'claim-not-owned', recovery: current || null };
+  }
+
+  let boundaryCrossed = false;
+  const inheritedBoundary = typeof plan.ctx.beforeToolExecute === 'function' ? plan.ctx.beforeToolExecute : null;
+  const dispatchCtx = Object.assign({}, plan.ctx, {
+    beforeToolExecute: async (call, tool) => {
+      if (!call || call.name !== 'team.delegate_managed' || !call.args || String(call.args.taskId || '') !== taskId) {
+        return recoveryBoundaryError('managed recovery call identity changed');
+      }
+
+      let fenced;
+      try { fenced = store.fenceSafeRestartClaim(taskId, claimId); }
+      catch (_) { fenced = { ok: false, reason: 'recovery-fence-write-failed' }; }
+      if (!fenced || fenced.ok !== true) return recoveryBoundaryError((fenced && fenced.reason) || 'recovery-fence-write-failed');
+      boundaryCrossed = true;
+
+      if (inheritedBoundary) {
+        const inherited = await inheritedBoundary(call, tool);
+        if (inherited && inherited.ok === false) return inherited;
+      }
+      return undefined;
+    }
+  });
+
+  let result;
+  try {
+    result = await registry.dispatch({ name: 'team.delegate_managed', args: plan.args }, dispatchCtx);
+  } catch (error) {
+    result = { ok: false, isError: true, content: String(error && error.message || error), summary: 'managed-recovery-dispatch-threw' };
+  }
+
+  let claimReleased = false;
+  let release = null;
+  if (!boundaryCrossed) {
+    try {
+      release = store.releaseSafeRestartClaim(taskId, claimId);
+      claimReleased = !!(release && release.ok === true);
+    } catch (_) {
+      release = { ok: false, reason: 'recovery-claim-release-failed' };
+    }
+  }
+
+  let recovery = null;
+  try { recovery = store.recovery(taskId); } catch (_) {}
+  return {
+    ok: !!(result && result.ok === true),
+    taskId,
+    claimId,
+    result,
+    claimReleased,
+    release,
+    boundaryCrossed,
+    recovery,
+    executionMayHaveStarted: recovery ? recovery.executionMayHaveStarted : (boundaryCrossed ? true : false)
+  };
+}
+
+module.exports = { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart, executeClaimedManagedRestart };
