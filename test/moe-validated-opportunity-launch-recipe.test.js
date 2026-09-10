@@ -36,6 +36,12 @@ if (launch) {
   ok(/EXECUTED_CONFIRMED/.test(launch.task) && /NOT_APPLIED_CONFIRMED/.test(launch.task) && /BLOCKED_AT_EXECUTION/.test(launch.task) && /DENIED_AT_EXECUTION/.test(launch.task) && /OUTCOME_UNKNOWN/.test(launch.task), 'execution result taxonomy is explicit and bounded');
   ok(/OUTCOME_UNKNOWN must freeze automatic retry/i.test(launch.task), 'unknown outcomes freeze retries until reconciliation');
   ok(/provider acknowledgements, task completion, local intent logs or agent assertions alone are insufficient/i.test(launch.task), 'executor cannot promote local or inferred signals into confirmed side effects');
+  ok(/Execution must be restart-safe/i.test(launch.task), 'launch execution explicitly defines restart-safe resumption');
+  ok(/never from a local resume cursor, completed-action cache, task checkpoint or worker memory/i.test(launch.task), 'restart cannot promote local checkpoints into execution truth');
+  ok(/reconcile its stable action_id and idempotency reference/i.test(launch.task), 'restart reconciles action identity before deciding whether it is runnable');
+  ok(/emit EXECUTED_CONFIRMED and never replay it/i.test(launch.task), 'confirmed side effects are not replayed after restart');
+  ok(/eligible again only after fresh capability, consent and preflight checks/i.test(launch.task), 'confirmed-not-applied actions still require fresh execution checks');
+  ok(/runnable_action_ids or resume position must be derived transiently/i.test(launch.task), 'resume position is derived rather than persisted as canonical truth');
   ok(/Derive terminal launch_execution_state only from the reconciled execution_result set/i.test(launch.task), 'terminal launch execution state derives only from reconciled action results');
   ok(/EXECUTION_CONFIRMED/.test(launch.task) && /PARTIAL_EXECUTION/.test(launch.task) && /EXECUTION_BLOCKED/.test(launch.task), 'terminal execution states distinguish confirmed partial and blocked outcomes');
   ok(/Never collapse OUTCOME_UNKNOWN into success or failure/i.test(launch.task), 'unknown execution remains explicitly unresolved');
