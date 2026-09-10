@@ -90,4 +90,56 @@ function buildManagedResumeContext(request, ambientCtx) {
   };
 }
 
-module.exports = { buildManagedResumeRequest, buildManagedResumeContext };
+/* Build the exact replay contract/provenance first, then atomically claim the same task in
+   the authoritative history store. This closes the read -> claim TOCTOU window without
+   inventing a second recovery queue. The returned plan is intentionally side-effect free:
+   callers must still pass it through the normal registry/capability/consent path. */
+function claimManagedSafeRestart(store, taskId, claimId, ambientCtx) {
+  if (!store || typeof store.recovery !== 'function' || typeof store.claimSafeRestart !== 'function') {
+    return { ok: false, reason: 'recovery-authority-unavailable' };
+  }
+
+  taskId = String(taskId || '');
+  claimId = String(claimId || '');
+  if (!taskId || !claimId) return { ok: false, reason: 'claim-identity-required' };
+
+  let recovery;
+  try { recovery = store.recovery(taskId); }
+  catch (_) { return { ok: false, reason: 'recovery-read-failed' }; }
+
+  const request = buildManagedResumeRequest(recovery);
+  if (!request.ok) return request;
+  const context = buildManagedResumeContext(request, ambientCtx);
+  if (!context.ok) return context;
+
+  let claim;
+  try { claim = store.claimSafeRestart(taskId, claimId); }
+  catch (_) { return { ok: false, reason: 'recovery-claim-failed' }; }
+  if (!claim || claim.ok !== true) {
+    return {
+      ok: false,
+      reason: (claim && claim.reason) || 'recovery-claim-failed',
+      recovery: claim && claim.recovery ? claim.recovery : null
+    };
+  }
+
+  const checkpoint = claim.checkpoint;
+  if (!checkpoint || checkpoint.stage !== 'resume-claimed' || String(checkpoint.recoveryClaimId || '') !== claimId || String(checkpoint.taskId || '') !== taskId) {
+    return { ok: false, reason: 'claimed-state-unverified' };
+  }
+
+  return {
+    ok: true,
+    disposition: 'SAFE_RESTART',
+    taskId,
+    claimId,
+    args: request.args,
+    ctx: context.ctx,
+    provenance: context.provenance,
+    claimedCheckpoint: Object.assign({}, checkpoint),
+    executionMayHaveStarted: false,
+    next: 'dispatch-through-authoritative-managed-tool'
+  };
+}
+
+module.exports = { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart };
