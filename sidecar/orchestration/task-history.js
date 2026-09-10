@@ -1,5 +1,5 @@
 /* sidecar/orchestration/task-history.js — append-only managed delegation history.
-   Pure store: injected io + clock, bounded RAM mirror, no network/model access. */
+   Pure store: injected io + clock, bounded RAM mirrors, no network/model access. */
 'use strict';
 
 const { summarizeManagedTasks } = require('./task-metrics.js');
@@ -52,6 +52,23 @@ function sanitize(entry, now) {
   };
 }
 
+function sanitizeCheckpoint(entry, now) {
+  entry = entry || {};
+  return {
+    schemaVersion: 'moe.managed-task-checkpoint.v1',
+    taskId: str(entry.taskId, 120),
+    parentTaskId: str(entry.parentTaskId, 120),
+    parentRunId: str(entry.parentRunId, 120),
+    leadAgentId: str(entry.leadAgentId, 80),
+    workerAgentId: str(entry.workerAgentId, 80),
+    auditorAgentId: str(entry.auditorAgentId, 80),
+    objective: str(entry.objective, 2000),
+    stage: STAGE.has(entry.stage) ? entry.stage : 'dispatch',
+    startedAt: Math.max(0, num(entry.startedAt)),
+    ts: now
+  };
+}
+
 function makeTaskHistoryStore(opts) {
   opts = opts || {};
   const io = opts.io || { readAll() { return []; }, append() {} };
@@ -60,25 +77,70 @@ function makeTaskHistoryStore(opts) {
   const ramMax = Math.max(1, Math.floor(num(opts.ramMax) || MAX_ROWS));
   const defaultLimit = Math.max(1, Math.floor(num(opts.limit) || DEFAULT_LIMIT));
   let rows = [];
+  const checkpoints = new Map();
   let truncated = false;
   try {
     const loaded = io.readAll();
     if (Array.isArray(loaded)) {
-      truncated = loaded.length > ramMax;
-      rows = loaded.filter(x => x && typeof x === 'object').slice(-ramMax);
+      const terminal = [];
+      for (const row of loaded) {
+        if (!row || typeof row !== 'object') continue;
+        const taskId = str(row.taskId, 120);
+        if (row.schemaVersion === 'moe.managed-task-checkpoint.v1') {
+          if (taskId) {
+            checkpoints.delete(taskId);
+            checkpoints.set(taskId, row);
+          }
+        } else {
+          terminal.push(row);
+          if (taskId) checkpoints.delete(taskId);
+        }
+      }
+      truncated = terminal.length > ramMax;
+      rows = terminal.slice(-ramMax);
+      while (checkpoints.size > ramMax) checkpoints.delete(checkpoints.keys().next().value);
     }
-  } catch (_) { rows = []; }
+  } catch (_) { rows = []; checkpoints.clear(); }
 
   function record(entry) {
     const row = sanitize(entry, num(clock.now()));
     if (!row.taskId || !row.leadAgentId || !row.workerAgentId) throw new Error('task history requires taskId, leadAgentId, workerAgentId');
     io.append(row);
+    checkpoints.delete(row.taskId);
     rows.push(row);
     if (rows.length > ramMax) {
       truncated = true;
       rows.splice(0, rows.length - ramMax);
     }
     return row;
+  }
+
+  function recordCheckpoint(entry) {
+    const row = sanitizeCheckpoint(entry, num(clock.now()));
+    if (!row.taskId || !row.leadAgentId || !row.workerAgentId) throw new Error('task checkpoint requires taskId, leadAgentId, workerAgentId');
+    io.append(row);
+    checkpoints.delete(row.taskId);
+    checkpoints.set(row.taskId, row);
+    while (checkpoints.size > ramMax) checkpoints.delete(checkpoints.keys().next().value);
+    return Object.assign({}, row);
+  }
+
+  function latestCheckpoint(taskId) {
+    const row = checkpoints.get(str(taskId, 120));
+    return row ? Object.assign({}, row) : null;
+  }
+
+  function recovery(taskId) {
+    taskId = str(taskId, 120);
+    if (!taskId) return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null };
+    const checkpoint = latestCheckpoint(taskId);
+    let terminal = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].taskId === taskId) { terminal = Object.assign({}, rows[i]); break; }
+    }
+    if (terminal) return { state: 'TERMINAL', checkpoint: null, terminal };
+    if (checkpoint) return { state: 'RESUME_REQUIRED', checkpoint, terminal: null };
+    return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null };
   }
 
   function listRows(filter, options) {
@@ -96,7 +158,16 @@ function makeTaskHistoryStore(opts) {
     return summarizeManagedTasks(rows, { windowCapacity: ramMax, truncated });
   }
 
-  return { record, list: listRows, all: () => rows.map(r => Object.assign({}, r)), count: () => rows.length, summary };
+  return {
+    record,
+    recordCheckpoint,
+    latestCheckpoint,
+    recovery,
+    list: listRows,
+    all: () => rows.map(r => Object.assign({}, r)),
+    count: () => rows.length,
+    summary
+  };
 }
 
-module.exports = { makeTaskHistoryStore, sanitize };
+module.exports = { makeTaskHistoryStore, sanitize, sanitizeCheckpoint };

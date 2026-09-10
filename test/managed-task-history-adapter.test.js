@@ -22,11 +22,13 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
 
 (async () => {
   const records = [];
+  const checkpoints = [];
   const liveEvents = [];
   let tick = 10;
   const clock = { now() { return tick += 5; } };
   const store = {
     record(x) { records.push(x); },
+    recordCheckpoint(x) { checkpoints.push(JSON.parse(JSON.stringify(x))); },
     activeBegin(x) { liveEvents.push({ type: 'begin', row: x }); return 'live-token'; },
     activeUpdate(token, patch) { liveEvents.push({ type: 'update', token, patch }); return true; },
     activeEnd(token) { liveEvents.push({ type: 'end', token }); return true; }
@@ -34,7 +36,7 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   const base = {
     name: 'team.delegate_managed',
     run: async (_args, ctx) => {
-      A.ok(typeof ctx.reportManagedTaskStage === 'function', 'history adapter injects a private live-stage reporter into managed execution');
+      A.ok(typeof ctx.reportManagedTaskStage === 'function', 'history adapter injects a private stage reporter into managed execution');
       ctx.reportManagedTaskStage('formal-review');
       ctx.reportManagedTaskStage('audit', { auditorAgentId: 'auditor' });
       ctx.reportManagedTaskStage('accepted');
@@ -44,24 +46,27 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   const wrapped = attachTaskHistory(base, store, clock);
   const out = await wrapped.run({ taskId: 't2', agentId: 'worker', objective: 'x' }, { agentId: 'lead', runId: 'run' });
   A.ok(out && out.content, 'wrapped tool preserves original result');
-  A.eq(records.length, 1, 'one managed call creates one history row');
+  A.eq(records.length, 1, 'one managed call still creates one terminal history row');
   A.eq(records[0].status, 'accepted', 'successful managed call is persisted as accepted');
   A.eq(records[0].stage, 'accepted', 'terminal accepted stage is durable history');
   A.eq(records[0].usd, 0.25, 'history adapter persists total managed spend');
   A.eq(records[0].workerUsd, 0.2, 'history adapter persists cumulative worker spend');
   A.eq(records[0].auditUsd, 0.05, 'history adapter persists audit spend');
   A.eq(records[0].budgetUsd, 0.5, 'history adapter persists the task budget for comparison');
-  A.eq(liveEvents.map(x => x.type), ['begin', 'update', 'update', 'update', 'end'], 'live lifecycle wraps execution and forwards every stage transition');
+  A.eq(checkpoints.map(x => x.stage), ['dispatch', 'formal-review', 'audit', 'accepted'], 'managed lifecycle stages are durably checkpointed from initial dispatch onward');
+  A.eq(checkpoints[2].auditorAgentId, 'auditor', 'durable audit checkpoint preserves authoritative auditor identity');
+  A.eq(liveEvents.map(x => x.type), ['begin', 'update', 'update', 'update', 'end'], 'live lifecycle still wraps execution and forwards every stage transition');
   A.eq(liveEvents.filter(x => x.type === 'update').map(x => x.patch.stage), ['formal-review', 'audit', 'accepted'], 'live tracker receives normalized managed lifecycle stages');
-  A.eq(liveEvents.find(x => x.type === 'update' && x.patch.stage === 'audit').patch.auditorAgentId, 'auditor', 'audit stage forwards authoritative auditor identity');
   A.eq(liveEvents.at(-1), { type: 'end', token: 'live-token' }, 'successful managed call leaves live state in finally');
 
   const beforeThrow = liveEvents.length;
+  const checkpointCountBeforeThrow = checkpoints.length;
   const throwing = attachTaskHistory({ run: async () => { throw new Error('boom'); } }, store, clock);
   let threw = false;
   try { await throwing.run({ taskId: 't3', agentId: 'worker', objective: 'x' }, { agentId: 'lead' }); } catch (_) { threw = true; }
   A.eq(threw, true, 'wrapper preserves thrown errors');
   A.eq(records[1].status, 'dispatch_error', 'thrown execution is still recorded as dispatch error');
+  A.eq(checkpoints.length, checkpointCountBeforeThrow + 1, 'throwing call still leaves a durable initial checkpoint before execution');
   A.eq(liveEvents.slice(beforeThrow).map(x => x.type), ['begin', 'end'], 'throwing managed call still enters and leaves live state in finally');
 
   const diagnosticBase = {
@@ -90,6 +95,7 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   A.eq(records[2].budgetExceeded, true, 'history adapter preserves verified budget-overrun state');
 
   const failOpenRecords = [];
+  const failOpenCheckpoints = [];
   const failOpen = attachTaskHistory({
     run: async (_args, ctx) => {
       ctx.reportManagedTaskStage('audit', { auditorAgentId: 'auditor' });
@@ -97,6 +103,7 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
     }
   }, {
     record(x) { failOpenRecords.push(x); },
+    recordCheckpoint(x) { failOpenCheckpoints.push(x); },
     activeBegin() { return 'bad-live-token'; },
     activeUpdate() { throw new Error('telemetry unavailable'); },
     activeEnd() { return true; }
@@ -104,6 +111,21 @@ A.eq(live.parentRunId, 'r1', 'live lifecycle carries parent run provenance');
   const failOpenOut = await failOpen.run({ taskId: 't4', agentId: 'worker', objective: 'x' }, { agentId: 'lead' });
   A.ok(failOpenOut && failOpenOut.content, 'live telemetry update failure never aborts managed execution');
   A.eq(failOpenRecords.length, 1, 'durable completion history survives live-stage update failure');
+  A.eq(failOpenCheckpoints.map(x => x.stage), ['dispatch', 'audit'], 'durable checkpoints do not depend on live telemetry availability');
+
+  const checkpointFailOpenRecords = [];
+  const checkpointFailOpen = attachTaskHistory({
+    run: async (_args, ctx) => {
+      ctx.reportManagedTaskStage('formal-review');
+      return { content: JSON.stringify({ accepted: true, stage: 'accepted', taskId: 't5', workerAgentId: 'worker', attempts: 1, usd: 0 }) };
+    }
+  }, {
+    record(x) { checkpointFailOpenRecords.push(x); },
+    recordCheckpoint() { throw new Error('checkpoint storage unavailable'); }
+  }, clock);
+  const checkpointFailOpenOut = await checkpointFailOpen.run({ taskId: 't5', agentId: 'worker', objective: 'x' }, { agentId: 'lead' });
+  A.ok(checkpointFailOpenOut && checkpointFailOpenOut.content, 'checkpoint persistence failure remains fail-open for the managed execution itself');
+  A.eq(checkpointFailOpenRecords.length, 1, 'terminal history is still attempted when checkpoint persistence is unavailable');
 
   A.report('managed-task-history-adapter.test');
 })().catch(e => { console.error(e); process.exit(1); });

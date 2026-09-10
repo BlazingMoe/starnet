@@ -68,18 +68,31 @@ function attachTaskHistory(tool, store, clock) {
   return Object.assign({}, tool, {
     run: async (args, ctx) => {
       const startedAt = Number(clock.now());
+      const baseLive = liveEntry(args, ctx, startedAt);
       let liveToken = '';
       if (typeof store.activeBegin === 'function') {
-        try { liveToken = store.activeBegin(liveEntry(args, ctx, startedAt)) || ''; }
+        try { liveToken = store.activeBegin(baseLive) || ''; }
         catch (error) { failNote('managed.history.active_begin', error); }
+      }
+      if (typeof store.recordCheckpoint === 'function') {
+        try { store.recordCheckpoint(baseLive); }
+        catch (error) { failNote('managed.history.checkpoint_begin', error); }
       }
 
       const executionCtx = Object.assign({}, ctx || {});
-      if (liveToken && typeof store.activeUpdate === 'function') {
+      const canReportLive = liveToken && typeof store.activeUpdate === 'function';
+      const canCheckpoint = typeof store.recordCheckpoint === 'function';
+      if (canReportLive || canCheckpoint) {
         executionCtx.reportManagedTaskStage = (stage, patch) => {
           const next = Object.assign({}, patch || {}, { stage: String(stage || '') });
-          try { store.activeUpdate(liveToken, next); }
-          catch (error) { failNote('managed.history.active_update', error); }
+          if (canReportLive) {
+            try { store.activeUpdate(liveToken, next); }
+            catch (error) { failNote('managed.history.active_update', error); }
+          }
+          if (canCheckpoint) {
+            try { store.recordCheckpoint(Object.assign({}, baseLive, next)); }
+            catch (error) { failNote('managed.history.checkpoint_update', error); }
+          }
         };
       }
 
