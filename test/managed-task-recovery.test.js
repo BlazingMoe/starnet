@@ -1,7 +1,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
-const { buildManagedResumeRequest } = require('../sidecar/orchestration/task-recovery.js');
+const { buildManagedResumeRequest, buildManagedResumeContext } = require('../sidecar/orchestration/task-recovery.js');
 
 const disk = [];
 const io = {
@@ -34,6 +34,23 @@ A.eq(built.args, {
 }, 'resume request reconstructs the original managed contract without widening it');
 A.eq(built.derivedFrom, 'moe.managed-task-checkpoint.v1', 'resume request declares its authoritative derivation source');
 
+const resumeCtx = buildManagedResumeContext(built, { agentId: 'recovery-runner', runId: 'new-run', consent: 'ambient', traceId: 'trace-1' });
+A.eq(resumeCtx.ok, true, 'safe resume request can reconstruct the managed execution context');
+A.eq(resumeCtx.ctx.agentId, 'lead', 'resume context restores the original lead identity');
+A.eq(resumeCtx.ctx.runId, 'run-1', 'resume context restores the original parent run provenance');
+A.eq(resumeCtx.ctx.consent, 'ambient', 'resume context preserves ambient host services instead of inventing a second execution host');
+A.eq(resumeCtx.ctx.traceId, 'trace-1', 'resume context preserves unrelated ambient context');
+A.eq(resumeCtx.ctx.managedRecovery.taskId, 'safe-1', 'resume context carries explicit recovery provenance');
+A.eq(resumeCtx.provenance, { leadAgentId: 'lead', parentRunId: 'run-1', source: 'moe.managed-task-checkpoint.v1' }, 'resume provenance is machine-readable');
+
+const missingRun = buildManagedResumeContext(Object.assign({}, built, { originalParentRunId: '' }), {});
+A.eq(missingRun.ok, false, 'resume cannot silently mint a new run when original run provenance is missing');
+A.eq(missingRun.reason, 'incomplete-resume-provenance', 'missing original run provenance is an explicit blocker');
+
+const missingLead = buildManagedResumeContext(Object.assign({}, built, { leadAgentId: '' }), {});
+A.eq(missingLead.ok, false, 'resume cannot infer a replacement lead identity');
+A.eq(missingLead.reason, 'incomplete-resume-provenance', 'missing lead provenance is an explicit blocker');
+
 store.recordCheckpoint({
   taskId: 'unsafe-1', parentRunId: 'run-2', leadAgentId: 'lead', workerAgentId: 'worker',
   objective: 'may already have run', stage: 'dispatch', startedAt: 4950
@@ -43,6 +60,7 @@ A.eq(unsafe.ok, false, 'post-dispatch recovery cannot produce a replay request')
 A.eq(unsafe.reason, 'reconciliation-required', 'unsafe recovery is blocked on reconciliation rather than guessed');
 A.eq(unsafe.disposition, 'RECONCILE_BEFORE_RETRY', 'unsafe recovery keeps the authoritative disposition');
 A.eq(unsafe.executionMayHaveStarted, true, 'unsafe recovery preserves possible prior execution');
+A.eq(buildManagedResumeContext(unsafe, {}).ok, false, 'unsafe recovery result cannot be promoted into an execution context');
 
 store.record({ taskId: 'done-1', leadAgentId: 'lead', workerAgentId: 'worker', objective: 'finished', status: 'accepted', stage: 'accepted', accepted: true });
 const terminal = buildManagedResumeRequest(store.recovery('done-1'));

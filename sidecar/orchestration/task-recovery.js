@@ -57,4 +57,37 @@ function buildManagedResumeRequest(recovery) {
   };
 }
 
-module.exports = { buildManagedResumeRequest };
+function buildManagedResumeContext(request, ambientCtx) {
+  request = request || {};
+  if (request.ok !== true || request.disposition !== 'SAFE_RESTART') {
+    return { ok: false, reason: 'invalid-resume-request' };
+  }
+
+  const leadAgentId = String(request.leadAgentId || '');
+  const parentRunId = String(request.originalParentRunId || '');
+  if (!leadAgentId || !parentRunId) {
+    return { ok: false, reason: 'incomplete-resume-provenance' };
+  }
+
+  const ctx = Object.assign({}, ambientCtx || {}, {
+    agentId: leadAgentId,
+    runId: parentRunId,
+    managedRecovery: Object.freeze({
+      taskId: String(request.taskId || ''),
+      disposition: 'SAFE_RESTART',
+      derivedFrom: String(request.derivedFrom || '')
+    })
+  });
+
+  return {
+    ok: true,
+    ctx,
+    provenance: {
+      leadAgentId,
+      parentRunId,
+      source: String(request.derivedFrom || '')
+    }
+  };
+}
+
+module.exports = { buildManagedResumeRequest, buildManagedResumeContext };
