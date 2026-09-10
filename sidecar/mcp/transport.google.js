@@ -5,6 +5,7 @@
 // manager owns permissions, refresh, reconnect, cancellation and tool projection.
 const ENDPOINTS = Object.freeze({
   gmail: 'https://gmail.googleapis.com/gmail/v1/users/me',
+  'google-contacts': 'https://people.googleapis.com/v1',
   'google-drive': 'https://www.googleapis.com/drive/v3',
   'google-calendar': 'https://www.googleapis.com/calendar/v3',
   'google-docs': 'https://docs.googleapis.com/v1/documents',
@@ -42,6 +43,17 @@ const TOOLS = {
     }, ['messageId', 'bodyText']),
     tool('create_draft', 'Advanced: save an email draft from an already base64url-encoded RFC 2822 MIME message. Prefer compose_draft for normal email drafting.', { raw: STR, threadId: STR }, ['raw']),
     tool('send_draft', 'SEND an existing draft to its recipients. This is an external message; obtain the user’s authorization before sending.', { draftId: STR }, ['draftId'])
+  ],
+  'google-contacts': [
+    tool('list_contacts', 'List contacts from the signed-in Google account with names, email addresses, phone numbers and organizations.', {
+      pageToken: STR, pageSize: { type: 'integer', minimum: 1, maximum: 500 }
+    }, [], true),
+    tool('search_contacts', 'Search the signed-in account’s Google contacts by name, nickname, email, phone or organization. The host performs Google’s required cache warm-up before the real search.', {
+      query: STR, pageSize: { type: 'integer', minimum: 1, maximum: 30 }
+    }, ['query'], true),
+    tool('get_contact', 'Read one Google contact by the resourceName returned from list_contacts or search_contacts.', {
+      resourceName: STR
+    }, ['resourceName'], true)
   ],
   'google-drive': [
     tool('list_files', 'Search Drive with a Drive query; follows pageToken for pagination.', { query: STR, pageToken: STR, pageSize: { type: 'integer', minimum: 1, maximum: 100 } }, [], true),
@@ -215,6 +227,14 @@ function driveTextMultipart(a) {
     contentType: 'multipart/related; boundary=' + boundary
   };
 }
+const CONTACT_PERSON_FIELDS = 'names,emailAddresses,phoneNumbers,organizations,metadata';
+function contactResourcePath(value) {
+  if (typeof value !== 'string') throw new Error('Invalid Google contact resourceName');
+  const raw = value.trim();
+  const match = /^people\/([^/]+)$/.exec(raw);
+  if (!match) throw new Error('Invalid Google contact resourceName');
+  return '/people/' + segment(match[1]);
+}
 function normalizeLabelIds(values, label) {
   if (values == null) return [];
   if (!Array.isArray(values) || values.length > 50) throw new Error('Invalid ' + label + ' label list');
@@ -260,6 +280,14 @@ function requestFor(product, name, a) {
       return write('/drafts', { message: { raw: a.raw, ...(a.threadId ? { threadId: a.threadId } : {}) } });
     }
     if (name === 'send_draft') return write('/drafts/send', { id: a.draftId });
+  }
+  if (product === 'google-contacts') {
+    if (name === 'list_contacts') return get('/people/me/connections', {
+      personFields: CONTACT_PERSON_FIELDS,
+      pageSize: a.pageSize || 100,
+      pageToken: a.pageToken
+    });
+    if (name === 'get_contact') return get(contactResourcePath(a.resourceName), { personFields: CONTACT_PERSON_FIELDS });
   }
   if (product === 'google-drive') {
     if (name === 'list_files') return get('/files', { q: a.query, pageToken: a.pageToken, pageSize: a.pageSize || 25, fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)' });
@@ -355,7 +383,9 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
       let result;
       if (msg.method === 'initialize') {
         // Prove the account/service responds before publishing connected status.
-        const probe = product === 'gmail' ? { url: url + '/profile' } : product === 'google-calendar' ? { url: url + '/users/me/calendarList', query: { maxResults: 1 } }
+        const probe = product === 'gmail' ? { url: url + '/profile' }
+          : product === 'google-calendar' ? { url: url + '/users/me/calendarList', query: { maxResults: 1 } }
+          : product === 'google-contacts' ? { url: url + '/people/me/connections', query: { pageSize: 1, personFields: 'names' } }
           : { url: ENDPOINTS['google-drive'] + '/files', query: { pageSize: 1, fields: 'files(id)' } };
         await request(probe);
         result = { protocolVersion: msg.params?.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'StarNet Google API connector', version: '1' } };
@@ -365,7 +395,13 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
         if (!def) throw new Error('Unknown Google tool');
         const args = msg.params.arguments || {}; validate(def, args);
         let value;
-        if (product === 'google-drive' && def.name === 'download_text_file') {
+        if (product === 'google-contacts' && def.name === 'search_contacts') {
+          const query = String(args.query || '').trim();
+          if (!query) throw new Error('Google contact search query must not be empty');
+          const searchUrl = url + '/people:searchContacts';
+          await request({ url: searchUrl, method: 'GET', query: { query: '', readMask: CONTACT_PERSON_FIELDS, pageSize: 1 } });
+          value = await request({ url: searchUrl, method: 'GET', query: { query, readMask: CONTACT_PERSON_FIELDS, pageSize: args.pageSize || 10 } });
+        } else if (product === 'google-drive' && def.name === 'download_text_file') {
           const fileId = segment(args.fileId);
           const meta = await request({
             url: url + '/files/' + fileId,
@@ -409,4 +445,4 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   }
   return { send, onMessage(cb) { receive = cb; }, close() { closed = true; for (const ctrl of controllers) ctrl.abort(); controllers.clear(); } };
 }
-module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec, driveTextMultipart, normalizeLabelIds, gmailLabelPatch };
+module.exports = { ENDPOINTS, TOOLS, productForUrl, makeGoogleTransport, requestFor, validate, composeDraftRaw, messageHeader, replyDraftSpec, driveTextMultipart, normalizeLabelIds, gmailLabelPatch, CONTACT_PERSON_FIELDS, contactResourcePath };
