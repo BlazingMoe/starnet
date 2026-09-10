@@ -205,6 +205,21 @@ function makeTaskHistoryStore(opts) {
     return { ok: true, checkpoint: released, recovery: recovery(taskId) };
   }
 
+  /* Move an owned recovery claim across the same durable dispatch fence used by fresh
+     managed work. This is intentionally synchronous with the append-only store: either
+     the exact claim still owns the latest checkpoint and becomes dispatch, or no state
+     changes. A caller must never infer this transition from RAM/live telemetry. */
+  function fenceSafeRestartClaim(taskId, claimId) {
+    taskId = str(taskId, 120);
+    claimId = str(claimId, 120);
+    const checkpoint = latestCheckpoint(taskId);
+    if (!taskId || !claimId || !checkpoint || checkpoint.stage !== 'resume-claimed' || checkpoint.recoveryClaimId !== claimId) {
+      return { ok: false, reason: 'claim-not-owned', recovery: recovery(taskId) };
+    }
+    const fenced = recordCheckpoint(Object.assign({}, checkpoint, { stage: 'dispatch' }));
+    return { ok: true, checkpoint: fenced, recovery: recovery(taskId) };
+  }
+
   function listRows(filter, options) {
     filter = filter || {};
     options = options || {};
@@ -227,6 +242,7 @@ function makeTaskHistoryStore(opts) {
     recovery,
     claimSafeRestart,
     releaseSafeRestartClaim,
+    fenceSafeRestartClaim,
     list: listRows,
     all: () => rows.map(r => Object.assign({}, r)),
     count: () => rows.length,
