@@ -75,6 +75,16 @@ function sanitizeCheckpoint(entry, now) {
   };
 }
 
+function recoveryDisposition(checkpoint) {
+  if (!checkpoint || typeof checkpoint !== 'object') {
+    return { disposition: 'BLOCKED_NO_EVIDENCE', executionMayHaveStarted: null, reason: 'no-durable-checkpoint' };
+  }
+  if (checkpoint.stage === 'contract') {
+    return { disposition: 'SAFE_RESTART', executionMayHaveStarted: false, reason: 'last-durable-stage-pre-dispatch' };
+  }
+  return { disposition: 'RECONCILE_BEFORE_RETRY', executionMayHaveStarted: true, reason: 'checkpoint-at-or-after-side-effect-boundary' };
+}
+
 function makeTaskHistoryStore(opts) {
   opts = opts || {};
   const io = opts.io || { readAll() { return []; }, append() {} };
@@ -138,15 +148,22 @@ function makeTaskHistoryStore(opts) {
 
   function recovery(taskId) {
     taskId = str(taskId, 120);
-    if (!taskId) return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null };
+    if (!taskId) return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null, disposition: 'BLOCKED_NO_EVIDENCE', executionMayHaveStarted: null, reason: 'task-id-missing' };
     const checkpoint = latestCheckpoint(taskId);
     let terminal = null;
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i].taskId === taskId) { terminal = Object.assign({}, rows[i]); break; }
     }
-    if (terminal) return { state: 'TERMINAL', checkpoint: null, terminal };
-    if (checkpoint) return { state: 'RESUME_REQUIRED', checkpoint, terminal: null };
-    return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null };
+    if (terminal) {
+      return {
+        state: 'TERMINAL', checkpoint: null, terminal,
+        disposition: 'NOT_APPLICABLE', executionMayHaveStarted: true, reason: 'terminal-result-recorded'
+      };
+    }
+    if (checkpoint) {
+      return Object.assign({ state: 'RESUME_REQUIRED', checkpoint, terminal: null }, recoveryDisposition(checkpoint));
+    }
+    return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null, disposition: 'BLOCKED_NO_EVIDENCE', executionMayHaveStarted: null, reason: 'no-durable-task-evidence' };
   }
 
   function listRows(filter, options) {
@@ -176,4 +193,4 @@ function makeTaskHistoryStore(opts) {
   };
 }
 
-module.exports = { makeTaskHistoryStore, sanitize, sanitizeCheckpoint };
+module.exports = { makeTaskHistoryStore, sanitize, sanitizeCheckpoint, recoveryDisposition };
