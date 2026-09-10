@@ -101,6 +101,13 @@ function attachTaskHistory(tool, store, clock) {
           }
         };
       }
+      if (canCheckpoint) {
+        executionCtx.checkpointManagedTaskStage = (stage, patch) => {
+          const next = Object.assign({}, patch || {}, { stage: String(stage || '') });
+          store.recordCheckpoint(Object.assign({}, baseLive, next));
+          return true;
+        };
+      }
 
       let out;
       try {

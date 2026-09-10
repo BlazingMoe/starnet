@@ -60,6 +60,33 @@ function workerIterationContract(deps, bounded) {
   };
 }
 
+function recoveryFencedDispatchTool(dispatchTool) {
+  if (!dispatchTool || typeof dispatchTool.run !== 'function') throw new Error('dispatch tool required');
+  const originalRun = dispatchTool.run.bind(dispatchTool);
+  return Object.assign({}, dispatchTool, {
+    run: async (args, ctx) => {
+      if (ctx && typeof ctx.checkpointManagedTaskStage === 'function') {
+        const worker = args && Array.isArray(args.workers) ? args.workers[0] : null;
+        const agentId = String(worker && worker.agentId || '');
+        try {
+          ctx.checkpointManagedTaskStage('dispatch', { workerAgentId: agentId });
+        } catch (error) {
+          return {
+            content: JSON.stringify([{
+              agentId,
+              reason: 'recovery-checkpoint-failed',
+              usd: 0,
+              result: 'managed recovery checkpoint failed before dispatch: ' + String(error && error.message || error)
+            }]),
+            summary: 'managed dispatch blocked by recovery checkpoint fence'
+          };
+        }
+      }
+      return originalRun(args, ctx);
+    }
+  });
+}
+
 function makeOrchestrationTools(deps) {
   deps = deps || {};
   // Validate the injected catalog at the canonical boundary before the inherited factory
@@ -69,7 +96,7 @@ function makeOrchestrationTools(deps) {
   const built = core.makeOrchestrationTools(deps);
   const roster = typeof deps.roster === 'function' ? deps.roster : (() => new Map());
   const managedBuilt = managed.makeManagedOrchestrationTool({
-    dispatchTool: built.dispatchTool,
+    dispatchTool: recoveryFencedDispatchTool(built.dispatchTool),
     roster,
     clock: deps.clock || null
   });
@@ -95,5 +122,6 @@ module.exports = Object.assign({}, core, {
   injectedClassIds,
   immediateWorkerReasoningEffort,
   queuedWorkerReasoningEffort,
-  workerIterationContract
+  workerIterationContract,
+  recoveryFencedDispatchTool
 });
