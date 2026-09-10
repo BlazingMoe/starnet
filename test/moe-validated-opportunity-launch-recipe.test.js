@@ -18,6 +18,10 @@ if (launch) {
   ok(/canonical capability and consent path at execution time/i.test(launch.task), 'consequential actions remain permissioned at execution time');
   ok(/BLOCKED_CAPABILITY/.test(launch.task) && /rather than simulating it/i.test(launch.task), 'unavailable execution is blocked rather than fabricated');
   ok(/idempotency or duplicate-prevention requirements/i.test(launch.task), 'retryable consequential actions require duplicate prevention');
+  ok(/READY_TO_EXECUTE/.test(launch.task), 'launch has an explicit positive readiness state');
+  ok(/BLOCKED_PREFLIGHT/.test(launch.task), 'launch blocks unresolved mandatory preflight requirements');
+  ok(/classify launch_state deterministically/i.test(launch.task), 'launch readiness is determined by an explicit state contract');
+  ok(/Never use READY_TO_EXECUTE merely because a plan or asset was generated/i.test(launch.task), 'generated artifacts cannot masquerade as execution readiness');
   ok(/Do not infer launch success from task completion/i.test(launch.task), 'generated work cannot masquerade as launch outcomes');
   ok(/maximum time and money at risk/i.test(launch.task) && /stop conditions/i.test(launch.task), 'launch keeps explicit exposure bounds');
   ok(/Do not automatically scale after launch/i.test(launch.task), 'launch cannot silently escalate into scaling');
