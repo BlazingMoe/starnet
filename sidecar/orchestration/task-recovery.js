@@ -1,5 +1,6 @@
 'use strict';
 
+const { note: failNote } = require('../failopen.js');
 const { recoveryDisposition } = require('./task-history.js');
 
 function buildManagedResumeRequest(recovery) {
@@ -220,7 +221,8 @@ async function executeClaimedManagedRestart(registry, store, plan) {
   }
 
   let recovery = null;
-  try { recovery = store.recovery(taskId); } catch (_) {}
+  try { recovery = store.recovery(taskId); }
+  catch (error) { failNote('managed-recovery.final-read', error); }
   return {
     ok: !!(result && result.ok === true),
     taskId,
