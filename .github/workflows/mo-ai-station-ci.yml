@@ -91,6 +91,7 @@ jobs:
           node test/moe-revenue-pipeline.test.js
           node test/moe-opportunity-discovery-recipe.test.js
           node test/moe-opportunity-validation-recipe.test.js
+          node test/moe-validated-opportunity-launch-recipe.test.js
 
       - name: Inherited orchestration regression
         run: |
