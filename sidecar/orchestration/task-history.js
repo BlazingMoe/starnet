@@ -100,6 +100,7 @@ function makeTaskHistoryStore(opts) {
   let rows = [];
   const checkpoints = new Map();
   let truncated = false;
+  let checkpointTruncated = false;
   try {
     const loaded = io.readAll();
     if (Array.isArray(loaded)) {
@@ -119,9 +120,10 @@ function makeTaskHistoryStore(opts) {
       }
       truncated = terminal.length > ramMax;
       rows = terminal.slice(-ramMax);
+      checkpointTruncated = checkpoints.size > ramMax;
       while (checkpoints.size > ramMax) checkpoints.delete(checkpoints.keys().next().value);
     }
-  } catch (_) { rows = []; checkpoints.clear(); }
+  } catch (_) { rows = []; checkpoints.clear(); checkpointTruncated = false; }
 
   function record(entry) {
     const row = sanitize(entry, num(clock.now()));
@@ -142,6 +144,7 @@ function makeTaskHistoryStore(opts) {
     io.append(row);
     checkpoints.delete(row.taskId);
     checkpoints.set(row.taskId, row);
+    if (checkpoints.size > ramMax) checkpointTruncated = true;
     while (checkpoints.size > ramMax) checkpoints.delete(checkpoints.keys().next().value);
     return Object.assign({}, row);
   }
@@ -169,6 +172,31 @@ function makeTaskHistoryStore(opts) {
       return Object.assign({ state: 'RESUME_REQUIRED', checkpoint, terminal: null }, recoveryDisposition(checkpoint));
     }
     return { state: 'UNKNOWN_TASK', checkpoint: null, terminal: null, disposition: 'BLOCKED_NO_EVIDENCE', executionMayHaveStarted: null, reason: 'no-durable-task-evidence' };
+  }
+
+  /* Enumerate only the currently reconstructed durable checkpoint window. This is a view
+     over the same authoritative store, not a second recovery queue. If bounded RAM has
+     discarded older checkpoints, truncated=true makes that incompleteness explicit. */
+  function listRecoveries(filter, options) {
+    filter = filter || {};
+    options = options || {};
+    const cap = Math.max(1, Math.min(1000, Math.floor(num(options.limit) || defaultLimit)));
+    const out = [];
+    const values = Array.from(checkpoints.values()).reverse();
+    for (const checkpoint of values) {
+      if (filter.taskId && checkpoint.taskId !== filter.taskId) continue;
+      if (filter.agentId && checkpoint.leadAgentId !== filter.agentId && checkpoint.workerAgentId !== filter.agentId && checkpoint.auditorAgentId !== filter.agentId) continue;
+      const disposition = recoveryDisposition(checkpoint);
+      if (filter.disposition && disposition.disposition !== filter.disposition) continue;
+      out.push(Object.assign({
+        state: 'RESUME_REQUIRED',
+        taskId: checkpoint.taskId,
+        checkpoint: Object.assign({}, checkpoint),
+        terminal: null
+      }, disposition));
+      if (out.length >= cap) break;
+    }
+    return { items: out, truncated: checkpointTruncated };
   }
 
   function claimSafeRestart(taskId, claimId) {
@@ -240,6 +268,7 @@ function makeTaskHistoryStore(opts) {
     recordCheckpoint,
     latestCheckpoint,
     recovery,
+    listRecoveries,
     claimSafeRestart,
     releaseSafeRestartClaim,
     fenceSafeRestartClaim,
