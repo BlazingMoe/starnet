@@ -30,6 +30,14 @@ jobs:
           node test/moe-feature-evidence.test.js
           node test/moe-claims-evidence-alignment.test.js
 
+      - name: Canonical recipe mirror contract
+        run: |
+          cmp --silent frontend/app/recipe-catalog/index.js website/app/app/recipe-catalog/index.js || {
+            echo "Canonical recipe catalog drift: frontend and website mirrors differ."
+            diff -u frontend/app/recipe-catalog/index.js website/app/app/recipe-catalog/index.js || true
+            exit 1
+          }
+
       - name: Derivative orchestration contracts
         run: |
           node test/orchestration-role-policy.test.js
@@ -42,7 +50,7 @@ jobs:
           node test/orchestration-quality-pipeline.test.js
           node test/managed-orchestration-tool.test.js
           node test/managed-orchestration-wiring.test.js
-          node test/orchestration-bridge-contract.test.js
+          node test/orchestration-bridge-contract.js
           node test/managed-task-history.test.js
           node test/managed-task-history-adapter.test.js
           node test/managed-task-history-disk.test.js
