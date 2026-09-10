@@ -57,7 +57,8 @@ grant access to Drive or another Google account. Each card can therefore use a
 different Google account. Simultaneous accounts within one service remain outside
 this change's scope.
 
-Gmail supports search, message/thread/attachment reading, structured compose drafts,
+Gmail supports search, message/thread/attachment reading, label discovery, reversible
+read/unread and inbox/archive state, explicit label changes, structured compose drafts,
 thread-safe sender reply drafts, advanced raw drafts and explicit draft sending.
 Calendar supports calendar/event reads, free/busy checks, event creation, partial
 event updates, deletion, and RSVP changes for the signed-in account's own `self:true`
