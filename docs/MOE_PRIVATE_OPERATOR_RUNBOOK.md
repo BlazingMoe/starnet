@@ -79,8 +79,9 @@ client registration required by the local connector. Do not commit
 
 Current private-use capability:
 
-- **Gmail:** search; read message/thread/attachment; structured compose draft; thread-safe
-  sender reply draft; advanced raw draft; explicit draft send.
+- **Gmail:** search; read message/thread/attachment; list labels; reversible read/unread and
+  inbox/archive state; explicit label add/remove; structured compose draft; thread-safe sender
+  reply draft; advanced raw draft; explicit draft send.
 - **Drive:** search and metadata; Workspace export; bounded text/Markdown/CSV/JSON content
   download; create text artifacts; replace existing text artifact content; metadata create/update.
 - **Calendar:** calendar/event read; free/busy; create; patch; delete; self-attendee RSVP.
