@@ -1,7 +1,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
-const { buildManagedResumeRequest, buildManagedResumeContext } = require('../sidecar/orchestration/task-recovery.js');
+const { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart } = require('../sidecar/orchestration/task-recovery.js');
 
 const disk = [];
 const io = {
@@ -78,5 +78,47 @@ const forged = buildManagedResumeRequest({
 });
 A.eq(forged.ok, false, 'caller-supplied SAFE_RESTART cannot override the checkpoint stage');
 A.eq(forged.reason, 'reconciliation-required', 'resume safety is recomputed from authoritative checkpoint evidence');
+
+store.recordCheckpoint({
+  taskId: 'claim-plan-1', parentTaskId: 'root-2', parentRunId: 'run-claim', leadAgentId: 'lead-claim', workerAgentId: 'worker-claim',
+  objective: 'prepare exactly once', acceptanceCriteria: ['same contract'], tags: ['recovery'], budgetUsd: 2,
+  requireAudit: false, maxRevisions: 1, stage: 'contract', startedAt: 4990
+});
+const plan = claimManagedSafeRestart(store, 'claim-plan-1', 'claim-token-1', { agentId: 'ambient-lead', runId: 'ambient-run', consent: 'ambient-consent' });
+A.eq(plan.ok, true, 'safe restart preparation atomically claims the durable task');
+A.eq(plan.claimId, 'claim-token-1', 'prepared plan preserves caller claim identity');
+A.eq(plan.args.taskId, 'claim-plan-1', 'prepared plan preserves original task identity');
+A.eq(plan.args.agentId, 'worker-claim', 'prepared plan preserves original worker identity');
+A.eq(plan.ctx.agentId, 'lead-claim', 'prepared plan restores original lead provenance');
+A.eq(plan.ctx.runId, 'run-claim', 'prepared plan restores original parent run provenance');
+A.eq(plan.ctx.consent, 'ambient-consent', 'prepared plan carries ambient host consent service through unchanged');
+A.eq(plan.claimedCheckpoint.stage, 'resume-claimed', 'prepared plan is backed by a durable active claim');
+A.eq(plan.claimedCheckpoint.recoveryClaimId, 'claim-token-1', 'durable checkpoint records the same claim token');
+A.eq(plan.executionMayHaveStarted, false, 'claim preparation itself does not pretend worker execution began');
+A.eq(plan.next, 'dispatch-through-authoritative-managed-tool', 'prepared plan names the existing managed tool as the only execution path');
+
+const duplicatePlan = claimManagedSafeRestart(store, 'claim-plan-1', 'claim-token-2', {});
+A.eq(duplicatePlan.ok, false, 'a second recovery runner cannot prepare the already claimed task');
+A.eq(duplicatePlan.reason, 'reconciliation-required', 'active durable claim blocks a second replay instead of racing it');
+
+store.recordCheckpoint({
+  taskId: 'claim-race-1', parentRunId: 'race-run', leadAgentId: 'race-lead', workerAgentId: 'race-worker',
+  objective: 'detect authority change', stage: 'contract', startedAt: 4995
+});
+const racingStore = {
+  recovery(id) { return store.recovery(id); },
+  claimSafeRestart(id) {
+    store.recordCheckpoint({ taskId: id, parentRunId: 'race-run', leadAgentId: 'race-lead', workerAgentId: 'race-worker', objective: 'detect authority change', stage: 'dispatch', startedAt: 4995 });
+    return store.claimSafeRestart(id, 'claim-never-wins');
+  }
+};
+const raced = claimManagedSafeRestart(racingStore, 'claim-race-1', 'claim-token-race', {});
+A.eq(raced.ok, false, 'authority change between recovery read and claim cannot produce an executable plan');
+A.eq(raced.reason, 'not-safe-to-claim', 'atomic claim rechecks the authoritative state at the write boundary');
+A.eq(store.recovery('claim-race-1').executionMayHaveStarted, true, 'race loser preserves the newer post-dispatch truth');
+
+const noAuthority = claimManagedSafeRestart(null, 'x', 'y', {});
+A.eq(noAuthority.ok, false, 'restart preparation requires an authoritative recovery store');
+A.eq(noAuthority.reason, 'recovery-authority-unavailable', 'missing recovery authority is explicit');
 
 A.report('managed-task-recovery.test');
