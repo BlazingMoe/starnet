@@ -353,7 +353,10 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
   async function request(spec) {
     if (!token) throw new Error('connector HTTP 401 — sign in to Google');
     const target = new URL(spec.url);
-    for (const [k, v] of Object.entries(spec.query || {})) if (v !== undefined && v !== '') target.searchParams.set(k, String(v));
+    const keepEmpty = new Set(Array.isArray(spec.keepEmptyQueryKeys) ? spec.keepEmptyQueryKeys : []);
+    for (const [k, v] of Object.entries(spec.query || {})) {
+      if (v !== undefined && (v !== '' || keepEmpty.has(k))) target.searchParams.set(k, String(v));
+    }
     const ctrl = new AbortController(); controllers.add(ctrl);
     let timer;
     try {
@@ -399,7 +402,7 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
           const query = String(args.query || '').trim();
           if (!query) throw new Error('Google contact search query must not be empty');
           const searchUrl = url + '/people:searchContacts';
-          await request({ url: searchUrl, method: 'GET', query: { query: '', readMask: CONTACT_PERSON_FIELDS, pageSize: 1 } });
+          await request({ url: searchUrl, method: 'GET', query: { query: '', readMask: CONTACT_PERSON_FIELDS, pageSize: 1 }, keepEmptyQueryKeys: ['query'] });
           value = await request({ url: searchUrl, method: 'GET', query: { query, readMask: CONTACT_PERSON_FIELDS, pageSize: args.pageSize || 10 } });
         } else if (product === 'google-drive' && def.name === 'download_text_file') {
           const fileId = segment(args.fileId);
