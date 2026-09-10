@@ -29,6 +29,12 @@ if (launch) {
   ok(/re-resolved immediately before each consequential side effect/i.test(launch.task), 'capability and consent are refreshed at point of execution');
   ok(/readiness is not a cached permission/i.test(launch.task), 'launch readiness cannot substitute for live permission checks');
   ok(/do not retry a consequential action until the authoritative reconciliation source/i.test(launch.task), 'ambiguous outcomes are reconciled before any retry');
+  ok(/one execution_result per action_id/i.test(launch.task), 'execution emits one result for every planned action identity');
+  ok(/EXECUTED_CONFIRMED/.test(launch.task) && /NOT_APPLIED_CONFIRMED/.test(launch.task) && /BLOCKED_AT_EXECUTION/.test(launch.task) && /DENIED_AT_EXECUTION/.test(launch.task) && /OUTCOME_UNKNOWN/.test(launch.task), 'execution result taxonomy is explicit and bounded');
+  ok(/OUTCOME_UNKNOWN must freeze automatic retry/i.test(launch.task), 'unknown outcomes freeze retries until reconciliation');
+  ok(/provider acknowledgements, task completion, local intent logs or agent assertions alone are insufficient/i.test(launch.task), 'executor cannot promote local or inferred signals into confirmed side effects');
+  ok(/never mark the launch completed, failed, spent, ordered, published or charged from planned actions alone/i.test(launch.task), 'aggregate execution state comes only from reconciled action outcomes');
+  ok(/do not fabricate identifiers when absent/i.test(launch.task), 'provider identifiers are preserved only when authoritative sources return them');
   ok(/Do not infer launch success from task completion/i.test(launch.task), 'generated work cannot masquerade as launch outcomes');
   ok(/maximum time and money at risk/i.test(launch.task) && /stop conditions/i.test(launch.task), 'launch keeps explicit exposure bounds');
   ok(/Do not automatically scale after launch/i.test(launch.task), 'launch cannot silently escalate into scaling');
