@@ -18,6 +18,14 @@ function makeTaskHistoryHttp(opts) {
   if (typeof respondJson !== 'function') throw new Error('task history http requires respondJson');
 
   function send(res, code, body) { return respondJson(res, code, body); }
+  function taskIdFrom(pathname, prefix) {
+    let taskId = '';
+    try { taskId = decodeURIComponent(pathname.slice(prefix.length)); }
+    catch (_) { return { ok: false, error: 'invalid task id encoding' }; }
+    taskId = clean(taskId, 120);
+    if (!taskId || taskId.includes('/')) return { ok: false, error: 'invalid task id' };
+    return { ok: true, taskId };
+  }
 
   function serve(req, res) {
     try {
@@ -45,16 +53,26 @@ function makeTaskHistoryHttp(opts) {
         const rows = store.list({ agentId, status }, { limit: clampLimit(url.searchParams.get('limit')) });
         return send(res, 200, { ok: true, tasks: rows });
       }
+      const recoveryPrefix = '/api/managed-task-recovery/';
+      if (pathname.startsWith(recoveryPrefix)) {
+        const parsedId = taskIdFrom(pathname, recoveryPrefix);
+        if (!parsedId.ok) return send(res, 400, { ok: false, error: parsedId.error });
+        if (typeof store.recovery !== 'function') {
+          return send(res, 503, { ok: false, error: 'managed task recovery state unavailable' });
+        }
+        const recovery = store.recovery(parsedId.taskId);
+        if (!recovery || recovery.state === 'UNKNOWN_TASK') {
+          return send(res, 404, { ok: false, taskId: parsedId.taskId, state: 'UNKNOWN_TASK', recovery: recovery || null });
+        }
+        return send(res, 200, { ok: true, taskId: parsedId.taskId, state: recovery.state, recovery });
+      }
       const prefix = '/api/managed-tasks/';
       if (pathname.startsWith(prefix)) {
-        let taskId = '';
-        try { taskId = decodeURIComponent(pathname.slice(prefix.length)); }
-        catch (_) { return send(res, 400, { ok: false, error: 'invalid task id encoding' }); }
-        taskId = clean(taskId, 120);
-        if (!taskId || taskId.includes('/')) return send(res, 400, { ok: false, error: 'invalid task id' });
-        const rows = store.list({ taskId }, { limit: 500 });
+        const parsedId = taskIdFrom(pathname, prefix);
+        if (!parsedId.ok) return send(res, 400, { ok: false, error: parsedId.error });
+        const rows = store.list({ taskId: parsedId.taskId }, { limit: 500 });
         if (!rows.length) return send(res, 404, { ok: false, error: 'managed task not found' });
-        return send(res, 200, { ok: true, taskId, history: rows });
+        return send(res, 200, { ok: true, taskId: parsedId.taskId, history: rows });
       }
       return send(res, 404, { ok: false, error: 'not found' });
     } catch (e) {
