@@ -89,6 +89,8 @@ jobs:
           node test/google-connector.test.js
           node test/recovery-policy.test.js
           node test/moe-revenue-pipeline.test.js
+          node test/moe-opportunity-discovery-recipe.test.js
+          node test/moe-opportunity-validation-recipe.test.js
 
       - name: Inherited orchestration regression
         run: |
