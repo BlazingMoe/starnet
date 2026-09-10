@@ -7,11 +7,12 @@
     typeof require === 'function' ? require('../../orchestration/delegation-adapter.js') : (root.SK && root.SK.delegationAdapter),
     typeof require === 'function' ? require('../../orchestration/quality-pipeline.js') : (root.SK && root.SK.qualityPipeline),
     typeof require === 'function' ? require('../../orchestration/auditor.js') : (root.SK && root.SK.auditor),
-    typeof require === 'function' ? require('../../orchestration/review-gate.js') : (root.SK && root.SK.reviewGate)
+    typeof require === 'function' ? require('../../orchestration/review-gate.js') : (root.SK && root.SK.reviewGate),
+    typeof require === 'function' ? require('../../failopen.js') : (root.SK && root.SK.failopen)
   );
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).managedOrchestration = api; }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (delegationAdapter, qualityPipeline, auditor, reviewGate) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (delegationAdapter, qualityPipeline, auditor, reviewGate, failopen) {
   'use strict';
 
   const RESULT_ENVELOPE_SCHEMA = Object.freeze({
@@ -63,7 +64,11 @@
 
   function reportStage(ctx, stage, patch) {
     if (!ctx || typeof ctx.reportManagedTaskStage !== 'function') return;
-    try { ctx.reportManagedTaskStage(stage, patch || {}); } catch (_) {}
+    try { ctx.reportManagedTaskStage(stage, patch || {}); }
+    catch (e) {
+      if (failopen && typeof failopen.note === 'function') failopen.note('managed-orchestration.report-stage', e);
+      else if (typeof console !== 'undefined' && console && typeof console.warn === 'function') console.warn('[managed-orchestration] report stage failed:', (e && e.message) || e);
+    }
   }
 
   function makeManagedOrchestrationTool(deps) {
