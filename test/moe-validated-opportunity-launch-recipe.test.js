@@ -22,6 +22,13 @@ if (launch) {
   ok(/BLOCKED_PREFLIGHT/.test(launch.task), 'launch blocks unresolved mandatory preflight requirements');
   ok(/classify launch_state deterministically/i.test(launch.task), 'launch readiness is determined by an explicit state contract');
   ok(/Never use READY_TO_EXECUTE merely because a plan or asset was generated/i.test(launch.task), 'generated artifacts cannot masquerade as execution readiness');
+  ok(/stable action_id/i.test(launch.task), 'ready actions carry stable identities for safe execution and reconciliation');
+  ok(/maximum exposure delta/i.test(launch.task), 'each action carries a bounded exposure delta');
+  ok(/authoritative reconciliation source/i.test(launch.task), 'each action declares how its real side effect will be reconciled');
+  ok(/treat this handoff as immutable input/i.test(launch.task), 'downstream execution cannot silently widen approved action parameters');
+  ok(/re-resolved immediately before each consequential side effect/i.test(launch.task), 'capability and consent are refreshed at point of execution');
+  ok(/readiness is not a cached permission/i.test(launch.task), 'launch readiness cannot substitute for live permission checks');
+  ok(/do not retry a consequential action until the authoritative reconciliation source/i.test(launch.task), 'ambiguous outcomes are reconciled before any retry');
   ok(/Do not infer launch success from task completion/i.test(launch.task), 'generated work cannot masquerade as launch outcomes');
   ok(/maximum time and money at risk/i.test(launch.task) && /stop conditions/i.test(launch.task), 'launch keeps explicit exposure bounds');
   ok(/Do not automatically scale after launch/i.test(launch.task), 'launch cannot silently escalate into scaling');
