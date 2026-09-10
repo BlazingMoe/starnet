@@ -1,7 +1,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
-const { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart } = require('../sidecar/orchestration/task-recovery.js');
+const { buildManagedResumeRequest, buildManagedResumeContext, claimManagedSafeRestart, executeClaimedManagedRestart } = require('../sidecar/orchestration/task-recovery.js');
 
 const disk = [];
 const io = {
@@ -92,6 +92,7 @@ A.eq(plan.args.agentId, 'worker-claim', 'prepared plan preserves original worker
 A.eq(plan.ctx.agentId, 'lead-claim', 'prepared plan restores original lead provenance');
 A.eq(plan.ctx.runId, 'run-claim', 'prepared plan restores original parent run provenance');
 A.eq(plan.ctx.consent, 'ambient-consent', 'prepared plan carries ambient host consent service through unchanged');
+A.eq(plan.ctx.managedRecovery.claimId, 'claim-token-1', 'prepared plan carries the durable claim identity into execution context');
 A.eq(plan.claimedCheckpoint.stage, 'resume-claimed', 'prepared plan is backed by a durable active claim');
 A.eq(plan.claimedCheckpoint.recoveryClaimId, 'claim-token-1', 'durable checkpoint records the same claim token');
 A.eq(plan.executionMayHaveStarted, false, 'claim preparation itself does not pretend worker execution began');
@@ -121,4 +122,68 @@ const noAuthority = claimManagedSafeRestart(null, 'x', 'y', {});
 A.eq(noAuthority.ok, false, 'restart preparation requires an authoritative recovery store');
 A.eq(noAuthority.reason, 'recovery-authority-unavailable', 'missing recovery authority is explicit');
 
-A.report('managed-task-recovery.test');
+function seedRestart(taskId) {
+  store.recordCheckpoint({
+    taskId, parentRunId: 'run-' + taskId, leadAgentId: 'lead-' + taskId, workerAgentId: 'worker-' + taskId,
+    objective: 'resume ' + taskId, stage: 'contract', startedAt: 5000
+  });
+  return claimManagedSafeRestart(store, taskId, 'claim-' + taskId, {});
+}
+
+const deniedPlan = seedRestart('exec-denied');
+let deniedRan = false;
+const deniedRegistry = {
+  async dispatch() {
+    deniedRan = true;
+    return { ok: false, isError: true, summary: 'capdenied', content: 'capability denied' };
+  }
+};
+
+const crossedPlan = seedRestart('exec-crossed');
+let crossedRan = false;
+const crossedRegistry = {
+  async dispatch(call, ctx) {
+    const boundary = await ctx.beforeToolExecute(call, { name: call.name });
+    if (boundary && boundary.ok === false) return boundary;
+    crossedRan = true;
+    return { ok: true, isError: false, summary: 'ok', content: 'ran' };
+  }
+};
+
+const inheritedPlan = seedRestart('exec-inherited-stop');
+let inheritedToolRan = false;
+inheritedPlan.ctx.beforeToolExecute = async () => ({ ok: false, isError: true, summary: 'journal-stop', content: 'journal refused' });
+const inheritedRegistry = {
+  async dispatch(call, ctx) {
+    const boundary = await ctx.beforeToolExecute(call, { name: call.name });
+    if (boundary && boundary.ok === false) return boundary;
+    inheritedToolRan = true;
+    return { ok: true, isError: false, summary: 'ok', content: 'ran' };
+  }
+};
+
+(async () => {
+  const denied = await executeClaimedManagedRestart(deniedRegistry, store, deniedPlan);
+  A.eq(deniedRan, true, 'recovery executor uses the supplied authoritative registry instead of bypassing it');
+  A.eq(denied.ok, false, 'pre-boundary registry refusal remains a failed execution attempt');
+  A.eq(denied.boundaryCrossed, false, 'pre-boundary registry refusal does not invent worker execution');
+  A.eq(denied.claimReleased, true, 'claim is released when registry proves the tool boundary was never reached');
+  A.eq(store.recovery('exec-denied').disposition, 'SAFE_RESTART', 'early refusal returns durable recovery to the original safe contract state');
+
+  const crossed = await executeClaimedManagedRestart(crossedRegistry, store, crossedPlan);
+  A.eq(crossedRan, true, 'managed tool may run only after the durable recovery fence succeeds');
+  A.eq(crossed.ok, true, 'successful authoritative dispatch is returned to the caller');
+  A.eq(crossed.boundaryCrossed, true, 'executor records that the durable side-effect boundary was crossed');
+  A.eq(crossed.claimReleased, false, 'claim is never rolled back after crossing the durable dispatch boundary');
+  A.eq(store.recovery('exec-crossed').disposition, 'RECONCILE_BEFORE_RETRY', 'post-boundary recovery becomes conservative instead of replayable');
+  A.eq(store.recovery('exec-crossed').executionMayHaveStarted, true, 'durable dispatch fence is the authority for possible execution');
+
+  const inherited = await executeClaimedManagedRestart(inheritedRegistry, store, inheritedPlan);
+  A.eq(inheritedToolRan, false, 'an inherited host dispatch callback can still stop execution');
+  A.eq(inherited.ok, false, 'inherited host boundary refusal is propagated');
+  A.eq(inherited.boundaryCrossed, true, 'recovery fence remains crossed when a later host boundary refuses');
+  A.eq(inherited.claimReleased, false, 'executor never rewinds durable state after any later-boundary uncertainty');
+  A.eq(store.recovery('exec-inherited-stop').disposition, 'RECONCILE_BEFORE_RETRY', 'later host refusal stays conservative rather than becoming an unsafe auto-retry');
+
+  A.report('managed-task-recovery.test');
+})().catch(error => { console.error(error); process.exitCode = 1; });
