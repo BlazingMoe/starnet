@@ -27,6 +27,24 @@
     return Array.isArray(g) ? g : [];
   }
 
+  // Moe AI Station private-use extension. Keep this in the existing catalog truth path rather than inventing
+  // a second workflow registry. It can move into its own statically loaded catalog module if that loader grows.
+  const MOE_RECIPES = [
+    {
+      id: 'opportunity-discovery', name: 'Opportunity Discovery', emoji: '◇', tagline: 'Find what is worth testing before building it',
+      accent: '#d9a85a',
+      blurb: 'Researches legitimate ways to earn, compares evidence and economics, then recommends the smallest useful validation experiment.',
+      tags: { research: 0.7, general: 0.3 },
+      params: [
+        { key: 'goal', label: 'What outcome do you want?', placeholder: 'e.g. find a realistic side-income opportunity I can start online', required: false, default: 'find a realistic legitimate opportunity to create additional income' },
+        { key: 'constraints', label: 'Constraints', placeholder: 'budget, time, skills, location, platforms to include/exclude', required: false, default: 'use what you know about my available resources; keep the first validation cheap and reversible' }
+      ],
+      task: 'Find and compare legitimate opportunities for {goal}, subject to {constraints}. Start broad instead of assuming the answer is a specific platform or product type: consider digital products, marketplace or shop products, productized services, content or tool assets, and other lawful models that fit the constraints. Research current external evidence from multiple independent sources for actual demand, competition, buyer pain, typical pricing, platform economics and obvious compliance or operational risks. For every material claim, preserve the source and date. Separate OBSERVED FACTS from ESTIMATES and ASSUMPTIONS. Never present estimated demand, revenue, sales, conversion, margin or profit as an actual metric; when the evidence cannot support a number, say unknown instead of inventing one. Build a candidate table and score each option on demand evidence, differentiation, setup cost, time to first validation, plausible margin, operational complexity, reversibility, and platform/compliance risk. Explain the evidence behind every score. Keep rejected candidates too, with the reason they lost, so the decision can be audited later. Recommend the strongest shortlist and then the single smallest low-cost experiment that would most efficiently falsify or validate the leading opportunity before significant time or money is committed. End with a structured handoff containing the opportunity, target buyer, problem, proposed offer, evidence, assumptions, open questions, estimated validation budget and success/failure criteria so a downstream revenue or production workflow can continue without re-researching the decision. This discovery stage may research, analyze and prepare artifacts, but it must not publish listings, contact prospects, buy inventory, spend money, place orders or make a financial commitment. Those are later execution capabilities governed by their own permissions and spending policy, not permanent product limitations.',
+      category: 'business', gear: ['dish', 'notebook'], skills: ['web-research', 'decision-1-3-1'], cadence: null,
+      source: 'builtin', forkedFrom: null
+    }
+  ];
+
   const MODULES = [
     mod('./core.js', 'RecipeCatalogCore'),
     // R4 persona catalogs (one line each):
@@ -36,6 +54,7 @@
     mod('./ops.js', 'RecipeCatalogOps'),
     // life-domain catalogs (2026-08-03) — the buckets a person actually has, not just the five work personas:
     mod('./business.js', 'RecipeCatalogBusiness'),
+    MOE_RECIPES,
     mod('./money.js', 'RecipeCatalogMoney'),
     mod('./career.js', 'RecipeCatalogCareer'),
     mod('./learn.js', 'RecipeCatalogLearn'),
