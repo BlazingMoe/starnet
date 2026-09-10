@@ -28,6 +28,9 @@ const catalog = require('../sidecar/mcp/catalog.js');
   const gmailCatalog = catalog.get('gmail');
   assert.ok(gmailCatalog.staticOauth.scopes.includes('https://www.googleapis.com/auth/gmail.modify'),
     'Gmail requests explicit modify scope before exposing inbox/label mutations');
+  const contactsCatalog = catalog.get('google-contacts');
+  assert.ok(contactsCatalog.staticOauth.scopes.includes('https://www.googleapis.com/auth/contacts.readonly'),
+    'Google Contacts uses read-only address-book authorization');
 
   const examples = {
     search_messages: { query: 'from:test@example.invalid', pageToken: 'next&evil=1' }, read_message: { messageId: 'message-1' },
@@ -38,6 +41,9 @@ const catalog = require('../sidecar/mcp/catalog.js');
     archive_message: { messageId: 'message-1' },
     move_to_inbox: { messageId: 'message-1' },
     modify_labels: { messageId: 'message-1', addLabelIds: ['STARRED', 'Label_123', 'Label_123'], removeLabelIds: ['IMPORTANT'] },
+    list_contacts: { pageSize: 50 },
+    search_contacts: { query: 'Müller', pageSize: 15 },
+    get_contact: { resourceName: 'people/c123' },
     compose_draft: { to: ['test@example.invalid'], cc: ['copy@example.invalid'], subject: 'Geschäft €', bodyText: 'Hello\nWorld', threadId: 'thread-1', inReplyTo: '<msg-1@example.invalid>', references: '<root@example.invalid> <msg-1@example.invalid>' },
     reply_draft: { messageId: 'message-1', bodyText: 'Thanks\nConfirmed' },
     create_draft: { raw: Buffer.from('To: test@example.invalid\r\nSubject: Test\r\n\r\nHello').toString('base64url') }, send_draft: { draftId: 'draft-1' },
@@ -106,6 +112,32 @@ const catalog = require('../sidecar/mcp/catalog.js');
         assert.deepEqual(JSON.parse(calls.at(-1).opts.body).values, [['Acme', 'qualified', 82]]);
       }
       if (def.name === 'search_messages') assert.equal(new URL(calls.at(-1).target).searchParams.get('pageToken'), 'next&evil=1');
+      if (product === 'google-contacts' && def.name === 'list_contacts') {
+        assert.equal(toolCalls.length, 1);
+        const u = new URL(toolCalls[0].target);
+        assert.equal(toolCalls[0].opts.method, 'GET');
+        assert.equal(u.pathname, '/v1/people/me/connections');
+        assert.equal(u.searchParams.get('pageSize'), '50');
+        assert.equal(u.searchParams.get('personFields'), 'names,emailAddresses,phoneNumbers,organizations,metadata');
+      }
+      if (product === 'google-contacts' && def.name === 'search_contacts') {
+        assert.equal(toolCalls.length, 2, 'contact search performs Google cache warm-up then the real query');
+        const warm = new URL(toolCalls[0].target);
+        const actual = new URL(toolCalls[1].target);
+        assert.equal(warm.pathname, '/v1/people:searchContacts');
+        assert.equal(warm.searchParams.has('query'), true, 'warm-up preserves the explicitly empty query parameter');
+        assert.equal(warm.searchParams.get('query'), '');
+        assert.equal(warm.searchParams.get('pageSize'), '1');
+        assert.equal(actual.searchParams.get('query'), 'Müller');
+        assert.equal(actual.searchParams.get('pageSize'), '15');
+        assert.equal(actual.searchParams.get('readMask'), 'names,emailAddresses,phoneNumbers,organizations,metadata');
+      }
+      if (product === 'google-contacts' && def.name === 'get_contact') {
+        assert.equal(toolCalls.length, 1);
+        const u = new URL(toolCalls[0].target);
+        assert.equal(u.pathname, '/v1/people/c123');
+        assert.equal(u.searchParams.get('personFields'), 'names,emailAddresses,phoneNumbers,organizations,metadata');
+      }
       if (def.name === 'list_labels') {
         assert.equal(toolCalls.length, 1);
         assert.equal(toolCalls[0].opts.method, 'GET');
@@ -273,6 +305,50 @@ const catalog = require('../sidecar/mcp/catalog.js');
     );
     assert.equal(calls.length, before + 1, 'binary text read stops after metadata check');
     assert.equal(new URL(calls.at(-1).target).searchParams.get('alt'), null, 'binary file bytes are never fetched through the text tool');
+    client.close();
+  }
+
+  {
+    const names = TOOLS['google-contacts'].map(tool => tool.name);
+    assert.deepEqual(names, ['list_contacts', 'search_contacts', 'get_contact'], 'Contacts exposes only read operations in the private operator slice');
+    for (const raw of TOOLS['google-contacts']) {
+      const projected = makeMcpToolDef({
+        connectorId: 'google-contacts',
+        label: 'Google Contacts',
+        mcpTool: raw,
+        call: async () => ({ content: [] })
+      });
+      assert.equal(projected.requiresConsent, true, raw.name + ' remains connector-consent gated');
+      assert.equal(projected.scope, 'read', raw.name + ' stays read-scoped');
+      assert.equal(projected.readOnly, true, raw.name + ' cannot mutate the address book');
+    }
+  }
+
+  {
+    const calls = [];
+    const client = makeMcpClient({
+      timeoutMs: 1000,
+      transport: makeGoogleTransport({
+        url: ENDPOINTS['google-contacts'],
+        token: 'TEST_TOKEN',
+        fetchImpl: async (target, opts) => {
+          calls.push({ target, opts });
+          return new Response(JSON.stringify({ connections: [] }), { headers: { 'Content-Type': 'application/json' } });
+        }
+      })
+    });
+    await client.initialize();
+    const before = calls.length;
+    await assert.rejects(
+      client.callTool('search_contacts', { query: '   ' }),
+      /search query must not be empty/
+    );
+    assert.equal(calls.length, before, 'blank contact search fails before warm-up/network');
+    await assert.rejects(
+      client.callTool('get_contact', { resourceName: 'people/c123/extra' }),
+      /Invalid Google contact resourceName/
+    );
+    assert.equal(calls.length, before, 'unsafe contact resourceName fails before network');
     client.close();
   }
 
