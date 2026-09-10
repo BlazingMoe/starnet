@@ -55,6 +55,12 @@ function liveEntry(args, ctx, startedAt) {
     workerAgentId: String(args.agentId || ''),
     auditorAgentId: String(args.auditorAgentId || ''),
     objective: String(args.objective || ''),
+    acceptanceCriteria: Array.isArray(args.acceptanceCriteria) ? args.acceptanceCriteria.slice() : [],
+    tags: Array.isArray(args.tags) ? args.tags.slice() : [],
+    deadlineAt: args.deadlineAt == null ? null : Number(args.deadlineAt),
+    budgetUsd: args.budgetUsd == null ? null : Number(args.budgetUsd),
+    requireAudit: args.requireAudit === true,
+    maxRevisions: args.maxRevisions == null ? 1 : Number(args.maxRevisions),
     stage: 'dispatch',
     startedAt
   };

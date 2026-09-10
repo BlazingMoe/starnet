@@ -27,10 +27,20 @@ A.eq(first.budgetUsd, 1, 'history sanitization preserves task budget');
 A.eq(first.budgetExceeded, false, 'history sanitization preserves non-overrun budget state');
 A.eq(store.list({ agentId: 'auditor' }).length, 1, 'agent lookup includes auditor role');
 
-const cp = store.recordCheckpoint({ taskId: 'resume-me', parentRunId: 'run-x', leadAgentId: 'lead', workerAgentId: 'worker', objective: 'long task', stage: 'audit', startedAt: 900 });
+const cp = store.recordCheckpoint({
+  taskId: 'resume-me', parentRunId: 'run-x', leadAgentId: 'lead', workerAgentId: 'worker', auditorAgentId: 'auditor',
+  objective: 'long task', acceptanceCriteria: ['two sources', 'artifact saved'], tags: ['research'], deadlineAt: 5000,
+  budgetUsd: 2.5, requireAudit: true, maxRevisions: 2, stage: 'audit', startedAt: 900
+});
 A.eq(cp.schemaVersion, 'moe.managed-task-checkpoint.v1', 'checkpoint rows use a distinct schema in the same append-only log');
 A.eq(store.count(), 1, 'checkpoint rows do not become completed managed tasks');
 A.eq(store.latestCheckpoint('resume-me').stage, 'audit', 'latest durable stage checkpoint is queryable');
+A.eq(cp.acceptanceCriteria, ['two sources', 'artifact saved'], 'checkpoint preserves immutable acceptance criteria needed for safe recovery');
+A.eq(cp.tags, ['research'], 'checkpoint preserves task tags needed for safe recovery');
+A.eq(cp.deadlineAt, 5000, 'checkpoint preserves the original deadline');
+A.eq(cp.budgetUsd, 2.5, 'checkpoint preserves the original budget bound');
+A.eq(cp.requireAudit, true, 'checkpoint preserves whether independent audit was required');
+A.eq(cp.maxRevisions, 2, 'checkpoint preserves the original revision bound');
 A.eq(store.recovery('resume-me').state, 'RESUME_REQUIRED', 'checkpoint without a later terminal result requires recovery after restart');
 
 store.record({ taskId: 't2', leadAgentId: 'lead', workerAgentId: 'w2', objective: 'code', status: 'rejected', stage: 'formal-review', attempts: 2, usd: 0.3 });
@@ -54,6 +64,9 @@ const restarted = makeTaskHistoryStore({ io, clock, ramMax: 10 });
 A.eq(restarted.count(), 4, 'restart reloads terminal history without counting checkpoint rows');
 A.eq(restarted.list({ status: 'accepted' }).length, 2, 'status filters survive restart');
 A.eq(restarted.latestCheckpoint('resume-me').stage, 'audit', 'restart reconstructs latest checkpoint from the same durable log');
+A.eq(restarted.latestCheckpoint('resume-me').acceptanceCriteria, ['two sources', 'artifact saved'], 'restart reconstructs the immutable acceptance contract from the same durable checkpoint');
+A.eq(restarted.latestCheckpoint('resume-me').budgetUsd, 2.5, 'restart reconstructs the original budget bound without another state store');
+A.eq(restarted.latestCheckpoint('resume-me').requireAudit, true, 'restart reconstructs the audit requirement without guessing');
 A.eq(restarted.recovery('resume-me').state, 'RESUME_REQUIRED', 'restart exposes an unfinished checkpoint as recovery-required');
 
 restarted.record({ taskId: 'resume-me', leadAgentId: 'lead', workerAgentId: 'worker', objective: 'long task', status: 'accepted', stage: 'accepted', accepted: true });

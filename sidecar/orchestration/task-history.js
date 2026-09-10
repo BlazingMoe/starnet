@@ -63,6 +63,12 @@ function sanitizeCheckpoint(entry, now) {
     workerAgentId: str(entry.workerAgentId, 80),
     auditorAgentId: str(entry.auditorAgentId, 80),
     objective: str(entry.objective, 2000),
+    acceptanceCriteria: list(entry.acceptanceCriteria, 50, 500),
+    tags: list(entry.tags, 50, 120),
+    deadlineAt: entry.deadlineAt == null ? null : Math.max(0, num(entry.deadlineAt)),
+    budgetUsd: entry.budgetUsd == null ? null : Math.max(0, num(entry.budgetUsd)),
+    requireAudit: entry.requireAudit === true,
+    maxRevisions: Math.max(0, Math.min(3, Math.floor(num(entry.maxRevisions)))),
     stage: STAGE.has(entry.stage) ? entry.stage : 'dispatch',
     startedAt: Math.max(0, num(entry.startedAt)),
     ts: now
