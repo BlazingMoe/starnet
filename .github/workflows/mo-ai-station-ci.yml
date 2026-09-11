@@ -53,6 +53,7 @@ jobs:
           node test/managed-recovery-fence.test.js
           node test/managed-task-recovery.test.js
           node test/managed-recovery-runner.test.js
+          node test/managed-recovery-boundary-order.test.js
           node test/managed-recovery-lifecycle-retry.test.js
           node test/managed-recovery-scheduler.test.js
           node test/managed-recovery-listing.test.js
