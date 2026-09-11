@@ -17,11 +17,11 @@ function makeStore() {
   });
 }
 
-function seed(store, taskId) {
+function seed(store, taskId, leadAgentId) {
   store.recordCheckpoint({
     taskId,
     parentRunId: 'run-' + taskId,
-    leadAgentId: 'lead-' + taskId,
+    leadAgentId: leadAgentId || 'lead-' + taskId,
     workerAgentId: 'worker-' + taskId,
     objective: 'resume ' + taskId,
     acceptanceCriteria: ['same durable contract'],
@@ -102,17 +102,18 @@ function seed(store, taskId) {
   A.eq(seenCtx.traceId, 'trace-success', 'ambient host context survives composition');
 
   const batchStore = makeStore();
-  seed(batchStore, 'batch-old');
+  seed(batchStore, 'batch-old', 'lead-batch');
   batchStore.recordCheckpoint({
     taskId: 'batch-unsafe',
     parentRunId: 'run-batch-unsafe',
-    leadAgentId: 'lead-batch-unsafe',
+    leadAgentId: 'lead-batch',
     workerAgentId: 'worker-batch-unsafe',
     objective: 'do not replay',
     stage: 'dispatch',
     startedAt: 6990
   });
-  seed(batchStore, 'batch-new');
+  seed(batchStore, 'batch-new', 'lead-batch');
+  seed(batchStore, 'batch-foreign', 'lead-other');
   const batchSeen = [];
   const batchRegistry = {
     async dispatch(call, ctx) {
@@ -126,17 +127,19 @@ function seed(store, taskId) {
     store: batchStore,
     registry: batchRegistry,
     limit: 1,
+    leadAgentId: 'lead-batch',
     claimIdFor(candidate) { return 'claim-' + candidate.taskId; }
   });
-  A.eq(batch.ok, true, 'bounded recovery batch executes a safe candidate');
+  A.eq(batch.ok, true, 'bounded recovery batch executes a safe candidate for the active lead');
   A.eq(batch.processed, 1, 'batch limit bounds execution count');
-  A.eq(batch.items[0].taskId, 'batch-new', 'batch consumes authoritative newest-first recovery discovery');
-  A.eq(batchSeen.length, 1, 'unsafe recovery never reaches registry through scheduler');
+  A.eq(batch.items[0].taskId, 'batch-new', 'batch consumes authoritative newest-first recovery discovery for active lead');
+  A.eq(batchSeen.length, 1, 'unsafe and foreign-lead recovery never reaches registry through scheduler');
   A.eq(batchStore.recovery('batch-old').disposition, 'SAFE_RESTART', 'unprocessed safe recovery remains authoritative and replayable');
   A.eq(batchStore.recovery('batch-unsafe').disposition, 'RECONCILE_BEFORE_RETRY', 'scheduler never promotes post-boundary recovery');
+  A.eq(batchStore.recovery('batch-foreign').disposition, 'SAFE_RESTART', 'scheduler leaves another lead recovery untouched');
 
   const lifecycleStore = makeStore();
-  seed(lifecycleStore, 'lifecycle-safe');
+  seed(lifecycleStore, 'lifecycle-safe', 'lead-lifecycle');
   const lifecycleRuns = [];
   const lifecycleRegistry = {
     async dispatch(call, ctx) {
@@ -153,12 +156,12 @@ function seed(store, taskId) {
     limit: 1,
     claimIdFor(candidate) { return 'lifecycle-claim-' + candidate.taskId; }
   });
-  const lifecycleFirst = await lifecycleHook({ traceId: 'startup-trace' });
+  const lifecycleFirst = await lifecycleHook({ agentId: 'lead-lifecycle', traceId: 'startup-trace' });
   A.eq(lifecycleFirst.ok, true, 'lifecycle hook runs one bounded recovery pass');
   A.eq(lifecycleFirst.processed, 1, 'lifecycle hook delegates bounded execution to scheduler');
-  A.eq(lifecycleRuns.length, 1, 'lifecycle hook executes the safe recovery once');
+  A.eq(lifecycleRuns.length, 1, 'lifecycle hook executes the matching safe recovery once');
   A.eq(lifecycleRuns[0].ctx.traceId, 'startup-trace', 'lifecycle ambient context reaches ordinary registry dispatch');
-  const lifecycleSecond = await lifecycleHook({ traceId: 'second-trace' });
+  const lifecycleSecond = await lifecycleHook({ agentId: 'lead-lifecycle', traceId: 'second-trace' });
   A.eq(lifecycleSecond.skipped, true, 'same lifecycle hook instance is idempotent after first invocation');
   A.eq(lifecycleSecond.reason, 'managed-recovery-lifecycle-already-invoked', 'repeat invocation is explicit and machine-readable');
   A.eq(lifecycleRuns.length, 1, 'repeat lifecycle invocation does not redispatch recovered work');
@@ -170,7 +173,7 @@ function seed(store, taskId) {
     registry: null,
     claimIdFor() { preflightClaimIds++; return 'unused'; }
   });
-  const lifecyclePreflight = await retryableLifecycle();
+  const lifecyclePreflight = await retryableLifecycle({ agentId: 'lead-lifecycle' });
   A.eq(lifecyclePreflight.ok, false, 'lifecycle preflight failure is surfaced');
   A.eq(lifecyclePreflight.reason, 'managed-registry-unavailable', 'lifecycle preflight failure identifies missing registry');
   A.eq(preflightClaimIds, 0, 'lifecycle preflight failure happens before claim-id generation or durable mutation');
