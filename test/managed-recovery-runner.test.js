@@ -3,6 +3,7 @@ const A = require('./_assert.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
 const { restartManagedTask } = require('../sidecar/orchestration/managed-recovery-runner.js');
 const { runManagedRecoveryBatch } = require('../sidecar/orchestration/managed-recovery-scheduler.js');
+const { makeManagedRecoveryLifecycleHook } = require('../sidecar/orchestration/managed-recovery-lifecycle.js');
 
 function makeStore() {
   const disk = [];
@@ -133,6 +134,51 @@ function seed(store, taskId) {
   A.eq(batchSeen.length, 1, 'unsafe recovery never reaches registry through scheduler');
   A.eq(batchStore.recovery('batch-old').disposition, 'SAFE_RESTART', 'unprocessed safe recovery remains authoritative and replayable');
   A.eq(batchStore.recovery('batch-unsafe').disposition, 'RECONCILE_BEFORE_RETRY', 'scheduler never promotes post-boundary recovery');
+
+  const lifecycleStore = makeStore();
+  seed(lifecycleStore, 'lifecycle-safe');
+  const lifecycleRuns = [];
+  const lifecycleRegistry = {
+    async dispatch(call, ctx) {
+      lifecycleRuns.push({ call, ctx });
+      const boundary = await ctx.beforeToolExecute(call, { name: call.name });
+      if (boundary && boundary.ok === false) return boundary;
+      return { ok: true, isError: false, summary: 'ok', content: 'ran' };
+    }
+  };
+  const lifecycleHook = makeManagedRecoveryLifecycleHook({
+    enabled: true,
+    store: lifecycleStore,
+    registry: lifecycleRegistry,
+    limit: 1,
+    claimIdFor(candidate) { return 'lifecycle-claim-' + candidate.taskId; }
+  });
+  const lifecycleFirst = await lifecycleHook({ traceId: 'startup-trace' });
+  A.eq(lifecycleFirst.ok, true, 'lifecycle hook runs one bounded recovery pass');
+  A.eq(lifecycleFirst.processed, 1, 'lifecycle hook delegates bounded execution to scheduler');
+  A.eq(lifecycleRuns.length, 1, 'lifecycle hook executes the safe recovery once');
+  A.eq(lifecycleRuns[0].ctx.traceId, 'startup-trace', 'lifecycle ambient context reaches ordinary registry dispatch');
+  const lifecycleSecond = await lifecycleHook({ traceId: 'second-trace' });
+  A.eq(lifecycleSecond.skipped, true, 'same lifecycle hook instance is idempotent after first invocation');
+  A.eq(lifecycleSecond.reason, 'managed-recovery-lifecycle-already-invoked', 'repeat invocation is explicit and machine-readable');
+  A.eq(lifecycleRuns.length, 1, 'repeat lifecycle invocation does not redispatch recovered work');
+
+  let preflightClaimIds = 0;
+  const retryableLifecycle = makeManagedRecoveryLifecycleHook({
+    enabled: true,
+    store: lifecycleStore,
+    registry: null,
+    claimIdFor() { preflightClaimIds++; return 'unused'; }
+  });
+  const lifecyclePreflight = await retryableLifecycle();
+  A.eq(lifecyclePreflight.ok, false, 'lifecycle preflight failure is surfaced');
+  A.eq(lifecyclePreflight.reason, 'managed-registry-unavailable', 'lifecycle preflight failure identifies missing registry');
+  A.eq(preflightClaimIds, 0, 'lifecycle preflight failure happens before claim-id generation or durable mutation');
+
+  const disabledLifecycle = makeManagedRecoveryLifecycleHook({ enabled: false });
+  const disabled = await disabledLifecycle();
+  A.eq(disabled.skipped, true, 'lifecycle recovery requires explicit host opt-in');
+  A.eq(disabled.reason, 'managed-recovery-lifecycle-disabled', 'disabled lifecycle hook reports why it did nothing');
 
   A.report('managed-recovery-runner.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });
