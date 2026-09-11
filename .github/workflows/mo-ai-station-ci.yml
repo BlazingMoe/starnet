@@ -53,6 +53,7 @@ jobs:
           node test/managed-recovery-fence.test.js
           node test/managed-task-recovery.test.js
           node test/managed-recovery-runner.test.js
+          node test/managed-recovery-scheduler.test.js
           node test/managed-recovery-listing.test.js
           node test/orchestration-bridge-contract.test.js
           node test/managed-task-history.test.js
