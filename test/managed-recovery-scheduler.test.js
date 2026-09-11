@@ -64,6 +64,18 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(discoveryFailure.items.length, 0, 'discovery exception cannot synthesize work');
   A.eq(claimCalls, 0, 'discovery exception cannot mint a claim id');
 
+  const invalidDiscovery = await runManagedRecoveryBatch({
+    store: { listRecoveries() { return { truncated: false }; } },
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    claimIdFor() { claimCalls++; return 'unused'; }
+  });
+  A.eq(invalidDiscovery.ok, false, 'malformed authoritative discovery cannot become a successful empty batch');
+  A.eq(invalidDiscovery.reason, 'recovery-discovery-invalid', 'malformed discovery has stable reason');
+  A.eq(invalidDiscovery.executionMayHaveStarted, false, 'malformed discovery remains explicitly pre-execution');
+  A.eq(invalidDiscovery.items.length, 0, 'malformed discovery cannot synthesize work');
+  A.eq(claimCalls, 0, 'malformed discovery cannot mint a claim id');
+
   const ambientFailureStore = makeStore();
   seed(ambientFailureStore, 'ambient-failure', 'contract', 'lead-main');
   const ambientFailure = await runManagedRecoveryBatch({
