@@ -96,6 +96,24 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(invalidCandidate.items[0].executionMayHaveStarted, false, 'malformed candidate is explicitly pre-execution');
   A.eq(claimCalls, 0, 'malformed candidate cannot mint a claim id');
 
+  const mismatchedCandidate = await runManagedRecoveryBatch({
+    store: {
+      listRecoveries() {
+        return {
+          truncated: false,
+          items: [{ taskId: 'projection-a', checkpoint: { taskId: 'projection-b', leadAgentId: 'lead-main' } }]
+        };
+      }
+    },
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    claimIdFor() { claimCalls++; return 'unused'; }
+  });
+  A.eq(mismatchedCandidate.ok, false, 'candidate and checkpoint task identity must agree before recovery');
+  A.eq(mismatchedCandidate.items[0].reason, 'recovery-candidate-task-identity-mismatch', 'identity mismatch has stable reason');
+  A.eq(mismatchedCandidate.items[0].executionMayHaveStarted, false, 'identity mismatch is explicitly pre-execution');
+  A.eq(claimCalls, 0, 'identity mismatch cannot mint a claim id');
+
   const ambientFailureStore = makeStore();
   seed(ambientFailureStore, 'ambient-failure', 'contract', 'lead-main');
   const ambientFailure = await runManagedRecoveryBatch({
