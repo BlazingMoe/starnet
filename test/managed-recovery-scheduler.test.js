@@ -57,6 +57,15 @@ function seed(store, taskId, stage, leadAgentId) {
   seed(store, 'unsafe-dispatch', 'dispatch', 'lead-main');
   seed(store, 'foreign-newest', 'contract', 'lead-other');
   seed(store, 'safe-new', 'contract', 'lead-main');
+  store.recordCheckpoint({
+    taskId: 'role-collision',
+    parentRunId: 'run-role-collision',
+    leadAgentId: 'lead-other',
+    workerAgentId: 'lead-main',
+    objective: 'must not consume the active lead discovery window',
+    stage: 'contract',
+    startedAt: 8991
+  });
 
   const seen = [];
   const registry = {
@@ -87,6 +96,7 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(store.recovery('safe-new').disposition, 'RECONCILE_BEFORE_RETRY', 'processed task crosses durable dispatch fence');
   A.eq(store.recovery('safe-old').disposition, 'SAFE_RESTART', 'unprocessed safe task remains discoverable');
   A.eq(store.recovery('foreign-newest').disposition, 'SAFE_RESTART', 'different lead task is left untouched');
+  A.eq(store.recovery('role-collision').disposition, 'SAFE_RESTART', 'worker-role collision cannot consume lead recovery capacity');
   A.eq(store.recovery('unsafe-dispatch').disposition, 'RECONCILE_BEFORE_RETRY', 'unsafe recovery is never promoted into batch');
 
   const second = await runManagedRecoveryBatch({
@@ -98,7 +108,7 @@ function seed(store, taskId, stage, leadAgentId) {
   });
   A.eq(second.discovered, 1, 'ambient lead authority discovers only remaining matching safe candidate');
   A.eq(second.items[0].taskId, 'safe-old', 'remaining matching safe task is processed');
-  A.eq(seen.length, 2, 'unsafe and foreign-lead checkpoints never reach registry');
+  A.eq(seen.length, 2, 'unsafe, foreign-lead, and role-collision checkpoints never reach registry');
 
   const empty = await runManagedRecoveryBatch({
     store,
@@ -110,6 +120,7 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(empty.discovered, 0, 'no safe candidates for active lead remain');
   A.eq(empty.processed, 0, 'no synthetic work is reported');
   A.eq(store.recovery('foreign-newest').disposition, 'SAFE_RESTART', 'empty matching batch does not consume another lead recovery');
+  A.eq(store.recovery('role-collision').disposition, 'SAFE_RESTART', 'empty matching batch does not consume worker-role collision');
 
   const missingClaimAuthority = await runManagedRecoveryBatch({
     store,
