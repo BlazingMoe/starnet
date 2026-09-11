@@ -114,6 +114,15 @@ function seed(store, taskId, leadAgentId) {
   });
   seed(batchStore, 'batch-new', 'lead-batch');
   seed(batchStore, 'batch-foreign', 'lead-other');
+  batchStore.recordCheckpoint({
+    taskId: 'batch-role-collision',
+    parentRunId: 'run-batch-role-collision',
+    leadAgentId: 'lead-other',
+    workerAgentId: 'lead-batch',
+    objective: 'foreign lead whose worker id collides with active lead',
+    stage: 'contract',
+    startedAt: 6991
+  });
   const batchSeen = [];
   const batchRegistry = {
     async dispatch(call, ctx) {
@@ -132,11 +141,12 @@ function seed(store, taskId, leadAgentId) {
   });
   A.eq(batch.ok, true, 'bounded recovery batch executes a safe candidate for the active lead');
   A.eq(batch.processed, 1, 'batch limit bounds execution count');
-  A.eq(batch.items[0].taskId, 'batch-new', 'batch consumes authoritative newest-first recovery discovery for active lead');
-  A.eq(batchSeen.length, 1, 'unsafe and foreign-lead recovery never reaches registry through scheduler');
+  A.eq(batch.items[0].taskId, 'batch-new', 'role collision cannot displace newest exact-lead recovery');
+  A.eq(batchSeen.length, 1, 'unsafe, foreign-lead, and role-collision recovery never reaches registry through scheduler');
   A.eq(batchStore.recovery('batch-old').disposition, 'SAFE_RESTART', 'unprocessed safe recovery remains authoritative and replayable');
   A.eq(batchStore.recovery('batch-unsafe').disposition, 'RECONCILE_BEFORE_RETRY', 'scheduler never promotes post-boundary recovery');
   A.eq(batchStore.recovery('batch-foreign').disposition, 'SAFE_RESTART', 'scheduler leaves another lead recovery untouched');
+  A.eq(batchStore.recovery('batch-role-collision').disposition, 'SAFE_RESTART', 'scheduler leaves role-collision recovery untouched');
 
   const lifecycleStore = makeStore();
   seed(lifecycleStore, 'lifecycle-safe', 'lead-lifecycle');
