@@ -2,6 +2,7 @@
 const A = require('./_assert.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
 const { restartManagedTask } = require('../sidecar/orchestration/managed-recovery-runner.js');
+const { runManagedRecoveryBatch } = require('../sidecar/orchestration/managed-recovery-scheduler.js');
 
 function makeStore() {
   const disk = [];
@@ -98,6 +99,40 @@ function seed(store, taskId) {
   A.eq(seenCtx.agentId, 'lead-success', 'restart preserves original lead provenance');
   A.eq(seenCtx.runId, 'run-success', 'restart preserves original parent run provenance');
   A.eq(seenCtx.traceId, 'trace-success', 'ambient host context survives composition');
+
+  const batchStore = makeStore();
+  seed(batchStore, 'batch-old');
+  batchStore.recordCheckpoint({
+    taskId: 'batch-unsafe',
+    parentRunId: 'run-batch-unsafe',
+    leadAgentId: 'lead-batch-unsafe',
+    workerAgentId: 'worker-batch-unsafe',
+    objective: 'do not replay',
+    stage: 'dispatch',
+    startedAt: 6990
+  });
+  seed(batchStore, 'batch-new');
+  const batchSeen = [];
+  const batchRegistry = {
+    async dispatch(call, ctx) {
+      batchSeen.push(ctx.runId);
+      const boundary = await ctx.beforeToolExecute(call, { name: call.name });
+      if (boundary && boundary.ok === false) return boundary;
+      return { ok: true, isError: false, summary: 'ok', content: 'ran' };
+    }
+  };
+  const batch = await runManagedRecoveryBatch({
+    store: batchStore,
+    registry: batchRegistry,
+    limit: 1,
+    claimIdFor(candidate) { return 'claim-' + candidate.taskId; }
+  });
+  A.eq(batch.ok, true, 'bounded recovery batch executes a safe candidate');
+  A.eq(batch.processed, 1, 'batch limit bounds execution count');
+  A.eq(batch.items[0].taskId, 'batch-new', 'batch consumes authoritative newest-first recovery discovery');
+  A.eq(batchSeen.length, 1, 'unsafe recovery never reaches registry through scheduler');
+  A.eq(batchStore.recovery('batch-old').disposition, 'SAFE_RESTART', 'unprocessed safe recovery remains authoritative and replayable');
+  A.eq(batchStore.recovery('batch-unsafe').disposition, 'RECONCILE_BEFORE_RETRY', 'scheduler never promotes post-boundary recovery');
 
   A.report('managed-recovery-runner.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });
