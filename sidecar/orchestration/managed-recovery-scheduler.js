@@ -45,10 +45,10 @@ async function runManagedRecoveryBatch(opts) {
     return { ok: false, phase: 'preflight', reason: 'recovery-lead-agent-required', executionMayHaveStarted: false, items: [] };
   }
 
-  // task-history owns provenance filtering. Its generic agentId filter intentionally matches
-  // any stored role, so retain a strict lead check below before minting a claim or dispatching.
-  // That makes this conservative even with older/custom stores that lack a lead-only filter.
-  const discovered = store.listRecoveries({ disposition: 'SAFE_RESTART', agentId: leadAgentId }, { limit });
+  // task-history owns lead-scoped discovery so unrelated worker/auditor role matches cannot
+  // consume the bounded candidate window. Retain the strict checkpoint check below as a
+  // conservative guard for stale/custom stores or malformed projections.
+  const discovered = store.listRecoveries({ disposition: 'SAFE_RESTART', leadAgentId }, { limit });
   const candidates = discovered && Array.isArray(discovered.items) ? discovered.items.slice(0, limit) : [];
   const results = [];
 
