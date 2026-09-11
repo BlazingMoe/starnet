@@ -74,8 +74,17 @@ async function runManagedRecoveryBatch(opts) {
   const results = [];
 
   for (const candidate of candidates) {
-    const taskId = candidate && String(candidate.taskId || '');
-    if (!taskId) continue;
+    const taskId = candidate && String(candidate.taskId || '').trim();
+    if (!taskId) {
+      results.push({
+        taskId: '',
+        ok: false,
+        phase: 'preflight',
+        reason: 'recovery-candidate-task-id-required',
+        executionMayHaveStarted: false
+      });
+      continue;
+    }
     const candidateLead = candidate && candidate.checkpoint && String(candidate.checkpoint.leadAgentId || '').trim();
     if (candidateLead !== leadAgentId) {
       results.push({ taskId, ok: false, phase: 'preflight', reason: 'recovery-lead-authority-mismatch', executionMayHaveStarted: false });
