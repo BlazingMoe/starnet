@@ -295,6 +295,13 @@ const { foldInsights } = require('./insights.js');                  // H3.3: usa
 const { makeVerifyTool } = require('./tools/builtin/verify.js');    // the workbench verify.run check-runner
 const { makeLspManager } = require('./lsp-manager.js');             // lazy installed-language-server edit diagnostics
 const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js');   // Stage 2: team.dispatch (lead->worker delegation)
+const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
+const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
+const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
+const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
+const { makeProviderControlHttp } = require('./control/provider-http.js');   // Moe AI Station: read-only registry + observed quota evidence
+const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview
+const { makeActionControlHttp } = require('./control/action-http.js');   // Moe AI Station: read-only durable action trace
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -310,9 +317,14 @@ const { makeNativeStt } = require('./native-stt.js');                // keyless 
 const Classify = require('../frontend/app/classify.js');   // the SAME task-vs-talk classifier the browser uses
 const Pipeline = require('../frontend/app/pipeline.js');   // the ONE routing-plan compiler/resolver (router.js loads the same module) — used here for a side-effect-free dispatch peek
 const sharedSpecialties = require('../shared/specialties.js');   // Class Loadouts S1: the ONE class catalog — no hardcoded class prose here
-// the specialist classes as {id, tagline}, composed from the shared catalog so team.summon's class list +
-// the [ORCHESTRATION] teamNote never drift from the Recruitment Bay (single source of truth).
-const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({ id: s.id, tagline: s.tagline || '' }));
+const sharedOrgSpecialties = require('../shared/org-specialties.js');   // Moe AI Station: organizational metadata for those same real classes
+// the specialist classes as {id, tagline,orgRole}, composed from the shared catalogs so team.summon's class list +
+// the Recruitment Bay and Control Mode never drift. orgRole remains metadata/policy, never a capability grant.
+const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({
+  id: s.id,
+  tagline: s.tagline || '',
+  orgRole: sharedOrgSpecialties.roleForSpecialty(s.id)
+}));
 
 // ---- Skynet→StarNet env back-compat ------------------------------------------------------------
 // The project was renamed Skynet → StarNet; its env vars moved SKYNET_* → STARNET_*. ENV() reads the
@@ -405,6 +417,10 @@ function defaultWorkspaces() {
 }
 const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : defaultWorkspaces();
 const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
+const managedTaskHistoryHost = makeTaskHistoryHost({
+  path, fs, workspaces: WORKSPACES, readBoundedJsonl, appendJsonlDurable, failNote, respondJson,
+  clock: { now: () => Date.now() }
+});
 
 const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
@@ -1460,12 +1476,16 @@ function replaceAgentRoster(list) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) continue;
     if (a && typeof a === 'object') agentRosterRaw.set(id, a);   // stash the raw record so unknown fields survive re-save
     const approvalMode = ((a && a.approvalMode) === 'full') ? 'full' : 'ask';
+    const orgRoleId = String((a && a.orgRole) || '').trim().toLowerCase();
+    const parentAgentId = String((a && a.parentAgentId) || '').trim();
     agentRoster.set(id, {
       system: String((a && a.system) || ''),
       name: String((a && a.name) || id).slice(0, 40),
       model: (a && a.model) ? String(a.model) : null,
       provider: normalizeProviderId((a && a.provider) || ''),
       role: String((a && a.role) || '').slice(0, 120),
+      orgRole: ['commander', 'manager', 'specialist', 'worker'].includes(orgRoleId) ? orgRoleId : null,
+      parentAgentId: /^[A-Za-z0-9_-]{1,40}$/.test(parentAgentId) ? parentAgentId : null,
       approvalMode: approvalMode,   // per-agent consent posture: 'full' bypasses the gate (see runOnce)
       executionProfile: executionProfiles.normalizeId(a && a.executionProfile, {
         approvalMode,
@@ -1497,7 +1517,7 @@ function loadAgentRoster() {
 // P1.1: the fields saveAgentRoster() rebuilds from the live Map — the KNOWN shape. Preserved unknown fields (any
 // key a newer frontend added that this sidecar doesn't model) are spread UNDER these on save, so they survive a
 // re-save by older code rather than being dropped. agentId is always rebuilt (identity), never preserved raw.
-const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
+const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'orgRole', 'parentAgentId', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
 // saveAgentRoster(updatedAt?) — persist the live roster. The optional updatedAt is the CLIENT's freshness stamp
 // (from POST /api/roster body.updatedAt); handleRoster passes it after its anti-clobber gate accepts a push, so the
 // stored envelope records the exact stamp we accepted (a later push older than it is refused). Server-internal
@@ -1507,7 +1527,7 @@ function saveAgentRoster(updatedAt) {
   try {
     fs.mkdirSync(WORKSPACES, { recursive: true });
     const agents = [...agentRoster].map(([agentId, a]) => {
-      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
+      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', orgRole: a.orgRole || null, parentAgentId: a.parentAgentId || null, approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
       // P1.1: forward-compat field preservation — carry any UNKNOWN keys from the last-seen raw record under the
       // known ones, so a field a newer frontend added isn't silently eaten when older sidecar code re-saves.
       const rawRec = agentRosterRaw.get(agentId);
@@ -1539,7 +1559,7 @@ function persistAgentFullAccess(agentId) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return false;
   const had = agentRoster.has(id);
   const previous = agentRoster.get(id);
-  const base = previous || { system: '', name: id, model: null, provider: null, role: '', approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
+  const base = previous || { system: '', name: id, model: null, provider: null, role: '', orgRole: null, parentAgentId: null, approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
   agentRoster.set(id, Object.assign({}, base, { approvalMode: 'full' }));
   if (saveAgentRoster()) return true;
   if (had) agentRoster.set(id, previous); else agentRoster.delete(id);
@@ -9008,6 +9028,51 @@ async function handleGroups(req, res) {
     respondJson(res, 200, { ok: true, result: out });
   } catch (e) { if (!res.headersSent) respondJson(res, e.status || 400, { ok: false, error: redact(String(e.message || e)) }); }
 }
+const agentControlHttp = makeAgentControlHttp({
+  roster: () => agentRoster,
+  statusByAgent: agentRuntimeStatus,
+  respondJson
+});
+// Snapshot-only broker: shares the authoritative permission grant stores but never evaluates or grants an action.
+// Reusing permissions.snapshot() here avoids a second session-grant projection in Control Mode.
+const approvalConsentSnapshot = makeConsentBroker({ grantsSession, grantsPermanent });
+const approvalControlHttp = makeApprovalControlHttp({
+  grantSnapshot: () => grantManager.snapshot(),
+  consentSnapshot: () => approvalConsentSnapshot.snapshot(),
+  pending: () => pendingByRun,
+  respondJson
+});
+// Durable run-journal remains the only action-history source; this adapter only pages and projects it.
+const actionControlHttp = makeActionControlHttp({
+  recoverPage: (options) => runJournal.recoverPage(options),
+  respondJson
+});
+const costControlHttp = makeCostControlHttp({
+  ledgerRows: () => ledger.all(),
+  roster: () => agentRoster,
+  budgetStatus: () => budget.status(Date.now()),
+  caps: () => Object.assign({}, effectiveCaps),
+  respondJson
+});
+// Registry metadata and providers/ratelimits remain the only provider-signal truth sources.
+const providerControlHttp = makeProviderControlHttp({
+  profiles: () => require('./providers/registry.js').listProviderProfiles(),
+  rateLimits: () => rateLimits.snapshot(),
+  respondJson
+});
+const memoryControlHttp = makeMemoryControlHttp({
+  roster: () => agentRoster,
+  recordsForAgent: (agentId) => {
+    const read = notebookStore.readKey('notebook:' + agentId);
+    const bad = storeFailure(read);
+    if (bad) throw new Error(String(bad.error || 'memory store unavailable'));
+    const raw = read.value;
+    const nowMs = Date.now();
+    return Array.isArray(raw) ? raw.map(r => memcore.projectRecord(r, nowMs)) : [];
+  },
+  respondJson
+});
+
 const ROUTES = [
   { m: 'GET', qsplit: '/api/groups', h: handleGroups },
   { m: 'POST', exact: '/api/groups', h: handleGroups },
@@ -9338,6 +9403,13 @@ const ROUTES = [
   { m: 'GET', qsplit: '/api/run-recoveries', h: serveRunRecoveries },
   { m: 'POST', exact: '/api/growth/ratings/correction', h: handleGrowthRatingCorrection },   // consistency loop: the Commander's words after a short-of-the-mark verdict
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
+  { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
+  { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
+  { m: 'GET', exact: '/api/control/approvals', h: approvalControlHttp.serve },   // Control Mode: read-only authoritative permission/approval projection
+  { m: 'GET', exact: '/api/control/actions', h: actionControlHttp.serve },   // Control Mode: read-only durable run-journal action trace
+  { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
+  { m: 'GET', exact: '/api/control/costs', h: costControlHttp.serve },   // Control Mode: authoritative spend ledger + budget governor
+  { m: 'GET', exact: '/api/control/providers', h: providerControlHttp.serve },   // Control Mode: registry metadata + actually observed quota evidence
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions
@@ -11608,51 +11680,51 @@ function handleLifecycleArmed(req, res) {
    NOT INCLUDED (honesty): inflight tool-call glyph per agent — there is no cheap central in-memory source for the
    agent's current tool name at snapshot time (it rides the per-run event stream), so it is omitted rather than
    guessed. If a cheap source appears later, add a `tools:[{agentId,tool}]` field. */
-function handleStateSnapshot(req, res) {
-  const out = { ts: Date.now(), runs: [], prompts: [], summons: [], queues: [] };
+function collectLiveRunRecords() {
+  const records = [];
   const seenRunIds = new Set();
   try {
     for (const [runId, meta] of runsMeta) {
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: (meta && meta.agentId) || null, startedAt: (meta && meta.startedAt) || null, source: (meta && meta.source) || null });
+      records.push({ runId: runId, agentId: (meta && meta.agentId) || null, startedAt: (meta && meta.startedAt) || null, source: (meta && meta.source) || null });
     }
   } catch (_) {}
-  // WATCHABLE BACKGROUND workers outlive the interactive response that launched them and therefore do not
-  // live in runsMeta. Their durable manager owns the real controller + run.start confirmation. Omitting that
-  // source made the CREW rail correct until the next reload/SSE reconnect, when reconciliation erased the
-  // still-running specialist and falsely painted it IDLE. Merge the manager's confirmed active view here so
-  // every reconnect restores the same run the live agent.run.start event originally lit.
+  // WATCHABLE BACKGROUND workers live outside runsMeta. Reuse the same confirmed active view that
+  // reconnect reconciliation already trusts, so Control Mode never keeps a parallel status registry.
   try {
     const backgroundRuns = subagents && typeof subagents.activeRuns === 'function' ? subagents.activeRuns() : [];
     for (const meta of backgroundRuns) {
       const runId = meta && meta.runId;
       if (!runId || seenRunIds.has(runId)) continue;
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: meta.agentId || null, startedAt: meta.startedAt || null, source: meta.source || 'subagent' });
+      records.push({ runId: runId, agentId: meta.agentId || null, startedAt: meta.startedAt || null, source: meta.source || 'subagent' });
     }
   } catch (_) {}
-  // CHANNEL runs (Telegram/Discord) live in the messaging hub's OWN inflight map, not runsMeta — include them so a
-  // reconnect keeps their agent's live floor/HUD state (reconcileFromSnapshot clears any agent absent here). Read
-  // the EXACT maps E-STOP kills (hub._internals.inflight) — one source of truth, no parallel bookkeeping. Each
-  // record carries { runId, agentId, startedAt } (see channels/hub.js). Tolerant of an absent hub (not connected).
   const addHubRuns = (hub, source) => {
     const inflight = (hub && hub._internals) ? hub._internals.inflight : null;
     if (!inflight || typeof inflight.values !== 'function') return;
     for (const rec of inflight.values()) {
       const runId = rec && rec.runId;
-      if (!runId || seenRunIds.has(runId)) continue;   // defensive: never double-list a run
+      if (!runId || seenRunIds.has(runId)) continue;
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: (rec && rec.agentId) || null, startedAt: (rec && rec.startedAt) || null, source: source });
+      records.push({ runId: runId, agentId: (rec && rec.agentId) || null, startedAt: (rec && rec.startedAt) || null, source: source });
     }
   };
   try { addHubRuns(telegram && telegram.hub, 'telegram'); } catch (_) {}
-  // multi-bot telegram: each agent-bound bot has its OWN hub/inflight — list their live runs too, or an SSE
-  // reconnect mid-run would clear that agent's floor/HUD state (same reason as the generic channels below).
   try { for (const w of telegramBots.values()) addHubRuns(w && w.hub, 'telegram'); } catch (_) {}
   try { addHubRuns(discord && discord.hub, 'discord'); } catch (_) {}
-  // generic channels (slack/matrix/signal) run through the SAME hub shape — list their live runs too, or a
-  // reconnect would wipe a live Slack/Matrix/Signal run's floor/HUD state that E-STOP can still see and kill.
   try { for (const gid of GENERIC_CHANNEL_IDS) addHubRuns(genericChannels[gid] && genericChannels[gid].hub, gid); } catch (_) {}
+  return records;
+}
+
+function agentRuntimeStatus(agentId) {
+  const id = String(agentId || '');
+  if (!id) return null;
+  return collectLiveRunRecords().some(run => run && run.agentId === id) ? 'running' : 'idle';
+}
+
+function handleStateSnapshot(req, res) {
+  const out = { ts: Date.now(), runs: collectLiveRunRecords(), prompts: [], summons: [], queues: [] };
   try {
     for (const [runId, pending] of pendingByRun) {
       const meta = runsMeta.get(runId);
@@ -15394,6 +15466,8 @@ async function runOnce(o) {
   // THIS SAME runOnce per worker; the roster supplies each worker's composed identity (system prompt + model).
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
+    managedTaskHistory: managedTaskHistoryHost.store,   // shared durable history for team.delegate_managed
+    clock: { now: () => Date.now() },   // ambient host clock injected into deterministic derivative orchestration
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     taskContext: taskContextBlock,   // workers inherit settled task decisions without re-questioning the Commander

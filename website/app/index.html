@@ -807,6 +807,7 @@
    point at the sidecar explicitly (window.__STARNET_API__, injected by the shell before any page script).
    document.write during parse keeps the load order guarantee a static tag had. */
 document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/specialties.js') + '"><\/script>');
+document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/org-specialties.js') + '"><\/script>');
 </script>
 <script src="app/specialties.js"></script>
 <script src="app/recipe-catalog/core.js"></script><!-- Recipe Marketplace R1: the DATA catalog of built-in recipes — MUST load before recipe-catalog/index.js (persona files register here too) -->

@@ -1,0 +1,123 @@
+name: Moe AI Station CI
+
+on:
+  push:
+    branches:
+      - dev/mo-ai-station
+  pull_request:
+    branches:
+      - feat/harness-backend
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orchestration-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Derivative verification contract
+        run: |
+          node test/moe-feature-evidence.test.js
+          node test/moe-claims-evidence-alignment.test.js
+
+      - name: Canonical recipe mirror contract
+        run: |
+          cmp --silent frontend/app/recipe-catalog/index.js website/app/app/recipe-catalog/index.js || {
+            echo "Canonical recipe catalog drift: frontend and website mirrors differ."
+            diff -u frontend/app/recipe-catalog/index.js website/app/app/recipe-catalog/index.js || true
+            exit 1
+          }
+
+      - name: Derivative orchestration contracts
+        run: |
+          node test/orchestration-role-policy.test.js
+          node test/org-role.test.js
+          node test/delegation-adapter.test.js
+          node test/result-envelope.test.js
+          node test/review-gate.test.js
+          node test/managed-delegation.test.js
+          node test/orchestration-auditor.test.js
+          node test/orchestration-quality-pipeline.test.js
+          node test/managed-orchestration-tool.test.js
+          node test/managed-orchestration-wiring.test.js
+          node test/managed-recovery-fence.test.js
+          node test/managed-task-recovery.test.js
+          node test/managed-recovery-runner.test.js
+          node test/managed-recovery-boundary-order.test.js
+          node test/managed-recovery-lifecycle-retry.test.js
+          node test/managed-recovery-scheduler.test.js
+          node test/managed-recovery-listing.test.js
+          node test/orchestration-bridge-contract.test.js
+          node test/managed-task-history.test.js
+          node test/managed-task-history-adapter.test.js
+          node test/managed-task-history-disk.test.js
+          node test/managed-task-history-http.test.js
+          node test/managed-task-history-host.test.js
+          node test/managed-task-history-host-wiring.test.js
+          node test/managed-task-metrics.test.js
+          node test/managed-task-live.test.js
+          node test/control-mode-view.test.js
+          node test/control-mode-ui-contract.test.js
+          node test/control-mode-surface-contract.test.js
+          node test/control-mode-schema-contract.test.js
+          node test/control-mode-lifecycle-contract.test.js
+          node test/control-mode-http-failure-contract.test.js
+          node test/control-mode-e2e-contract.test.js
+          node test/control-mode-accessibility-contract.test.js
+          node test/control-agent-view.test.js
+          node test/control-agent-http.test.js
+          node test/control-agent-host-wiring.test.js
+          node test/control-agent-roster-e2e.test.js
+          node test/org-roster-frontend-contract.test.js
+          node test/control-memory-view.test.js
+          node test/control-memory-http.test.js
+          node test/control-memory-host-wiring.test.js
+          node test/control-memory-ui-contract.test.js
+          node test/control-cost-view.test.js
+          node test/control-cost-http.test.js
+          node test/control-cost-host-wiring.test.js
+          node test/control-cost-ui-contract.test.js
+          node test/control-provider-view.test.js
+          node test/control-provider-http.test.js
+          node test/control-provider-host-wiring.test.js
+          node test/control-provider-ui-contract.test.js
+          node test/control-approval-ui-contract.test.js
+          node test/control-action-view.test.js
+          node test/control-action-http.test.js
+          node test/control-action-host-wiring.test.js
+          node test/control-action-ui-contract.test.js
+          node test/control-agent-ui-contract.test.js
+          node test/org-specialties.test.js
+
+      - name: Private operator capability contracts
+        run: |
+          node test/google-connector.test.js
+          node test/recovery-policy.test.js
+          node test/moe-revenue-pipeline.test.js
+          node test/moe-opportunity-discovery-recipe.test.js
+          node test/moe-opportunity-validation-recipe.test.js
+          node test/moe-validated-opportunity-launch-recipe.test.js
+          node test/moe-opportunity-scaling-decision-recipe.test.js
+
+      - name: Inherited orchestration regression
+        run: |
+          node test/orchestration.test.js
+          node test/subagents.test.js
+
+      - name: Security boundary regression
+        run: |
+          node test/permissions.test.js
+          node test/permgrants.test.js
+          node test/capgate.test.js
+          node test/consent.interactive.test.js
+          node test/halt.test.js
