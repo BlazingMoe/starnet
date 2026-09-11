@@ -176,6 +176,34 @@ function seed(store, taskId, leadAgentId) {
   A.eq(lifecycleSecond.reason, 'managed-recovery-lifecycle-already-invoked', 'repeat invocation is explicit and machine-readable');
   A.eq(lifecycleRuns.length, 1, 'repeat lifecycle invocation does not redispatch recovered work');
 
+  const explicitLeadStore = makeStore();
+  seed(explicitLeadStore, 'explicit-lead-safe', 'lead-explicit');
+  seed(explicitLeadStore, 'ambient-foreign-safe', 'ambient-other');
+  const explicitLeadRuns = [];
+  const explicitLeadHook = makeManagedRecoveryLifecycleHook({
+    enabled: true,
+    store: explicitLeadStore,
+    registry: {
+      async dispatch(call, ctx) {
+        explicitLeadRuns.push(ctx);
+        const boundary = await ctx.beforeToolExecute(call, { name: call.name });
+        if (boundary && boundary.ok === false) return boundary;
+        return { ok: true, isError: false, summary: 'ok', content: 'ran' };
+      }
+    },
+    leadAgentId: 'lead-explicit',
+    limit: 1,
+    claimIdFor(candidate) { return 'explicit-claim-' + candidate.taskId; }
+  });
+  const explicitLeadResult = await explicitLeadHook({ agentId: 'ambient-other', traceId: 'explicit-lead-trace' });
+  A.eq(explicitLeadResult.ok, true, 'explicit lifecycle lead authority can drive recovery');
+  A.eq(explicitLeadResult.processed, 1, 'explicit lifecycle lead scopes the bounded batch');
+  A.eq(explicitLeadResult.items[0].taskId, 'explicit-lead-safe', 'ambient agent cannot override explicit lead authority');
+  A.eq(explicitLeadRuns.length, 1, 'only the explicit lead recovery reaches registry');
+  A.eq(explicitLeadRuns[0].agentId, 'lead-explicit', 'registry dispatch preserves durable lead provenance');
+  A.eq(explicitLeadRuns[0].traceId, 'explicit-lead-trace', 'ambient non-authority context still composes into dispatch');
+  A.eq(explicitLeadStore.recovery('ambient-foreign-safe').disposition, 'SAFE_RESTART', 'ambient foreign lead task remains untouched');
+
   let preflightClaimIds = 0;
   const retryableLifecycle = makeManagedRecoveryLifecycleHook({
     enabled: true,
