@@ -52,6 +52,34 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(noLead.executionMayHaveStarted, false, 'missing lead authority is pre-execution');
   A.eq(claimCalls, 0, 'missing lead authority cannot mint a claim id');
 
+  const discoveryFailure = await runManagedRecoveryBatch({
+    store: { listRecoveries() { throw new Error('history read unavailable'); } },
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    claimIdFor() { claimCalls++; return 'unused'; }
+  });
+  A.eq(discoveryFailure.ok, false, 'authoritative discovery exception is contained');
+  A.eq(discoveryFailure.reason, 'recovery-discovery-failed', 'discovery exception has stable reason');
+  A.eq(discoveryFailure.executionMayHaveStarted, false, 'discovery exception is explicitly pre-execution');
+  A.eq(discoveryFailure.items.length, 0, 'discovery exception cannot synthesize work');
+  A.eq(claimCalls, 0, 'discovery exception cannot mint a claim id');
+
+  const ambientFailureStore = makeStore();
+  seed(ambientFailureStore, 'ambient-failure', 'contract', 'lead-main');
+  const ambientFailure = await runManagedRecoveryBatch({
+    store: ambientFailureStore,
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    ambientCtxFor() { throw new Error('ambient context unavailable'); },
+    claimIdFor() { claimCalls++; return 'unused'; }
+  });
+  A.eq(ambientFailure.ok, false, 'per-task ambient context exception is contained');
+  A.eq(ambientFailure.items.length, 1, 'ambient context failure remains attached to its candidate');
+  A.eq(ambientFailure.items[0].reason, 'recovery-ambient-context-failed', 'ambient context exception has stable reason');
+  A.eq(ambientFailure.items[0].executionMayHaveStarted, false, 'ambient context exception is explicitly pre-execution');
+  A.eq(claimCalls, 0, 'ambient context failure is detected before claim-id minting');
+  A.eq(ambientFailureStore.recovery('ambient-failure').disposition, 'SAFE_RESTART', 'ambient context failure leaves durable recovery untouched');
+
   const store = makeStore();
   seed(store, 'safe-old', 'contract', 'lead-main');
   seed(store, 'unsafe-dispatch', 'dispatch', 'lead-main');
