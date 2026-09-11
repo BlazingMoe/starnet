@@ -67,8 +67,12 @@ function makeManagedRecoveryLifecycleHook(opts) {
       };
     }
 
+    // Reserve the hook before entering scheduler code. Unknown exceptions stay consumed
+    // conservatively because execution may have progressed farther than the thrown error
+    // proves. Only an explicit scheduler preflight result that says execution could not
+    // have started is safe to release for a later lifecycle retry.
     invoked = true;
-    return runManagedRecoveryBatch({
+    const result = await runManagedRecoveryBatch({
       store: opts.store,
       registry: opts.registry,
       claimIdFor: opts.claimIdFor,
@@ -77,6 +81,8 @@ function makeManagedRecoveryLifecycleHook(opts) {
       ambientCtx: ambientCtx || opts.ambientCtx || {},
       ambientCtxFor: opts.ambientCtxFor
     });
+    if (result && result.phase === 'preflight' && result.executionMayHaveStarted === false) invoked = false;
+    return result;
   };
 }
 
