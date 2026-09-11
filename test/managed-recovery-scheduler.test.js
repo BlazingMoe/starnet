@@ -130,6 +130,20 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(claimCalls, 0, 'ambient context failure is detected before claim-id minting');
   A.eq(ambientFailureStore.recovery('ambient-failure').disposition, 'SAFE_RESTART', 'ambient context failure leaves durable recovery untouched');
 
+  const claimIdFailureStore = makeStore();
+  seed(claimIdFailureStore, 'claim-id-failure', 'contract', 'lead-main');
+  const claimIdFailure = await runManagedRecoveryBatch({
+    store: claimIdFailureStore,
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    async claimIdFor() { claimCalls++; throw new Error('claim allocator unavailable'); }
+  });
+  A.eq(claimIdFailure.ok, false, 'async claim-id allocator rejection is contained');
+  A.eq(claimIdFailure.items.length, 1, 'claim-id allocation failure remains attached to its candidate');
+  A.eq(claimIdFailure.items[0].reason, 'recovery-claim-id-failed', 'claim-id allocator rejection has stable reason');
+  A.eq(claimIdFailure.items[0].executionMayHaveStarted, false, 'claim-id allocator rejection is explicitly pre-execution');
+  A.eq(claimIdFailureStore.recovery('claim-id-failure').disposition, 'SAFE_RESTART', 'claim-id allocation failure leaves durable recovery untouched');
+
   const store = makeStore();
   seed(store, 'safe-old', 'contract', 'lead-main');
   seed(store, 'unsafe-dispatch', 'dispatch', 'lead-main');
@@ -168,13 +182,14 @@ function seed(store, taskId, stage, leadAgentId) {
     registry,
     limit: 1,
     leadAgentId: 'lead-main',
-    claimIdFor(candidate) { return 'claim-' + candidate.taskId; },
+    async claimIdFor(candidate) { return 'claim-' + candidate.taskId; },
     async ambientCtxFor(candidate) { return { traceId: 'trace-' + candidate.taskId }; }
   });
   A.eq(first.ok, true, 'bounded batch succeeds when authoritative discovery resolves asynchronously');
   A.eq(first.discovered, 1, 'limit bounds lead-scoped discovery snapshot');
   A.eq(first.processed, 1, 'limit bounds executions');
   A.eq(first.items[0].taskId, 'safe-new', 'newest safe recovery for active lead is processed first');
+  A.eq(first.items[0].claimId, 'claim-safe-new', 'async claim-id allocation resolves before durable recovery claim');
   A.eq(seen.length, 1, 'only one task reaches registry');
   A.eq(seen[0].ctx.agentId, 'lead-main', 'original matching lead provenance is preserved');
   A.eq(seen[0].ctx.runId, 'run-safe-new', 'original run provenance is preserved');
