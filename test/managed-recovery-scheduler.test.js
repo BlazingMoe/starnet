@@ -53,16 +53,16 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(claimCalls, 0, 'missing lead authority cannot mint a claim id');
 
   const discoveryFailure = await runManagedRecoveryBatch({
-    store: { listRecoveries() { throw new Error('history read unavailable'); } },
+    store: { async listRecoveries() { throw new Error('history read unavailable'); } },
     registry: { dispatch() { throw new Error('must not dispatch'); } },
     leadAgentId: 'lead-main',
     claimIdFor() { claimCalls++; return 'unused'; }
   });
-  A.eq(discoveryFailure.ok, false, 'authoritative discovery exception is contained');
-  A.eq(discoveryFailure.reason, 'recovery-discovery-failed', 'discovery exception has stable reason');
-  A.eq(discoveryFailure.executionMayHaveStarted, false, 'discovery exception is explicitly pre-execution');
-  A.eq(discoveryFailure.items.length, 0, 'discovery exception cannot synthesize work');
-  A.eq(claimCalls, 0, 'discovery exception cannot mint a claim id');
+  A.eq(discoveryFailure.ok, false, 'async authoritative discovery rejection is contained');
+  A.eq(discoveryFailure.reason, 'recovery-discovery-failed', 'discovery rejection has stable reason');
+  A.eq(discoveryFailure.executionMayHaveStarted, false, 'discovery rejection is explicitly pre-execution');
+  A.eq(discoveryFailure.items.length, 0, 'discovery rejection cannot synthesize work');
+  A.eq(claimCalls, 0, 'discovery rejection cannot mint a claim id');
 
   const invalidDiscovery = await runManagedRecoveryBatch({
     store: { listRecoveries() { return { truncated: false }; } },
@@ -155,15 +155,23 @@ function seed(store, taskId, stage, leadAgentId) {
     }
   };
 
+  const asyncDiscoveryStore = {
+    async listRecoveries(filter, paging) { return store.listRecoveries(filter, paging); },
+    recovery(taskId) { return store.recovery(taskId); },
+    claimSafeRestart(taskId, claimId) { return store.claimSafeRestart(taskId, claimId); },
+    fenceSafeRestartClaim(taskId, claimId) { return store.fenceSafeRestartClaim(taskId, claimId); },
+    releaseSafeRestartClaim(taskId, claimId) { return store.releaseSafeRestartClaim(taskId, claimId); }
+  };
+
   const first = await runManagedRecoveryBatch({
-    store,
+    store: asyncDiscoveryStore,
     registry,
     limit: 1,
     leadAgentId: 'lead-main',
     claimIdFor(candidate) { return 'claim-' + candidate.taskId; },
     async ambientCtxFor(candidate) { return { traceId: 'trace-' + candidate.taskId }; }
   });
-  A.eq(first.ok, true, 'bounded batch succeeds for safe candidate owned by active lead');
+  A.eq(first.ok, true, 'bounded batch succeeds when authoritative discovery resolves asynchronously');
   A.eq(first.discovered, 1, 'limit bounds lead-scoped discovery snapshot');
   A.eq(first.processed, 1, 'limit bounds executions');
   A.eq(first.items[0].taskId, 'safe-new', 'newest safe recovery for active lead is processed first');
