@@ -188,16 +188,19 @@ async function executeClaimedManagedRestart(registry, store, plan) {
         return recoveryBoundaryError('managed recovery call identity changed');
       }
 
+      // Preserve every host-owned pre-tool refusal ahead of the recovery fence. If the inherited
+      // boundary rejects or throws, registry will not run the tool and the still-unfenced claim can
+      // be released back to SAFE_RESTART instead of being mislabeled as possibly executed.
+      if (inheritedBoundary) {
+        const inherited = await inheritedBoundary(call, tool);
+        if (inherited && inherited.ok === false) return inherited;
+      }
+
       let fenced;
       try { fenced = store.fenceSafeRestartClaim(taskId, claimId); }
       catch (_) { fenced = { ok: false, reason: 'recovery-fence-write-failed' }; }
       if (!fenced || fenced.ok !== true) return recoveryBoundaryError((fenced && fenced.reason) || 'recovery-fence-write-failed');
       boundaryCrossed = true;
-
-      if (inheritedBoundary) {
-        const inherited = await inheritedBoundary(call, tool);
-        if (inherited && inherited.ok === false) return inherited;
-      }
       return undefined;
     }
   });
