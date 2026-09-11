@@ -120,13 +120,13 @@ function seed(store, taskId, stage, leadAgentId) {
     store: ambientFailureStore,
     registry: { dispatch() { throw new Error('must not dispatch'); } },
     leadAgentId: 'lead-main',
-    ambientCtxFor() { throw new Error('ambient context unavailable'); },
+    async ambientCtxFor() { throw new Error('ambient context unavailable'); },
     claimIdFor() { claimCalls++; return 'unused'; }
   });
-  A.eq(ambientFailure.ok, false, 'per-task ambient context exception is contained');
+  A.eq(ambientFailure.ok, false, 'per-task ambient context rejection is contained');
   A.eq(ambientFailure.items.length, 1, 'ambient context failure remains attached to its candidate');
-  A.eq(ambientFailure.items[0].reason, 'recovery-ambient-context-failed', 'ambient context exception has stable reason');
-  A.eq(ambientFailure.items[0].executionMayHaveStarted, false, 'ambient context exception is explicitly pre-execution');
+  A.eq(ambientFailure.items[0].reason, 'recovery-ambient-context-failed', 'ambient context rejection has stable reason');
+  A.eq(ambientFailure.items[0].executionMayHaveStarted, false, 'ambient context rejection is explicitly pre-execution');
   A.eq(claimCalls, 0, 'ambient context failure is detected before claim-id minting');
   A.eq(ambientFailureStore.recovery('ambient-failure').disposition, 'SAFE_RESTART', 'ambient context failure leaves durable recovery untouched');
 
@@ -161,7 +161,7 @@ function seed(store, taskId, stage, leadAgentId) {
     limit: 1,
     leadAgentId: 'lead-main',
     claimIdFor(candidate) { return 'claim-' + candidate.taskId; },
-    ambientCtxFor(candidate) { return { traceId: 'trace-' + candidate.taskId }; }
+    async ambientCtxFor(candidate) { return { traceId: 'trace-' + candidate.taskId }; }
   });
   A.eq(first.ok, true, 'bounded batch succeeds for safe candidate owned by active lead');
   A.eq(first.discovered, 1, 'limit bounds lead-scoped discovery snapshot');
@@ -170,7 +170,7 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(seen.length, 1, 'only one task reaches registry');
   A.eq(seen[0].ctx.agentId, 'lead-main', 'original matching lead provenance is preserved');
   A.eq(seen[0].ctx.runId, 'run-safe-new', 'original run provenance is preserved');
-  A.eq(seen[0].ctx.traceId, 'trace-safe-new', 'per-task ambient context is composed');
+  A.eq(seen[0].ctx.traceId, 'trace-safe-new', 'async per-task ambient context is resolved before composition');
   A.eq(store.recovery('safe-new').disposition, 'RECONCILE_BEFORE_RETRY', 'processed task crosses durable dispatch fence');
   A.eq(store.recovery('safe-old').disposition, 'SAFE_RESTART', 'unprocessed safe task remains discoverable');
   A.eq(store.recovery('foreign-newest').disposition, 'SAFE_RESTART', 'different lead task is left untouched');
