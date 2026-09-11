@@ -85,6 +85,11 @@ async function runManagedRecoveryBatch(opts) {
       });
       continue;
     }
+    const checkpointTaskId = candidate && candidate.checkpoint && String(candidate.checkpoint.taskId || '').trim();
+    if (checkpointTaskId !== taskId) {
+      results.push({ taskId, ok: false, phase: 'preflight', reason: 'recovery-candidate-task-identity-mismatch', executionMayHaveStarted: false });
+      continue;
+    }
     const candidateLead = candidate && candidate.checkpoint && String(candidate.checkpoint.leadAgentId || '').trim();
     if (candidateLead !== leadAgentId) {
       results.push({ taskId, ok: false, phase: 'preflight', reason: 'recovery-lead-authority-mismatch', executionMayHaveStarted: false });
