@@ -61,7 +61,16 @@ async function runManagedRecoveryBatch(opts) {
       items: []
     };
   }
-  const candidates = discovered && Array.isArray(discovered.items) ? discovered.items.slice(0, limit) : [];
+  if (!discovered || typeof discovered !== 'object' || !Array.isArray(discovered.items)) {
+    return {
+      ok: false,
+      phase: 'preflight',
+      reason: 'recovery-discovery-invalid',
+      executionMayHaveStarted: false,
+      items: []
+    };
+  }
+  const candidates = discovered.items.slice(0, limit);
   const results = [];
 
   for (const candidate of candidates) {
@@ -111,7 +120,7 @@ async function runManagedRecoveryBatch(opts) {
     phase: 'batch',
     discovered: candidates.length,
     processed: results.length,
-    truncated: discovered ? discovered.truncated === true : false,
+    truncated: discovered.truncated === true,
     items: results
   };
 }
