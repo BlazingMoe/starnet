@@ -50,7 +50,7 @@ async function runManagedRecoveryBatch(opts) {
   // conservative guard for stale/custom stores or malformed projections.
   let discovered;
   try {
-    discovered = store.listRecoveries({ disposition: 'SAFE_RESTART', leadAgentId }, { limit });
+    discovered = await store.listRecoveries({ disposition: 'SAFE_RESTART', leadAgentId }, { limit });
   } catch (error) {
     return {
       ok: false,
