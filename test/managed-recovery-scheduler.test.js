@@ -76,6 +76,26 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(invalidDiscovery.items.length, 0, 'malformed discovery cannot synthesize work');
   A.eq(claimCalls, 0, 'malformed discovery cannot mint a claim id');
 
+  const invalidCandidate = await runManagedRecoveryBatch({
+    store: {
+      listRecoveries() {
+        return {
+          truncated: false,
+          items: [{ checkpoint: { leadAgentId: 'lead-main' } }]
+        };
+      }
+    },
+    registry: { dispatch() { throw new Error('must not dispatch'); } },
+    leadAgentId: 'lead-main',
+    claimIdFor() { claimCalls++; return 'unused'; }
+  });
+  A.eq(invalidCandidate.ok, false, 'malformed discovered candidate cannot become a successful skipped batch');
+  A.eq(invalidCandidate.discovered, 1, 'malformed candidate remains visible in bounded discovery accounting');
+  A.eq(invalidCandidate.processed, 1, 'malformed candidate is represented by a structured result');
+  A.eq(invalidCandidate.items[0].reason, 'recovery-candidate-task-id-required', 'missing candidate task id has stable reason');
+  A.eq(invalidCandidate.items[0].executionMayHaveStarted, false, 'malformed candidate is explicitly pre-execution');
+  A.eq(claimCalls, 0, 'malformed candidate cannot mint a claim id');
+
   const ambientFailureStore = makeStore();
   seed(ambientFailureStore, 'ambient-failure', 'contract', 'lead-main');
   const ambientFailure = await runManagedRecoveryBatch({
