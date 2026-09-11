@@ -45,6 +45,19 @@ A.eq(safeOnly.items[0].taskId, 'safe', 'safe restart filter returns the authorit
 A.eq(h.store.listRecoveries({ agentId: 'worker-b' }).items[0].taskId, 'needs-reconcile', 'agent filter uses stored provenance');
 A.eq(h.store.listRecoveries({}, { limit: 1 }).items.length, 1, 'recovery listing obeys bounded caller limits');
 
+const leadScoped = harness(10);
+leadScoped.store.recordCheckpoint({
+  taskId: 'owned', leadAgentId: 'lead-main', workerAgentId: 'worker-owned', objective: 'owned', stage: 'contract'
+});
+leadScoped.store.recordCheckpoint({
+  taskId: 'role-collision', leadAgentId: 'lead-other', workerAgentId: 'lead-main', objective: 'foreign lead', stage: 'contract'
+});
+const genericAgent = leadScoped.store.listRecoveries({ agentId: 'lead-main' }, { limit: 1 });
+A.eq(genericAgent.items[0].taskId, 'role-collision', 'generic agent filter intentionally matches any stored role');
+const exactLead = leadScoped.store.listRecoveries({ leadAgentId: 'lead-main' }, { limit: 1 });
+A.eq(exactLead.items.length, 1, 'exact lead filter is applied before bounded result limit');
+A.eq(exactLead.items[0].taskId, 'owned', 'worker-role collision cannot displace an owned lead recovery');
+
 h.store.record({
   taskId: 'safe', leadAgentId: 'lead-a', workerAgentId: 'worker-a', objective: 'safe task',
   status: 'accepted', stage: 'accepted', accepted: true
