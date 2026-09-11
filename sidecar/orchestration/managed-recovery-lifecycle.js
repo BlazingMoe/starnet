@@ -73,6 +73,7 @@ function makeManagedRecoveryLifecycleHook(opts) {
       registry: opts.registry,
       claimIdFor: opts.claimIdFor,
       limit: opts.limit,
+      leadAgentId: opts.leadAgentId,
       ambientCtx: ambientCtx || opts.ambientCtx || {},
       ambientCtxFor: opts.ambientCtxFor
     });
