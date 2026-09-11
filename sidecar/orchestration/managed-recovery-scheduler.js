@@ -99,7 +99,7 @@ async function runManagedRecoveryBatch(opts) {
     let ambientCtx;
     try {
       ambientCtx = typeof opts.ambientCtxFor === 'function'
-        ? (opts.ambientCtxFor(candidate) || {})
+        ? ((await opts.ambientCtxFor(candidate)) || {})
         : (opts.ambientCtx || {});
     } catch (error) {
       results.push({
