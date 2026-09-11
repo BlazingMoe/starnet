@@ -179,11 +179,11 @@ const inheritedRegistry = {
   A.eq(store.recovery('exec-crossed').executionMayHaveStarted, true, 'durable dispatch fence is the authority for possible execution');
 
   const inherited = await executeClaimedManagedRestart(inheritedRegistry, store, inheritedPlan);
-  A.eq(inheritedToolRan, false, 'an inherited host dispatch callback can still stop execution');
-  A.eq(inherited.ok, false, 'inherited host boundary refusal is propagated');
-  A.eq(inherited.boundaryCrossed, true, 'recovery fence remains crossed when a later host boundary refuses');
-  A.eq(inherited.claimReleased, false, 'executor never rewinds durable state after any later-boundary uncertainty');
-  A.eq(store.recovery('exec-inherited-stop').disposition, 'RECONCILE_BEFORE_RETRY', 'later host refusal stays conservative rather than becoming an unsafe auto-retry');
+  A.eq(inheritedToolRan, false, 'an inherited host pre-tool callback can still stop execution');
+  A.eq(inherited.ok, false, 'inherited host pre-tool refusal is propagated');
+  A.eq(inherited.boundaryCrossed, false, 'recovery fence stays uncrossed when the inherited host pre-tool boundary refuses');
+  A.eq(inherited.claimReleased, true, 'executor releases the claim after a provably pre-execution host refusal');
+  A.eq(store.recovery('exec-inherited-stop').disposition, 'SAFE_RESTART', 'pre-tool host refusal returns the authoritative recovery state to safe replayability');
 
   A.report('managed-task-recovery.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });
