@@ -185,6 +185,7 @@ function makeTaskHistoryStore(opts) {
     const values = Array.from(checkpoints.values()).reverse();
     for (const checkpoint of values) {
       if (filter.taskId && checkpoint.taskId !== filter.taskId) continue;
+      if (filter.leadAgentId && checkpoint.leadAgentId !== filter.leadAgentId) continue;
       if (filter.agentId && checkpoint.leadAgentId !== filter.agentId && checkpoint.workerAgentId !== filter.agentId && checkpoint.auditorAgentId !== filter.agentId) continue;
       const disposition = recoveryDisposition(checkpoint);
       if (filter.disposition && disposition.disposition !== filter.disposition) continue;
