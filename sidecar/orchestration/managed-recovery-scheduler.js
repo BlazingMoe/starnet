@@ -115,7 +115,7 @@ async function runManagedRecoveryBatch(opts) {
 
     let claimId = '';
     try {
-      claimId = String(claimIdFor(candidate) || '');
+      claimId = String((await claimIdFor(candidate)) || '');
     } catch (error) {
       results.push({ taskId, ok: false, phase: 'preflight', reason: 'recovery-claim-id-failed', executionMayHaveStarted: false, error: String(error && error.message || error) });
       continue;
