@@ -48,7 +48,19 @@ async function runManagedRecoveryBatch(opts) {
   // task-history owns lead-scoped discovery so unrelated worker/auditor role matches cannot
   // consume the bounded candidate window. Retain the strict checkpoint check below as a
   // conservative guard for stale/custom stores or malformed projections.
-  const discovered = store.listRecoveries({ disposition: 'SAFE_RESTART', leadAgentId }, { limit });
+  let discovered;
+  try {
+    discovered = store.listRecoveries({ disposition: 'SAFE_RESTART', leadAgentId }, { limit });
+  } catch (error) {
+    return {
+      ok: false,
+      phase: 'preflight',
+      reason: 'recovery-discovery-failed',
+      executionMayHaveStarted: false,
+      error: String(error && error.message || error),
+      items: []
+    };
+  }
   const candidates = discovered && Array.isArray(discovered.items) ? discovered.items.slice(0, limit) : [];
   const results = [];
 
@@ -58,6 +70,23 @@ async function runManagedRecoveryBatch(opts) {
     const candidateLead = candidate && candidate.checkpoint && String(candidate.checkpoint.leadAgentId || '').trim();
     if (candidateLead !== leadAgentId) {
       results.push({ taskId, ok: false, phase: 'preflight', reason: 'recovery-lead-authority-mismatch', executionMayHaveStarted: false });
+      continue;
+    }
+
+    let ambientCtx;
+    try {
+      ambientCtx = typeof opts.ambientCtxFor === 'function'
+        ? (opts.ambientCtxFor(candidate) || {})
+        : (opts.ambientCtx || {});
+    } catch (error) {
+      results.push({
+        taskId,
+        ok: false,
+        phase: 'preflight',
+        reason: 'recovery-ambient-context-failed',
+        executionMayHaveStarted: false,
+        error: String(error && error.message || error)
+      });
       continue;
     }
 
@@ -73,9 +102,6 @@ async function runManagedRecoveryBatch(opts) {
       continue;
     }
 
-    const ambientCtx = typeof opts.ambientCtxFor === 'function'
-      ? (opts.ambientCtxFor(candidate) || {})
-      : (opts.ambientCtx || {});
     const result = await restartManagedTask({ registry, store, taskId, claimId, ambientCtx });
     results.push(Object.assign({ taskId, claimId }, result || { ok: false, reason: 'managed-recovery-runner-empty-result' }));
   }
