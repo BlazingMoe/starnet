@@ -1,0 +1,44 @@
+name: runtime-recovery-patch
+on:
+  push:
+    branches: [automation/runtime-recovery-patch]
+    paths: [.github/workflows/runtime-recovery-patch.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev/mo-ai-station
+          fetch-depth: 0
+      - name: Verify target head
+        run: test "$(git rev-parse HEAD)" = "f4d33bb23ed5e396c5f26a3534a21d380573a83a"
+      - name: Wire managed recovery lifecycle
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('sidecar/index.js')
+          s = p.read_text()
+          imp = "const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry\n"
+          assert s.count(imp) == 1
+          s = s.replace(imp, imp + "const { makeManagedRecoveryLifecycleHook } = require('./orchestration/managed-recovery-lifecycle.js');   // Moe AI Station: bounded restart-safe managed-task recovery\n")
+          knob = "const ORCH_WORKER_MAX_ITERS = num(ENV('WORKER_MAX_ITERS'), 0);\n"
+          assert s.count(knob) == 1
+          s = s.replace(knob, knob + "// Managed-task crash recovery is an explicit operator policy. Off by default until enabled for this station.\nconst MANAGED_RECOVERY_ENABLED = /^(1|true|yes|on)$/i.test(String(ENV('MANAGED_RECOVERY') || '').trim());\n")
+          marker = "  }, runInputContext(accessSurface, isTask, remoteDesktopAuthorized, unrestrictedHostNow())));\n\n  // ---- provider + cost ----"
+          assert s.count(marker) == 1
+          block = """  }, runInputContext(accessSurface, isTask, remoteDesktopAuthorized, unrestrictedHostNow())));\n\n  // Moe AI Station: restart only provably pre-dispatch managed tasks through this run's SAME\n  // authoritative task-history store, Registry, capability projection and consent context. Recovery\n  // is deliberately lead-only: delegated workers must never recursively start recovery. A fresh\n  // host-minted claim id prevents the scheduler from inventing durable identity.\n  if (o.lead === true && MANAGED_RECOVERY_ENABLED) {\n    const recoverManagedTasks = makeManagedRecoveryLifecycleHook({\n      enabled: true,\n      store: managedTaskHistoryHost.store,\n      registry,\n      leadAgentId: agentId,\n      claimIdFor: () => crypto.randomUUID(),\n      limit: 1\n    });\n    const managedRecovery = await recoverManagedTasks(capCtx);\n    // Recovery is auxiliary to the requested lead run. A pure preflight refusal/failure leaves\n    // durable state untouched; surface it through the existing fail-open diagnostics rather than\n    // aborting the Commander's foreground task. Post-claim uncertainty remains fenced in task history.\n    if (managedRecovery && managedRecovery.ok === false) {\n      failNote('managed-recovery.lifecycle', new Error(String(managedRecovery.reason || managedRecovery.phase || 'managed recovery incomplete')));\n    }\n  }\n\n  // ---- provider + cost ----"""
+          s = s.replace(marker, block)
+          p.write_text(s)
+      - name: Syntax check
+        run: node --check sidecar/index.js
+      - name: Commit target branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sidecar/index.js
+          git diff --cached --check
+          git commit -m "feat: wire managed recovery into lead runtime"
+          git push origin HEAD:dev/mo-ai-station
