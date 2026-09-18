@@ -296,6 +296,7 @@ const { makeVerifyTool } = require('./tools/builtin/verify.js');    // the workb
 const { makeLspManager } = require('./lsp-manager.js');             // lazy installed-language-server edit diagnostics
 const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js');   // Stage 2: team.dispatch (lead->worker delegation)
 const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
+const { makeManagedRecoveryLifecycleHook } = require('./orchestration/managed-recovery-lifecycle.js');   // Moe AI Station: bounded restart-safe managed-task recovery
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
 const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
@@ -660,6 +661,8 @@ const MAX_CONCURRENT_AGENTS = resolveKnob('MAX_CONCURRENT_AGENTS', 'maxConcurren
 const ORCH_PER_WORKER = num(ENV('BUDGET_PER_WORKER'), 0);
 // Optional per-worker tool-turn ceiling. 0 inherits the unlimited station policy.
 const ORCH_WORKER_MAX_ITERS = num(ENV('WORKER_MAX_ITERS'), 0);
+// Managed-task crash recovery is an explicit operator policy. Off by default until enabled for this station.
+const MANAGED_RECOVERY_ENABLED = /^(1|true|yes|on)$/i.test(String(ENV('MANAGED_RECOVERY') || '').trim());
 // ---- MANAGED CREDITS (opt-in, config-gated). The whole managed-credit path is INERT unless STARNET_CREDITS_URL
 // points at a credits backend: no payment client is built, admission stays pure BYOK, no STORE UI renders, and
 // /api/credits 404s (the honesty law — a control that does nothing is a bug). When wired, a managed account can
@@ -16004,6 +16007,28 @@ async function runOnce(o) {
     // The context carries the host-minted remote-owner lease only for a locally paired Telegram owner.
     // All other run flows remain synthetic-only at the tool boundary.
   }, runInputContext(accessSurface, isTask, remoteDesktopAuthorized, unrestrictedHostNow())));
+
+  // Moe AI Station: restart only provably pre-dispatch managed tasks through this run's SAME
+  // authoritative task-history store, Registry, capability projection and consent context. Recovery
+  // is deliberately lead-only: delegated workers must never recursively start recovery. A fresh
+  // host-minted claim id prevents the scheduler from inventing durable identity.
+  if (o.lead === true && MANAGED_RECOVERY_ENABLED) {
+    const recoverManagedTasks = makeManagedRecoveryLifecycleHook({
+      enabled: true,
+      store: managedTaskHistoryHost.store,
+      registry,
+      leadAgentId: agentId,
+      claimIdFor: () => crypto.randomUUID(),
+      limit: 1
+    });
+    const managedRecovery = await recoverManagedTasks(capCtx);
+    // Recovery is auxiliary to the requested lead run. A pure preflight refusal/failure leaves
+    // durable state untouched; surface it through the existing fail-open diagnostics rather than
+    // aborting the Commander's foreground task. Post-claim uncertainty remains fenced in task history.
+    if (managedRecovery && managedRecovery.ok === false) {
+      failNote('managed-recovery.lifecycle', new Error(String(managedRecovery.reason || managedRecovery.phase || 'managed recovery incomplete')));
+    }
+  }
 
   // ---- provider + cost ----
   // Codex (personal ChatGPT subscription) authenticates with a freshly-refreshed OAuth access_token instead of
