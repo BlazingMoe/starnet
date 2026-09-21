@@ -57,6 +57,10 @@ jobs:
           node test/managed-recovery-lifecycle-retry.test.js
           node test/managed-recovery-scheduler.test.js
           node test/managed-recovery-listing.test.js
+          node test/managed-recovery-host-wiring.test.js
+          node test/managed-recovery-reconciliation.test.js
+          node test/managed-recovery-outcome.test.js
+          node test/managed-recovery-decision.test.js
           node test/orchestration-bridge-contract.test.js
           node test/managed-task-history.test.js
           node test/managed-task-history-adapter.test.js
