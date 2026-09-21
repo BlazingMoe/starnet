@@ -52,6 +52,27 @@ A.eq(out.decision, 'FREEZE_UNKNOWN', 'unknown authoritative outcome freezes task
 A.eq(out.retryAllowed, false, 'unknown outcome never retries');
 A.eq(out.outcome, 'UNKNOWN', 'uncertainty remains explicit');
 
+out = decideManagedRecovery({
+  state: 'RESUME_REQUIRED',
+  checkpoint: { schemaVersion: schema, taskId: 'durable-task', stage: 'dispatch' }
+}, { taskId: 'other-task', actionId: 'action-x' }, {
+  taskId: 'other-task', actionId: 'action-x', authoritative: true,
+  verdict: 'NOT_APPLIED_CONFIRMED'
+});
+A.eq(out.decision, 'FREEZE_UNKNOWN', 'evidence for another task cannot unlock this recovery');
+A.eq(out.retryAllowed, false, 'durable task mismatch freezes retry');
+A.eq(out.reason, 'reconciliation-request-task-mismatch', 'task mismatch is explicit');
+
+out = decideManagedRecovery({
+  state: 'RESUME_REQUIRED',
+  checkpoint: { schemaVersion: schema, taskId: '', stage: 'dispatch' }
+}, { taskId: 'task-x', actionId: 'action-x' }, {
+  taskId: 'task-x', actionId: 'action-x', authoritative: true,
+  verdict: 'NOT_APPLIED_CONFIRMED'
+});
+A.eq(out.decision, 'FREEZE_UNKNOWN', 'missing durable task identity cannot be reconciled');
+A.eq(out.retryAllowed, false, 'missing durable identity freezes retry');
+
 out = decideManagedRecovery({ state: 'UNKNOWN_TASK' });
 A.eq(out.decision, 'BLOCKED_NO_EVIDENCE', 'missing durable evidence stays blocked');
 A.eq(out.retryAllowed, false, 'missing evidence never retries');

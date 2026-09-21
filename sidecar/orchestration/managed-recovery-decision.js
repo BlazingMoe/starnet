@@ -3,6 +3,11 @@
 const { managedRecoveryReconciliation } = require('./managed-recovery-reconciliation.js');
 const { reconcileAuthoritativeOutcome } = require('./managed-recovery-outcome.js');
 
+function str(v, max) {
+  const s = v == null ? '' : String(v);
+  return max ? s.slice(0, max) : s;
+}
+
 /*
   Pure reconciliation decision seam. It deliberately does not mutate task history or
   retry work. A caller must persist any later transition through the authoritative
@@ -28,6 +33,20 @@ function decideManagedRecovery(recovery, request, evidence) {
       retryAllowed: false,
       executionMayHaveStarted: next.executionMayHaveStarted,
       reason: next.reason
+    };
+  }
+
+  const durableTaskId = str(recovery && recovery.checkpoint && recovery.checkpoint.taskId, 120);
+  const requestedTaskId = str(request && request.taskId, 120);
+  if (!durableTaskId || !requestedTaskId || durableTaskId !== requestedTaskId) {
+    return {
+      ok: false,
+      decision: 'FREEZE_UNKNOWN',
+      retryAllowed: false,
+      executionMayHaveStarted: true,
+      outcome: 'UNKNOWN',
+      providerRef: '',
+      reason: 'reconciliation-request-task-mismatch'
     };
   }
 
