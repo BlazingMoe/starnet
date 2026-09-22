@@ -62,6 +62,8 @@ jobs:
           node test/managed-recovery-outcome.test.js
           node test/managed-recovery-decision.test.js
           node test/managed-recovery-reconciliation-runner.test.js
+          node test/managed-recovery-persistence.test.js
+          node test/managed-recovery-transaction.test.js
           node test/orchestration-bridge-contract.test.js
           node test/managed-task-history.test.js
           node test/managed-task-history-adapter.test.js
