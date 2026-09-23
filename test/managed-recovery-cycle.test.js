@@ -29,7 +29,8 @@ function seed(store, taskId, stage) {
   const cycle = await runManagedRecoveryCycle({
     store, registry, leadAgentId: 'lead', limit: 3,
     claimIdFor(candidate) { return 'claim-' + candidate.taskId; },
-    async verifyOutcome(request) {
+    async verifyOutcome(request, recovery) {
+      A.eq(recovery.checkpoint.taskId, request.taskId, 'cycle binds verifier to the discovered durable recovery candidate');
       return { taskId: request.taskId, actionId: request.actionId, authoritative: true, verdict: verdicts[request.taskId], providerRef: 'provider:' + request.taskId };
     }
   });

@@ -53,7 +53,11 @@ async function runManagedRecoveryCycle(opts) {
       reconciled.push({ taskId, ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, reason: 'recovery-lead-authority-mismatch' });
       continue;
     }
-    const result = await reconcileAndPersistManagedRecovery({ store, taskId, verifyOutcome: opts.verifyOutcome });
+    const result = await reconcileAndPersistManagedRecovery({
+      store,
+      taskId,
+      verifyOutcome(request) { return opts.verifyOutcome(request, candidate); }
+    });
     reconciled.push(Object.assign({ taskId }, result || { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, reason: 'reconciliation-empty-result' }));
   }
 
