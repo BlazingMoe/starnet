@@ -4,9 +4,16 @@ const { managedRecoveryReconciliation } = require('./managed-recovery-reconcilia
 const { decideManagedRecovery } = require('./managed-recovery-decision.js');
 const { managedRecoveryActionId } = require('./managed-recovery-identity.js');
 
+function checkpointToken(recovery) {
+  const cp = recovery && recovery.checkpoint;
+  if (!cp) return null;
+  return Object.freeze({ stage: String(cp.stage || ''), ts: Number(cp.ts) || 0 });
+}
+
 /* Read authoritative recovery state, then ask exactly one injected verifier for provider
    evidence only when the durable checkpoint proves execution may have started. This
-   runner never mutates history or retries work; persistence remains a later explicit seam. */
+   runner never mutates history or retries work. Any post-boundary decision carries the
+   exact checkpoint token that was verified so persistence can reject stale evidence. */
 async function reconcileManagedRecovery(opts) {
   opts = opts || {};
   const store = opts.store;
@@ -32,8 +39,9 @@ async function reconcileManagedRecovery(opts) {
     return decideManagedRecovery(recovery);
   }
 
+  const token = checkpointToken(recovery);
   if (typeof opts.verifyOutcome !== 'function') {
-    return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, executionMayHaveStarted: true, reason: 'authoritative-verifier-unavailable' };
+    return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, executionMayHaveStarted: true, outcome: 'UNKNOWN', reason: 'authoritative-verifier-unavailable', recoveryCheckpoint: token };
   }
 
   const actionId = managedRecoveryActionId(taskId);
@@ -41,10 +49,10 @@ async function reconcileManagedRecovery(opts) {
   let evidence;
   try { evidence = await opts.verifyOutcome(request); }
   catch (_) {
-    return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, executionMayHaveStarted: true, outcome: 'UNKNOWN', reason: 'authoritative-verifier-failed' };
+    return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, executionMayHaveStarted: true, outcome: 'UNKNOWN', reason: 'authoritative-verifier-failed', recoveryCheckpoint: token };
   }
 
-  return decideManagedRecovery(recovery, request, evidence);
+  return Object.assign({}, decideManagedRecovery(recovery, request, evidence), { recoveryCheckpoint: token });
 }
 
 module.exports = { reconcileManagedRecovery };

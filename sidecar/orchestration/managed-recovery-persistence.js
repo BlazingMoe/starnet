@@ -8,9 +8,8 @@ function str(v, max) {
 }
 
 /* Persist only already-classified authoritative reconciliation decisions. The store
-   remains the single authority: this module owns no queue, cache, lease, or retry state.
-   It requires an atomic store primitive so a stale decision can never overwrite newer
-   recovery evidence. */
+   remains the single authority. Post-boundary decisions must carry the exact durable
+   checkpoint token observed before verification; the store performs the final CAS. */
 async function persistManagedRecoveryDecision(opts) {
   opts = opts || {};
   const store = opts.store;
@@ -30,7 +29,6 @@ async function persistManagedRecoveryDecision(opts) {
   if (kind !== 'CONTINUE_CONFIRMED' && kind !== 'RETRY_ALLOWED' && kind !== 'FREEZE_UNKNOWN') {
     return { ok: false, persisted: false, retryAllowed: false, reason: 'reconciliation-decision-not-persistable' };
   }
-  // A pre-dispatch SAFE_RESTART is not a reconciliation outcome and needs no new write.
   if (kind === 'RETRY_ALLOWED' && decision.executionMayHaveStarted !== true) {
     return { ok: true, persisted: false, retryAllowed: true, reason: 'safe-restart-already-durable' };
   }
@@ -44,6 +42,13 @@ async function persistManagedRecoveryDecision(opts) {
     return { ok: false, persisted: false, retryAllowed: false, reason: 'unknown-outcome-required' };
   }
 
+  const token = decision.recoveryCheckpoint || {};
+  const expectedCheckpointStage = str(token.stage, 40);
+  const expectedCheckpointTs = Number(token.ts) || 0;
+  if (!expectedCheckpointStage || !expectedCheckpointTs) {
+    return { ok: false, persisted: false, retryAllowed: false, reason: 'reconciliation-checkpoint-token-required' };
+  }
+
   const record = Object.freeze({
     schemaVersion: 'moe.managed-recovery-reconciliation.v1',
     taskId,
@@ -51,7 +56,9 @@ async function persistManagedRecoveryDecision(opts) {
     decision: kind,
     outcome: outcome || 'UNKNOWN',
     providerRef: str(decision.providerRef, 500),
-    reason: str(decision.reason, 160)
+    reason: str(decision.reason, 160),
+    expectedCheckpointStage,
+    expectedCheckpointTs
   });
 
   let committed;
@@ -59,10 +66,7 @@ async function persistManagedRecoveryDecision(opts) {
   catch (_) { return { ok: false, persisted: false, retryAllowed: false, reason: 'reconciliation-persistence-failed' }; }
 
   if (!committed || committed.ok !== true) {
-    return {
-      ok: false, persisted: false, retryAllowed: false,
-      reason: str(committed && committed.reason, 160) || 'reconciliation-persistence-refused'
-    };
+    return { ok: false, persisted: false, retryAllowed: false, reason: str(committed && committed.reason, 160) || 'reconciliation-persistence-refused' };
   }
 
   return {
@@ -71,6 +75,7 @@ async function persistManagedRecoveryDecision(opts) {
     retryAllowed: kind === 'RETRY_ALLOWED' && outcome === 'NOT_APPLIED_CONFIRMED',
     decision: kind,
     outcome: record.outcome,
+    duplicate: committed.duplicate === true,
     record: committed.record || record
   };
 }
