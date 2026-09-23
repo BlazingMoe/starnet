@@ -11,7 +11,7 @@ const { managedRecoveryActionId } = require('../sidecar/orchestration/managed-re
 
   let out = await persistManagedRecoveryDecision({
     store, taskId: 'task-a',
-    decision: { decision: 'CONTINUE_CONFIRMED', outcome: 'APPLIED_CONFIRMED', executionMayHaveStarted: true, providerRef: 'order:1', reason: 'confirmed' }
+    decision: { decision: 'CONTINUE_CONFIRMED', outcome: 'APPLIED_CONFIRMED', executionMayHaveStarted: true, providerRef: 'order:1', reason: 'confirmed', recoveryCheckpoint: { stage: 'dispatch', ts: 101 } }
   });
   A.eq(out.ok, true, 'confirmed applied outcome can be durably committed');
   A.eq(out.persisted, true, 'confirmed applied outcome reports durable persistence');
@@ -21,7 +21,7 @@ const { managedRecoveryActionId } = require('../sidecar/orchestration/managed-re
 
   out = await persistManagedRecoveryDecision({
     store, taskId: 'task-b',
-    decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true, providerRef: 'order:2' }
+    decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true, providerRef: 'order:2', recoveryCheckpoint: { stage: 'dispatch', ts: 102 } }
   });
   A.eq(out.ok, true, 'authoritative not-applied outcome can be committed');
   A.eq(out.retryAllowed, true, 'retry becomes eligible only after the durable not-applied commit succeeds');
@@ -47,7 +47,7 @@ const { managedRecoveryActionId } = require('../sidecar/orchestration/managed-re
 
   out = await persistManagedRecoveryDecision({
     store: { async commitRecoveryReconciliation() { throw new Error('disk full'); } },
-    taskId: 'write-fail', decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true }
+    taskId: 'write-fail', decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true, recoveryCheckpoint: { stage: 'dispatch', ts: 103 } }
   });
   A.eq(out.ok, false, 'persistence failure blocks retry');
   A.eq(out.retryAllowed, false, 'retry is not exposed before durable commit');
@@ -55,7 +55,7 @@ const { managedRecoveryActionId } = require('../sidecar/orchestration/managed-re
 
   out = await persistManagedRecoveryDecision({
     store: { async commitRecoveryReconciliation() { return { ok: false, reason: 'stale-recovery-state' }; } },
-    taskId: 'stale', decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true }
+    taskId: 'stale', decision: { decision: 'RETRY_ALLOWED', outcome: 'NOT_APPLIED_CONFIRMED', executionMayHaveStarted: true, recoveryCheckpoint: { stage: 'dispatch', ts: 104 } }
   });
   A.eq(out.ok, false, 'atomic store refusal blocks stale reconciliation decision');
   A.eq(out.retryAllowed, false, 'stale decision cannot unlock retry');
