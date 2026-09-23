@@ -1,6 +1,7 @@
 'use strict';
 const A=require('./_assert.js');
 const {projectRun,projectActionTrace}=require('../sidecar/control/action-view.js');
+const {projectManagedRecovery,projectManagedRecoveryList}=require('../sidecar/control/recovery-view.js');
 
 const states=[
   {
@@ -53,4 +54,16 @@ for(const forbidden of ['do-not-leak','/secret/workspace.txt','private file cont
 }
 A.ok(!Object.prototype.hasOwnProperty.call(out.rows[0],'ts'),'per-action timestamp is not invented when analyzed journal state does not expose one');
 A.ok(!Object.prototype.hasOwnProperty.call(out.rows[0],'ms'),'duration is not invented when durable journal state does not expose one');
+
+const recovery={taskId:'task-42',state:'RESUME_REQUIRED',disposition:'SAFE_RESTART',executionMayHaveStarted:false,reason:'authoritative-not-applied-confirmed',checkpoint:{taskId:'task-42',stage:'dispatch',objective:'secret customer objective',recoveryProviderRef:'provider-secret-ref',reconciliationOutcome:'NOT_APPLIED_CONFIRMED',reconciliationDecision:'RETRY_ALLOWED'}};
+const recoveryRow=projectManagedRecovery(recovery);
+A.eq(recoveryRow.safeToRestart,true,'operator can see when managed work is proven safe to restart');
+A.eq(recoveryRow.reconciliationOutcome,'NOT_APPLIED_CONFIRMED','operator sees the authoritative recovery outcome');
+const recoveryView=projectManagedRecoveryList({items:[recovery],truncated:false});
+A.eq(recoveryView.schemaVersion,'moe.control-recoveries.v1','managed recovery has a stable operator schema');
+A.eq(recoveryView.evidence.source,'managed-task-history','managed task history is named as recovery authority');
+const recoverySerialized=JSON.stringify(recoveryView);
+A.ok(!recoverySerialized.includes('secret customer objective'),'recovery view does not expose task content');
+A.ok(!recoverySerialized.includes('provider-secret-ref'),'recovery view does not expose provider references');
+
 A.report('control-action-view.test');
