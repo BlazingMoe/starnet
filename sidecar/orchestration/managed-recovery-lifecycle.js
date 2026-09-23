@@ -1,6 +1,6 @@
 'use strict';
 
-const { runManagedRecoveryBatch } = require('./managed-recovery-scheduler.js');
+const { runManagedRecoveryCycle } = require('./managed-recovery-cycle.js');
 
 /*
   Lifecycle adapter for one bounded recovery pass after the host has finished
@@ -72,14 +72,15 @@ function makeManagedRecoveryLifecycleHook(opts) {
     // proves. Only an explicit scheduler preflight result that says execution could not
     // have started is safe to release for a later lifecycle retry.
     invoked = true;
-    const result = await runManagedRecoveryBatch({
+    const result = await runManagedRecoveryCycle({
       store: opts.store,
       registry: opts.registry,
       claimIdFor: opts.claimIdFor,
       limit: opts.limit,
       leadAgentId: opts.leadAgentId,
       ambientCtx: ambientCtx || opts.ambientCtx || {},
-      ambientCtxFor: opts.ambientCtxFor
+      ambientCtxFor: opts.ambientCtxFor,
+      verifyOutcome: opts.verifyOutcome
     });
     if (result && result.phase === 'preflight' && result.executionMayHaveStarted === false) invoked = false;
     return result;
