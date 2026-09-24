@@ -39,7 +39,7 @@ A.ok(recovery.includes("item.safeToRestart===true?'SAFE TO RESTART'"), 'safe res
 A.ok(recovery.includes("item.executionMayHaveStarted===true?'DO NOT RETRY'"), 'uncertain execution is visibly fail-closed');
 A.ok(recovery.includes("rows.filter(item=>item.safeToRestart===true).length"), 'recovery summary counts safe restart rows from projected evidence only');
 A.ok(recovery.includes("rows.filter(item=>item.safeToRestart!==true && item.executionMayHaveStarted===true).length"), 'recovery summary counts fail-closed rows without guessing');
-A.ok(recovery.includes("'RECOVERY QUEUE · '+rows.length+' TOTAL'"), 'operator gets an at-a-glance recovery queue summary');
+A.ok(recovery.includes("'RECOVERY QUEUE · '+rows.length+' TOTAL · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW'"), 'operator gets an at-a-glance recovery queue summary');
 A.ok(recovery.includes("setAttribute('aria-label','Recovery queue summary')"), 'recovery summary is explicitly labelled for assistive technology');
 A.ok(recovery.includes('Recovery status unavailable — no task outcome or retry safety is inferred.'), 'recovery outage never fabricates safety');
 A.ok(recovery.includes('Provider references and task content are intentionally hidden.'), 'recovery UI preserves provider/task privacy boundary');
