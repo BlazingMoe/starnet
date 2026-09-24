@@ -2,6 +2,7 @@
    Pure handler factory: no ambient server/store/global state. The host injects the store + responder. */
 'use strict';
 
+const { projectManagedRecoveryList } = require('../control/recovery-view.js');
 const ALLOWED_STATUS = new Set(['accepted', 'revised', 'rejected', 'dispatch_error', 'audit_error', 'contract_error']);
 function clampLimit(v) {
   const n = Number(v);
@@ -45,6 +46,16 @@ function makeTaskHistoryHttp(opts) {
         const agentId = clean(url.searchParams.get('agent'), 80);
         const rows = store.activeList({ agentId }).slice(0, clampLimit(url.searchParams.get('limit')));
         return send(res, 200, { ok: true, tasks: rows, summary: store.activeSummary() });
+      }
+      if (pathname === '/api/managed-task-recoveries') {
+        if (typeof store.listRecoveries !== 'function') {
+          return send(res, 503, { ok: false, error: 'managed task recovery listing unavailable' });
+        }
+        const agentId = clean(url.searchParams.get('agent'), 80);
+        const disposition = clean(url.searchParams.get('disposition'), 48);
+        const limit = clampLimit(url.searchParams.get('limit'));
+        const page = store.listRecoveries({ agentId, disposition }, { limit });
+        return send(res, 200, { ok: true, recoveries: projectManagedRecoveryList(page, { limit }) });
       }
       if (pathname === '/api/managed-tasks') {
         const agentId = clean(url.searchParams.get('agent'), 80);
