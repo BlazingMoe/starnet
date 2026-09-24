@@ -75,6 +75,20 @@ function projectRun(state) {
   return rows;
 }
 
+function summarize(rows) {
+  const summary = { total: rows.length, completed: 0, succeeded: 0, failed: 0, inFlight: 0, needsReview: 0, mutations: 0 };
+  for (const row of rows) {
+    if (row.phase === 'completed') {
+      summary.completed++;
+      if (row.ok === true && row.isError !== true) summary.succeeded++;
+      if (row.ok === false || row.isError === true) summary.failed++;
+    } else if (row.phase === 'needs_review') summary.needsReview++;
+    else summary.inFlight++;
+    if (row.mutating === true) summary.mutations++;
+  }
+  return summary;
+}
+
 function projectActionTrace(journalPage, options) {
   options = options || {};
   const page = journalPage && typeof journalPage === 'object' ? journalPage : {};
@@ -90,6 +104,7 @@ function projectActionTrace(journalPage, options) {
   return {
     schemaVersion: 'moe.control-actions.v1',
     rows,
+    summary: summarize(all),
     evidence: {
       source: 'run-journal',
       journalRuns: states.length,
@@ -105,4 +120,4 @@ function projectActionTrace(journalPage, options) {
   };
 }
 
-module.exports = { projectRun, projectActionTrace };
+module.exports = { projectRun, projectActionTrace, summarize };
