@@ -9,6 +9,11 @@
   let host = null, timer = 0, refreshing = false, generation = 0;
   function make(tag, cls, value) { const n=document.createElement(tag); if(cls)n.className=cls; if(value!=null)n.textContent=String(value); return n; }
   function label(v, fallback) { const s=v==null?'':String(v).trim(); return s || (fallback || '—'); }
+  function operatorMeaning(item) {
+    if(item.safeToRestart===true) return 'WHY · The durable task record confirms execution did not happen. Moe may safely start this work again.';
+    if(item.executionMayHaveStarted===true) return 'WHY · Execution may already have happened. Moe will not repeat this action until authoritative evidence resolves it.';
+    return 'WHY · The durable record does not prove a safe retry. Moe keeps this task paused for review.';
+  }
   function panel() { return document.getElementById('control-mode-panel'); }
   function isOpen() { const p=panel(); return !!(p && !p.hidden); }
   function ensureHost() {
@@ -35,7 +40,7 @@
       make('div','',label(item.disposition,'unknown disposition')),
       make('div','',label(item.stage,'unknown stage')),
       make('div','',item.safeToRestart===true?'SAFE TO RESTART':(item.executionMayHaveStarted===true?'DO NOT RETRY':'REVIEW'))
-    ); row.appendChild(make('div','cm-action-meta','STATE '+label(item.state)+' · '+label(item.reason))); row.appendChild(make('div','cm-action-meta','RECONCILIATION '+label(item.reconciliationOutcome))); list.appendChild(row); }); r.appendChild(list); }
+    ); row.appendChild(make('div','cm-action-meta','STATE '+label(item.state)+' · '+label(item.reason))); row.appendChild(make('div','cm-action-meta','RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision))); row.appendChild(make('div','cm-action-meta',operatorMeaning(item))); list.appendChild(row); }); r.appendChild(list); }
     const e=view.evidence||{}; r.appendChild(make('div','cm-action-warning','OBSERVE ONLY · Provider references and task content are intentionally hidden. This pane never retries or resolves work.'));
     r.appendChild(make('div','cm-action-meta','Source: '+label(e.source)+' · Returned recoveries '+label(e.returnedRows)+(e.bounded?' · BOUNDED':'')));
   }

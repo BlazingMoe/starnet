@@ -41,6 +41,10 @@ A.ok(recovery.includes("rows.filter(item=>item.safeToRestart===true).length"), '
 A.ok(recovery.includes("rows.filter(item=>item.safeToRestart!==true && item.executionMayHaveStarted===true).length"), 'recovery summary counts fail-closed rows without guessing');
 A.ok(recovery.includes("'RECOVERY QUEUE · '+rows.length+' TOTAL · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW'"), 'operator gets an at-a-glance recovery queue summary');
 A.ok(recovery.includes("setAttribute('aria-label','Recovery queue summary')"), 'recovery summary is explicitly labelled for assistive technology');
+A.ok(recovery.includes("'RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision)"), 'operator sees the durable reconciliation decision alongside its outcome');
+A.ok(recovery.includes('The durable task record confirms execution did not happen. Moe may safely start this work again.'), 'safe restart has a plain-language explanation grounded in projected evidence');
+A.ok(recovery.includes('Execution may already have happened. Moe will not repeat this action until authoritative evidence resolves it.'), 'uncertain execution explains the fail-closed behavior in plain language');
+A.ok(recovery.includes('The durable record does not prove a safe retry. Moe keeps this task paused for review.'), 'review state is explained without inventing an outcome');
 A.ok(recovery.includes('Recovery status unavailable — no task outcome or retry safety is inferred.'), 'recovery outage never fabricates safety');
 A.ok(recovery.includes('Provider references and task content are intentionally hidden.'), 'recovery UI preserves provider/task privacy boundary');
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(recovery), 'recovery pane cannot mutate task state');
