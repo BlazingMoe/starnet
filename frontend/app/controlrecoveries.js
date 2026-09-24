@@ -14,6 +14,12 @@
     if(item.executionMayHaveStarted===true) return 'WHY · Execution may already have happened. Moe will not repeat this action until authoritative evidence resolves it.';
     return 'WHY · The durable record does not prove a safe retry. Moe keeps this task paused for review.';
   }
+  function nextMove(item) {
+    if(item.safeToRestart===true) return 'NEXT · Moe can resume this task through the normal capability, consent, budget, and execution gates.';
+    if(item.executionMayHaveStarted===true) return 'NEXT · Moe must obtain authoritative outcome evidence before any retry is allowed.';
+    if(item.recoverable===true) return 'NEXT · Moe keeps the task in recovery and waits for enough durable evidence to choose a safe path.';
+    return 'NEXT · No automatic retry is authorized from the evidence currently shown.';
+  }
   function panel() { return document.getElementById('control-mode-panel'); }
   function isOpen() { const p=panel(); return !!(p && !p.hidden); }
   function ensureHost() {
@@ -40,7 +46,7 @@
       make('div','',label(item.disposition,'unknown disposition')),
       make('div','',label(item.stage,'unknown stage')),
       make('div','',item.safeToRestart===true?'SAFE TO RESTART':(item.executionMayHaveStarted===true?'DO NOT RETRY':'REVIEW'))
-    ); row.appendChild(make('div','cm-action-meta','STATE '+label(item.state)+' · '+label(item.reason))); row.appendChild(make('div','cm-action-meta','RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision))); row.appendChild(make('div','cm-action-meta',operatorMeaning(item))); list.appendChild(row); }); r.appendChild(list); }
+    ); row.appendChild(make('div','cm-action-meta','STATE '+label(item.state)+' · '+label(item.reason))); row.appendChild(make('div','cm-action-meta','RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision))); row.appendChild(make('div','cm-action-meta',operatorMeaning(item))); row.appendChild(make('div','cm-action-meta',nextMove(item))); list.appendChild(row); }); r.appendChild(list); }
     const e=view.evidence||{}; r.appendChild(make('div','cm-action-warning','OBSERVE ONLY · Provider references and task content are intentionally hidden. This pane never retries or resolves work.'));
     r.appendChild(make('div','cm-action-meta','Source: '+label(e.source)+' · Returned recoveries '+label(e.returnedRows)+(e.bounded?' · BOUNDED':'')));
   }

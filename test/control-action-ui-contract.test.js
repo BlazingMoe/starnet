@@ -45,6 +45,9 @@ A.ok(recovery.includes("'RECONCILIATION '+label(item.reconciliationOutcome)+' ·
 A.ok(recovery.includes('The durable task record confirms execution did not happen. Moe may safely start this work again.'), 'safe restart has a plain-language explanation grounded in projected evidence');
 A.ok(recovery.includes('Execution may already have happened. Moe will not repeat this action until authoritative evidence resolves it.'), 'uncertain execution explains the fail-closed behavior in plain language');
 A.ok(recovery.includes('The durable record does not prove a safe retry. Moe keeps this task paused for review.'), 'review state is explained without inventing an outcome');
+A.ok(recovery.includes('Moe can resume this task through the normal capability, consent, budget, and execution gates.'), 'safe recovery shows the next real execution path without bypassing gates');
+A.ok(recovery.includes('Moe must obtain authoritative outcome evidence before any retry is allowed.'), 'uncertain recovery shows evidence collection as the next move');
+A.ok(recovery.includes('No automatic retry is authorized from the evidence currently shown.'), 'non-recoverable state does not invent a next action');
 A.ok(recovery.includes('Recovery status unavailable — no task outcome or retry safety is inferred.'), 'recovery outage never fabricates safety');
 A.ok(recovery.includes('Provider references and task content are intentionally hidden.'), 'recovery UI preserves provider/task privacy boundary');
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(recovery), 'recovery pane cannot mutate task state');
