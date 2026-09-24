@@ -6,6 +6,8 @@ const A = require('./_assert.js');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlactions.js'), 'utf8');
 const mirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'controlactions.js'), 'utf8');
+const recovery = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlrecoveries.js'), 'utf8');
+const recoveryMirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'controlrecoveries.js'), 'utf8');
 const approvals = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlapprovals.js'), 'utf8');
 const approvalsMirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'controlapprovals.js'), 'utf8');
 
@@ -28,5 +30,16 @@ A.eq(mirror, src, 'website action pane mirrors the desktop source exactly');
 A.eq(approvalsMirror, approvals, 'website approval pane stays mirrored after chaining action trace');
 A.ok(approvals.includes("script.src = 'app/controlactions.js'"), 'approval pane chains the action trace pane');
 A.ok(approvals.includes("script.id = 'mo-control-mode-actions'"), 'action trace loader is idempotent');
+
+A.eq(recoveryMirror, recovery, 'website recovery pane mirrors the desktop source exactly');
+A.ok(recovery.includes("const ENDPOINT = '/api/managed-task-recoveries?limit=100'"), 'recovery pane reads only the bounded recovery endpoint');
+A.ok(recovery.includes("body.recoveries.schemaVersion==='moe.control-recoveries.v1'"), 'recovery pane requires the privacy-safe projection schema');
+A.ok(recovery.includes("'RECOVERY STATUS'"), 'recovery pane has an explicit operator-visible title');
+A.ok(recovery.includes("item.safeToRestart===true?'SAFE TO RESTART'"), 'safe restart state is rendered only from authoritative projection data');
+A.ok(recovery.includes("item.executionMayHaveStarted===true?'DO NOT RETRY'"), 'uncertain execution is visibly fail-closed');
+A.ok(recovery.includes('Recovery status unavailable — no task outcome or retry safety is inferred.'), 'recovery outage never fabricates safety');
+A.ok(recovery.includes('Provider references and task content are intentionally hidden.'), 'recovery UI preserves provider/task privacy boundary');
+A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(recovery), 'recovery pane cannot mutate task state');
+A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(recovery), 'recovery pane has no raw mutating HTTP fallback');
 
 A.report('control-action-ui-contract.test');
