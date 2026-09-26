@@ -126,7 +126,19 @@
     if (isOpen()) start();
   }
 
+  function loadRecoveryPane() {
+    if (window.ControlModeRecoveries) return;
+    if (typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
+    if (document.getElementById('mo-control-mode-recoveries')) return;
+    const script = document.createElement('script');
+    script.id = 'mo-control-mode-recoveries';
+    script.src = 'app/controlrecoveries.js';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   installStyle();
   watchPanel();
+  loadRecoveryPane();
   window.ControlModeProviders = Object.freeze({ refresh, endpoint: ENDPOINT, host: () => ensureHost() });
 })();
