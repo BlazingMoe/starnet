@@ -237,13 +237,19 @@
     detail.replaceChildren();
     if (!panel.hidden) focusIfPossible(target);
   }
-  function renderTaskDetail(body, taskId) {
+  function renderTaskDetail(body, taskId, recovery) {
     detail.replaceChildren();
     const head = make('header', 'cm-detail-head');
     const left = make('div');
     left.append(make('div', 'cm-kicker', 'MANAGED TASK · READ ONLY'), make('div', 'cm-detail-title', taskId));
     const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail);
     head.append(left, close); detail.appendChild(head);
+    if (recovery && recovery.taskId === taskId) {
+      const guidance = make('section', 'cm-detail-block');
+      guidance.setAttribute('aria-label', 'Recovery guidance');
+      guidance.append(make('div', 'cm-detail-k', 'RECOVERY STATUS'), make('div', 'cm-state', recovery.operatorState || 'REVIEW'), make('div', 'cm-meta', 'WHY · ' + (recovery.operatorMeaning || 'No guidance is available from the durable projection.')), make('div', 'cm-meta', 'NEXT · ' + (recovery.nextMove || 'No automatic retry is authorized from the evidence currently shown.')));
+      detail.appendChild(guidance);
+    }
     const history = rows(body && body.history);
     if (!history.length) { detail.appendChild(make('div', 'cm-error', 'No durable history is available for this task.')); focusIfPossible(close); return; }
     const latest = history[0] || {};
@@ -283,7 +289,7 @@
     }
     focusIfPossible(close);
   }
-  async function openTaskDetail(taskId, returnFocus) {
+  async function openTaskDetail(taskId, returnFocus, recovery) {
     if (!taskId) return;
     const fallback = document.activeElement;
     detailReturnFocus = returnFocus && returnFocus.isConnected ? returnFocus : (fallback && fallback.isConnected ? fallback : null);
@@ -294,7 +300,7 @@
     try {
       const body = await get('/api/managed-tasks/' + encodeURIComponent(taskId));
       if (token !== detailGeneration || detail.hidden) return;
-      renderTaskDetail(body, taskId);
+      renderTaskDetail(body, taskId, recovery);
     } catch (_) {
       if (token !== detailGeneration || detail.hidden) return;
       detail.replaceChildren();
