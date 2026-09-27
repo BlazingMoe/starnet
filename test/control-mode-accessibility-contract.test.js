@@ -35,7 +35,8 @@ const panes = [
   'controlapprovals.js',
   'controlactions.js',
   'controlcosts.js',
-  'controlproviders.js'
+  'controlproviders.js',
+  'controlrecoveries.js'
 ];
 for (const file of panes) {
   const src = fs.readFileSync(path.join(root, 'frontend', 'app', file), 'utf8');

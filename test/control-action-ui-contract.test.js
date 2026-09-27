@@ -43,6 +43,10 @@ A.ok(recovery.includes("setAttribute('aria-label','Recovery queue summary')"), '
 A.ok(recovery.includes("'RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision)"), 'operator sees the durable reconciliation decision alongside its outcome');
 A.ok(recovery.includes("'WHY · '+label(item.operatorMeaning"), 'plain-language meaning comes from the canonical recovery projection');
 A.ok(recovery.includes("'NEXT · '+label(item.nextMove"), 'next move comes from the canonical recovery projection');
+A.ok(recovery.includes("window.ControlModeUI.inspectTask(item.taskId,row)"), 'recovery rows can open the existing durable managed-task history without a second detail source');
+A.ok(recovery.includes("row.setAttribute('role','button')"), 'drillable recovery rows expose button semantics');
+A.ok(recovery.includes("row.setAttribute('aria-label','Open durable task history for '+item.taskId)"), 'recovery drilldown has a descriptive accessible name');
+A.ok(recovery.includes("ev.key==='Enter'||ev.key===' '"), 'recovery drilldown supports keyboard activation');
 A.ok(!recovery.includes('function operatorMeaning('), 'browser does not maintain a second recovery interpretation');
 A.ok(!recovery.includes('function nextMove('), 'browser does not maintain a second next-move policy');
 A.ok(recovery.includes('Recovery status unavailable — no task outcome or retry safety is inferred.'), 'recovery outage never fabricates safety');

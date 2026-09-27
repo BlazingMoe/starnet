@@ -30,7 +30,7 @@
     const summary=make('div','cm-action-warning','RECOVERY QUEUE · '+rows.length+' TOTAL · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW');
     summary.setAttribute('aria-label','Recovery queue summary'); r.appendChild(summary);
     if(!rows.length) r.appendChild(make('div','cm-action-empty','No managed tasks currently require recovery.'));
-    else { const list=make('div','cm-action-list'); rows.forEach(item=>{ const row=make('div','cm-action-row'); row.append(
+    else { const list=make('div','cm-action-list'); rows.forEach(item=>{ const row=make('div','cm-action-row'); if(item.taskId && window.ControlModeUI && typeof window.ControlModeUI.inspectTask==='function'){ row.tabIndex=0; row.setAttribute('role','button'); row.setAttribute('aria-label','Open durable task history for '+item.taskId); const inspect=()=>window.ControlModeUI.inspectTask(item.taskId,row); row.addEventListener('click',inspect); row.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();inspect();}}); } row.append(
       make('div','cm-action-primary',label(item.taskId,'unknown task')),
       make('div','',label(item.disposition,'unknown disposition')),
       make('div','',label(item.stage,'unknown stage')),
