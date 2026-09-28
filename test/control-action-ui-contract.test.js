@@ -43,7 +43,7 @@ A.ok(recovery.includes("setAttribute('aria-label','Recovery queue summary')"), '
 A.ok(recovery.includes("'RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision)"), 'operator sees the durable reconciliation decision alongside its outcome');
 A.ok(recovery.includes("'WHY · '+label(item.operatorMeaning"), 'plain-language meaning comes from the canonical recovery projection');
 A.ok(recovery.includes("'NEXT · '+label(item.nextMove"), 'next move comes from the canonical recovery projection');
-A.ok(recovery.includes("window.ControlModeUI.inspectTask(item.taskId,row)"), 'recovery rows can open the existing durable managed-task history without a second detail source');
+A.ok(recovery.includes("window.ControlModeUI.inspectTask(item.taskId,row,item)"), 'recovery rows can open the existing durable managed-task history with durable recovery evidence and without a second detail source');
 A.ok(recovery.includes("row.setAttribute('role','button')"), 'drillable recovery rows expose button semantics');
 A.ok(recovery.includes("row.setAttribute('aria-label','Open durable task history for '+item.taskId)"), 'recovery drilldown has a descriptive accessible name');
 A.ok(recovery.includes("ev.key==='Enter'||ev.key===' '"), 'recovery drilldown supports keyboard activation');
