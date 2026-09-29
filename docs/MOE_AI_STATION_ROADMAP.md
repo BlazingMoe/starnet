@@ -113,7 +113,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Storage | Local-first workspaces | Existing | Sidecar workspace model | Versioned schema and backup/restore | P0 |
 | Storage | Migration system | Partial | Fresh-start/lifecycle code | Safe StarNet → derivative data migration and rollback | P0 |
 | Interop | Import/export | Partial | Save/cloudsave/skills/MCP | Portable agents, workflows, skills, memory bundles | P2 |
-| Reliability | Durable task queue | Missing/Partial | Runtime/autonomy state | Crash-safe queues/checkpoints and resume | P1 |
+| Reliability | Durable task recovery | Existing/Partial | Authoritative managed-task history + bounded SAFE_RESTART lifecycle through the normal managed delegation path | Broaden durable checkpoint/resume coverage beyond managed delegation without introducing a second queue | P1 |
 | Reliability | Health monitoring | Partial | Provider registry + observed rate-limit signals | Add actual liveness/circuit-breaker sources before claiming health | P1 |
 | Reliability | Backups | Partial | Local workspace | Scheduled encrypted backups and restore verification | P2 |
 | DevEx | Test suites | Existing | `test/`, fast/http/full scripts + derivative contracts | Continue regression/e2e/security expansion | P0 |
@@ -149,7 +149,7 @@ Existing inherited memory/feedback/skills foundations remain available. The veri
 
 ### Phase 4 — Workflow and autonomy
 
-Inherited workflow/autonomy primitives remain substantial but the complete formal workflow IR, durable cross-workflow checkpointing and all autonomy-level product UX remain future scope. The v1 Approval Center is observe-only rather than a new consent mutation system.
+Inherited workflow/autonomy primitives remain substantial. Managed delegation now has verification-backed durable recovery: interrupted tasks are classified from the authoritative task-history store, only `SAFE_RESTART` work can be atomically claimed, and restart execution re-enters the normal managed delegation capability/consent/budget path. This does not yet claim durable checkpoint/resume coverage for every workflow type; the complete formal workflow IR, broader cross-workflow recovery and all autonomy-level product UX remain future scope. The v1 Approval Center is observe-only rather than a new consent mutation system.
 
 ### Phase 5 — Control Mode
 
