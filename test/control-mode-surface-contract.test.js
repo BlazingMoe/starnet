@@ -56,4 +56,13 @@ A.ok(actions.includes("script.src = 'app/controlcosts.js'"), 'loader chain conti
 A.ok(costs.includes("script.src = 'app/controlproviders.js'"), 'loader chain continues costs → providers');
 A.ok(!/script\.src\s*=\s*['\"]app\/control(?:memory|approvals|actions|costs)\.js['\"]/.test(providers), 'provider surface is the terminal loader and cannot create a cycle');
 
+const recovery = fs.readFileSync(path.join(root, 'frontend', 'app', 'controlrecoveries.js'), 'utf8');
+const nightshift = fs.readFileSync(path.join(root, 'frontend', 'app', 'controlnightshift.js'), 'utf8');
+const nightshiftMirror = fs.readFileSync(path.join(root, 'website', 'app', 'app', 'controlnightshift.js'), 'utf8');
+A.eq(nightshiftMirror, nightshift, 'Night Shift Control Mode pane mirrors desktop exactly');
+A.ok(recovery.includes("script.src='app/controlnightshift.js'"), 'recovery loader chain continues to Night Shift');
+A.ok(nightshift.includes("const ENDPOINT='/api/nightshift/status'"), 'Night Shift pane reuses inherited status truth');
+A.ok(nightshift.includes('OBSERVE ONLY'), 'Night Shift pane remains observe-only');
+A.ok(index.includes("{ m: 'GET', exact: '/api/nightshift/status', h: handleNightshiftStatus }"), 'Night Shift status remains inherited GET-only host route');
+
 A.report('control-mode-surface-contract.test');

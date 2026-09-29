@@ -43,5 +43,6 @@
   function start(){ensureHost(); if(timer)clearInterval(timer); refresh(); timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);}
   function stop(){generation++; if(timer){clearInterval(timer);timer=0;}}
   function watch(){const p=panel(); if(!p||typeof MutationObserver!=='function')return; new MutationObserver(()=>{if(isOpen())start();else stop();}).observe(p,{attributes:true,attributeFilter:['hidden']}); if(isOpen())start();}
-  watch(); window.ControlModeRecoveries=Object.freeze({refresh,endpoint:ENDPOINT,host:()=>ensureHost()});
+  function loadNightshiftPane(){ if(window.ControlModeNightshift)return; if(typeof document.createElement!=='function'||!document.head||typeof document.head.appendChild!=='function')return; if(document.getElementById('mo-control-mode-nightshift'))return; const script=document.createElement('script'); script.id='mo-control-mode-nightshift'; script.src='app/controlnightshift.js'; script.async=false; document.head.appendChild(script); }
+  watch(); loadNightshiftPane(); window.ControlModeRecoveries=Object.freeze({refresh,endpoint:ENDPOINT,host:()=>ensureHost()});
 })();
