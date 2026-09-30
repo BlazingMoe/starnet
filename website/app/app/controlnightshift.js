@@ -21,6 +21,7 @@
     if(model&&model.why)r.appendChild(make('div','cm-action-meta','WHY · '+model.why));
     if(model&&model.modeText)r.appendChild(make('div','cm-action-meta','MODE · '+model.modeText));
     if(model&&model.readinessText)r.appendChild(make('div','cm-action-meta','READINESS · '+model.readinessText));
+    if(model){r.appendChild(make('div','cm-action-meta','PRESENCE · '+label(model.presence)));r.appendChild(make('div','cm-action-meta','LAST BEAT · '+label(model.lastBeatText)+' · NEXT · '+label(model.nextEligibleText)));}
     r.appendChild(make('div','cm-action-warning','OBSERVE ONLY · This pane reads the existing Night Shift status endpoint. It cannot arm, halt, steer, fire a beat, widen reach, grant tools, or change budgets.'));
   }
   async function refresh(){if(refreshing||!isOpen())return;refreshing=true;const token=++generation;try{const b=await get();if(token===generation&&isOpen())render(b);}catch(_){if(token===generation&&isOpen())renderUnavailable();}finally{refreshing=false;}}
