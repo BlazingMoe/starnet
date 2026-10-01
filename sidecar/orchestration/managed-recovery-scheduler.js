@@ -125,7 +125,7 @@ async function runManagedRecoveryBatch(opts) {
       continue;
     }
 
-    const result = await restartManagedTask({ registry, store, taskId, claimId, ambientCtx });
+    const result = await restartManagedTask({ registry, store, taskId, claimId, ambientCtx, leadAgentId });
     results.push(Object.assign({ taskId, claimId }, result || { ok: false, reason: 'managed-recovery-runner-empty-result' }));
   }
 

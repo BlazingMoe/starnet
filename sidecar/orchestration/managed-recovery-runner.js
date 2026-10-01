@@ -30,7 +30,7 @@ async function restartManagedTask(opts) {
     return { ok: false, phase: 'preflight', reason: 'claim-identity-required', executionMayHaveStarted: false };
   }
 
-  const plan = claimManagedSafeRestart(store, taskId, claimId, opts.ambientCtx || {});
+  const plan = claimManagedSafeRestart(store, taskId, claimId, opts.ambientCtx || {}, opts.leadAgentId);
   if (!plan || plan.ok !== true) {
     return Object.assign({ phase: 'claim', executionMayHaveStarted: false }, plan || { ok: false, reason: 'recovery-claim-failed' });
   }

@@ -231,5 +231,29 @@ function seed(store, taskId, stage, leadAgentId) {
   A.eq(missingClaimAuthority.ok, false, 'scheduler refuses to invent claim identity');
   A.eq(missingClaimAuthority.reason, 'recovery-claim-id-authority-required', 'claim identity must come from host authority');
 
+  for (const changeDuring of ['ambient', 'claim-id']) {
+    const changed = makeStore();
+    seed(changed, 'changed', 'contract', 'lead-main');
+    let dispatches = 0, claims = 0;
+    const claim = changed.claimSafeRestart;
+    changed.claimSafeRestart = (...args) => { claims++; return claim(...args); };
+    const result = await runManagedRecoveryBatch({
+      store: changed, leadAgentId: 'lead-main',
+      registry: { async dispatch() { dispatches++; return { ok: true }; } },
+      async ambientCtxFor() {
+        if (changeDuring === 'ambient') seed(changed, 'changed', 'contract', 'foreign-lead');
+        return { traceId: 'original-authority' };
+      },
+      async claimIdFor() {
+        if (changeDuring === 'claim-id') seed(changed, 'changed', 'contract', 'foreign-lead');
+        return 'changed-claim';
+      }
+    });
+    A.eq(dispatches, 0, 'lead changes during async preparation never reach the registry');
+    A.eq(result.items[0].reason, 'recovery-lead-authority-mismatch', 'fresh lead mismatch is explicit');
+    A.eq(claims, 0, 'foreign lead task is never claimed');
+    A.eq(changed.recovery('changed').checkpoint.leadAgentId, 'foreign-lead', 'foreign durable authority remains unchanged');
+  }
+
   A.report('managed-recovery-scheduler.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });

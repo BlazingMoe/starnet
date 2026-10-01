@@ -95,7 +95,7 @@ function buildManagedResumeContext(request, ambientCtx) {
    the authoritative history store. This closes the read -> claim TOCTOU window without
    inventing a second recovery queue. The returned plan is intentionally side-effect free:
    callers must still pass it through the normal registry/capability/consent path. */
-function claimManagedSafeRestart(store, taskId, claimId, ambientCtx) {
+function claimManagedSafeRestart(store, taskId, claimId, ambientCtx, expectedLeadAgentId) {
   if (!store || typeof store.recovery !== 'function' || typeof store.claimSafeRestart !== 'function') {
     return { ok: false, reason: 'recovery-authority-unavailable' };
   }
@@ -110,6 +110,12 @@ function claimManagedSafeRestart(store, taskId, claimId, ambientCtx) {
 
   const request = buildManagedResumeRequest(recovery);
   if (!request.ok) return request;
+  // Async discovery/context preparation may have outlived the original lead assignment.
+  // Check the fresh durable contract before composing authority or claiming the task.
+  const expectedLead = String(expectedLeadAgentId || '').trim();
+  if (expectedLead && request.leadAgentId !== expectedLead) {
+    return { ok: false, reason: 'recovery-lead-authority-mismatch', executionMayHaveStarted: false };
+  }
   const context = buildManagedResumeContext(request, ambientCtx);
   if (!context.ok) return context;
 
