@@ -224,7 +224,8 @@
     document.head.appendChild(s);
   }
   function bootControlMode() {
-    const loadMemory = () => loadOnce('app/controlmemory.js', 'mo-control-mode-memory');
+    const loadRoutineOpportunity = () => loadOnce('app/controlroutineopportunity.js', 'mo-control-mode-routine-opportunity');
+    const loadMemory = () => loadOnce('app/controlmemory.js', 'mo-control-mode-memory', loadRoutineOpportunity);
     const loadAgents = () => loadOnce('app/controlagents.js', 'mo-control-mode-agents', loadMemory);
     const loadUi = () => loadOnce('app/controlmode.js', 'mo-control-mode-ui', loadAgents);
     if (window.ControlModeUI) { loadAgents(); return; }
