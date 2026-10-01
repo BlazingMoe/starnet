@@ -77,7 +77,7 @@ A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.
 // Execute the real classic scripts together: top-level const bindings are visible
 // to later scripts, but are not properties of window. A window-only fake misses this.
 const vm = require('vm');
-function routinePaneHarness(base, withStore = true) {
+function routinePaneHarness(base, withStore = true, withApp = false) {
   class Element {
     constructor() { this.children = []; this.textContent = ''; this.hidden = false; this.isConnected = true; }
     append(...nodes) { this.children.push(...nodes); }
@@ -85,9 +85,11 @@ function routinePaneHarness(base, withStore = true) {
     replaceChildren(...nodes) { this.children = nodes; }
     setAttribute() {}
     querySelector() { return null; }
+    addEventListener(type, fn) { this[type] = fn; }
   }
   const panel = new Element();
   const intervals = new Map();
+  const opened = [];
   let observe, cronListener, nextTimer = 0, launches = { brief: { n: 5 } }, writes = 0;
   let cronState = { hasData: true, stale: false, data: { jobs: [] } };
   const context = vm.createContext({
@@ -104,6 +106,11 @@ function routinePaneHarness(base, withStore = true) {
     }
   });
   vm.runInContext('window = globalThis', context);
+  if (withApp) {
+    context.openSchedule = (...args) => opened.push(args);
+    context.ControlModeUI = { close: () => { panel.hidden = true; } };
+    vm.runInContext('const App = { openRecipeLaunch: (...args) => openSchedule(...args) }', context);
+  }
   if (withStore) {
     vm.runInContext(fs.readFileSync(path.join(base, 'routinenudgestore.js'), 'utf8'), context);
     vm.runInContext('RoutineNudgeStore.init()', context);
@@ -113,8 +120,9 @@ function routinePaneHarness(base, withStore = true) {
   const paneSource = fs.readFileSync(path.join(base, 'controlroutineopportunity.js'), 'utf8');
   vm.runInContext(paneSource, context);
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+  const findButton = node => node.textContent === 'OPEN SCHEDULE IT' ? node : node.children.map(findButton).find(Boolean);
   return {
-    context, intervals, panel, text: () => text(panel), writes: () => writes,
+    context, intervals, panel, opened, button: () => findButton(panel), text: () => text(panel), writes: () => writes,
     cron: jobs => { cronState = { hasData: true, stale: false, data: { jobs } }; cronListener(cronState); },
     evidence: state => { cronState = state; cronListener(state); },
     launches: value => { launches = value; },
@@ -165,6 +173,38 @@ for (const base of ['frontend/app', 'website/app/app']) {
   A.ok(h.text().includes('Routine evidence unavailable'), `${base}: failing store stays explicitly unavailable`);
   const absent = routinePaneHarness(path.join(__dirname, '..', base), false);
   A.ok(absent.text().includes('Routine evidence unavailable'), `${base}: absent store fails closed`);
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  const dir = path.join(__dirname, '..', base);
+  const h = routinePaneHarness(dir, true, true);
+  const button = h.button();
+  A.ok(button && button.type === 'button', `${base}: schedule navigation is a native keyboard-accessible button`);
+  button.click(); button.click();
+  A.eq(h.opened, [['brief', 'routine']], `${base}: click only opens the existing Schedule It flow once`);
+  A.eq(h.panel.hidden, true, `${base}: Control Mode closes so the planning dialog is reachable`);
+  A.eq(h.writes(), 0, `${base}: navigation does not spend or modify the nudge ledger`);
+
+  for (const invalidate of [
+    x => x.cron([{ meta: { recipeId: 'brief' } }]),
+    x => x.evidence({ hasData: false, stale: true }),
+    x => x.evidence({ hasData: true, stale: true, data: { jobs: [] } }),
+    x => x.launches({ brief: { n: 1 } }),
+    x => x.launches({ brief: { n: 5, rated: { miss: 3 } } })
+  ]) {
+    const changed = routinePaneHarness(dir, true, true);
+    const oldButton = changed.button();
+    invalidate(changed); oldButton.click();
+    A.eq(changed.opened.length, 0, `${base}: click revalidates canonical eligibility before navigation`);
+    A.ok(!changed.button(), `${base}: obsolete schedule offer is removed`);
+  }
+  const failed = routinePaneHarness(dir, true, true);
+  failed.context.openSchedule = () => { throw new Error('private diagnostic'); };
+  failed.button().click();
+  A.ok(failed.text().includes('Schedule It could not be opened'), `${base}: failed navigation is explained`);
+  A.eq(failed.panel.hidden, false, `${base}: navigation failure leaves the panel open`);
+  A.ok(!failed.text().includes('private diagnostic'), `${base}: navigation errors do not leak private diagnostics`);
+  A.ok(!routinePaneHarness(dir).button(), `${base}: no dead navigation button when App is absent`);
 }
 
 A.report('control-action-ui-contract.test');
