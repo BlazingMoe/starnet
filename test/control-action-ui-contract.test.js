@@ -69,7 +69,7 @@ A.ok(routineOpportunity.includes("typeof s._pick!=='function'"), 'missing canoni
 A.ok(routineOpportunity.includes("No schedule-worthy repeated recipe is currently proven"), 'no candidate is reported as no proven opportunity, not fabricated automation');
 A.ok(routineOpportunity.includes("No schedule is inferred here."), 'Control Mode does not infer a cadence from incomplete evidence');
 A.ok(routineOpportunity.includes("OBSERVE ONLY"), 'routine opportunity declares its read-only boundary');
-A.ok(!/Harness\\.api\\.(post|put|patch|delete)\\s*\\(/.test(routineOpportunity), 'routine-opportunity pane contains no mutating Harness API calls');
+A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(routineOpportunity), 'routine-opportunity pane contains no mutating Harness API calls');
 A.ok(!/fetch\\s*\\([^)]*,\\s*\\{[^}]*method\\s*:\\s*['\\"](?:POST|PUT|PATCH|DELETE)/is.test(routineOpportunity), 'routine-opportunity pane has no raw mutating HTTP fallback');
 
 A.report('control-action-ui-contract.test');
