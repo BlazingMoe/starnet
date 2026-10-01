@@ -10,6 +10,11 @@ function operatorGuidance(recovery) {
     operatorMeaning: 'The durable task record confirms execution did not happen. Moe may safely start this work again.',
     nextMove: 'Moe can resume this task through the normal capability, consent, budget, and execution gates.'
   };
+  if (recovery.disposition === 'RECONCILED_APPLIED') return {
+    operatorState: 'DO NOT RETRY',
+    operatorMeaning: 'Authoritative evidence confirms this action was already applied. This does not prove the whole task is complete.',
+    nextMove: 'Review the confirmed outcome and remaining task work. Do not repeat the applied action.'
+  };
   if (recovery.executionMayHaveStarted === true) return {
     operatorState: 'DO NOT RETRY',
     operatorMeaning: 'Execution may already have happened. Moe will not repeat this action until authoritative evidence resolves it.',

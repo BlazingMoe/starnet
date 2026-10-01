@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { projectManagedRecoveryList } = require('../sidecar/control/recovery-view.js');
+const { reconcileAndPersistManagedRecovery } = require('../sidecar/orchestration/managed-recovery-transaction.js');
 const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
 
 function harness(base) {
@@ -96,5 +97,28 @@ for (const base of ['frontend/app', 'website/app/app']) {
     const fresh = await render(envelope([uncertain]));
     assert.match(fresh, /1 DO NOT RETRY/);
     assert.doesNotMatch(fresh, /Loading current recovery evidence/);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': confirmed execution remains explicit after recovery store reload', async () => {
+    const disk = []; let now = 1000;
+    const options = { io: { readAll: () => disk.slice(), append: row => disk.push(row) }, clock: { now: () => now++ } };
+    const store = makeTaskHistoryStore(options);
+    store.recordCheckpoint({ taskId: 'confirmed', stage: 'dispatch', leadAgentId: 'lead', workerAgentId: 'worker', objective: 'private objective' });
+    const result = await reconcileAndPersistManagedRecovery({
+      store, taskId: 'confirmed',
+      verifyOutcome: request => ({ ...request, authoritative: true, verdict: 'APPLIED_CONFIRMED', providerRef: 'private-provider-reference' })
+    });
+    assert.equal(result.persisted, true);
+    const reloaded = makeTaskHistoryStore(options);
+    const render = harness(base);
+    const text = await render({ ok: true, recoveries: projectManagedRecoveryList(reloaded.listRecoveries({}, { limit: 100 })) });
+    assert.match(text, /1 DO NOT RETRY/);
+    assert.match(text, /Authoritative evidence confirms this action was already applied/);
+    assert.match(text, /does not prove the whole task is complete/);
+    assert.doesNotMatch(text, /Execution may already have happened|private objective|private-provider-reference/);
+    assert.equal(reloaded.claimSafeRestart('confirmed', 'forbidden').ok, false);
+    assert.equal(reloaded.count(), 0);
   });
 }
