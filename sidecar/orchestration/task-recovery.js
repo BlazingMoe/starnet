@@ -110,6 +110,9 @@ function claimManagedSafeRestart(store, taskId, claimId, ambientCtx, expectedLea
 
   const request = buildManagedResumeRequest(recovery);
   if (!request.ok) return request;
+  if (request.taskId !== taskId) {
+    return { ok: false, reason: 'recovery-task-identity-mismatch', executionMayHaveStarted: false };
+  }
   // Async discovery/context preparation may have outlived the original lead assignment.
   // Check the fresh durable contract before composing authority or claiming the task.
   const expectedLead = String(expectedLeadAgentId || '').trim();
@@ -182,7 +185,7 @@ async function executeClaimedManagedRestart(registry, store, plan) {
   try { current = store.recovery(taskId); }
   catch (_) { return { ok: false, reason: 'recovery-read-failed' }; }
   const checkpoint = current && current.checkpoint;
-  if (!checkpoint || checkpoint.stage !== 'resume-claimed' || String(checkpoint.recoveryClaimId || '') !== claimId) {
+  if (!checkpoint || String(checkpoint.taskId || '') !== taskId || checkpoint.stage !== 'resume-claimed' || String(checkpoint.recoveryClaimId || '') !== claimId) {
     return { ok: false, reason: 'claim-not-owned', recovery: current || null };
   }
 

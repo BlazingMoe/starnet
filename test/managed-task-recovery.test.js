@@ -118,6 +118,21 @@ A.eq(raced.ok, false, 'authority change between recovery read and claim cannot p
 A.eq(raced.reason, 'not-safe-to-claim', 'atomic claim rechecks the authoritative state at the write boundary');
 A.eq(store.recovery('claim-race-1').executionMayHaveStarted, true, 'race loser preserves the newer post-dispatch truth');
 
+let mismatchedClaims = 0;
+const wrongTaskStore = {
+  recovery() { return {
+    state: 'RESUME_REQUIRED', checkpoint: {
+      schemaVersion: 'moe.managed-task-checkpoint.v1', taskId: 'different-task',
+      parentRunId: 'run', leadAgentId: 'lead', workerAgentId: 'worker', objective: 'wrong task', stage: 'contract'
+    }
+  }; },
+  claimSafeRestart(id, claimId) { mismatchedClaims++; return { ok: true, checkpoint: { taskId: id, stage: 'resume-claimed', recoveryClaimId: claimId } }; }
+};
+const wrongTask = claimManagedSafeRestart(wrongTaskStore, 'requested-task', 'claim', {});
+A.eq(wrongTask.ok, false, 'mismatched recovery identity cannot produce a plan');
+A.eq(wrongTask.reason, 'recovery-task-identity-mismatch', 'read identity mismatch is explicit');
+A.eq(mismatchedClaims, 0, 'mismatched recovery identity never reserves a task');
+
 const noAuthority = claimManagedSafeRestart(null, 'x', 'y', {});
 A.eq(noAuthority.ok, false, 'restart preparation requires an authoritative recovery store');
 A.eq(noAuthority.reason, 'recovery-authority-unavailable', 'missing recovery authority is explicit');
@@ -163,6 +178,16 @@ const inheritedRegistry = {
 };
 
 (async () => {
+  const identityPlan = seedRestart('identity-check');
+  let wrongDispatches = 0;
+  const wrongCurrent = {
+    ...store,
+    recovery(id) { const current = store.recovery(id); return { ...current, checkpoint: { ...current.checkpoint, taskId: 'different-task' } }; }
+  };
+  const identityResult = await executeClaimedManagedRestart({ dispatch() { wrongDispatches++; } }, wrongCurrent, identityPlan);
+  A.eq(identityResult.ok, false, 'matching claim token cannot override a different task identity');
+  A.eq(wrongDispatches, 0, 'mismatched current checkpoint never reaches the registry');
+
   const denied = await executeClaimedManagedRestart(deniedRegistry, store, deniedPlan);
   A.eq(deniedRan, true, 'recovery executor uses the supplied authoritative registry instead of bypassing it');
   A.eq(denied.ok, false, 'pre-boundary registry refusal remains a failed execution attempt');
