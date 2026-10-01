@@ -27,5 +27,6 @@
   async function refresh(){if(refreshing||!isOpen())return;refreshing=true;const token=++generation;try{const b=await get();if(token===generation&&isOpen())render(b);}catch(_){if(token===generation&&isOpen())renderUnavailable();}finally{refreshing=false;}}
   function start(){ensureHost();if(timer)clearInterval(timer);refresh();timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);} function stop(){generation++;if(timer){clearInterval(timer);timer=0;}}
   function watch(){const p=panel();if(!p||typeof MutationObserver!=='function')return;new MutationObserver(()=>{if(isOpen())start();else stop();}).observe(p,{attributes:true,attributeFilter:['hidden']});if(isOpen())start();}
-  watch();window.ControlModeNightshift=Object.freeze({refresh,endpoint:ENDPOINT,host:()=>ensureHost()});
+  function loadRoutinePane(){if(window.ControlModeRoutineOpportunity)return;if(typeof document.createElement!=='function'||!document.head||typeof document.head.appendChild!=='function')return;if(document.getElementById('mo-control-mode-routine-opportunity'))return;const script=document.createElement('script');script.id='mo-control-mode-routine-opportunity';script.src='app/controlroutineopportunity.js';script.async=false;document.head.appendChild(script);}
+  watch();loadRoutinePane();window.ControlModeNightshift=Object.freeze({refresh,endpoint:ENDPOINT,host:()=>ensureHost()});
 })();
