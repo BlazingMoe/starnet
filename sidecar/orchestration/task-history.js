@@ -150,17 +150,18 @@ function makeTaskHistoryStore(opts) {
     filter = filter || {}; options = options || {};
     const cap = Math.max(1, Math.min(1000, Math.floor(num(options.limit) || defaultLimit)));
     const out = [];
+    let truncated = checkpointTruncated;
     for (const raw of Array.from(checkpoints.values()).reverse()) {
       if (filter.taskId && raw.taskId !== filter.taskId) continue;
       if (filter.leadAgentId && raw.leadAgentId !== filter.leadAgentId) continue;
       if (filter.agentId && raw.leadAgentId !== filter.agentId && raw.workerAgentId !== filter.agentId && raw.auditorAgentId !== filter.agentId) continue;
       const checkpoint = checkpointWithReconciliation(raw.taskId);
       const disposition = recoveryDisposition(checkpoint);
-      if (filter.disposition && disposition.disposition !== filter.disposition) continue;
-      out.push(Object.assign({ state: 'RESUME_REQUIRED', taskId: checkpoint.taskId, checkpoint, terminal: null }, disposition));
-      if (out.length >= cap) break;
+        if (filter.disposition && disposition.disposition !== filter.disposition) continue;
+        if (out.length >= cap) { truncated = true; break; }
+        out.push(Object.assign({ state: 'RESUME_REQUIRED', taskId: checkpoint.taskId, checkpoint, terminal: null }, disposition));
     }
-    return { items: out, truncated: checkpointTruncated };
+      return { items: out, truncated };
   }
 
   function claimSafeRestart(taskId, claimId) {

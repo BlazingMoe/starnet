@@ -79,6 +79,7 @@ jobs:
           node test/control-mode-ui-contract.test.js
           node test/control-mode-surface-contract.test.js
           node test/control-nightshift-evidence.test.js
+          node test/control-recovery-evidence.test.js
           node test/control-mode-schema-contract.test.js
           node test/control-mode-lifecycle-contract.test.js
           node test/control-mode-http-failure-contract.test.js

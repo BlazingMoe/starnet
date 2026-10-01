@@ -22,14 +22,19 @@
   function render(body) {
     const r=ensureHost(); if(!r)return; r.replaceChildren();
     const view=body && body.ok && body.recoveries && body.recoveries.schemaVersion==='moe.control-recoveries.v1' ? body.recoveries : null;
-    header(r,!!view); if(!view){ renderUnavailable(); return; }
-    const rows=Array.isArray(view.rows)?view.rows:[];
+    const evidence=view&&view.evidence;
+    const valid=view&&Array.isArray(view.rows)&&view.rows.every(item=>item&&typeof item==='object'&&!Array.isArray(item))&&
+      evidence&&evidence.source==='managed-task-history'&&evidence.authoritative===true&&
+      typeof evidence.bounded==='boolean'&&evidence.returnedRows===view.rows.length;
+    header(r,!!valid); if(!valid){ renderUnavailable(); return; }
+    const rows=view.rows;
     const safe=rows.filter(item=>item.operatorState==='SAFE TO RESTART').length;
     const blocked=rows.filter(item=>item.operatorState==='DO NOT RETRY').length;
     const review=rows.length-safe-blocked;
-    const summary=make('div','cm-action-warning','RECOVERY QUEUE · '+rows.length+' TOTAL · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW');
+    const summary=make('div','cm-action-warning','RECOVERY QUEUE · '+rows.length+' SHOWN · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW');
     summary.setAttribute('aria-label','Recovery queue summary'); r.appendChild(summary);
-    if(!rows.length) r.appendChild(make('div','cm-action-empty','No managed tasks currently require recovery.'));
+    if(evidence.bounded) r.appendChild(make('div','cm-action-warning','Limited recovery window — counts cover only the records shown. Additional recovery records may be omitted.'));
+    if(!rows.length) r.appendChild(make('div','cm-action-empty',evidence.bounded?'No recoveries are shown in this limited window.':'No managed tasks currently require recovery.'));
     else { const list=make('div','cm-action-list'); rows.forEach(item=>{ const row=make('div','cm-action-row'); if(item.taskId && window.ControlModeUI && typeof window.ControlModeUI.inspectTask==='function'){ row.tabIndex=0; row.setAttribute('role','button'); row.setAttribute('aria-label','Open durable task history for '+item.taskId); const inspect=()=>window.ControlModeUI.inspectTask(item.taskId,row,item); row.addEventListener('click',inspect); row.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();inspect();}}); } row.append(
       make('div','cm-action-primary',label(item.taskId,'unknown task')),
       make('div','',label(item.disposition,'unknown disposition')),

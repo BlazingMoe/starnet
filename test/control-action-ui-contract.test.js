@@ -38,7 +38,7 @@ A.ok(recovery.includes("'RECOVERY STATUS'"), 'recovery pane has an explicit oper
 A.ok(recovery.includes("label(item.operatorState,'REVIEW')"), 'operator state is rendered from the canonical server projection');
 A.ok(recovery.includes("rows.filter(item=>item.operatorState==='SAFE TO RESTART').length"), 'recovery summary counts canonical safe-restart guidance only');
 A.ok(recovery.includes("rows.filter(item=>item.operatorState==='DO NOT RETRY').length"), 'recovery summary counts canonical fail-closed guidance only');
-A.ok(recovery.includes("'RECOVERY QUEUE · '+rows.length+' TOTAL · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW'"), 'operator gets an at-a-glance recovery queue summary');
+A.ok(recovery.includes("'RECOVERY QUEUE · '+rows.length+' SHOWN · '+safe+' SAFE TO RESTART · '+blocked+' DO NOT RETRY · '+review+' REVIEW'"), 'operator gets a recovery summary scoped to the returned records');
 A.ok(recovery.includes("setAttribute('aria-label','Recovery queue summary')"), 'recovery summary is explicitly labelled for assistive technology');
 A.ok(recovery.includes("'RECONCILIATION '+label(item.reconciliationOutcome)+' · DECISION '+label(item.reconciliationDecision)"), 'operator sees the durable reconciliation decision alongside its outcome');
 A.ok(recovery.includes("'WHY · '+label(item.operatorMeaning"), 'plain-language meaning comes from the canonical recovery projection');

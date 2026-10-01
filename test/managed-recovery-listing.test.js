@@ -44,6 +44,9 @@ A.eq(safeOnly.items.length, 1, 'disposition filter can select safe restart candi
 A.eq(safeOnly.items[0].taskId, 'safe', 'safe restart filter returns the authoritative task id');
 A.eq(h.store.listRecoveries({ agentId: 'worker-b' }).items[0].taskId, 'needs-reconcile', 'agent filter uses stored provenance');
 A.eq(h.store.listRecoveries({}, { limit: 1 }).items.length, 1, 'recovery listing obeys bounded caller limits');
+A.eq(h.store.listRecoveries({}, { limit: 1 }).truncated, true, 'caller limit reports omitted matching recoveries');
+A.eq(h.store.listRecoveries({}, { limit: 2 }).truncated, false, 'exactly filling the limit does not invent omitted recoveries');
+A.eq(h.store.listRecoveries({ disposition: 'SAFE_RESTART' }, { limit: 1 }).truncated, false, 'nonmatching recoveries do not imply truncation');
 
 const leadScoped = harness(10);
 leadScoped.store.recordCheckpoint({
