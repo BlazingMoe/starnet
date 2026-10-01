@@ -39,6 +39,17 @@ R._setCronForTest([]);   // cron known-empty from here on
 A.eq(R.willPropose(), true, 'a cadence recipe past the launch floor with no live routine is offered');
 A.eq(R._pick().id, 'morning-brief', 'the pick is the eligible recipe');
 
+/* Public Control Mode read model: a detached, immutable projection of the canonical pick. It must not expose
+   store internals or create a second decision path; callers can only observe the evidence StarNet already chose. */
+const opportunity = R.opportunity();
+A.ok(opportunity && Object.isFrozen(opportunity), 'public routine opportunity is immutable');
+A.eq(opportunity.id, 'morning-brief', 'public routine opportunity reuses the canonical pick');
+A.eq(opportunity.name, 'Morning Brief', 'public routine opportunity exposes the canonical recipe label');
+A.eq(opportunity.n, 5, 'public routine opportunity exposes the real launch count');
+A.eq(opportunity.cadence, 'morning', 'public routine opportunity passes through authored cadence without inference');
+A.eq(Object.keys(opportunity).sort().join(','), 'cadence,id,n,name', 'public routine opportunity exposes only the bounded read model');
+A.ok(opportunity !== R._pick(), 'public routine opportunity is detached from the internal pick object');
+
 launchCounts = { 'morning-brief': { n: R.LAUNCH_FLOOR - 1, lastAt: 1 } };
 A.eq(R.willPropose(), false, 'below the launch floor → no offer');
 
