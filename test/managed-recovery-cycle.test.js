@@ -55,5 +55,33 @@ function seed(store, taskId, stage) {
   A.eq(safeDispatch, ['safe'], 'safe pre-dispatch recovery still executes without provider reconciliation');
   A.eq(verifyCalls, 0, 'safe-only path invents no provider verification');
 
+  for (const nextLead of ['other-lead', 'lead']) {
+    const changed = makeStore();
+    seed(changed, 'changed', 'dispatch');
+    const listRecoveries = changed.listRecoveries;
+    let updated = false, verified = 0, executed = 0;
+    changed.listRecoveries = (filter, options) => {
+      const page = listRecoveries(filter, options);
+      if (!updated) {
+        updated = true;
+        changed.recordCheckpoint({ taskId: 'changed', stage: 'audit', leadAgentId: nextLead, workerAgentId: 'worker' });
+      }
+      return page;
+    };
+    await runManagedRecoveryCycle({
+      store: changed, leadAgentId: 'lead', limit: 1,
+      registry: { dispatch() { executed++; return { ok: true }; } },
+      claimIdFor() { return 'must-not-restart'; },
+      verifyOutcome(request, current) {
+        verified++;
+        A.eq(current.checkpoint.stage, 'audit', 'verifier receives current durable evidence, not stale discovery');
+        return { ...request, authoritative: true, verdict: 'APPLIED_CONFIRMED', providerRef: 'confirmed' };
+      }
+    });
+    A.eq(verified, nextLead === 'lead' ? 1 : 0, 'fresh lead authority is checked before provider verification');
+    A.eq(executed, 0, 'changed or applied task is never replayed');
+    if (nextLead !== 'lead') A.eq(changed.recovery('changed').disposition, 'RECONCILE_BEFORE_RETRY', 'foreign lead checkpoint remains untouched');
+  }
+
   A.report('managed-recovery-cycle.test');
 })().catch(error => { console.error(error); process.exitCode = 1; });

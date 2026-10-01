@@ -34,6 +34,13 @@ async function reconcileManagedRecovery(opts) {
     return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, reason: 'recovery-task-identity-mismatch' };
   }
 
+  // Discovery may be stale. Validate the fresh checkpoint before borrowing the lead's verifier.
+  const expectedLead = String(opts.leadAgentId || '').trim();
+  if (expectedLead && recovery && recovery.state === 'RESUME_REQUIRED' &&
+      String(recovery.checkpoint && recovery.checkpoint.leadAgentId || '').trim() !== expectedLead) {
+    return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, reason: 'recovery-lead-authority-mismatch' };
+  }
+
   const next = managedRecoveryReconciliation(recovery);
   if (next.action !== 'VERIFY_AUTHORITATIVE_OUTCOME') {
     return decideManagedRecovery(recovery);
@@ -47,7 +54,7 @@ async function reconcileManagedRecovery(opts) {
   const actionId = managedRecoveryActionId(taskId);
   const request = Object.freeze({ taskId, actionId });
   let evidence;
-  try { evidence = await opts.verifyOutcome(request); }
+  try { evidence = await opts.verifyOutcome(request, recovery); }
   catch (_) {
     return { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, executionMayHaveStarted: true, outcome: 'UNKNOWN', reason: 'authoritative-verifier-failed', recoveryCheckpoint: token };
   }

@@ -56,7 +56,8 @@ async function runManagedRecoveryCycle(opts) {
     const result = await reconcileAndPersistManagedRecovery({
       store,
       taskId,
-      verifyOutcome(request) { return opts.verifyOutcome(request, candidate); }
+      leadAgentId: activeLead,
+      verifyOutcome(request, current) { return opts.verifyOutcome(request, current); }
     });
     reconciled.push(Object.assign({ taskId }, result || { ok: false, decision: 'FREEZE_UNKNOWN', retryAllowed: false, reason: 'reconciliation-empty-result' }));
   }
