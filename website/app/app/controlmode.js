@@ -237,6 +237,15 @@
     detail.replaceChildren();
     if (!panel.hidden) focusIfPossible(target);
   }
+  function renderRecoveryGuidance(taskId, recovery) {
+    if (recovery && recovery.taskId === taskId) {
+      const guidance = make('section', 'cm-detail-block');
+      guidance.setAttribute('aria-label', 'Recovery guidance');
+      guidance.append(make('div', 'cm-detail-k', 'RECOVERY STATUS'), make('div', 'cm-state', recovery.operatorState || 'REVIEW'), make('div', 'cm-meta', 'WHY · ' + (recovery.operatorMeaning || 'No guidance is available from the durable projection.')), make('div', 'cm-meta', 'NEXT · ' + (recovery.nextMove || 'No automatic retry is authorized from the evidence currently shown.')));
+      guidance.appendChild(make('div', 'cm-meta', 'Recovery status when opened — not refreshed by this history lookup.'));
+      detail.appendChild(guidance);
+    }
+  }
   function renderTaskDetail(body, taskId, recovery) {
     detail.replaceChildren();
     const head = make('header', 'cm-detail-head');
@@ -244,12 +253,7 @@
     left.append(make('div', 'cm-kicker', 'MANAGED TASK · READ ONLY'), make('div', 'cm-detail-title', taskId));
     const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail);
     head.append(left, close); detail.appendChild(head);
-    if (recovery && recovery.taskId === taskId) {
-      const guidance = make('section', 'cm-detail-block');
-      guidance.setAttribute('aria-label', 'Recovery guidance');
-      guidance.append(make('div', 'cm-detail-k', 'RECOVERY STATUS'), make('div', 'cm-state', recovery.operatorState || 'REVIEW'), make('div', 'cm-meta', 'WHY · ' + (recovery.operatorMeaning || 'No guidance is available from the durable projection.')), make('div', 'cm-meta', 'NEXT · ' + (recovery.nextMove || 'No automatic retry is authorized from the evidence currently shown.')));
-      detail.appendChild(guidance);
-    }
+    renderRecoveryGuidance(taskId, recovery);
     const history = rows(body && body.history);
     if (!history.length) { detail.appendChild(make('div', 'cm-error', 'No durable history is available for this task.')); focusIfPossible(close); return; }
     const latest = history[0] || {};
@@ -308,6 +312,7 @@
       head.append(make('div', 'cm-detail-title', taskId));
       const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail); head.appendChild(close);
       detail.append(head, make('div', 'cm-error', 'Task history could not be loaded. No missing detail is inferred.'));
+      renderRecoveryGuidance(taskId, recovery);
       focusIfPossible(close);
     }
   }
