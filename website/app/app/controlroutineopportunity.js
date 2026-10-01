@@ -7,7 +7,8 @@
   function panel(){return document.getElementById('control-mode-panel');}
   function isOpen(){const p=panel();return !!(p&&!p.hidden);}
   function ensureHost(){const p=panel();if(!p)return null;if(host&&host.isConnected)return host;host=make('section','cm-action-shell');host.id='cm-routine-opportunity';host.setAttribute('aria-label','Routine opportunity');const detail=p.querySelector('#cm-task-detail');if(detail)p.insertBefore(host,detail);else p.appendChild(host);return host;}
-  function candidate(){const s=window.RoutineNudgeStore;if(!s||typeof s.opportunity!=='function')return {known:false,item:null};try{return {known:true,item:s.opportunity()};}catch(_){return {known:false,item:null};}}
+  // Classic scripts share the store's top-level const binding, not a window property.
+  function candidate(){const s=typeof RoutineNudgeStore!=='undefined'?RoutineNudgeStore:window.RoutineNudgeStore;if(!s||typeof s.opportunity!=='function')return {known:false,item:null};try{return {known:true,item:s.opportunity()};}catch(_){return {known:false,item:null};}}
   function render(){const r=ensureHost();if(!r)return;r.replaceChildren();const c=candidate();const h=make('div','cm-action-head');h.append(make('div','cm-action-title','AUTOMATION · ROUTINE OPPORTUNITY'),make('div','cm-action-proof',c.known?'EXISTING ROUTINE EVIDENCE · READ ONLY':'READ ONLY'));r.appendChild(h);
     if(!c.known){r.appendChild(make('div','cm-action-error','Routine evidence unavailable — no automation opportunity is inferred.'));return;}
     if(!c.item){r.appendChild(make('div','cm-action-meta','No schedule-worthy repeated recipe is currently proven by StarNet’s existing routine-nudge rules.'));}

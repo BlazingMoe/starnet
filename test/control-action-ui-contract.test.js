@@ -74,4 +74,78 @@ A.ok(routineOpportunity.includes("OBSERVE ONLY"), 'routine opportunity declares 
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(routineOpportunity), 'routine-opportunity pane contains no mutating Harness API calls');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(routineOpportunity), 'routine-opportunity pane has no raw mutating HTTP fallback');
 
+// Execute the real classic scripts together: top-level const bindings are visible
+// to later scripts, but are not properties of window. A window-only fake misses this.
+const vm = require('vm');
+function routinePaneHarness(base, withStore = true) {
+  class Element {
+    constructor() { this.children = []; this.textContent = ''; this.hidden = false; this.isConnected = true; }
+    append(...nodes) { this.children.push(...nodes); }
+    appendChild(node) { this.append(node); return node; }
+    replaceChildren(...nodes) { this.children = nodes; }
+    setAttribute() {}
+    querySelector() { return null; }
+  }
+  const panel = new Element();
+  const intervals = new Map();
+  let observe, cronListener, nextTimer = 0, launches = { brief: { n: 5 } }, writes = 0;
+  const context = vm.createContext({
+    document: { createElement: () => new Element(), getElementById: id => id === 'control-mode-panel' ? panel : null },
+    MutationObserver: class { constructor(fn) { observe = fn; } observe() {} },
+    setInterval: fn => { intervals.set(++nextTimer, fn); return nextTimer; },
+    clearInterval: id => intervals.delete(id),
+    localStorage: { getItem: () => null, setItem: () => { writes++; }, removeItem: () => { writes++; } },
+    ProspectStore: { launches: () => launches },
+    Recipes: { get: id => id === 'brief' ? { name: 'Morning Brief', cadence: null } : null },
+    QuerySpine: { subscribe: (key, fn) => { A.eq(key, 'cron', 'real store subscribes to existing cron evidence'); cronListener = fn; return () => {}; } }
+  });
+  vm.runInContext('window = globalThis', context);
+  if (withStore) {
+    vm.runInContext(fs.readFileSync(path.join(base, 'routinenudgestore.js'), 'utf8'), context);
+    vm.runInContext('RoutineNudgeStore.init()', context);
+    cronListener({ hasData: true, data: { jobs: [] } });
+    A.eq(vm.runInContext('typeof window.RoutineNudgeStore', context), 'undefined', 'classic-script store is not a window property');
+  }
+  const paneSource = fs.readFileSync(path.join(base, 'controlroutineopportunity.js'), 'utf8');
+  vm.runInContext(paneSource, context);
+  const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+  return {
+    context, intervals, panel, text: () => text(panel), writes: () => writes,
+    cron: jobs => cronListener({ hasData: true, data: { jobs } }),
+    launches: value => { launches = value; },
+    refresh: () => context.ControlModeRoutineOpportunity.refresh(),
+    hide: value => { panel.hidden = value; observe(); },
+    reload: () => vm.runInContext(paneSource, context)
+  };
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  const h = routinePaneHarness(path.join(__dirname, '..', base));
+  A.ok(h.text().includes('CANDIDATE · Morning Brief · 5 MANUAL LAUNCHES'), `${base}: real store evidence reaches the pane`);
+  A.ok(h.text().includes('No schedule is inferred here.'), `${base}: missing authored cadence is not invented`);
+  h.cron([{ meta: { recipeId: 'brief' } }]); h.refresh();
+  A.ok(!h.text().includes('CANDIDATE ·'), `${base}: existing live routine suppresses the candidate`);
+  h.cron([]); h.launches({ brief: { n: 2 } }); h.refresh();
+  A.ok(!h.text().includes('CANDIDATE ·'), `${base}: canonical launch floor is preserved`);
+  h.launches({ brief: { n: 5, rated: { miss: 3 } } }); h.refresh();
+  A.ok(!h.text().includes('CANDIDATE ·'), `${base}: canonical quality gate is preserved`);
+  h.launches({ brief: { n: 6 } }); h.refresh();
+  A.ok(h.text().includes('6 MANUAL LAUNCHES'), `${base}: updates use the same live store`);
+  A.eq(h.writes(), 0, `${base}: observing evidence never spends or resets the anti-nag ledger`);
+  h.hide(true);
+  A.eq(h.intervals.size, 0, `${base}: closing stops polling`);
+  h.launches({ brief: { n: 7 } }); h.refresh();
+  A.ok(h.text().includes('6 MANUAL LAUNCHES'), `${base}: hidden pane does not render`);
+  h.hide(false);
+  A.ok(h.text().includes('7 MANUAL LAUNCHES'), `${base}: reopening refreshes current evidence`);
+  h.reload();
+  A.eq(h.intervals.size, 1, `${base}: repeated loading does not duplicate polling`);
+  A.eq(h.panel.children.length, 1, `${base}: repeated loading does not duplicate the pane`);
+  vm.runInContext('RoutineNudgeStore.opportunity = () => { throw new Error("unavailable"); }', h.context);
+  h.refresh();
+  A.ok(h.text().includes('Routine evidence unavailable'), `${base}: failing store stays explicitly unavailable`);
+  const absent = routinePaneHarness(path.join(__dirname, '..', base), false);
+  A.ok(absent.text().includes('Routine evidence unavailable'), `${base}: absent store fails closed`);
+}
+
 A.report('control-action-ui-contract.test');
