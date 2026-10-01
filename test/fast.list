@@ -376,6 +376,7 @@ test/launchmemory.test.js
 test/starters.test.js
 test/starterstore.test.js
 test/routinenudgestore.test.js
+test/control-nightshift-evidence.test.js
 test/bottlestore.test.js
 test/bottle-wiring.test.js
 test/resummonstore.test.js
