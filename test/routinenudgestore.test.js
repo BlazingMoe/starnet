@@ -155,4 +155,44 @@ A.ok(/function recipeLifeChip/.test(mkt), 'the bay defines the recipe life chip 
 A.ok(/ProspectStore\.launches\(\)/.test(mkt.slice(mkt.indexOf('function recipeLifeChip'), mkt.indexOf('function recipeLifeChip') + 900)), 'the life chip reads the real scout launch counters');
 A.ok(!/popular/i.test(mkt.slice(mkt.indexOf('function recipeLifeChip'), mkt.indexOf('function recipeCardHTML'))), 'the life chip never claims popularity (own counts only — truthful telemetry)');
 
+/* The UI observes the same candidate and the existing QuerySpine freshness contract.
+   The old item-or-null API and post-run nudge rules are deliberately unchanged. */
+const { QuerySpine: Q } = require('../frontend/app/queryspine.js');
+let now = 1000;
+Q._setClockForTest(() => now);
+Q._setTimersForTest(() => 1, () => {});
+Q._setGetForTest(() => new Promise(() => {}));
+R._setQueryForTest(Q);
+R._setCronForTest(null);
+R.reset(); R.init();
+launchCounts = { 'morning-brief': { n: 5 } };
+A.eq(R.opportunityEvidence(), { known: false, stale: false, item: null }, 'unloaded cron evidence remains unknown');
+Q.update('cron', { jobs: [] });
+const evidence = R.opportunityEvidence();
+A.ok(Object.isFrozen(evidence) && Object.isFrozen(evidence.item), 'evidence and candidate projections are immutable');
+A.eq(evidence.item, R.opportunity(), 'evidence uses the existing canonical candidate');
+A.eq([evidence.known, evidence.stale], [true, false], 'fresh shared cron evidence is identified');
+now += 5000;
+A.eq(R.opportunityEvidence().stale, true, 'shared query TTL controls freshness without a second clock');
+Q.update('cron', { jobs: [] });
+Q.invalidate('cron');
+A.eq(R.opportunityEvidence().stale, true, 'shared invalidation cannot appear current');
+Q.update('cron', { jobs: [{ meta: { recipeId: 'morning-brief' } }] });
+A.eq(R.opportunityEvidence(), { known: true, stale: false, item: null }, 'known scheduled recipe is a proven negative');
+Q.update('cron', { jobs: [] });
+const recipes = global.Recipes;
+delete global.Recipes;
+A.eq(R.opportunityEvidence().known, false, 'missing recipe source remains unavailable');
+global.Recipes = recipes;
+const prospects = global.ProspectStore;
+delete global.ProspectStore;
+A.eq(R.opportunityEvidence().known, false, 'missing usage source remains unavailable');
+global.ProspectStore = { launches: () => { throw new Error('unavailable'); } };
+A.eq(R.opportunityEvidence().known, false, 'failed usage reads remain unavailable');
+global.ProspectStore = prospects;
+A.eq(R.willPropose(), true, 'observing evidence did not spend the existing offer budget');
+R._setQueryForTest(null);
+A.eq(R.opportunityEvidence().known, false, 'missing shared freshness authority fails closed');
+Q._resetForTest();
+
 A.report('routinenudgestore');

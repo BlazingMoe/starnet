@@ -65,8 +65,8 @@ A.eq(nightshiftMirror, nightshift, 'website Night Shift pane stays mirrored afte
 A.ok(nightshift.includes("script.src='app/controlroutineopportunity.js'"), 'Night Shift chains the routine-opportunity pane');
 A.ok(nightshift.includes("script.id='mo-control-mode-routine-opportunity'"), 'routine-opportunity loader is idempotent');
 A.ok(routineOpportunity.includes("window.RoutineNudgeStore"), 'routine opportunity reuses StarNet RoutineNudgeStore instead of inventing a second habit detector');
-A.ok(routineOpportunity.includes("typeof s.opportunity!=='function'"), 'missing canonical routine evidence fails closed');
-A.ok(routineOpportunity.includes('item:s.opportunity()'), 'Control Mode consumes the public read-only routine opportunity projection');
+A.ok(routineOpportunity.includes("typeof s.opportunityEvidence!=='function'"), 'missing canonical routine evidence fails closed');
+A.ok(routineOpportunity.includes('return s.opportunityEvidence()'), 'Control Mode consumes the public read-only routine evidence projection');
 A.ok(!routineOpportunity.includes('s._pick()'), 'Control Mode does not depend on RoutineNudgeStore test seams');
 A.ok(routineOpportunity.includes("No schedule-worthy repeated recipe is currently proven"), 'no candidate is reported as no proven opportunity, not fabricated automation');
 A.ok(routineOpportunity.includes("No schedule is inferred here."), 'Control Mode does not infer a cadence from incomplete evidence');
@@ -89,6 +89,7 @@ function routinePaneHarness(base, withStore = true) {
   const panel = new Element();
   const intervals = new Map();
   let observe, cronListener, nextTimer = 0, launches = { brief: { n: 5 } }, writes = 0;
+  let cronState = { hasData: true, stale: false, data: { jobs: [] } };
   const context = vm.createContext({
     document: { createElement: () => new Element(), getElementById: id => id === 'control-mode-panel' ? panel : null },
     MutationObserver: class { constructor(fn) { observe = fn; } observe() {} },
@@ -97,13 +98,16 @@ function routinePaneHarness(base, withStore = true) {
     localStorage: { getItem: () => null, setItem: () => { writes++; }, removeItem: () => { writes++; } },
     ProspectStore: { launches: () => launches },
     Recipes: { get: id => id === 'brief' ? { name: 'Morning Brief', cadence: null } : null },
-    QuerySpine: { subscribe: (key, fn) => { A.eq(key, 'cron', 'real store subscribes to existing cron evidence'); cronListener = fn; return () => {}; } }
+    QuerySpine: {
+      subscribe: (key, fn) => { A.eq(key, 'cron', 'real store subscribes to existing cron evidence'); cronListener = fn; return () => {}; },
+      state: key => { A.eq(key, 'cron', 'freshness comes from the existing cron resource'); return cronState; }
+    }
   });
   vm.runInContext('window = globalThis', context);
   if (withStore) {
     vm.runInContext(fs.readFileSync(path.join(base, 'routinenudgestore.js'), 'utf8'), context);
     vm.runInContext('RoutineNudgeStore.init()', context);
-    cronListener({ hasData: true, data: { jobs: [] } });
+    cronListener(cronState);
     A.eq(vm.runInContext('typeof window.RoutineNudgeStore', context), 'undefined', 'classic-script store is not a window property');
   }
   const paneSource = fs.readFileSync(path.join(base, 'controlroutineopportunity.js'), 'utf8');
@@ -111,7 +115,8 @@ function routinePaneHarness(base, withStore = true) {
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
   return {
     context, intervals, panel, text: () => text(panel), writes: () => writes,
-    cron: jobs => cronListener({ hasData: true, data: { jobs } }),
+    cron: jobs => { cronState = { hasData: true, stale: false, data: { jobs } }; cronListener(cronState); },
+    evidence: state => { cronState = state; cronListener(state); },
     launches: value => { launches = value; },
     refresh: () => context.ControlModeRoutineOpportunity.refresh(),
     hide: value => { panel.hidden = value; observe(); },
@@ -141,7 +146,21 @@ for (const base of ['frontend/app', 'website/app/app']) {
   h.reload();
   A.eq(h.intervals.size, 1, `${base}: repeated loading does not duplicate polling`);
   A.eq(h.panel.children.length, 1, `${base}: repeated loading does not duplicate the pane`);
-  vm.runInContext('RoutineNudgeStore.opportunity = () => { throw new Error("unavailable"); }', h.context);
+  h.evidence({ hasData: false, stale: true }); h.refresh();
+  A.ok(h.text().includes('Routine evidence unavailable'), `${base}: unknown cron data is not reported as an empty result`);
+  A.ok(!h.text().includes('No schedule-worthy'), `${base}: unknown evidence cannot claim no opportunity`);
+  h.evidence({ hasData: true, stale: true, data: { jobs: [] } }); h.refresh();
+  A.ok(h.text().includes('current eligibility is unknown'), `${base}: expired evidence is explicitly stale`);
+  A.ok(!h.text().includes('CANDIDATE ·'), `${base}: stale empty cron data cannot prove eligibility`);
+  h.evidence({ hasData: true, stale: false, error: { message: 'private diagnostic' }, data: { jobs: [] } }); h.refresh();
+  A.ok(h.text().includes('current eligibility is unknown'), `${base}: failed reads cannot look fresh`);
+  A.ok(!h.text().includes('private diagnostic'), `${base}: source errors are not exposed`);
+  h.cron([]); h.refresh();
+  A.ok(h.text().includes('7 MANUAL LAUNCHES'), `${base}: fresh evidence restores the candidate`);
+  h.cron([{ meta: { recipeId: 'brief' } }]); h.refresh();
+  A.ok(h.text().includes('No schedule-worthy'), `${base}: a proven negative stays distinct from missing evidence`);
+  A.eq(h.writes(), 0, `${base}: evidence transitions never mutate the store`);
+  vm.runInContext('RoutineNudgeStore.opportunityEvidence = () => { throw new Error("unavailable"); }', h.context);
   h.refresh();
   A.ok(h.text().includes('Routine evidence unavailable'), `${base}: failing store stays explicitly unavailable`);
   const absent = routinePaneHarness(path.join(__dirname, '..', base), false);

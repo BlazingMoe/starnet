@@ -132,12 +132,27 @@ const RoutineNudgeStore = (() => {
     return best;
   }
 
-  // the sync gate the post-run beat slot consults (read-only): a candidate exists AND this session's budget is free.
+  // Detached read model of the canonical candidate; existing consumers keep item-or-null semantics.
   function opportunity() {
     const item = pick();
     return item ? Object.freeze({ id: item.id, name: item.name, n: item.n, cadence: item.cadence }) : null;
   }
 
+  // Control Mode needs to distinguish missing evidence from a proven empty result.
+  // Freshness comes from the existing query resource, not a second clock/cache.
+  function opportunityEvidence() {
+    const unavailable = () => Object.freeze({ known: false, stale: false, item: null });
+    if (cronCache === null || typeof ProspectStore === 'undefined' || typeof ProspectStore.launches !== 'function' ||
+        typeof Recipes === 'undefined' || typeof Recipes.get !== 'function') return unavailable();
+    try {
+      if (!query || typeof query.state !== 'function') return unavailable();
+      const state = query.state('cron');
+      if (!state || !state.hasData || !state.data || !Array.isArray(state.data.jobs)) return unavailable();
+      return Object.freeze({ known: true, stale: state.stale !== false || !!state.error, item: opportunity() });
+    } catch (_) { return unavailable(); }
+  }
+
+  // The post-run beat slot also respects the session's offer budget.
   function willPropose() { return sessionProposed < CAP && !!pick(); }
 
   // render the gentle offer; "schedule it" deep-links into the SCHEDULE IT form, "not now" retires the recipe for good.
@@ -173,7 +188,7 @@ const RoutineNudgeStore = (() => {
     );
   }
 
-  return { init, reset, onRunEnd, opportunity, willPropose, propose,
+  return { init, reset, onRunEnd, opportunity, opportunityEvidence, willPropose, propose,
     LAUNCH_FLOOR, OFFER_MAX, KEY,
     _pick: pick, _setQueryForTest: q => { query = q; }, _setCronForTest: c => { cronCache = c; } };
 })();
