@@ -108,7 +108,7 @@ function routinePaneHarness(base, withStore = true, withApp = false) {
   vm.runInContext('window = globalThis', context);
   if (withApp) {
     context.openSchedule = (...args) => opened.push(args);
-    context.ControlModeUI = { close: () => { panel.hidden = true; } };
+    context.ControlModeUI = { close: options => { if (options.restoreFocus !== false) throw new Error("dialog focus would be stolen"); panel.hidden = true; } };
     vm.runInContext('const App = { openRecipeLaunch: (...args) => openSchedule(...args) }', context);
   }
   if (withStore) {

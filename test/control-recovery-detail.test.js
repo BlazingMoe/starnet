@@ -15,7 +15,7 @@ function harness(base) {
     replaceChildren(...children) { this.children = children; }
     setAttribute() {}
     addEventListener() {}
-    focus() {}
+    focus() { context.document.activeElement = this; }
   }
   let read;
   const context = vm.createContext({
@@ -28,7 +28,7 @@ function harness(base) {
   vm.runInContext('window = globalThis', context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', base, 'controlmode.js'), 'utf8'), context);
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
-  return { ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
+  return { context, Element, ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
 }
 const recovery = projectManagedRecovery({ taskId: 'task-1', executionMayHaveStarted: true, disposition: 'RECONCILE_BEFORE_RETRY' });
 
@@ -56,5 +56,23 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.match(h.text(), /task-2/);
     assert.match(h.text(), /REVIEW/);
     assert.doesNotMatch(h.text(), /DO NOT RETRY|Task history could not be loaded/);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': closing supports dialog focus handoff and ordinary focus return', () => {
+    const h = harness(base);
+    const trigger = new h.Element();
+    const scheduleInput = new h.Element();
+    trigger.focus();
+    h.ui.open();
+    scheduleInput.focus();
+    h.ui.close({ restoreFocus: false });
+    assert.equal(h.context.document.activeElement, scheduleInput);
+    assert.equal(h.ui.panel.hidden, true);
+    trigger.focus();
+    h.ui.open();
+    h.ui.close();
+    assert.equal(h.context.document.activeElement, trigger);
   });
 }

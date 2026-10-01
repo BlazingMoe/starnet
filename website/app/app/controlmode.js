@@ -349,7 +349,7 @@
     refreshNow();
     focusIfPossible(panel);
   }
-  function closePanel() {
+  function closePanel(options) {
     const target = panelReturnFocus;
     panelReturnFocus = null;
     detailReturnFocus = null;
@@ -359,7 +359,7 @@
     panel.setAttribute('aria-hidden', 'true');
     document.body.classList.remove('control-mode-open');
     if (timer) { clearInterval(timer); timer = 0; }
-    focusIfPossible(target);
+    if (!options || options.restoreFocus !== false) focusIfPossible(target);
   }
 
   const system = document.querySelector('#bottombar .bb-group[data-group="system"]');

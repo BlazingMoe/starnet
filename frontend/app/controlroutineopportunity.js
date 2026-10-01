@@ -21,7 +21,7 @@
       if(!current.known||current.stale||!current.item||current.item.id!==item.id){refresh();return;}
       try{
         app.openRecipeLaunch(item.id,'routine');opened=true;
-        if(window.ControlModeUI&&typeof window.ControlModeUI.close==='function')window.ControlModeUI.close();
+        if(window.ControlModeUI&&typeof window.ControlModeUI.close==='function')window.ControlModeUI.close({restoreFocus:false});
       }catch(_){root.appendChild(make('div','cm-action-error','Schedule It could not be opened. No routine was created by this pane.'));}
     });
     root.appendChild(button);
