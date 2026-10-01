@@ -65,7 +65,9 @@ A.eq(nightshiftMirror, nightshift, 'website Night Shift pane stays mirrored afte
 A.ok(nightshift.includes("script.src='app/controlroutineopportunity.js'"), 'Night Shift chains the routine-opportunity pane');
 A.ok(nightshift.includes("script.id='mo-control-mode-routine-opportunity'"), 'routine-opportunity loader is idempotent');
 A.ok(routineOpportunity.includes("window.RoutineNudgeStore"), 'routine opportunity reuses StarNet RoutineNudgeStore instead of inventing a second habit detector');
-A.ok(routineOpportunity.includes("typeof s._pick!=='function'"), 'missing canonical routine evidence fails closed');
+A.ok(routineOpportunity.includes("typeof s.opportunity!=='function'"), 'missing canonical routine evidence fails closed');
+A.ok(routineOpportunity.includes('item:s.opportunity()'), 'Control Mode consumes the public read-only routine opportunity projection');
+A.ok(!routineOpportunity.includes('s._pick()'), 'Control Mode does not depend on RoutineNudgeStore test seams');
 A.ok(routineOpportunity.includes("No schedule-worthy repeated recipe is currently proven"), 'no candidate is reported as no proven opportunity, not fabricated automation');
 A.ok(routineOpportunity.includes("No schedule is inferred here."), 'Control Mode does not infer a cadence from incomplete evidence');
 A.ok(routineOpportunity.includes("OBSERVE ONLY"), 'routine opportunity declares its read-only boundary');

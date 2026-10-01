@@ -133,6 +133,11 @@ const RoutineNudgeStore = (() => {
   }
 
   // the sync gate the post-run beat slot consults (read-only): a candidate exists AND this session's budget is free.
+  function opportunity() {
+    const item = pick();
+    return item ? Object.freeze({ id: item.id, name: item.name, n: item.n, cadence: item.cadence }) : null;
+  }
+
   function willPropose() { return sessionProposed < CAP && !!pick(); }
 
   // render the gentle offer; "schedule it" deep-links into the SCHEDULE IT form, "not now" retires the recipe for good.
@@ -168,7 +173,7 @@ const RoutineNudgeStore = (() => {
     );
   }
 
-  return { init, reset, onRunEnd, willPropose, propose,
+  return { init, reset, onRunEnd, opportunity, willPropose, propose,
     LAUNCH_FLOOR, OFFER_MAX, KEY,
     _pick: pick, _setQueryForTest: q => { query = q; }, _setCronForTest: c => { cronCache = c; } };
 })();
