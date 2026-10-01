@@ -17,17 +17,20 @@ function harness(base) {
     querySelector() { return null; }
   }
   const panel = new Element();
-  let body;
+  let body, observe;
   const context = vm.createContext({
     document: { createElement: () => new Element(), getElementById: id => id === 'control-mode-panel' ? panel : null },
-    MutationObserver: class { observe() {} }, setInterval: () => 1, clearInterval() {},
+    MutationObserver: class { constructor(callback) { observe = callback; } observe() {} }, setInterval: () => 1, clearInterval() {},
     Harness: { api: { get: endpoint => { assert.equal(endpoint, '/api/managed-task-recoveries?limit=100'); return body; } } }
   });
   vm.runInContext('window = globalThis', context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', base, 'controlrecoveries.js'), 'utf8'), context);
   panel.hidden = false;
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
-  return async value => { body = value; await context.ControlModeRecoveries.refresh(); return text(panel); };
+  const render = async value => { body = value; await context.ControlModeRecoveries.refresh(); return text(panel); };
+  render.hide = value => { panel.hidden = value; observe(); };
+  render.text = () => text(panel);
+  return render;
 }
 const envelope = (items, truncated = false) => ({ ok: true, recoveries: projectManagedRecoveryList({ items, truncated }) });
 const safe = { taskId: 'safe', disposition: 'SAFE_RESTART', executionMayHaveStarted: false };
@@ -73,5 +76,25 @@ for (const base of ['frontend/app', 'website/app/app']) {
       assert.doesNotMatch(text, /RECOVERY QUEUE|No managed tasks currently require recovery/);
     }
     assert.match(await render(envelope([safe])), /1 SAFE TO RESTART/);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': reopening hides old retry guidance and rejects an earlier response', async () => {
+    const render = harness(base);
+    await render(envelope([safe]));
+    let resolveOld;
+    const old = render(new Promise(resolve => { resolveOld = resolve; }));
+    render.hide(true);
+    render.hide(false);
+    assert.match(render.text(), /Loading current recovery evidence/);
+    assert.doesNotMatch(render.text(), /SAFE TO RESTART|RECOVERY QUEUE/);
+    resolveOld(envelope([safe]));
+    await old;
+    assert.match(render.text(), /Loading current recovery evidence/);
+    assert.doesNotMatch(render.text(), /SAFE TO RESTART|RECOVERY QUEUE/);
+    const fresh = await render(envelope([uncertain]));
+    assert.match(fresh, /1 DO NOT RETRY/);
+    assert.doesNotMatch(fresh, /Loading current recovery evidence/);
   });
 }

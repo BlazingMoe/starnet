@@ -19,6 +19,7 @@
   async function get() { if(!window.Harness || !Harness.api || typeof Harness.api.get!=='function')throw new Error('sidecar API unavailable'); return Harness.api.get(ENDPOINT); }
   function header(root, verified) { const h=make('div','cm-action-head'); h.append(make('div','cm-action-title','RECOVERY STATUS'),make('div','cm-action-proof',verified?'TASK HISTORY · READ ONLY':'READ ONLY')); root.appendChild(h); }
   function renderUnavailable() { const r=ensureHost(); if(!r)return; r.replaceChildren(); header(r,false); r.appendChild(make('div','cm-action-error','Recovery status unavailable — no task outcome or retry safety is inferred.')); }
+  function renderLoading() { const r=ensureHost(); if(!r)return; r.replaceChildren(); header(r,false); r.appendChild(make('div','cm-action-meta','Loading current recovery evidence — retry safety is not yet known.')); }
   function render(body) {
     const r=ensureHost(); if(!r)return; r.replaceChildren();
     const view=body && body.ok && body.recoveries && body.recoveries.schemaVersion==='moe.control-recoveries.v1' ? body.recoveries : null;
@@ -45,7 +46,7 @@
     r.appendChild(make('div','cm-action-meta','Source: '+label(e.source)+' · Returned recoveries '+label(e.returnedRows)+(e.bounded?' · BOUNDED':'')));
   }
   async function refresh(){ if(refreshing||!isOpen())return; refreshing=true; const token=++generation; try{const b=await get(); if(token===generation&&isOpen())render(b);}catch(_){if(token===generation&&isOpen())renderUnavailable();}finally{refreshing=false;} }
-  function start(){ensureHost(); if(timer)clearInterval(timer); refresh(); timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);}
+  function start(){renderLoading(); if(timer)clearInterval(timer); refresh(); timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);}
   function stop(){generation++; if(timer){clearInterval(timer);timer=0;}}
   function watch(){const p=panel(); if(!p||typeof MutationObserver!=='function')return; new MutationObserver(()=>{if(isOpen())start();else stop();}).observe(p,{attributes:true,attributeFilter:['hidden']}); if(isOpen())start();}
   function loadNightshiftPane(){ if(window.ControlModeNightshift)return; if(typeof document.createElement!=='function'||!document.head||typeof document.head.appendChild!=='function')return; if(document.getElementById('mo-control-mode-nightshift'))return; const script=document.createElement('script'); script.id='mo-control-mode-nightshift'; script.src='app/controlnightshift.js'; script.async=false; document.head.appendChild(script); }
