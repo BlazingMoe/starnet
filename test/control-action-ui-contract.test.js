@@ -54,4 +54,22 @@ A.ok(recovery.includes('Provider references and task content are intentionally h
 A.ok(!/Harness\.api\.(post|put|patch|delete)\s*\(/.test(recovery), 'recovery pane cannot mutate task state');
 A.ok(!/fetch\s*\([^)]*,\s*\{[^}]*method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)/is.test(recovery), 'recovery pane has no raw mutating HTTP fallback');
 
+
+const routineOpportunity = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlroutineopportunity.js'), 'utf8');
+const routineOpportunityMirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'controlroutineopportunity.js'), 'utf8');
+const nightshift = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'controlnightshift.js'), 'utf8');
+const nightshiftMirror = fs.readFileSync(path.join(__dirname, '..', 'website', 'app', 'app', 'controlnightshift.js'), 'utf8');
+
+A.eq(routineOpportunityMirror, routineOpportunity, 'website routine-opportunity pane mirrors the desktop source exactly');
+A.eq(nightshiftMirror, nightshift, 'website Night Shift pane stays mirrored after chaining routine opportunity');
+A.ok(nightshift.includes("script.src='app/controlroutineopportunity.js'"), 'Night Shift chains the routine-opportunity pane');
+A.ok(nightshift.includes("script.id='mo-control-mode-routine-opportunity'"), 'routine-opportunity loader is idempotent');
+A.ok(routineOpportunity.includes("window.RoutineNudgeStore"), 'routine opportunity reuses StarNet RoutineNudgeStore instead of inventing a second habit detector');
+A.ok(routineOpportunity.includes("typeof s._pick!=='function'"), 'missing canonical routine evidence fails closed');
+A.ok(routineOpportunity.includes("No schedule-worthy repeated recipe is currently proven"), 'no candidate is reported as no proven opportunity, not fabricated automation');
+A.ok(routineOpportunity.includes("No schedule is inferred here."), 'Control Mode does not infer a cadence from incomplete evidence');
+A.ok(routineOpportunity.includes("OBSERVE ONLY"), 'routine opportunity declares its read-only boundary');
+A.ok(!/Harness\\.api\\.(post|put|patch|delete)\\s*\\(/.test(routineOpportunity), 'routine-opportunity pane contains no mutating Harness API calls');
+A.ok(!/fetch\\s*\\([^)]*,\\s*\\{[^}]*method\\s*:\\s*['\\"](?:POST|PUT|PATCH|DELETE)/is.test(routineOpportunity), 'routine-opportunity pane has no raw mutating HTTP fallback');
+
 A.report('control-action-ui-contract.test');
