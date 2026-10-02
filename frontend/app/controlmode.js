@@ -304,8 +304,13 @@
     const token = ++detailGeneration;
     detail.hidden = false;
     detail.setAttribute('aria-hidden', 'false');
-    detail.replaceChildren(make('div', 'cm-empty', 'Loading durable task history…'));
+    const loadingHead = make('header', 'cm-detail-head');
+    const back = make('button', 'cm-close', 'ESC · BACK'); back.type = 'button';
+    back.addEventListener('click', closeDetail);
+    loadingHead.append(make('div', 'cm-detail-title', taskId), back);
+    detail.replaceChildren(loadingHead, make('div', 'cm-empty', 'Loading durable task history…'));
     renderRecoveryGuidance(taskId, recovery);
+    focusIfPossible(back);
     try {
       const body = await get('/api/managed-tasks/' + encodeURIComponent(taskId));
       if (token !== detailGeneration || detail.hidden) return;

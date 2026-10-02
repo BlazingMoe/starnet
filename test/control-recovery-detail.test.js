@@ -140,3 +140,28 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.equal(reads, 1);
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': pending detail can be closed without a late response stealing focus', async () => {
+    for (const fails of [false, true]) {
+      const h = harness(base);
+      h.ui.panel.hidden = false;
+      const trigger = new h.Element();
+      let resolveRead, rejectRead;
+      h.read(() => new Promise((resolve, reject) => { resolveRead = resolve; rejectRead = reject; }));
+      const pending = h.ui.inspectTask('task-1', trigger, recovery);
+      const back = h.button('ESC · BACK');
+      assert.ok(back);
+      assert.equal(h.context.document.activeElement, back);
+      assert.match(h.text(), /Loading durable task history/);
+      assert.match(h.text(), /DO NOT RETRY/);
+      back.click();
+      assert.equal(h.context.document.activeElement, trigger);
+      if (fails) rejectRead(new Error('late error'));
+      else resolveRead({ ok: true, taskId: 'task-1', history: [{ taskId: 'task-1', objective: 'late result' }] });
+      await pending;
+      assert.equal(h.context.document.activeElement, trigger);
+      assert.doesNotMatch(h.text(), /late result|Task history could not be loaded|Loading durable task history/);
+    }
+  });
+}
