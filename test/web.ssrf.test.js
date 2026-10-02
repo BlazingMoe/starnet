@@ -64,6 +64,38 @@ async function rejectsAsync(p, msg) { try { await p; A.ok(false, msg + ' — did
   const got = await good.webFetch('http://example.com/article');
   A.ok(/real content here/.test(got.text) && got.source === 'direct', 'direct fallback returns cleaned text for a public page');
 
+  // Socket lookup uses the selected IP; it cannot obtain a new, private DNS answer.
+  for (const all of [false, true]) {
+    let lookups = 0, connectedTo = '', sentHost = '', closed = 0;
+    const pinned = makeWebTools({
+      lookup: async () => [{ address: ++lookups < 3 ? '93.184.216.34' : '127.0.0.1', family: 4 }],
+      agentFactory: options => ({ close: async () => { closed++; }, connect: options.connect }),
+      fetchImpl: async (url, opts) => {
+        sentHost = new URL(url).hostname;
+        opts.dispatcher.connect.lookup(sentHost, { all }, (error, address, family) => {
+          if (error) throw error;
+          connectedTo = all ? address[0].address : address;
+          A.eq(all ? address[0].family : family, 4, 'socket lookup retains the IP family');
+        });
+        return resp(200, { body: 'ok', ct: 'text/plain' });
+      }
+    });
+    await pinned.requestTool.run({ url: 'http://rebind.audit.test/proof' }, { agentId: 'agent' });
+    A.eq(lookups, 2, 'connection does not perform a third DNS lookup');
+    A.eq(connectedTo, '93.184.216.34', 'socket receives the verified public IP');
+    A.eq(sentHost, 'rebind.audit.test', 'URL preserves Host and TLS identity');
+    A.eq(closed, 1, 'dispatcher closes after body consumption');
+  }
+  {
+    let closed = 0;
+    const broken = makeWebTools({ lookup: pubLookup,
+      agentFactory: () => ({ close: async () => { closed++; } }),
+      fetchImpl: async () => { throw new Error('connection failed'); }
+    });
+    await rejectsAsync(broken.requestTool.run({ url: 'https://public.example/' }, { agentId: 'agent' }), 'failed connection propagates');
+    A.eq(closed, 1, 'failed connection also closes its dispatcher');
+  }
+
   // Failed/empty/malformed DNS evidence must never fall through to a network request.
   const resolverError = new Error('resolver unavailable');
   resolverError.code = 'EAI_AGAIN';
