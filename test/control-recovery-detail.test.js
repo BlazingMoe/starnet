@@ -14,7 +14,7 @@ function harness(base) {
     appendChild(child) { this.append(child); return child; }
     replaceChildren(...children) { this.children = children; }
     setAttribute() {}
-    addEventListener() {}
+    addEventListener(type, handler) { this[type] = handler; }
     focus() { context.document.activeElement = this; }
   }
   let read;
@@ -28,7 +28,7 @@ function harness(base) {
   vm.runInContext('window = globalThis', context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', base, 'controlmode.js'), 'utf8'), context);
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
-  return { context, Element, ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
+  return { button: label => nodes.findLast(n => n.textContent === label), context, Element, ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
 }
 const recovery = projectManagedRecovery({ taskId: 'task-1', executionMayHaveStarted: true, disposition: 'RECONCILE_BEFORE_RETRY' });
 
@@ -114,5 +114,29 @@ for (const base of ['frontend/app', 'website/app/app']) {
     h.read(() => ({ ...body, historyWindow: { returnedRows: 1, bounded: false } }));
     await h.ui.inspectTask('task-1');
     assert.doesNotMatch(h.text(), /older records may be omitted/);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': reload only rereads history and retains recovery warnings while waiting', async () => {
+    const h = harness(base);
+    h.read(() => Promise.reject(new Error('offline')));
+    await h.ui.inspectTask('task-1', null, recovery);
+    const reload = h.button('RELOAD HISTORY');
+    assert.equal(reload.type, 'button');
+    let reads = 0, finish;
+    h.read(url => { reads++; assert.equal(url, '/api/managed-tasks/task-1'); return new Promise(resolve => { finish = resolve; }); });
+    const pending = reload.click();
+    reload.click();
+    assert.equal(reads, 1);
+    assert.match(h.text(), /Loading durable task history/);
+    assert.match(h.text(), /DO NOT RETRY/);
+    finish({ ok: true, taskId: 'task-1', history: [{ taskId: 'task-1', objective: 'restored history' }] });
+    await pending;
+    assert.match(h.text(), /restored history/);
+    assert.match(h.text(), /DO NOT RETRY/);
+    assert.doesNotMatch(h.text(), /Task history could not be loaded|RELOAD HISTORY/);
+    reload.click();
+    assert.equal(reads, 1);
   });
 }

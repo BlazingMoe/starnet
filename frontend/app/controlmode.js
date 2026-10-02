@@ -305,6 +305,7 @@
     detail.hidden = false;
     detail.setAttribute('aria-hidden', 'false');
     detail.replaceChildren(make('div', 'cm-empty', 'Loading durable task history…'));
+    renderRecoveryGuidance(taskId, recovery);
     try {
       const body = await get('/api/managed-tasks/' + encodeURIComponent(taskId));
       if (token !== detailGeneration || detail.hidden) return;
@@ -319,7 +320,12 @@
       const head = make('header', 'cm-detail-head');
       head.append(make('div', 'cm-detail-title', taskId));
       const close = make('button', 'cm-close', 'ESC · BACK'); close.type = 'button'; close.addEventListener('click', closeDetail); head.appendChild(close);
-      detail.append(head, make('div', 'cm-error', 'Task history could not be loaded. No missing detail is inferred.'));
+      const reload = make('button', 'cm-close', 'RELOAD HISTORY'); reload.type = 'button';
+      reload.addEventListener('click', () => {
+        if (token !== detailGeneration || detail.hidden) return;
+        return openTaskDetail(taskId, detailReturnFocus, recovery);
+      });
+      detail.append(head, make('div', 'cm-error', 'Task history could not be loaded. No missing detail is inferred.'), reload);
       renderRecoveryGuidance(taskId, recovery);
       focusIfPossible(close);
     }
