@@ -64,10 +64,44 @@ async function rejectsAsync(p, msg) { try { await p; A.ok(false, msg + ' — did
   const got = await good.webFetch('http://example.com/article');
   A.ok(/real content here/.test(got.text) && got.source === 'direct', 'direct fallback returns cleaned text for a public page');
 
+  // Failed/empty/malformed DNS evidence must never fall through to a network request.
+  const resolverError = new Error('resolver unavailable');
+  resolverError.code = 'EAI_AGAIN';
+  const invalidLookups = [
+    async () => { throw resolverError; },
+    async () => [],
+    async () => null,
+    async () => ({ address: '93.184.216.34', family: 4 }),
+    async () => [{ address: 'not-an-ip', family: 4 }],
+    async () => [{ address: '93.184.216.34', family: 4 }, { address: '127.0.0.1', family: 4 }]
+  ];
+  for (const [index, lookup] of invalidLookups.entries()) {
+    let calls = 0;
+    const blockedWeb = makeWebTools({ lookup, fetchImpl: async () => { calls++; return resp(200); } });
+    await rejectsAsync(blockedWeb.webFetch('https://public.example/page'), 'web_fetch refuses unverified DNS case ' + index);
+    await rejectsAsync(blockedWeb.requestTool.run({ url: 'https://public.example/api' }, { agentId: 'agent' }), 'web_request refuses unverified DNS case ' + index);
+    A.eq(calls, 0, 'no network request after unverified DNS case ' + index);
+  }
+  try {
+    await assertResolvedSafe(new URL('https://public.example/'), invalidLookups[0]);
+    A.ok(false, 'resolver failure must propagate');
+  } catch (error) {
+    A.eq(error, resolverError, 'preserves the original resolver failure for diagnostics');
+  }
+  {
+    let requests = 0;
+    const redirect = makeWebTools({
+      lookup: async hostname => hostname === 'public.example' ? [{ address: '93.184.216.34', family: 4 }] : [],
+      fetchImpl: async () => { requests++; return resp(302, { loc: 'https://unverified.example/target' }); }
+    });
+    await rejectsAsync(redirect.requestTool.run({ url: 'https://public.example/start' }, { agentId: 'agent' }), 'redirect with missing DNS evidence is refused');
+    A.eq(requests, 1, 'redirect destination is never contacted without verified DNS');
+  }
+
   // ---- the FQDN root label is not an escape hatch ----
   // WHATWG strips a trailing dot for IP literals but NOT for names, so `localhost.` kept its dot and slipped
-  // past every name rule. The DNS guard usually catches it downstream, but it is best-effort (a failed lookup
-  // returns silently, deps.lookup:null disables it), so the static rule has to be right on its own.
+  // past every name rule. DNS validation catches it downstream, but injected tests can disable lookup,
+  // so the static rule has to be right on its own.
   for (const u of ['http://localhost./', 'http://svc.internal./', 'http://router.lan./', 'http://wiki./', 'http://myapp.local./'])
     rejects(() => assertSafeUrl(u), 'trailing-dot FQDN refused: ' + u);
   A.eq(assertSafeUrl('https://example.com./').protocol, 'https:', 'a PUBLIC name with a root label is still allowed');

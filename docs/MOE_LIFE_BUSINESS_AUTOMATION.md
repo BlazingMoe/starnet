@@ -33,6 +33,8 @@ Primary implementation references: [original creator recipes](https://github.com
 
 ## Example delivery paths and acceptance
 
+Reuse progress: Moe now ports the fail-closed DNS validation portion of upstream `7bab4b448` into the existing web tools. Resolver failures, empty/malformed answers and mixed public/private results are rejected before network access, including redirect validation. Regression tests exercise both `web_fetch` and `web_request`. Binding the actual socket to the validated IP (and the browser proxy changes) remains a separate dependency-aware follow-up; this partial port does not claim to close DNS rebinding completely.
+
 Runtime faults and red gates still take priority. Otherwise choose useful end-to-end results and reusable capabilities according to operator needs. The paths below describe dependencies within illustrative domains; their numbering does not mandate finishing these domains before other personal-system work.
 
 1. **YouTube preparation — recipe available, generated output not yet acceptance-tested.** `youtube-production-pack` uses the existing catalogue, launch form, filesystem tools and research/review skills. It reads real archives and prior packs, researches an audience need and requests a production folder with sourced brief, script, edit plan, asset rights ledger, metadata and readiness report. It neither renders nor publishes. Its instructions are workflow guidance; runtime permissions remain the enforcement authority. A successful real run must save and read back the files, retain source references and report missing rights/assets honestly.

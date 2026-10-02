@@ -37,6 +37,7 @@
   const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
                      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   const FETCH_MAX_CHARS   = 6000;   // web_fetch truncation
+  const net = require('node:net');
   /* RAW-BODY CEILING, applied BEFORE anything parses the response.
      htmlToText is a chain of lazy `[\s\S]*?` replaces — quadratic in the input — and the clamp to
      FETCH_MAX_CHARS ran AFTER it. Measured on a page of repeated "<script>": 64KB -> 55ms, 256KB -> 880ms,
@@ -255,9 +256,9 @@
       throw new Error('refusing to fetch private/loopback/intranet host: ' + h);
     return u;
   }
-  // DNS-rebinding guard: resolve a NAME and refuse if any address is private. Injectable + best-effort.
-  // A proven ENOTFOUND is preserved for web_fetch to report immediately; transient resolver failures are
-  // still left for fetch to surface because they are not proof that the domain is absent.
+  // Resolve every candidate and fail closed when no public destination can be verified.
+  // Ported from upstream 7bab4b448. Socket address pinning is a separate follow-up;
+  // this validation alone does not prevent DNS from changing before the connection.
   function nodeLookup(host) { const dns = require('node:dns'); return dns.promises.lookup(host, { all: true }); }
   async function assertResolvedSafe(u, lookup) {
     if (!lookup) return;
@@ -272,14 +273,11 @@
       e.code = 'ENOTFOUND';
       throw e;
     }
-    let addrs;
-    try { addrs = await lookup(u.hostname); }
-    catch (e) {
-      if (e && e.code === 'ENOTFOUND') throw e;
-      return;
-    }
-    for (const a of (addrs || [])) {
+    const addrs = await lookup(u.hostname);
+    if (!Array.isArray(addrs) || !addrs.length) throw new Error('no verified DNS address for ' + h);
+    for (const a of addrs) {
       const ip = (a && a.address) || '';
+      if (!net.isIP(ip)) throw new Error('resolver returned an invalid IP address for ' + h);
       if (isPrivateV4(ip) || isPrivateV6(ip)) throw new Error('refusing: ' + u.hostname + ' resolves to private address ' + ip);
     }
   }
