@@ -23,9 +23,9 @@
    Reuses the fs.js workspace jail, so an output path can never escape <root>/<agentId>/. */
 'use strict';
 (function (root, factory) {
-  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./fs.js'), require('node:crypto'));
+  if (typeof module !== 'undefined' && module.exports) module.exports = factory(require('./fs.js'), require('node:crypto'), require('../../failopen.js').note);
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).voice = factory(root.SK.tools.builtin.fs, null); }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (fsMod, nodeCrypto) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (fsMod, nodeCrypto, failNote) {
   'use strict';
 
   // Edge caps a single synthesis turn well below this; the keyed providers cap lower still. A long script is
@@ -45,7 +45,11 @@
     // Host-owned configuration evidence, sampled when the run registers its tools.
     // A failed probe is unknown; a configured route is not proof of service health.
     let routeMissing = false;
-    try { routeMissing = typeof deps.routeAvailable === 'function' && deps.routeAvailable() === false; } catch (_) {}
+    try { routeMissing = typeof deps.routeAvailable === 'function' && deps.routeAvailable() === false; }
+    catch (e) {
+      if (failNote) failNote('voice.routeAvailable', e);
+      else console.warn('voice.routeAvailable: configuration probe failed');
+    }
     const routeNote = routeMissing
       ? ' At tool registration the host reported no configured voice-generation route: no supported provider key and keyless Edge speech disabled. Explain this setup gap; do not promise a clip. The Commander can configure a supported voice provider or enable Edge speech. If configuration changes, synthesis can be attempted again under the normal permissions.'
       : '';

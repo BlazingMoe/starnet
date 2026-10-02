@@ -122,10 +122,13 @@ const okSynth = (over) => async (o) => Object.assign({ ok: true, buf: MP3, ext: 
   A.eq(synthesisCalls, 1, 'later execution uses the existing synthesis ladder exactly once');
   edgeEnabled = false;
   A.eq(media.voiceRouteAvailable(), false, 'disabling the last route immediately revokes readiness');
+  const failopen = require('../sidecar/failopen.js');
+  const probeFailuresBefore = failopen.counts()['voice.routeAvailable'] || 0;
   for (const probe of [undefined, () => undefined, () => null, () => { throw new Error('unknown'); }, () => true]) {
     const described = makeVoiceTools({ synth: okSynth(), routeAvailable: probe, fsp, pathMod: path, root: ROOT }).generateTool;
     A.ok(!described.description.includes('no configured voice-generation route'), 'unknown or configured status never invents an outage');
   }
+  A.eq(failopen.counts()['voice.routeAvailable'], probeFailuresBefore + 1, 'a failed configuration probe is recorded in shared diagnostics exactly once');
   const host = await fsp.readFile(path.join(__dirname, '../sidecar/index.js'), 'utf8');
   A.ok(/makeVoiceTools\(\{ synth: media\.synthesizeForAgent, routeAvailable: media\.voiceRouteAvailable/.test(host), 'production registration passes the authoritative probe with its synthesis function');
 
