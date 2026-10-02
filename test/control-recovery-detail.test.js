@@ -224,3 +224,29 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.equal(bounded[0].length, 2000);
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': worker status survives reload without changing the manager verdict', async () => {
+    const { rowFromManaged } = require('../sidecar/orchestration/task-history-adapter.js');
+    const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
+    const { STATUS } = require('../sidecar/orchestration/result-envelope.js');
+    for (const status of [...STATUS, undefined, 'invented']) {
+      const disk = [];
+      const options = { io: { readAll: () => disk.slice(), append: row => disk.push(row) }, clock: { now: () => 1000 } };
+      const store = makeTaskHistoryStore(options);
+      store.record(rowFromManaged({ taskId: 'task-1', agentId: 'worker' }, { agentId: 'lead' }, {
+        accepted: false, stage: 'formal-review', result: { status }
+      }, 900, 1000));
+      const history = makeTaskHistoryStore(options).list({ taskId: 'task-1' });
+      assert.equal(history[0].resultStatus, STATUS.includes(status) ? status : '');
+      assert.equal(history[0].status, 'rejected');
+      assert.equal(history[0].accepted, false);
+      const h = harness(base);
+      h.read(() => ({ ok: true, taskId: 'task-1', history }));
+      await h.ui.inspectTask('task-1');
+      assert.match(h.text(), /STATUS rejected/);
+      if (STATUS.includes(status)) assert.ok(h.text().includes('WORKER-REPORTED STATUS ' + status));
+      else assert.doesNotMatch(h.text(), /WORKER-REPORTED STATUS|invented/);
+    }
+  });
+}

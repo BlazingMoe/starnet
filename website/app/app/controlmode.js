@@ -264,6 +264,7 @@
     const grid = make('div', 'cm-detail-grid');
     field(grid, 'OBJECTIVE', latest.objective);
     field(grid, 'STATUS', latest.status);
+    field(grid, 'WORKER-REPORTED STATUS', latest.resultStatus);
     field(grid, 'WORKER RESULT SUMMARY', latest.resultSummary);
     field(grid, 'STAGE', latest.stage);
     field(grid, 'FAILURE REASON', latest.reason);

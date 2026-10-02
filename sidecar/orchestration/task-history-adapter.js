@@ -37,6 +37,7 @@ function rowFromManaged(args, ctx, result, startedAt, completedAt) {
     reason: String(result.reason || ''),
     error: String(result.error || ''),
     acceptanceCriteria: Array.isArray(args.acceptanceCriteria) ? args.acceptanceCriteria : [],
+    resultStatus: typeof envelope.status === 'string' ? envelope.status : '',
     resultSummary: typeof envelope.summary === 'string' ? envelope.summary : '',
     resultBlockers: Array.isArray(envelope.blockers) ? envelope.blockers : [],
     artifacts: Array.isArray(envelope.artifacts) ? envelope.artifacts : [],

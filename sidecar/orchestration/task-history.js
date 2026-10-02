@@ -3,6 +3,7 @@
 'use strict';
 
 const { summarizeManagedTasks } = require('./task-metrics.js');
+const { STATUS: RESULT_STATUS } = require('./result-envelope.js');
 
 const STATUS = new Set(['accepted', 'revised', 'rejected', 'dispatch_error', 'audit_error', 'contract_error']);
 const STAGE = new Set(['contract', 'resume-claimed', 'dispatch', 'revision', 'formal-review', 'audit', 'accepted']);
@@ -26,6 +27,7 @@ function sanitize(entry, now) {
     workerUsd: Math.max(0, num(entry.workerUsd)), auditUsd: Math.max(0, num(entry.auditUsd)),
     budgetUsd: entry.budgetUsd == null ? null : Math.max(0, num(entry.budgetUsd)), budgetExceeded: entry.budgetExceeded === true,
     findings: list(entry.findings, 50, 500), riskFlags: list(entry.riskFlags, 50, 120), reason: str(entry.reason, 120),
+    resultStatus: RESULT_STATUS.includes(entry.resultStatus) ? entry.resultStatus : '',
     resultSummary: typeof entry.resultSummary === 'string' ? entry.resultSummary.slice(0, 8000) : '',
     resultBlockers: list(entry.resultBlockers, 64, 2000),
     error: str(entry.error, 1000), acceptanceCriteria: list(entry.acceptanceCriteria, 50, 500), artifacts: list(entry.artifacts, 50, 500),
