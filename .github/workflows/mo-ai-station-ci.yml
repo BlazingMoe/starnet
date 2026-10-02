@@ -25,6 +25,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Derivative verification contract
         run: |
           node test/moe-feature-evidence.test.js
