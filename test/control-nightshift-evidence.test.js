@@ -18,10 +18,10 @@ function harness(base) {
     querySelector() { return null; }
   }
   const panel = new Element();
-  let read = () => valid;
+  let read = () => valid, observe;
   const context = vm.createContext({
     document: { createElement: () => new Element(), getElementById: id => id === 'control-mode-panel' ? panel : null },
-    MutationObserver: class { observe() {} },
+    MutationObserver: class { constructor(fn) { observe = fn; } observe() {} },
     setInterval: () => 1, clearInterval() {},
     Harness: { api: { get: endpoint => { assert.equal(endpoint, '/api/nightshift/status'); return read(); } } }
   });
@@ -32,6 +32,8 @@ function harness(base) {
   panel.hidden = false;
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
   return {
+    hide(value) { panel.hidden = value; observe(); },
+    text: () => text(panel),
     async render(body) { read = () => body; await context.ControlModeNightshift.refresh(); return text(panel); },
     async fail() { read = () => Promise.reject(new Error('private diagnostic')); await context.ControlModeNightshift.refresh(); return text(panel); }
   };
@@ -78,5 +80,23 @@ for (const base of ['frontend/app', 'website/app/app']) {
     const off = await h.render({ ...valid, active: false, away: false });
     assert.match(off, /STATE · OFF/);
     assert.match(off, /OPERATOR PRESENT/);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': reopening never presents old E-STOP evidence as current', async () => {
+    const h = harness(base);
+    await h.render(valid);
+    let finishOld;
+    const old = h.render(new Promise(resolve => { finishOld = resolve; }));
+    h.hide(true); h.hide(false);
+    assert.match(h.text(), /Loading current Night Shift evidence/);
+    assert.doesNotMatch(h.text(), /E-STOP CLEAR|STATE ·|OPERATOR AWAY/);
+    finishOld(valid); await old;
+    assert.match(h.text(), /Loading current Night Shift evidence/);
+    assert.doesNotMatch(h.text(), /E-STOP CLEAR/);
+    const fresh = await h.render({ ...valid, halted: true });
+    assert.match(fresh, /E-STOP ENGAGED/);
+    assert.doesNotMatch(fresh, /Loading current Night Shift evidence/);
   });
 }

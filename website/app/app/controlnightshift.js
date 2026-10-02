@@ -12,6 +12,7 @@
   async function get(){if(!window.Harness||!Harness.api||typeof Harness.api.get!=='function')throw new Error('sidecar API unavailable');return Harness.api.get(ENDPOINT);}
   function header(root,known){const h=make('div','cm-action-head');h.append(make('div','cm-action-title','AUTONOMY · NIGHT SHIFT'),make('div','cm-action-proof',known?'EXISTING NIGHT SHIFT STATE · READ ONLY':'READ ONLY'));root.appendChild(h);}
   function renderUnavailable(){const r=ensureHost();if(!r)return;r.replaceChildren();header(r,false);r.appendChild(make('div','cm-action-error','Night Shift status unavailable — autonomy state is not inferred.'));}
+  function renderLoading(){const r=ensureHost();if(!r)return;r.replaceChildren();header(r,false);r.appendChild(make('div','cm-action-meta','Loading current Night Shift evidence — autonomy and E-STOP state are not yet known.'));}
   function render(body){const r=ensureHost();if(!r)return;r.replaceChildren();const v=validStatus(body)?body:null;header(r,!!v);if(!v){renderUnavailable();return;}
     const model=window.NightReport&&typeof window.NightReport.panelModel==='function'?window.NightReport.panelModel({status:v,tzOffsetMin:-new Date().getTimezoneOffset()}):null;
     const state=v.halted?(model&&model.stateText?model.stateText:'HALTED'):(v.inFlight?'RUNNING':(model&&model.stateText?model.stateText:(v.active?'ARMED':'OFF'))); const used=v.beatsUsedToday; const limit=nonnegative(v.leashPerDay)?v.leashPerDay:null;
@@ -28,7 +29,7 @@
     r.appendChild(make('div','cm-action-warning','OBSERVE ONLY · This pane reads the existing Night Shift status endpoint. It cannot arm, halt, steer, fire a beat, widen reach, grant tools, or change budgets.'));
   }
   async function refresh(){if(refreshing||!isOpen())return;refreshing=true;const token=++generation;try{const b=await get();if(token===generation&&isOpen())render(b);}catch(_){if(token===generation&&isOpen())renderUnavailable();}finally{refreshing=false;}}
-  function start(){ensureHost();if(timer)clearInterval(timer);refresh();timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);} function stop(){generation++;if(timer){clearInterval(timer);timer=0;}}
+  function start(){renderLoading();if(timer)clearInterval(timer);refresh();timer=setInterval(()=>{if(isOpen())refresh();},POLL_MS);} function stop(){generation++;if(timer){clearInterval(timer);timer=0;}}
   function watch(){const p=panel();if(!p||typeof MutationObserver!=='function')return;new MutationObserver(()=>{if(isOpen())start();else stop();}).observe(p,{attributes:true,attributeFilter:['hidden']});if(isOpen())start();}
   function loadRoutinePane(){if(window.ControlModeRoutineOpportunity)return;if(typeof document.createElement!=='function'||!document.head||typeof document.head.appendChild!=='function')return;if(document.getElementById('mo-control-mode-routine-opportunity'))return;const script=document.createElement('script');script.id='mo-control-mode-routine-opportunity';script.src='app/controlroutineopportunity.js';script.async=false;document.head.appendChild(script);}
   watch();loadRoutinePane();window.ControlModeNightshift=Object.freeze({refresh,endpoint:ENDPOINT,host:()=>ensureHost()});
