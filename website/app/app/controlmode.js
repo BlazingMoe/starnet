@@ -292,8 +292,17 @@
     if (history.length > 1) {
       const block = make('section', 'cm-detail-block'); block.appendChild(make('div', 'cm-detail-k', 'HISTORY'));
       history.forEach(h => {
-        const rev = make('div', 'cm-detail-rev');
-        rev.append(make('div', '', [h.status || 'unknown', h.stage || '', h.attempts != null ? ('attempts ' + h.attempts) : ''].filter(Boolean).join(' · ')), make('div', 'cm-meta', fmtWhen(h.completedAt || h.ts)));
+        const rev = make('details', 'cm-detail-rev');
+        rev.append(make('summary', '', [h.status || 'unknown', h.stage || '', h.attempts != null ? ('attempts ' + h.attempts) : ''].filter(Boolean).join(' · ')), make('div', 'cm-meta', fmtWhen(h.completedAt || h.ts)));
+        const result = make('div', 'cm-detail-grid');
+        field(result, 'WORKER-REPORTED STATUS', h.resultStatus);
+        field(result, 'WORKER RESULT SUMMARY', h.resultSummary);
+        field(result, 'FAILURE REASON', h.reason);
+        rev.appendChild(result);
+        listBlock(rev, 'WORKER-REPORTED BLOCKERS', h.resultBlockers);
+        listBlock(rev, 'FINDINGS', h.findings);
+        listBlock(rev, 'SOURCES', h.sources);
+        listBlock(rev, 'ARTIFACTS', h.artifacts);
         block.appendChild(rev);
       });
       detail.appendChild(block);

@@ -9,7 +9,7 @@ const { projectManagedRecovery } = require('../sidecar/control/recovery-view.js'
 function harness(base) {
   const nodes = [];
   class Element {
-    constructor() { this.children = []; this.textContent = ''; this.isConnected = true; this.classList = { add() {}, remove() {} }; nodes.push(this); }
+    constructor(tag) { this.tagName = tag; this.children = []; this.textContent = ''; this.isConnected = true; this.classList = { add() {}, remove() {} }; nodes.push(this); }
     append(...children) { this.children.push(...children); }
     appendChild(child) { this.append(child); return child; }
     replaceChildren(...children) { this.children = children; }
@@ -19,7 +19,7 @@ function harness(base) {
   }
   let read;
   const context = vm.createContext({
-    document: { createElement: () => new Element(), getElementById: () => null,
+    document: { createElement: tag => new Element(tag), getElementById: () => null,
       querySelector: () => null, addEventListener() {}, head: new Element(), body: new Element() },
     ControlModeView: { project() {} },
     Harness: { api: { get: url => { assert.match(url, /^\/api\/managed-tasks\//); return read(url); } } },
@@ -28,7 +28,7 @@ function harness(base) {
   vm.runInContext('window = globalThis', context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', base, 'controlmode.js'), 'utf8'), context);
   const text = node => [node.textContent, ...node.children.map(text)].join(' ');
-  return { button: label => nodes.findLast(n => n.textContent === label), context, Element, ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
+  return { nodes, button: label => nodes.findLast(n => n.textContent === label), context, Element, ui: context.ControlModeUI, read: fn => { read = fn; }, text: () => text(nodes.find(n => n.id === 'cm-task-detail')) };
 }
 const recovery = projectManagedRecovery({ taskId: 'task-1', executionMayHaveStarted: true, disposition: 'RECONCILE_BEFORE_RETRY' });
 
@@ -248,5 +248,30 @@ for (const base of ['frontend/app', 'website/app/app']) {
       if (STATUS.includes(status)) assert.ok(h.text().includes('WORKER-REPORTED STATUS ' + status));
       else assert.doesNotMatch(h.text(), /WORKER-REPORTED STATUS|invented/);
     }
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': historical results remain associated with their own expandable entries', async () => {
+    const h = harness(base);
+    const history = [
+      { taskId: 'task-1', status: 'accepted', resultStatus: 'completed', resultSummary: 'Final result', resultBlockers: [] },
+      { taskId: 'task-1', status: 'rejected', resultStatus: 'blocked', resultSummary: 'Earlier draft', resultBlockers: ['Missing source'], findings: ['Needs evidence'], sources: ['source-A'], artifacts: ['draft.txt'] }
+    ];
+    h.read(() => ({ ok: true, taskId: 'task-1', history }));
+    await h.ui.inspectTask('task-1');
+    const entries = h.nodes.filter(node => node.tagName === 'details');
+    assert.equal(entries.length, 2);
+    const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+    assert.equal(entries[1].children[0].tagName, 'summary');
+    assert.match(text(entries[0]), /Final result/);
+    assert.doesNotMatch(text(entries[0]), /Missing source|Earlier draft/);
+    assert.match(text(entries[1]), /rejected/);
+    assert.match(text(entries[1]), /WORKER-REPORTED STATUS blocked/);
+    assert.match(text(entries[1]), /Earlier draft/);
+    assert.match(text(entries[1]), /Missing source/);
+    assert.match(text(entries[1]), /Needs evidence/);
+    assert.match(text(entries[1]), /source-A/);
+    assert.match(text(entries[1]), /draft.txt/);
   });
 }
