@@ -260,9 +260,26 @@ function makeRunJournal(opts) {
   const redact = typeof opts.redact === 'function' ? opts.redact : s => s;
   const live = new Map();
 
+  // Adapted from upstream 3ae8e4405: cold writers must adopt the durable chain before appending.
+  // Keep damaged history untouched here; only the existing explicit recovery path may repair it.
+  function adopt(runId) {
+    let raw;
+    try { raw = io.read(runId); }
+    catch (e) { if (e && e.code === 'ENOENT') return; throw e; }
+    if (raw == null || raw === '') return;
+    const parsed = parseRecords(raw);
+    if (parsed.corrupt || !parsed.records.length) throw new Error('run journal is not append-safe');
+    if (parsed.records.some(r => r.runId !== runId)) throw new Error('run journal identity does not match its file');
+    // A complete final JSON record may lack its newline; separate it durably before writing the next one.
+    if (!String(raw).endsWith('\n')) io.append(runId, '');
+    const last = parsed.records[parsed.records.length - 1];
+    live.set(runId, { seq: last.seq, hash: last.hash });
+  }
+
   function record(runId, type, payload, fresh) {
     runId = String(runId || '');
     if (!runId) throw new Error('run journal runId is required');
+    if (!fresh && !live.has(runId)) adopt(runId);
     const prior = live.get(runId) || { seq: 0, hash: '' };
     const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0), prev: prior.hash };
     r.hash = hashRecord(r);

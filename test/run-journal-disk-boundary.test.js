@@ -3,7 +3,7 @@ const A = require('./_assert.js');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { makeRunJournal, DISPATCH_BOUNDARY_MODEL } = require('../sidecar/run-journal.js');
+const { makeRunJournal, DISPATCH_BOUNDARY_MODEL, _internals } = require('../sidecar/run-journal.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-journal-boundary-'));
 try {
@@ -38,6 +38,52 @@ try {
   const dispatchedRestart = makeRunJournal({ dir: root, clock: { now: () => ++tick } }).recoverAll().find(row => row.runId === 'dispatched');
   A.eq(dispatchedRestart.status, 'needs_review', 'dispatched mutation without result fails closed after restart');
   A.eq(dispatchedRestart.uncertain.map(x => x.callId), ['write-3'], 'review names only the may-have-happened mutation');
+  // Cold append must work even when no inspect/recoverAll has primed the new instance.
+  const journalPath = id => path.join(root, _internals.runFileName(id));
+  for (const trailingNewline of [true, false]) {
+    const id = trailingNewline ? 'cold' : 'cold-no-newline';
+    const writer = makeRunJournal({ dir: root });
+    writer.begin({ runId: id, agentId: 'agent' });
+    writer.toolIntent(id, { callId: 'effect', name: 'fs.write', mutating: true });
+    const file = journalPath(id);
+    if (!trailingNewline) fs.writeFileSync(file, fs.readFileSync(file, 'utf8').trimEnd());
+    const before = fs.readFileSync(file, 'utf8');
+    const cold = makeRunJournal({ dir: root });
+    cold.toolResult(id, { callId: 'effect', ok: true, content: 'saved' });
+    const after = fs.readFileSync(file, 'utf8');
+    const parsed = _internals.parseRecords(after);
+    A.ok(after.startsWith(before), 'cold append preserves all existing durable bytes');
+    A.ok(!parsed.corrupt, 'cold append retains the validated hash chain with or without a final newline');
+    A.eq(parsed.records.map(r => r.seq), [1, 2, 3], 'cold append continues sequence instead of restarting it');
+    A.eq(cold.inspect(id).uncertain, [], 'durable result pairs with the pre-restart intent');
+  }
+
+  for (const suffix of ['{"v":', '\n{"v":1}\n']) {
+    const id = suffix.includes('\n') ? 'invalid-record' : 'torn-tail';
+    const writer = makeRunJournal({ dir: root });
+    writer.begin({ runId: id });
+    const file = journalPath(id);
+    fs.appendFileSync(file, suffix);
+    const before = fs.readFileSync(file, 'utf8');
+    const cold = makeRunJournal({ dir: root });
+    A.throws(() => cold.checkpoint(id, { messages: [] }), 'cold writer refuses damaged history');
+    A.eq(fs.readFileSync(file, 'utf8'), before, 'rejected adoption neither repairs nor appends to forensic bytes');
+  }
+
+  const wrong = makeRunJournal({ dir: root });
+  wrong.begin({ runId: 'source-id' });
+  fs.copyFileSync(journalPath('source-id'), journalPath('wrong-id'));
+  const beforeWrong = fs.readFileSync(journalPath('wrong-id'), 'utf8');
+  A.throws(() => makeRunJournal({ dir: root }).checkpoint('wrong-id', {}), 'a valid chain under the wrong run identity is refused');
+  A.eq(fs.readFileSync(journalPath('wrong-id'), 'utf8'), beforeWrong, 'identity rejection preserves the original file');
+
+  let writes = 0;
+  const unreadable = makeRunJournal({ io: {
+    read() { throw Object.assign(new Error('access denied'), { code: 'EACCES' }); },
+    append() { writes++; }
+  } });
+  A.throws(() => unreadable.checkpoint('denied', {}), 'a read failure cannot be mistaken for an absent journal');
+  A.eq(writes, 0, 'failed adoption does not write');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }
