@@ -14,17 +14,19 @@
 
 ## Private-use objective
 
-Moe AI Station is an exclusively private StarNet fork for one operator. The active product goal is a reliable, highly capable personal agent system for revenue-generating/business work plus general research, coding, automation, files, communication, scheduling and other supported tasks. Public redistribution, marketplace launch, independent branding, installer signing and product-identity migration are not active deliverables unless that objective is explicitly changed later.
+Moe AI Station is an exclusively private StarNet fork for one operator. The active product goal is a reliable, versatile personal agent system across everyday life, learning, research, creative work, coding, files, data analysis, communication, planning, automation and business. The operator's examples of YouTube, Etsy and trading illustrate possible uses; they do not define or limit the supported domains. Public redistribution, marketplace launch, independent branding, installer signing and product-identity migration are not active deliverables unless that objective is explicitly changed later.
+
+For varied natural-language assignments, reuse the common path: understand the goal, plan, select available tools and skills, execute within permissions and budgets, persist progress, recover safely, verify and deliver the result. Domain workflows are reusable recipes and integrations on that shared foundation. New domains should compose existing capabilities wherever possible. Missing access or capability must be reported honestly rather than implied by a recipe or catalogue entry.
 
 Engineering priority therefore follows this order: runtime correctness and recovery; truthful cost/budget control; useful autonomy and orchestration; high-value integrations; research/data/document workflows; operator UX/observability; then optional convenience work. Public-distribution work must not displace those priorities.
 
-## Concrete life and business outcomes (2026-10-02)
+## Illustrative life and business workflows (clarified 2026-10-02)
 
-The operator explicitly wants Moe as the central personal system, including an autonomous YouTube channel (research, original content, video editing, upload and feedback), an autonomous Etsy operation (demand/audience research, products, listings and fulfilment), and controlled trading. These are active product requirements, not claims of completed integration or permission for live external actions.
+The operator explicitly wants Moe as a central personal system for many different kinds of work. An autonomous YouTube channel (research, original content, video editing, upload and feedback), an Etsy operation (demand/audience research, products, listings and fulfilment), and controlled trading are illustrative long-term use cases. They are neither an exhaustive feature list nor a mandatory three-project sequence, and they do not authorize live external actions.
 
 The [upstream capability audit and delivery plan](MOE_LIFE_BUSINESS_AUTOMATION.md) is the detailed reference. Reuse existing StarNet routines, Night Shift, tools, connectors, grants, budgets, journal and managed recovery. Prioritize complete useful workflows over further diagnostic-only surfaces once correctness and safety gates are satisfied. Do not introduce parallel stores or schedulers.
 
-Start with the existing-catalogue `youtube-production-pack` preparation workflow, then verified video rendering, private upload and policy-bounded public publication. Develop Etsy from research/drafts through managed OAuth and reconciled operations. Develop trading first in simulation with explicit risk and account-state controls; live execution is a separate authorization. Catalogue availability, local tests and real unattended operation must remain distinct evidence levels.
+The existing-catalogue `youtube-production-pack` is one preparation workflow on this foundation. Its possible continuation is verified video rendering, private upload and policy-bounded public publication. Etsy would progress from research/drafts through managed OAuth and reconciled operations; trading would start in simulation with explicit risk and account-state controls and separate authorization for live execution. Select subsequent blocks by actual operator needs, reuse across domains, runtime reliability and demonstrable end-to-end value; these examples must not crowd out general-purpose capabilities. Catalogue availability, local tests and real unattended operation must remain distinct evidence levels.
 
 ## Status legend
 
