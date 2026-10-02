@@ -17,6 +17,8 @@ durable structure rather than a one-time task.
 
 - **BRAIN.md** — 5-minute orientation for any session opening the repo; the fastest on-ramp to
   StarNet's core concept (local-first AI-agent harness rendered as a pixel-art station).
+- **[MOE_LIFE_BUSINESS_AUTOMATION.md](MOE_LIFE_BUSINESS_AUTOMATION.md)** — operator goals for YouTube,
+  Etsy and trading; pinned upstream audit, reuse decisions and staged acceptance requirements.
 - **MOE_PRIVATE_OPERATOR_RUNBOOK.md** — active private-fork operating path: local startup,
   providers/connectors, Revenue Pipeline, unattended operation, Control Mode and verified recovery
   without public release/signing prerequisites.

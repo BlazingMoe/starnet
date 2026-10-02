@@ -18,6 +18,14 @@ Moe AI Station is an exclusively private StarNet fork for one operator. The acti
 
 Engineering priority therefore follows this order: runtime correctness and recovery; truthful cost/budget control; useful autonomy and orchestration; high-value integrations; research/data/document workflows; operator UX/observability; then optional convenience work. Public-distribution work must not displace those priorities.
 
+## Concrete life and business outcomes (2026-10-02)
+
+The operator explicitly wants Moe as the central personal system, including an autonomous YouTube channel (research, original content, video editing, upload and feedback), an autonomous Etsy operation (demand/audience research, products, listings and fulfilment), and controlled trading. These are active product requirements, not claims of completed integration or permission for live external actions.
+
+The [upstream capability audit and delivery plan](MOE_LIFE_BUSINESS_AUTOMATION.md) is the detailed reference. Reuse existing StarNet routines, Night Shift, tools, connectors, grants, budgets, journal and managed recovery. Prioritize complete useful workflows over further diagnostic-only surfaces once correctness and safety gates are satisfied. Do not introduce parallel stores or schedulers.
+
+Start with the existing-catalogue `youtube-production-pack` preparation workflow, then verified video rendering, private upload and policy-bounded public publication. Develop Etsy from research/drafts through managed OAuth and reconciled operations. Develop trading first in simulation with explicit risk and account-state controls; live execution is a separate authorization. Catalogue availability, local tests and real unattended operation must remain distinct evidence levels.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.
