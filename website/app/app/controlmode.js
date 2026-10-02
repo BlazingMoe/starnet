@@ -295,12 +295,16 @@
         const rev = make('details', 'cm-detail-rev');
         rev.append(make('summary', '', [h.status || 'unknown', h.stage || '', h.attempts != null ? ('attempts ' + h.attempts) : ''].filter(Boolean).join(' · ')), make('div', 'cm-meta', fmtWhen(h.completedAt || h.ts)));
         const result = make('div', 'cm-detail-grid');
+        field(result, 'OBJECTIVE', h.objective);
         field(result, 'WORKER-REPORTED STATUS', h.resultStatus);
         field(result, 'WORKER RESULT SUMMARY', h.resultSummary);
         field(result, 'FAILURE REASON', h.reason);
+        field(result, 'ERROR', h.error);
         rev.appendChild(result);
+        listBlock(rev, 'ACCEPTANCE CRITERIA', h.acceptanceCriteria);
         listBlock(rev, 'WORKER-REPORTED BLOCKERS', h.resultBlockers);
         listBlock(rev, 'FINDINGS', h.findings);
+        listBlock(rev, 'RISK FLAGS', h.riskFlags);
         listBlock(rev, 'SOURCES', h.sources);
         listBlock(rev, 'ARTIFACTS', h.artifacts);
         block.appendChild(rev);

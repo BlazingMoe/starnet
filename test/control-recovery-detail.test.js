@@ -275,3 +275,27 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.match(text(entries[1]), /draft.txt/);
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': earlier failure diagnostics never inherit the latest task context', async () => {
+    const h = harness(base);
+    const history = [
+      { taskId: 'task-1', status: 'accepted', objective: 'Revised objective', acceptanceCriteria: ['New criterion'], riskFlags: [] },
+      { taskId: 'task-1', status: 'dispatch_error', objective: 'Original objective', reason: 'provider-failure', error: '<error>original failure</error>', acceptanceCriteria: ['Original criterion'], riskFlags: ['Unverified output'] }
+    ];
+    h.read(() => ({ ok: true, taskId: 'task-1', history }));
+    await h.ui.inspectTask('task-1');
+    const entries = h.nodes.filter(node => node.tagName === 'details');
+    const text = node => [node.textContent, ...node.children.map(text)].join(' ');
+    assert.match(text(entries[0]), /Revised objective/);
+    assert.match(text(entries[0]), /New criterion/);
+    assert.doesNotMatch(text(entries[0]), /original failure|Original criterion|Unverified output/);
+    assert.match(text(entries[1]), /OBJECTIVE Original objective/);
+    assert.match(text(entries[1]), /FAILURE REASON provider-failure/);
+    assert.ok(text(entries[1]).includes('ERROR <error>original failure</error>'));
+    assert.match(text(entries[1]), /Original criterion/);
+    assert.match(text(entries[1]), /RISK FLAGS\s+Unverified output/);
+    assert.doesNotMatch(text(entries[1]), /Revised objective|New criterion/);
+    assert.equal(h.nodes.some(node => node.tagName === 'error'), false);
+  });
+}
