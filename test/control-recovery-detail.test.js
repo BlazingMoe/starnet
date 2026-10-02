@@ -165,3 +165,32 @@ for (const base of ['frontend/app', 'website/app/app']) {
     }
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': worker result summary survives history reload without implying acceptance', async () => {
+    const { rowFromManaged } = require('../sidecar/orchestration/task-history-adapter.js');
+    const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
+    const disk = [];
+    const options = { io: { readAll: () => disk.slice(), append: row => disk.push(row) }, clock: { now: () => 1000 } };
+    const store = makeTaskHistoryStore(options);
+    store.record(rowFromManaged({ taskId: 'task-1', agentId: 'worker', objective: 'research' }, { agentId: 'lead' }, {
+      accepted: false, stage: 'formal-review', result: { summary: 'Draft findings require review', output: 'private raw output' }
+    }, 900, 1000));
+    const reloaded = makeTaskHistoryStore(options);
+    const history = reloaded.list({ taskId: 'task-1' }, { limit: 500 });
+    assert.equal(history[0].resultSummary, 'Draft findings require review');
+    assert.equal(history[0].accepted, false);
+    assert.equal(history[0].status, 'rejected');
+    assert.ok(!JSON.stringify(history).includes('private raw output'));
+    const h = harness(base);
+    h.read(() => ({ ok: true, taskId: 'task-1', history }));
+    await h.ui.inspectTask('task-1');
+    assert.match(h.text(), /WORKER RESULT SUMMARY Draft findings require review/);
+    assert.match(h.text(), /STATUS rejected/);
+    assert.doesNotMatch(h.text(), /private raw output/);
+    store.record({ taskId: 'legacy', leadAgentId: 'lead', workerAgentId: 'worker' });
+    assert.equal(store.list({ taskId: 'legacy' })[0].resultSummary, '');
+    store.record({ taskId: 'bounded', leadAgentId: 'lead', workerAgentId: 'worker', resultSummary: 'x'.repeat(9000) });
+    assert.equal(store.list({ taskId: 'bounded' })[0].resultSummary.length, 8000);
+  });
+}
