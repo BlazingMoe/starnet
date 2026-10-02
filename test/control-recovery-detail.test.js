@@ -194,3 +194,33 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.equal(store.list({ taskId: 'bounded' })[0].resultSummary.length, 8000);
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': worker blockers survive reload and stay distinct from review findings', async () => {
+    const { rowFromManaged } = require('../sidecar/orchestration/task-history-adapter.js');
+    const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
+    const disk = [];
+    const options = { io: { readAll: () => disk.slice(), append: row => disk.push(row) }, clock: { now: () => 1000 } };
+    const store = makeTaskHistoryStore(options);
+    store.record(rowFromManaged({ taskId: 'task-1', agentId: 'worker' }, { agentId: 'lead' }, {
+      accepted: false, stage: 'formal-review', findings: ['Acceptance criterion missing'],
+      result: { status: 'blocked', summary: 'Waiting for input', blockers: ['Source document required'], output: 'raw payload' }
+    }, 900, 1000));
+    const reloaded = makeTaskHistoryStore(options);
+    const history = reloaded.list({ taskId: 'task-1' });
+    assert.deepEqual(history[0].resultBlockers, ['Source document required']);
+    assert.equal(history[0].accepted, false);
+    const h = harness(base);
+    h.read(() => ({ ok: true, taskId: 'task-1', history }));
+    await h.ui.inspectTask('task-1');
+    assert.match(h.text(), /WORKER-REPORTED BLOCKERS\s+Source document required/);
+    assert.match(h.text(), /FINDINGS\s+Acceptance criterion missing/);
+    assert.doesNotMatch(h.text(), /raw payload/);
+    store.record({ taskId: 'legacy', leadAgentId: 'lead', workerAgentId: 'worker' });
+    assert.deepEqual(store.list({ taskId: 'legacy' })[0].resultBlockers, []);
+    store.record({ taskId: 'bounded', leadAgentId: 'lead', workerAgentId: 'worker', resultBlockers: Array(65).fill('x'.repeat(2001)) });
+    const bounded = store.list({ taskId: 'bounded' })[0].resultBlockers;
+    assert.equal(bounded.length, 64);
+    assert.equal(bounded[0].length, 2000);
+  });
+}

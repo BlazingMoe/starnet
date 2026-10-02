@@ -27,6 +27,7 @@ function sanitize(entry, now) {
     budgetUsd: entry.budgetUsd == null ? null : Math.max(0, num(entry.budgetUsd)), budgetExceeded: entry.budgetExceeded === true,
     findings: list(entry.findings, 50, 500), riskFlags: list(entry.riskFlags, 50, 120), reason: str(entry.reason, 120),
     resultSummary: typeof entry.resultSummary === 'string' ? entry.resultSummary.slice(0, 8000) : '',
+    resultBlockers: list(entry.resultBlockers, 64, 2000),
     error: str(entry.error, 1000), acceptanceCriteria: list(entry.acceptanceCriteria, 50, 500), artifacts: list(entry.artifacts, 50, 500),
     sources: list(entry.sources, 100, 1000), startedAt: Math.max(0, num(entry.startedAt)), completedAt: Math.max(0, num(entry.completedAt)) || now,
     durationMs: Math.max(0, num(entry.durationMs)), ts: now

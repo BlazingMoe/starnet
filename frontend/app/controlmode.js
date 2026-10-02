@@ -283,6 +283,7 @@
     field(grid, 'PARENT RUN', latest.parentRunId);
     detail.appendChild(grid);
     listBlock(detail, 'ACCEPTANCE CRITERIA', latest.acceptanceCriteria);
+    listBlock(detail, 'WORKER-REPORTED BLOCKERS', latest.resultBlockers);
     listBlock(detail, 'FINDINGS', latest.findings);
     listBlock(detail, 'RISK FLAGS', latest.riskFlags);
     listBlock(detail, 'SOURCES', latest.sources);
