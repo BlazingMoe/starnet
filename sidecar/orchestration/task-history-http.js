@@ -81,9 +81,13 @@ function makeTaskHistoryHttp(opts) {
       if (pathname.startsWith(prefix)) {
         const parsedId = taskIdFrom(pathname, prefix);
         if (!parsedId.ok) return send(res, 400, { ok: false, error: parsedId.error });
-        const rows = store.list({ taskId: parsedId.taskId }, { limit: 500 });
+        const rows = store.list({ taskId: parsedId.taskId }, { limit: 501 });
         if (!rows.length) return send(res, 404, { ok: false, error: 'managed task not found' });
-        return send(res, 200, { ok: true, taskId: parsedId.taskId, history: rows });
+        const summary = store.summary();
+        const history = rows.slice(0, 500);
+        const bounded = rows.length > history.length || !summary || !summary.window || summary.window.truncated !== false;
+        return send(res, 200, { ok: true, taskId: parsedId.taskId, history,
+          historyWindow: { returnedRows: history.length, limit: 500, bounded } });
       }
       return send(res, 404, { ok: false, error: 'not found' });
     } catch (e) {

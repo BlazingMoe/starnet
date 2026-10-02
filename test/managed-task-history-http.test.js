@@ -87,4 +87,18 @@ A.eq(sent[0].code, 503, 'recovery route reports unavailable recovery authority h
 const broken = makeTaskHistoryHttp({ store: { list() { throw new Error('disk'); }, summary: store.summary }, respondJson(res, code, body) { sent.push({ code, body }); } });
 sent.length = 0; broken.serve({ url: '/api/managed-tasks' }, {});
 A.eq(sent[0].code, 500, 'store failure is reported honestly, never converted into empty history');
+for (const [count, truncated, expected] of [[500, false, false], [501, false, true], [2, true, true], [2, undefined, true]]) {
+  let page;
+  const boundedApi = makeTaskHistoryHttp({
+    store: {
+      list(filter, options) { A.eq(options.limit, 501, 'detail reads one extra record to detect the response boundary'); return Array.from({ length: count }, (_, index) => ({ taskId: filter.taskId, index })).slice(0, options.limit); },
+      summary() { return { window: { truncated } }; }
+    },
+    respondJson(res, code, body) { page = body; }
+  });
+  boundedApi.serve({ url: '/api/managed-tasks/windowed' }, {});
+  A.eq(page.history.length, Math.min(count, 500), 'detail response retains its existing hard cap');
+  A.eq(page.historyWindow.bounded, expected, 'response cap and store retention both bound history evidence');
+  A.eq(page.historyWindow.returnedRows, page.history.length, 'window describes only returned rows');
+}
 A.report('managed-task-history-http.test');

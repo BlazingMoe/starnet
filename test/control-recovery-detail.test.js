@@ -101,3 +101,18 @@ for (const base of ['frontend/app', 'website/app/app']) {
     assert.match(h.text(), /No durable history is available/);
   });
 }
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': detail makes retained and capped history windows explicit', async () => {
+    const h = harness(base);
+    const body = { ok: true, taskId: 'task-1', history: [{ taskId: 'task-1', objective: 'objective' }] };
+    for (const historyWindow of [undefined, { returnedRows: 1, bounded: true }, { returnedRows: 2, bounded: false }]) {
+      h.read(() => ({ ...body, historyWindow }));
+      await h.ui.inspectTask('task-1');
+      assert.match(h.text(), /older records may be omitted/);
+    }
+    h.read(() => ({ ...body, historyWindow: { returnedRows: 1, bounded: false } }));
+    await h.ui.inspectTask('task-1');
+    assert.doesNotMatch(h.text(), /older records may be omitted/);
+  });
+}

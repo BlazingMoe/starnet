@@ -256,6 +256,10 @@
     renderRecoveryGuidance(taskId, recovery);
     const history = rows(body && body.history);
     if (!history.length) { detail.appendChild(make('div', 'cm-error', 'No durable history is available for this task.')); focusIfPossible(close); return; }
+    const historyWindow = body.historyWindow;
+    if (!historyWindow || historyWindow.returnedRows !== history.length || historyWindow.bounded !== false) {
+      detail.appendChild(make('div', 'cm-note', 'Limited history view — older records may be omitted. This is not proof of a complete task history.'));
+    }
     const latest = history[0] || {};
     const grid = make('div', 'cm-detail-grid');
     field(grid, 'OBJECTIVE', latest.objective);
