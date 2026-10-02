@@ -284,7 +284,12 @@ function makeRunJournal(opts) {
     const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0), prev: prior.hash };
     r.hash = hashRecord(r);
     const line = JSON.stringify(r);
-    if (fresh) io.create(runId, line); else io.append(runId, line);
+    try { if (fresh) io.create(runId, line); else io.append(runId, line); }
+    catch (e) {
+      // A failed write/fsync may still have changed disk. Never retry from an assumed chain position.
+      live.delete(runId);
+      throw e;
+    }
     live.set(runId, { seq: r.seq, hash: r.hash });
     return r;
   }
@@ -307,10 +312,9 @@ function makeRunJournal(opts) {
         state.quarantinedTo = io.quarantine(file);
       }
     } catch (e) { state.repairError = String((e && e.message) || e); }
-    if (state.runId && parsed.records.length) {
-      const last = parsed.records[parsed.records.length - 1];
-      live.set(state.runId, { seq: last.seq, hash: last.hash });
-    }
+    // Inspection/repair does not establish append safety (repair may fail or a final newline may be absent).
+    // The next writer must re-read the actual file through adopt(), including on this same instance.
+    if (state.runId) live.delete(state.runId);
     return state;
   }
 

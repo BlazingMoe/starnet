@@ -84,6 +84,15 @@ try {
   } });
   A.throws(() => unreadable.checkpoint('denied', {}), 'a read failure cannot be mistaken for an absent journal');
   A.eq(writes, 0, 'failed adoption does not write');
+
+  const inspectedId = 'inspected-no-newline';
+  makeRunJournal({ dir: root }).begin({ runId: inspectedId });
+  fs.writeFileSync(journalPath(inspectedId), fs.readFileSync(journalPath(inspectedId), 'utf8').trimEnd());
+  const inspected = makeRunJournal({ dir: root });
+  inspected.recoverAll();
+  inspected.checkpoint(inspectedId, { messages: [] });
+  A.ok(!inspected.inspect(inspectedId).corrupt, 'recovery scan does not bypass newline-safe adoption');
+  A.eq(inspected.inspect(inspectedId).records, 2, 'post-scan append preserves both records');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

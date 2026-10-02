@@ -53,6 +53,42 @@ bad.checkpoint('broken', { phase: 'after-repair', messages: [] });
 A.eq(bad.inspect('broken').records, 2, 'new records remain visible after a torn tail is repaired');
 
 const unknownIo = memoryIo();
+// A write can fail before any bytes, after a complete record, or after a torn prefix.
+for (const shape of ['none', 'complete', 'partial']) {
+  const disk = memoryIo();
+  const append = disk.append.bind(disk);
+  let failOnce = true;
+  disk.append = (id, line) => {
+    if (!failOnce) return append(id, line);
+    failOnce = false;
+    if (shape === 'complete') append(id, line);
+    if (shape === 'partial') disk.files.set(id, disk.files.get(id) + line.slice(0, 12));
+    throw new Error('simulated write/fsync failure');
+  };
+  const writer = J.makeRunJournal({ io: disk });
+  writer.begin({ runId: 'write-failure' });
+  A.throws(() => writer.checkpoint('write-failure', { phase: 'failed' }), 'write failure propagates to its caller');
+  const beforeRetry = disk.read('write-failure');
+  if (shape === 'partial') {
+    A.throws(() => writer.checkpoint('write-failure', {}), 'same-instance retry refuses a torn prefix');
+    A.eq(disk.read('write-failure'), beforeRetry, 'retry does not append onto torn bytes');
+  } else {
+    writer.checkpoint('write-failure', { phase: 'retry' });
+    A.ok(!writer.inspect('write-failure').corrupt, 'retry adopts the real chain after an ambiguous write failure');
+    A.eq(writer.inspect('write-failure').records, shape === 'complete' ? 3 : 2, 'sequence reflects bytes actually present');
+  }
+}
+
+const failedRepairIo = memoryIo();
+const failedRepair = J.makeRunJournal({ io: failedRepairIo });
+failedRepair.begin({ runId: 'repair-failure' });
+failedRepairIo.files.set('repair-failure', failedRepairIo.read('repair-failure') + '{broken');
+failedRepairIo.repair = () => { throw new Error('repair denied'); };
+A.ok(!!failedRepair.recoverAll()[0].repairError, 'failed repair is exposed');
+const failedRepairBytes = failedRepairIo.read('repair-failure');
+A.throws(() => failedRepair.checkpoint('repair-failure', {}), 'failed repair cannot leave a trusted cached chain');
+A.eq(failedRepairIo.read('repair-failure'), failedRepairBytes, 'failed repair and later append preserve damaged evidence');
+
 const unknown = J.makeRunJournal({ io: unknownIo, clock: { now: () => 2 } });
 unknown.begin({ runId: 'unknown', messages: [] });
 unknown.toolIntent('unknown', { callId: 'side-effect', name: 'shell.exec', mutating: true });
