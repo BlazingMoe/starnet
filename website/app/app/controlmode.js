@@ -304,6 +304,10 @@
     try {
       const body = await get('/api/managed-tasks/' + encodeURIComponent(taskId));
       if (token !== detailGeneration || detail.hidden) return;
+      if (!body || body.ok !== true || body.taskId !== taskId || !Array.isArray(body.history) ||
+          !body.history.every(row => row && typeof row === 'object' && !Array.isArray(row) && row.taskId === taskId)) {
+        throw new Error('Invalid managed task history response');
+      }
       renderTaskDetail(body, taskId, recovery);
     } catch (_) {
       if (token !== detailGeneration || detail.hidden) return;

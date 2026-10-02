@@ -50,7 +50,7 @@ for (const base of ['frontend/app', 'website/app/app']) {
     let rejectOld;
     h.read(() => new Promise((resolve, reject) => { rejectOld = reject; }));
     const old = h.ui.inspectTask('task-1', null, recovery);
-    h.read(() => ({ history: [] }));
+    h.read(() => ({ ok: true, taskId: 'task-2', history: [] }));
     await h.ui.inspectTask('task-2', null, { ...recovery, taskId: 'task-2', operatorState: 'REVIEW' });
     rejectOld(new Error('late failure')); await old;
     assert.match(h.text(), /task-2/);
@@ -74,5 +74,30 @@ for (const base of ['frontend/app', 'website/app/app']) {
     h.ui.open();
     h.ui.close();
     assert.equal(h.context.document.activeElement, trigger);
+  });
+}
+
+for (const base of ['frontend/app', 'website/app/app']) {
+  test(base + ': task detail rejects invalid envelopes and foreign task rows', async () => {
+    const h = harness(base);
+    for (const body of [null, {}, { ok: false, error: 'private diagnostic' },
+      { ok: true, taskId: 'other-task', history: [{ taskId: 'other-task', objective: 'foreign objective' }] },
+      { ok: true, taskId: 'task-1', history: [{ taskId: 'other-task', objective: 'foreign objective' }] },
+      { ok: true, taskId: 'task-1', history: [null] },
+      { ok: true, taskId: 'task-1', history: {} }
+    ]) {
+      h.read(() => body);
+      await h.ui.inspectTask('task-1', null, recovery);
+      assert.match(h.text(), /Task history could not be loaded/);
+      assert.match(h.text(), /DO NOT RETRY/);
+      assert.doesNotMatch(h.text(), /foreign objective|private diagnostic|No durable history is available/);
+    }
+    h.read(() => ({ ok: true, taskId: 'task-1', history: [{ taskId: 'task-1', objective: 'verified objective', status: 'accepted' }] }));
+    await h.ui.inspectTask('task-1', null, recovery);
+    assert.match(h.text(), /verified objective/);
+    assert.doesNotMatch(h.text(), /Task history could not be loaded/);
+    h.read(() => ({ ok: true, taskId: 'task-1', history: [] }));
+    await h.ui.inspectTask('task-1', null, recovery);
+    assert.match(h.text(), /No durable history is available/);
   });
 }
