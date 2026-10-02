@@ -20,6 +20,20 @@
 
   const RECIPES = [
     {
+      id: 'decision-dossier', name: 'Decision Dossier', emoji: '◫', tagline: 'Compare options against evidence you can keep',
+      accent: '#88b6c4',
+      blurb: 'Researches a decision, compares realistic options against your constraints, and saves a sourced recommendation with explicit unknowns.',
+      tags: { research: 0.8, general: 0.2 },
+      params: [
+        { key: 'question', label: 'Decision to make', placeholder: 'e.g. which course, project approach or tool fits my goal?' },
+        { key: 'constraints', label: 'What matters', placeholder: 'budget, time, location, must-haves and options already considered' },
+        { key: 'workspace', label: 'Dossier folder', type: 'folder', placeholder: 'a folder in your agent workspace for the evidence and recommendation' }
+      ],
+      task: 'Research the decision {question}, using these constraints: {constraints}. Build a decision dossier inside {workspace}. First read relevant existing notes in that folder and identify the decision criteria, must-haves and unresolved questions. Ask only for missing information that materially changes the comparison; otherwise state assumptions. Compare a manageable shortlist of realistic options, including keeping the current approach when applicable. Use current primary sources for facts that can change. Record source URLs, publication dates when available, date checked, the exact claim supported and any access limitation in sources.md. Distinguish observed facts, estimates, personal preferences and unknowns; repeated reporting of one origin is not independent evidence. Save comparison.csv with consistent columns for option, criterion, evidence, source, uncertainty and fit. Apply the same criteria to every option; do not invent prices, availability, scores or user priorities, and do not rank an option above a mandatory constraint it fails. Save decision.md with the recommended option or an honest inconclusive verdict, decisive tradeoffs, confidence limits, what would change the recommendation and the next reversible step. Save progress and unresolved evidence gaps in the same dossier so an interrupted run can read it and continue without starting the research again; refresh time-sensitive claims before relying on them. Preserve existing notes and previous conclusions rather than overwriting unrelated work. Review contradictions across the three files and read the saved files back before reporting completion. If research access or file writing is unavailable, report the limitation and what was actually completed, never claim a saved dossier. Return a brief recommendation and links to the verified files. This is research and preparation: do not purchase, enroll, send messages, publish, place orders or trades, or execute the recommendation. Use the existing tools, workspace permissions and consent path; a recipe is not an execution grant.',
+      category: 'research', gear: ['dish', 'cabinet'], skills: ['web-research', 'source-triangulation', 'adversarial-review-pass'], cadence: null,
+      source: 'builtin', forkedFrom: null
+    },
+    {
       id: 'feed-watch', name: 'Feed Watch', emoji: '◉', tagline: 'Keep an eye on a source for me',
       accent: '#6fa8bf',
       blurb: 'Watches a source and remembers what it already told you — so it only ever pings on the genuinely new.',
