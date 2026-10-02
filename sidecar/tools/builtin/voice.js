@@ -42,6 +42,13 @@
     const fsp = deps.fsp, P = deps.pathMod, ROOT = deps.root;
     if (!fsp || !P || !ROOT) throw new Error('voice.js requires { fsp, pathMod, root }');
     const synth = typeof deps.synth === 'function' ? deps.synth : null;
+    // Host-owned configuration evidence, sampled when the run registers its tools.
+    // A failed probe is unknown; a configured route is not proof of service health.
+    let routeMissing = false;
+    try { routeMissing = typeof deps.routeAvailable === 'function' && deps.routeAvailable() === false; } catch (_) {}
+    const routeNote = routeMissing
+      ? ' At tool registration the host reported no configured voice-generation route: no supported provider key and keyless Edge speech disabled. Explain this setup gap; do not promise a clip. The Commander can configure a supported voice provider or enable Edge speech. If configuration changes, synthesis can be attempted again under the normal permissions.'
+      : '';
     const jail = fsMod.makeFsTools({ fsp, pathMod: P, root: ROOT })._internals;
 
     function emitDeliverable(ctx, aid, rel) {
@@ -73,7 +80,7 @@
         + 'is NOT how you talk in conversation — your spoken replies are already handled by the station. Optional '
         + '"voice" picks a named voice and "style" gives delivery direction (e.g. "calm and deliberate"); support for '
         + 'both depends on which voice credential the station holds. Optional "path" sets the output filename. Long '
-        + 'scripts: split them into takes and call once per take — text over ' + MAX_TEXT + ' characters is refused, never truncated.',
+        + 'scripts: split them into takes and call once per take — text over ' + MAX_TEXT + ' characters is refused, never truncated.' + routeNote,
       schema: {
         type: 'object', required: ['text'], properties: {
           text: { type: 'string', description: 'what to say — plain prose, no SSML' },
