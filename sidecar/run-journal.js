@@ -507,7 +507,7 @@ function makeRunJournal(opts) {
     remove(runId) {
       let state;
       try { state = inspect(runId); } catch (_) { return false; }
-      if (!state || state.status !== 'finished') return false;
+      if (!state || state.corrupt || state.status !== 'finished') return false;
       live.delete(String(runId || ''));
       trackers.delete(String(runId || ''));
       io.remove(runId);

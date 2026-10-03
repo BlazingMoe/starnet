@@ -226,4 +226,24 @@ for (const runId of ['', null, 7]) {
   invalid.hash = J._internals.hashRecord(invalid);
   A.ok(J._internals.parseRecords(JSON.stringify(invalid)).corrupt, 'invalid identity is rejected despite a valid hash');
 }
+
+// A transcript acknowledgement does not authorize deleting corrupt journal evidence.
+for (const damage of ['torn-tail', 'chunk-gap']) {
+  const io = memoryIo(), journal = J.makeRunJournal({ io });
+  journal.begin({ runId: damage });
+  if (damage === 'chunk-gap') {
+    journal.checkpoint(damage, { phase: 'assistant', checkpointMessageCount: 2, messages: [{ role: 'assistant', content: 'only one durable message' }] });
+  }
+  journal.finish(damage, { transcriptAck: true });
+  if (damage === 'torn-tail') io.files.set(damage, io.files.get(damage) + '{');
+  const before = io.files.get(damage);
+  A.eq(journal.inspect(damage).status, 'finished', 'terminal status can coexist with damaged evidence');
+  A.eq(journal.inspect(damage).corrupt, true, 'damage is independently disclosed');
+  A.eq(journal.remove(damage), false, 'ordinary retirement refuses damaged evidence');
+  A.eq(io.files.get(damage), before, 'retirement preserves original journal bytes');
+  if (damage === 'chunk-gap') {
+    A.eq(journal.finishAndRetire(damage, { transcriptAck: true }).retired, false, 'finish-and-retire also keeps incomplete chunks');
+    A.ok(io.files.has(damage), 'incomplete checkpoint remains available for inspection');
+  }
+}
 A.report('run-journal.test');
