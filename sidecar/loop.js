@@ -1104,7 +1104,7 @@
             truncRetries++;                          // a truncation is transient — re-run the turn once
             armRetryDedupe(acc);                     // half an answer already streamed; don't print it twice
             noteRecovery({ stage: 'provider_stream', action: 'retry', reason: 'truncated', attempt: truncRetries, model, delayMs: STREAM_RETRY_DELAYS[0] });
-            if (sleep) { try { await sleep(STREAM_RETRY_DELAYS[0]); } catch (_) {} }
+            if (sleep) { try { await sleep(STREAM_RETRY_DELAYS[0], signal); } catch (_) {} }
             if (signal.aborted) break;
             continue;
           }
@@ -1214,7 +1214,7 @@
           // (truthful-telemetry law). The retry is bounded and its outcome (success or the final error) is what
           // surfaces observably.
           noteRecovery({ stage: 'provider_stream', action: 'retry', reason: decision.reason, attempt: retriesUsed, model, delayMs: decision.delayMs });
-          if (sleep) { try { await sleep(decision.delayMs); } catch (_) {} }
+          if (sleep) { try { await sleep(decision.delayMs, signal); } catch (_) {} }
           if (signal.aborted) break;   // a cancel during the backoff ends cleanly below
           continue;
         }

@@ -17134,8 +17134,8 @@ async function runOnce(o) {
       hooks: hookSpine,
       // Real backoff for the loop's bounded mid-stream retry: without an injected sleep the loop retries a
       // dropped/half-streamed generation with ZERO delay (a tight hammer against an upstream that just hiccupped).
-      // A plain (non-unref) setTimeout so the backoff actually elapses before the retry fires.
-      sleep: (ms) => new Promise(r => setTimeout(r, ms)),
+      // Reuse the provider runtime's timer cleanup so E-STOP/cancel also interrupts a retry wait.
+      sleep: (ms, signal) => require('./providers/provider.js').runtime.abortableDelay(ms, signal),
       random: Math.random, // desynchronize provider retries across agents sharing one key
       onRecovery: recordRunRecoveryAttempt,
       // per-RUN hard ceiling = the Balanced perRun cap; the soft day/global pools ride on `budget`. A perRun of
