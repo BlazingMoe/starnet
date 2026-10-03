@@ -130,6 +130,12 @@ function fakeProvider(argsRaw, browserFixture) {
     if (id === 'finished-corrupt') fs.appendFileSync(path.join(ws, '.run-journal', journal._internals.runFileName(id)), '{torn-tail');
   }
 
+  const pageIds = Array.from({ length: 8 }, (_, i) => 'page-fixture-' + i).sort((a, b) => journal._internals.runFileName(a).localeCompare(journal._internals.runFileName(b)));
+  for (let i = 0; i < pageIds.length; i++) {
+    journal.begin({ runId: pageIds[i], agentId });
+    if (i % 2 === 0) journal.finish(pageIds[i], { transcriptAck: true });
+  }
+
   const provider = await fakeProvider(argsRaw, browserFixture);
   if (browserFixture) {
     process.env.STARNET_DEFAULT_MODEL = 'fixture-model';
@@ -173,7 +179,17 @@ function fakeProvider(argsRaw, browserFixture) {
       await sleep(Math.max(60000, Number(process.env.RUN_RECOVERY_BROWSER_HOLD_MS) || 300000));
       return;
     }
+    const pagedIds = [];
+    let cursor = 0, pageCount = 0;
+    do {
+      const response = await request('GET', '/api/run-recoveries?limit=1&offset=' + cursor);
+      A.eq(response.status, 200, 'single-entry recovery page succeeds');
+      pagedIds.push(...response.body.recoveries.map(x => x.runId));
+      cursor = response.body.nextOffset;
+    } while (cursor !== null && ++pageCount < 30);
+    A.eq(cursor, null, 'pagination reaches the end even when a page is retired');
     const listed = await request('GET', '/api/run-recoveries');
+    A.eq(pagedIds.slice().sort(), listed.body.recoveries.map(x => x.runId).sort(), 'retiring earlier pages never skips or duplicates remaining journals');
     const bounded = await request('GET', '/api/run-recoveries?limit=100');
     A.ok(bounded.status === 200 && bounded.body.recoveries.some(x => x.runId === 'auto-run'), 'bounded COMMS recovery listing reaches the recovery handler');
     for (const result of [listed, bounded]) {

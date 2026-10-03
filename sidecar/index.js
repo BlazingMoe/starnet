@@ -19974,16 +19974,20 @@ function serveRunRecoveries(req, res) {
   let page;
   try { page = runJournal.recoverPage({ offset, limit }); }
   catch (e) { return respondJson(res, 500, { error: 'could not read run recoveries' }); }
+  let retiredCount = 0;
   const rows = page.rows.map(markRunRecoveryForensic).filter(r => {
     if (!r) return false;
     // A durable transcript acknowledgement is the commit record. If the process died between that record and
     // unlink, finish the idempotent retirement when its page is inspected; all other states remain visible.
     if (r.status === 'finished' && !r.corrupt && !r.repairError && !r.forensicOnly) {
-      try { if (runJournal.remove(r.runId)) return false; } catch (_) {}
+      try { if (runJournal.remove(r.runId)) { retiredCount++; return false; } } catch (_) {}
     }
     return true;
   }).map(runRecoveryDto);
-  respondJson(res, 200, { recoveries: rows, total: page.total, offset: page.offset, limit: page.limit, nextOffset: page.offset + page.limit < page.total ? page.offset + page.limit : null });
+  // Successful retirements shrink the file list before the next offset is applied.
+  const total = page.total - retiredCount;
+  const nextOffset = page.offset + page.rows.length - retiredCount;
+  respondJson(res, 200, { recoveries: rows, total, offset: page.offset, limit: page.limit, nextOffset: nextOffset < total ? nextOffset : null });
 }
 
 // The local operator records what they verified; this never dispatches or replays a tool. Ownership, a current
