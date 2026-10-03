@@ -17136,6 +17136,7 @@ async function runOnce(o) {
       // dropped/half-streamed generation with ZERO delay (a tight hammer against an upstream that just hiccupped).
       // A plain (non-unref) setTimeout so the backoff actually elapses before the retry fires.
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
+      random: Math.random, // desynchronize provider retries across agents sharing one key
       onRecovery: recordRunRecoveryAttempt,
       // per-RUN hard ceiling = the Balanced perRun cap; the soft day/global pools ride on `budget`. A perRun of
       // 0/Infinity means UNGOVERNED per-run (Infinity), NOT "block every run" — the loop reads maxCostUsd that way.

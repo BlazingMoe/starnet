@@ -6,6 +6,12 @@
 'use strict';
 
 const RETRY_DELAYS_MS = [400, 1200, 4000, 10000, 30000, 60000];
+const RETRY_PATIENCE_MS = RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0);
+// Upstream retry-jitter principle: host-drawn samples keep this policy deterministic.
+function jitteredDelay(ms, sample) {
+  if (typeof sample !== 'number' || !Number.isFinite(sample)) return ms;
+  return Math.round(ms * (1 + 0.2 * (2 * Math.min(1, Math.max(0, sample)) - 1)));
+}
 // Adapted from StarNet d985f2c69: repeated idle watchdog failures should not spend every retry rung.
 // Connect timeouts and generic timeout messages remain on the ordinary bounded ladder.
 const MAX_IDLE_STALLS = 2;
@@ -37,10 +43,20 @@ function providerFailure(input) {
   const maxRetries = Math.max(0, finite(i.maxRetries, RETRY_DELAYS_MS.length));
   const fallbackUnavailable = !cls.shouldFallback || !i.hasFallback;
   if (!i.preStreamRetriesExhausted && cls.retryable && fallbackUnavailable && retriesUsed < maxRetries) {
-    const local = RETRY_DELAYS_MS[Math.min(retriesUsed, RETRY_DELAYS_MS.length - 1)];
+    const local = jitteredDelay(RETRY_DELAYS_MS[Math.min(retriesUsed, RETRY_DELAYS_MS.length - 1)], i.jitterSample);
+    const stated = Math.min(60000, Math.max(0, finite(cls.retryAfterMs, 0)));
+    const remaining = RETRY_PATIENCE_MS - Math.max(0, finite(i.waitedMs, 0));
+    if (stated > 0 && stated >= Math.min(local, remaining)) {
+      const up = typeof i.jitterSample === 'number' && Number.isFinite(i.jitterSample)
+        ? Math.round(stated * 0.2 * Math.min(1, Math.max(0, i.jitterSample))) : 0;
+      return { action: 'retry', reason: String(cls.reason || 'transient'), retryable: true,
+        delayMs: Math.min(60000, stated + up), ladderMs: 0 };
+    }
+    if (remaining <= 0) return { action: 'fail', reason: String(cls.reason || 'unrecoverable'), retryable: !!cls.retryable, delayMs: 0 };
+    const delayMs = Math.min(60000, local, remaining);
     return {
       action: 'retry', reason: String(cls.reason || 'transient'), retryable: true,
-      delayMs: Math.min(60000, Math.max(local, Math.max(0, finite(cls.retryAfterMs, 0))))
+      delayMs, ladderMs: delayMs
     };
   }
   return { action: 'fail', reason: String(cls.reason || 'unrecoverable'), retryable: !!cls.retryable, delayMs: 0 };
@@ -73,4 +89,4 @@ function toolFailure(input) {
   return { action: 'retry', reason, retryable: true, delayMs: RETRY_DELAYS_MS[Math.min(retriesUsed, RETRY_DELAYS_MS.length - 1)] };
 }
 
-module.exports = { providerFailure, toolFailure, transientToolReason, RETRY_DELAYS_MS, isIdleStall, MAX_IDLE_STALLS };
+module.exports = { providerFailure, toolFailure, transientToolReason, RETRY_DELAYS_MS, isIdleStall, MAX_IDLE_STALLS, jitteredDelay, RETRY_PATIENCE_MS };

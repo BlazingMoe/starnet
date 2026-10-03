@@ -373,5 +373,21 @@ const openCtx = () => ({ canRun: () => true, canUse: () => ({ ok: true }), agent
     A.ok(res.messages.some(m => m.role === 'assistant' && m.content === 'Completely different answer.'), 'the transcript holds ONLY the final retried text');
   }
 
+  for (const sample of [0, 1]) {
+    const { emit } = setup();
+    const waits = [], recoveries = [];
+    let attempts = 0;
+    const provider = scriptedProvider(async function* () { attempts++; throw timeoutErr(); });
+    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'x' }], provider, emit,
+      model: 'm', agentId: 'a', runId: 'jitter', random: () => sample,
+      sleep: async ms => { waits.push(ms); }, onRecovery: row => recoveries.push(row) });
+    A.eq(attempts, 7, 'jitter preserves the attempt bound');
+    A.eq(res.reason, 'error', 'persistent failure remains a failure');
+    A.eq(waits[0], sample === 0 ? 320 : 480, 'the loop uses its injected sample for the real wait');
+    A.ok(waits.reduce((sum, ms) => sum + ms, 0) <= 105600, 'actual loop waits retain the original local patience bound');
+    A.eq(recoveries.map(row => row.delayMs), waits, 'recovery evidence records the actual jittered delays');
+  }
+  const host = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
+  A.ok(/sleep: \(ms\) => new Promise\(r => setTimeout\(r, ms\)\),\s+random: Math.random/.test(host), 'production injects randomness next to the retry clock');
   A.report('loop.provider-recovery.test');
 })();

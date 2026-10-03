@@ -732,6 +732,10 @@
     // OPTIONAL injected sleep for bounded mid-stream retry backoff (o.sleep(ms) -> Promise). Absent = retry with
     // NO wait (keeps the loop deterministic + test-fast); when present it honors the classifier's retryAfterMs.
     const sleep = (typeof o.sleep === 'function') ? o.sleep : null;
+    const jitterSample = () => {
+      try { return typeof o.random === 'function' ? o.random() : undefined; }
+      catch (e) { failNote('loop.retryRandom', e); return undefined; }
+    };
     const onRecovery = (typeof o.onRecovery === 'function') ? o.onRecovery : null;
     let recoveryAttemptSequence = 0;
     function noteRecovery(row) {
@@ -1057,6 +1061,7 @@
       let recoveries = 0;
       const maxRecoveries = 1 + fallbacks.length;
       let retriesUsed = 0;
+      let ladderWaitMs = 0;
       const MAX_STREAM_RETRIES = STREAM_RETRY_DELAYS.length;   // one per rung; deriving it prevents policy drift
       // A truncation is its own (cheap, transient) retry class — kept separate from MAX_STREAM_RETRIES and
       // deliberately tighter, because a truncation costs a FULL generation to re-run.
@@ -1113,7 +1118,9 @@
         // hints drive recovery instead of being discarded.
         const cls = classifyApiError(streamErr, { model: model, approxTokens: approxTokens, contextLimit: contextLimit });
         idleStalls = isIdleStall(streamErr) ? idleStalls + 1 : 0;
+        const sample = jitterSample();
         let decision = providerRecovery({
+          jitterSample: sample, waitedMs: ladderWaitMs,
           idleStalls,
           classification: cls, canCompress: !!(context && summarize), hasFallback: fbIndex < fallbacks.length,
           recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
@@ -1128,6 +1135,7 @@
             continue;
           }
           decision = providerRecovery({
+            jitterSample: sample, waitedMs: ladderWaitMs,
             idleStalls,
             classification: cls, canCompress: false, hasFallback: fbIndex < fallbacks.length,
             recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
@@ -1180,6 +1188,7 @@
             continue;
           }
           decision = providerRecovery({
+            jitterSample: sample, waitedMs: ladderWaitMs,
             idleStalls,
             classification: cls, canCompress: false, hasFallback: false,
             recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
@@ -1198,6 +1207,7 @@
         // into 15 requests; only errors from a stream that actually started belong to this recovery budget.
         if (decision.action === 'retry') {
           retriesUsed++;
+          ladderWaitMs += decision.ladderMs || 0;
           armRetryDedupe(acc);
           // NOTE: no provider.fallback emit here — a same-provider retry is NOT a failover; emitting it would
           // inflate the floor's failover counter and lie about a model/credential switch that didn't happen
