@@ -1169,10 +1169,24 @@ const Harness = (() => {
   // journal proves there is no uncertain dispatched mutation. The returned token is one-shot and consumed by
   // the ordinary /api/run path, so recovery does not create a privileged second execution route.
   async function runRecoveries() {
-    const r = await fetch('/api/run-recoveries?limit=100', { cache: 'no-store' });
-    if (!r.ok) throw new Error('recovery list unavailable');
-    const j = await r.json();
-    return Array.isArray(j && j.recoveries) ? j.recoveries : [];
+    const rows = new Map();
+    let offset = 0;
+    // Bound work while refusing to present a partial list as complete. Retirement can legitimately
+    // return the same offset again, including zero, because it removes files from earlier pages.
+    for (let page = 0; page < 100; page++) {
+      const r = await fetch('/api/run-recoveries?limit=100&offset=' + offset, { cache: 'no-store' });
+      if (!r.ok) throw new Error('recovery list unavailable');
+      const j = await r.json();
+      if (!j || !Array.isArray(j.recoveries)) throw new Error('invalid recovery list');
+      for (const row of j.recoveries) {
+        if (!row || typeof row.runId !== 'string' || !row.runId) throw new Error('invalid recovery entry');
+        rows.set(row.runId, row);
+      }
+      if (j.nextOffset === null) return Array.from(rows.values());
+      if (!Number.isSafeInteger(j.nextOffset) || j.nextOffset < 0) throw new Error('invalid recovery cursor');
+      offset = j.nextOffset;
+    }
+    throw new Error('recovery list exceeds bounded scan; retry after journal maintenance');
   }
   async function prepareAutomaticRecovery(row) {
     row = row || {};
