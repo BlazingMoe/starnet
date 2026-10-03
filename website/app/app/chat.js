@@ -425,16 +425,22 @@ const Chat = (() => {
         toolLine('recovery paused — ' + (names || 'an action') + ' may already have happened. StarNet will not repeat it; verify the outcome before continuing.', true);
         offerRecoveryReview(review, ws);
       }
-      return review ? 'review' : 'none';
+      if (review) return 'review';
+      const forensic = owned.find(r => r.forensicOnly || r.corrupt || r.repairError);
+      if (forensic && announce && isActiveWs(ws) && !recoveryNotices.has(forensic.runId)) {
+        recoveryNotices.add(forensic.runId);
+        toolLine('recovery evidence is incomplete or damaged. Automatic continuation is blocked; inspect the saved journal before starting this task again.', true);
+      }
+      return forensic ? 'forensic' : 'none';
     }
     recoveryClaims.add(safe.runId);
-    if (announce && isActiveWs(ws)) toolLine('connection restored — safely continuing from the last durable step.');
     let recovery;
     try { recovery = await Harness.prepareAutomaticRecovery(safe); }
     catch (_) { recoveryClaims.delete(safe.runId); return 'unavailable'; }
     // Preparation is durable and idempotent. If focus changed while it was in flight, leave it ready for the
     // next load instead of crossing conversations.
     if (!isActiveWs(ws) || Channels.isBusy(ws.id)) { recoveryClaims.delete(safe.runId); return 'deferred'; }
+    if (announce) toolLine('connection restored — safely continuing from the last durable step.');
     await send(String(safe.userTitle || 'Continue the interrupted task.'), {
       retry: true, recoveryResume: true, recovery
     });
@@ -454,7 +460,10 @@ const Chat = (() => {
       reconnectTimer = 0;
       if (active) {
         const outcome = await recoverSafeRun(active, true);
-        if (outcome === 'none' || outcome === 'unavailable') toolLine('connection restored — no safe automatic continuation was available; use Try again.', true);
+        if (isActiveWs(active)) {
+          if (outcome === 'none') toolLine('connection restored — no safe automatic continuation was available; use Try again.', true);
+          if (outcome === 'unavailable') toolLine('connection restored, but recovery could not be checked or prepared. Reopen this session to retry recovery before starting the task again.', true);
+        }
       }
     } else {
       reconnectTimer = setTimeout(probeReconnect, 3000);   // still down — keep watching

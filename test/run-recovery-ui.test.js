@@ -47,5 +47,39 @@ A.ok(!/last run was interrupted and can\\'t resume/.test(chat), 'obsolete uncond
   count = 0; failed = false;
   try { await lift(async () => { count++; return { ok: true, json: async () => ({ recoveries: [], nextOffset: 0 }) }; })(); } catch (_) { failed = true; }
   A.ok(failed && count === 100, 'nonterminating pagination is bounded and disclosed as a failure');
+
+  const recoveryBody = A.fnBody(chat, 'async function recoverSafeRun');
+  const reconnectBody = A.fnBody(chat, 'async function probeReconnect');
+  for (const scenario of ['prepare-fails', 'focus-changes', 'ready', 'forensic']) {
+    const lines = [], sent = [], ws = { id: 'stream', agentId: 'agent' };
+    let active = true;
+    const row = { runId: scenario, streamId: ws.id, agentId: ws.agentId, canAutoContinue: scenario !== 'forensic', forensicOnly: scenario === 'forensic' };
+    const harnessStub = {
+      runRecoveries: async () => [row],
+      prepareAutomaticRecovery: async () => {
+        if (scenario === 'prepare-fails') throw new Error('unavailable');
+        if (scenario === 'focus-changes') active = false;
+        return { continuationToken: 'fixture' };
+      }
+    };
+    const run = new Function('Harness', 'fetch', 'Channels', 'isActiveWs', 'toolLine', 'send',
+      'const recoveryClaims = new Set(), recoveryNotices = new Set();' + recoveryBody + '\nreturn recoverSafeRun;')(
+        harnessStub, async () => ({ ok: true, json: async () => ({ briefs: [] }) }), { isBusy: () => false },
+        () => active, line => lines.push(line), async (...args) => sent.push(args));
+    const outcome = await run(ws, true);
+    A.eq(outcome, { 'prepare-fails': 'unavailable', 'focus-changes': 'deferred', ready: 'started', forensic: 'forensic' }[scenario], 'recovery outcome reflects preparation: ' + scenario);
+    A.eq(sent.length, scenario === 'ready' ? 1 : 0, 'only prepared focused recovery dispatches: ' + scenario);
+    A.eq(lines.some(line => line.includes('safely continuing')), scenario === 'ready', 'no premature continuation claim: ' + scenario);
+    if (scenario === 'forensic') A.ok(lines.some(line => line.includes('blocked')), 'damaged evidence is visible');
+  }
+  for (const outcome of ['none', 'unavailable', 'forensic']) {
+    const lines = [];
+    const probe = new Function('fetch', 'recoverSafeRun', 'toolLine', 'isActiveWs',
+      'const activeWs = { id: "s" }, interruptedStreams = new Set(["s"]); let reconnectTimer = 0;' + reconnectBody + '\nreturn probeReconnect;')(
+        async () => ({ ok: true }), async () => outcome, line => lines.push(line), () => true);
+    await probe();
+    A.eq(lines.some(line => line.includes('use Try again')), outcome === 'none', 'retry advice requires a successful empty recovery check: ' + outcome);
+    if (outcome === 'unavailable') A.ok(lines.some(line => line.includes('could not be checked or prepared')), 'failed check is reported as unknown');
+  }
   A.report('run-recovery-ui.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });
