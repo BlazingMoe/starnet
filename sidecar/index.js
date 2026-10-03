@@ -19974,13 +19974,15 @@ function serveRunRecoveries(req, res) {
   let page;
   try { page = runJournal.recoverPage({ offset, limit }); }
   catch (e) { return respondJson(res, 500, { error: 'could not read run recoveries' }); }
-  const rows = page.rows.filter(r => {
+  const rows = page.rows.map(markRunRecoveryForensic).filter(r => {
     if (!r) return false;
     // A durable transcript acknowledgement is the commit record. If the process died between that record and
     // unlink, finish the idempotent retirement when its page is inspected; all other states remain visible.
-    if (r.status === 'finished') { try { runJournal.remove(r.runId); } catch (_) {} return false; }
+    if (r.status === 'finished' && !r.corrupt && !r.repairError && !r.forensicOnly) {
+      try { if (runJournal.remove(r.runId)) return false; } catch (_) {}
+    }
     return true;
-  }).map(markRunRecoveryForensic).map(runRecoveryDto);
+  }).map(runRecoveryDto);
   respondJson(res, 200, { recoveries: rows, total: page.total, offset: page.offset, limit: page.limit, nextOffset: page.offset + page.limit < page.total ? page.offset + page.limit : null });
 }
 

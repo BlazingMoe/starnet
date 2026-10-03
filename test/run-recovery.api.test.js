@@ -123,6 +123,13 @@ function fakeProvider(argsRaw, browserFixture) {
   const corruptFile = path.join(ws, '.run-journal', crypto.createHash('sha256').update('corrupt-run').digest('hex') + '.jsonl');
   fs.appendFileSync(corruptFile, '{torn-tail\n', 'utf8');
 
+  for (const id of ['finished-corrupt', 'finished-incomplete', 'finished-clean']) {
+    journal.begin({ runId: id, agentId });
+    if (id === 'finished-incomplete') journal.checkpoint(id, { phase: 'assistant', checkpointMessageCount: 2, messages: [{ role: 'assistant', content: 'partial' }] });
+    journal.finish(id, { transcriptAck: true });
+    if (id === 'finished-corrupt') fs.appendFileSync(path.join(ws, '.run-journal', journal._internals.runFileName(id)), '{torn-tail');
+  }
+
   const provider = await fakeProvider(argsRaw, browserFixture);
   if (browserFixture) {
     process.env.STARNET_DEFAULT_MODEL = 'fixture-model';
@@ -169,6 +176,14 @@ function fakeProvider(argsRaw, browserFixture) {
     const listed = await request('GET', '/api/run-recoveries');
     const bounded = await request('GET', '/api/run-recoveries?limit=100');
     A.ok(bounded.status === 200 && bounded.body.recoveries.some(x => x.runId === 'auto-run'), 'bounded COMMS recovery listing reaches the recovery handler');
+    for (const result of [listed, bounded]) {
+      for (const id of ['finished-corrupt', 'finished-incomplete']) {
+        const evidence = result.body.recoveries.find(x => x.runId === id);
+        A.ok(evidence && evidence.forensicOnly && !evidence.canResolve && !evidence.canContinue && !evidence.canAutoContinue, 'finished damaged evidence stays visible and non-actionable across polls: ' + id);
+        A.ok(fs.existsSync(path.join(ws, '.run-journal', journal._internals.runFileName(id))), 'active forensic journal is retained: ' + id);
+      }
+      A.ok(!result.body.recoveries.some(x => x.runId === 'finished-clean'), 'clean acknowledged journal is retired');
+    }
     const row = listed.body.recoveries.find(x => x.runId === 'crashed-run');
     A.eq(row.status, 'needs_review', 'reboot exposes the crash between mutating intent and durable result');
     const corruptRow = listed.body.recoveries.find(x => x.runId === 'corrupt-run');
