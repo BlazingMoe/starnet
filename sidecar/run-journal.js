@@ -12,6 +12,7 @@ const crypto = require('crypto');
 
 const VERSION = 1;
 const MAX_STRING = 200000;
+const MAX_ARRAY = 1000;
 // New callers stamp prepared intents with this marker. Its presence proves the caller also owns the separate
 // durable `tool_dispatch` boundary. Legacy intents have no such proof and must remain fail-closed: before this
 // protocol existed, an intent was written immediately before registry.dispatch and could already represent an
@@ -54,13 +55,37 @@ function cloneSafe(value, redact, depth, key) {
     return out.slice(0, MAX_STRING);
   }
   if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 1000).map(v => cloneSafe(v, redact, depth + 1, key));
+  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY).map(v => cloneSafe(v, redact, depth + 1, key));
   if (typeof value === 'object') {
     const out = {};
     for (const k of Object.keys(value).slice(0, 200)) out[k] = cloneSafe(value[k], redact, depth + 1, k);
     return out;
   }
   return String(value);
+}
+
+// Delta tracking adapted from androoAGI/starnet 3ae8e440; corruption remains fail-closed.
+const SIG_OBJ = {}, SIG_ARR = {}, SIG_END = {}, SIG_DEEP = {};
+function leafSignature(value, out, depth) {
+  if (value === null || typeof value !== 'object') { out.push(value); return out; }
+  // cloneSafe stops serializing at its depth limit (a message sits two levels below the payload root), so nothing
+  // deeper can change the journaled bytes; the reference still pins identity conservatively.
+  if (depth > 20) { out.push(SIG_DEEP, value); return out; }
+  if (Array.isArray(value)) {
+    out.push(SIG_ARR, value.length);
+    for (let i = 0; i < value.length; i++) leafSignature(value[i], out, depth + 1);
+  } else {
+    const keys = Object.keys(value);
+    out.push(SIG_OBJ, keys.length);
+    for (const k of keys) { out.push(k); leafSignature(value[k], out, depth + 1); }
+  }
+  out.push(SIG_END);
+  return out;
+}
+function sameSignature(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+  return true;
 }
 
 function runFileName(runId) {
@@ -172,13 +197,27 @@ function analyze(records, corrupt) {
   const recoveryAttempts = [];
   let baseCheckpoint = null;
   let latestCheckpoint = null;
+  let runCreated = null;
   let resolution = null;
   let finishPayload = null;
   let continuation = null;
   for (const r of records) {
     if (r.type === 'checkpoint') {
       if (r.payload && r.payload.phase === 'initial' && !baseCheckpoint) baseCheckpoint = r.payload;
-      else latestCheckpoint = r.payload;
+      else {
+        latestCheckpoint = r.payload;
+        runCreated = Array.isArray(r.payload && r.payload.messages) ? r.payload.messages.slice() : [];
+      }
+    }
+    if (r.type === 'checkpoint_delta') {
+      const p = r.payload;
+      if (!p || !Number.isSafeInteger(p.from) || !runCreated || p.from !== runCreated.length || !Array.isArray(p.messages)) {
+        corrupt = true;
+      } else {
+        runCreated.push(...p.messages);
+        latestCheckpoint = Object.assign({}, p, { messages: runCreated });
+        delete latestCheckpoint.from;
+      }
     }
     if (r.type === 'tool_intent' && r.payload && r.payload.callId) intents.set(String(r.payload.callId), r.payload);
     if (r.type === 'tool_dispatch' && r.payload && r.payload.callId) dispatched.set(String(r.payload.callId), r.payload);
@@ -223,6 +262,12 @@ function analyze(records, corrupt) {
   }
   const terminal = finishPayload !== null;
   const transcriptAck = !!(terminal && finishPayload.transcriptAck === true);
+  if (latestCheckpoint && Object.prototype.hasOwnProperty.call(latestCheckpoint, 'checkpointMessageCount')) {
+    const count = latestCheckpoint.checkpointMessageCount;
+    if (!Number.isSafeInteger(count) || count < 0 || !runCreated || count !== runCreated.length) corrupt = true;
+    latestCheckpoint = Object.assign({}, latestCheckpoint);
+    delete latestCheckpoint.checkpointMessageCount;
+  }
   let checkpoint = latestCheckpoint || baseCheckpoint || (first && first.type === 'begin' ? first.payload : {});
   if (baseCheckpoint && latestCheckpoint) {
     checkpoint = Object.assign({}, latestCheckpoint, {
@@ -262,6 +307,7 @@ function makeRunJournal(opts) {
   const now = opts.clock && typeof opts.clock.now === 'function' ? () => opts.clock.now() : () => 0;
   const redact = typeof opts.redact === 'function' ? opts.redact : s => s;
   const live = new Map();
+  const trackers = new Map();
 
   // Adapted from upstream 3ae8e4405: cold writers must adopt the durable chain before appending.
   // Keep damaged history untouched here; only the existing explicit recovery path may repair it.
@@ -291,10 +337,44 @@ function makeRunJournal(opts) {
     catch (e) {
       // A failed write/fsync may still have changed disk. Never retry from an assumed chain position.
       live.delete(runId);
+      trackers.delete(runId);
       throw e;
     }
     live.set(runId, { seq: r.seq, hash: r.hash });
     return r;
+  }
+
+  function checkpointMessages(runId, payload) {
+    runId = String(runId || '');
+    payload = payload || {};
+    const list = Array.isArray(payload.messages) ? payload.messages.slice() : [];
+    const head = Object.assign({}, payload);
+    delete head.messages; delete head.from;
+    head.checkpointMessageCount = list.length;
+    const sigs = list.map(m => leafSignature(m, [], 0));
+    const t = trackers.get(runId);
+    let from = -1;
+    if (t && t.objs.length <= list.length) {
+      from = t.objs.length;
+      for (let i = 0; i < t.objs.length; i++) {
+        if (list[i] !== t.objs[i] || !sameSignature(sigs[i], t.sigs[i])) { from = -1; break; }
+      }
+    }
+    // Any failure part-way leaves the on-disk reconstruction unknown to the tracker: drop it so the next
+    // checkpoint re-anchors with a full snapshot instead of a delta whose `from` would not match.
+    trackers.delete(runId);
+    let last = null;
+    let at = from;
+    if (from < 0) {
+      last = record(runId, 'checkpoint', Object.assign({}, head, { messages: list.slice(0, MAX_ARRAY) }));
+      at = Math.min(MAX_ARRAY, list.length);
+    }
+    while (last === null || at < list.length) {
+      last = record(runId, 'checkpoint_delta', Object.assign({}, head, { from: at, messages: list.slice(at, at + MAX_ARRAY) }));
+      at = Math.min(at + MAX_ARRAY, list.length);
+    }
+    trackers.set(runId, { objs: list, sigs });
+    return last;
   }
 
   function inspect(runId) {
@@ -317,18 +397,19 @@ function makeRunJournal(opts) {
     } catch (e) { state.repairError = String((e && e.message) || e); }
     // Inspection/repair does not establish append safety (repair may fail or a final newline may be absent).
     // The next writer must re-read the actual file through adopt(), including on this same instance.
-    if (state.runId) live.delete(state.runId);
+    if (state.runId) { live.delete(state.runId); trackers.delete(state.runId); }
     return state;
   }
 
   return {
     begin(meta) { return record(meta && meta.runId, 'begin', meta, true); },
-    checkpoint(runId, payload) { return record(runId, 'checkpoint', payload); },
+    checkpoint(runId, payload) { trackers.delete(String(runId || '')); return record(runId, 'checkpoint', payload); },
+    checkpointMessages,
     recoveryAttempt(runId, payload) { return record(runId, 'recovery_attempt', payload); },
     toolIntent(runId, payload) { return record(runId, 'tool_intent', payload); },
     toolDispatch(runId, payload) { return record(runId, 'tool_dispatch', payload); },
     toolResult(runId, payload) { return record(runId, 'tool_result', payload); },
-    finish(runId, payload) { return record(runId, 'finish', payload); },
+    finish(runId, payload) { trackers.delete(String(runId || '')); return record(runId, 'finish', payload); },
     resolve(runId, payload) {
       payload = payload || {};
       const state = inspect(runId);
@@ -428,6 +509,7 @@ function makeRunJournal(opts) {
       try { state = inspect(runId); } catch (_) { return false; }
       if (!state || state.status !== 'finished') return false;
       live.delete(String(runId || ''));
+      trackers.delete(String(runId || ''));
       io.remove(runId);
       return true;
     },

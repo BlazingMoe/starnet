@@ -17176,7 +17176,7 @@ async function runOnce(o) {
         const fresh = Array.isArray(checkpointMessages)
           ? checkpointMessages.filter(m => m && typeof m === 'object' && (!TRANSCRIPT_PERSISTED || !m[TRANSCRIPT_PERSISTED]))
           : [];
-        runJournal.checkpoint(runId, { phase, turn, messages: fresh });
+        runJournal.checkpointMessages(runId, { phase, turn, messages: fresh });
       } : null,
       agentId, runId, model, trigger: trigger,
       // rough initial estimate for the error classifier's context-overflow ratio; contextLimit is 0 until the
