@@ -144,7 +144,7 @@ function makeFsIo(opts) {
   };
 }
 
-function parseRecords(raw) {
+function parseRecords(raw, expectedRunId) {
   const records = [];
   let prev = '', corrupt = false;
   const lines = String(raw || '').split(/\r?\n/);
@@ -152,7 +152,10 @@ function parseRecords(raw) {
     if (!line.trim()) continue;
     let r;
     try { r = JSON.parse(line); } catch (_) { corrupt = true; break; }
-    if (!r || r.v !== VERSION || r.seq !== records.length + 1 || r.prev !== prev || r.hash !== hashRecord(r)) {
+    if (!r || typeof r.runId !== 'string' || !r.runId
+        || (expectedRunId != null && r.runId !== expectedRunId)
+        || (records.length && r.runId !== records[0].runId)
+        || r.v !== VERSION || r.seq !== records.length + 1 || r.prev !== prev || r.hash !== hashRecord(r)) {
       corrupt = true; break;
     }
     records.push(r); prev = r.hash;
@@ -295,7 +298,7 @@ function makeRunJournal(opts) {
   }
 
   function inspect(runId) {
-    const p = parseRecords(io.read(runId));
+    const p = parseRecords(io.read(runId), String(runId || ''));
     return analyze(p.records, p.corrupt);
   }
 

@@ -201,4 +201,29 @@ const fakeFs = {
 J._internals.writeAll(fakeFs, 1, 'abcdefghij');
 A.eq(Buffer.concat(chunks).toString(), 'abcdefghij', 'short writes are completed fully');
 
+// Valid hashes alone do not authorize mixing evidence from two different runs.
+const identityIo = memoryIo();
+const identityJournal = J.makeRunJournal({ io: identityIo });
+identityJournal.begin({ runId: 'identity-a' });
+identityJournal.checkpoint('identity-a', { messages: [{ role: 'assistant', content: 'own evidence' }] });
+const identityRows = J._internals.parseRecords(identityIo.read('identity-a')).records;
+identityRows[1].runId = 'identity-b';
+identityRows[1].hash = J._internals.hashRecord(identityRows[1]);
+identityIo.files.set('identity-a', identityRows.map(r => JSON.stringify(r)).join('\n') + '\n');
+const mixed = identityJournal.inspect('identity-a');
+A.ok(mixed.corrupt, 'a hash-valid foreign-run record is still corruption');
+A.eq(mixed.records, 1, 'only the same-run prefix is accepted');
+A.throws(() => identityJournal.prepareContinuation('identity-a', { continuationId: 'no', mode: 'automatic' }), 'mixed identity evidence cannot start a continuation');
+const identityRecovery = identityJournal.recoverAll()[0];
+A.ok(identityRecovery.corrupt && !!identityRecovery.repairedFrom, 'explicit recovery preserves mixed-run evidence in a forensic backup');
+A.ok(identityIo.read(identityRecovery.repairedFrom).includes('identity-b'), 'forensic original retains the foreign record');
+
+identityIo.files.set('wrong-name', identityIo.read('identity-a'));
+A.ok(identityJournal.inspect('wrong-name').corrupt, 'inspection binds journal content to the requested run');
+A.throws(() => identityJournal.prepareContinuation('wrong-name', { continuationId: 'no', mode: 'automatic' }), 'wrong-run lookup cannot continue a different run');
+for (const runId of ['', null, 7]) {
+  const invalid = Object.assign({}, identityRows[0], { runId });
+  invalid.hash = J._internals.hashRecord(invalid);
+  A.ok(J._internals.parseRecords(JSON.stringify(invalid)).corrupt, 'invalid identity is rejected despite a valid hash');
+}
 A.report('run-journal.test');
