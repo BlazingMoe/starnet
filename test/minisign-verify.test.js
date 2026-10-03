@@ -3,7 +3,9 @@
 // Unit tests for scripts/minisign-verify.mjs — the cryptographic check the release
 // pipeline runs on every artifact/.sig pair before a manifest can be assembled.
 // Uses test/minisign-test-signer.js (real ed25519 + blake2b512, same doc format as
-// Tauri's signer) plus the REAL pubkey baked into src-tauri/tauri.conf.json.
+// Tauri's signer). The derivative intentionally has no production updater key yet,
+// so parser/verification coverage must use the isolated test key rather than an
+// inherited StarNet release key from tauri.conf.json.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -27,15 +29,16 @@ function eq(a, b, msg) { assert.equal(a, b, msg); assertions++; }
   const signer = makeSigner();
   const artifact = Buffer.from('installer bytes: not a real installer, but really signed');
 
-  // 1. The REAL baked pubkey parses (proves the tauri.conf.json blob format is understood).
+  // 1. A real minisign public-key document produced by the isolated test signer parses.
+  // Production updater configuration is intentionally absent until Moe AI Station has
+  // its own signing identity and release channel.
   {
-    const conf = JSON.parse(fs.readFileSync(path.join(ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8'));
-    const baked = parsePublicKey(conf.plugins.updater.pubkey);
-    eq(baked.publicKey.length, 32, 'baked pubkey is 32 bytes');
-    eq(baked.keyId.length, 8, 'baked key id is 8 bytes');
+    const parsed = parsePublicKey(signer.pubkeyDoc);
+    eq(parsed.publicKey.length, 32, 'test pubkey is 32 bytes');
+    eq(parsed.keyId.length, 8, 'test key id is 8 bytes');
   }
 
-  // 2. Round-trip: prehashed "ED" (Tauri default) verifies, in all three pubkey forms.
+  // 2. Round-trip: prehashed "ED" (Tauri default) verifies, in both supported pubkey forms.
   {
     const { sigFileContent, doc } = signer.sign(artifact, { fileName: 'a.exe' });
     for (const [form, key] of [['doc', signer.pubkeyDoc], ['b64-of-doc', signer.pubkeyB64]]) {
@@ -43,8 +46,6 @@ function eq(a, b, msg) { assert.equal(a, b, msg); assertions++; }
       ok(res.ok, 'ED round-trip verifies (pubkey as ' + form + '): ' + res.reason);
     }
     eq(verifySignature(artifact, sigFileContent, signer.pubkeyDoc).alg, 'ED', 'alg reported');
-    // The raw (non-base64) sig doc must also verify — manifest fields are the b64 form,
-    // but parseSignature accepts both.
     ok(verifySignature(artifact, doc, signer.pubkeyDoc).ok, 'raw sig doc verifies');
     ok(/timestamp:1700000000/.test(verifySignature(artifact, sigFileContent, signer.pubkeyDoc).trustedComment),
       'trusted comment surfaced');

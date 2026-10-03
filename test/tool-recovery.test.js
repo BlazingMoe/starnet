@@ -42,5 +42,38 @@ const { recoverToolResult } = require('../sidecar/tool-recovery.js');
   });
   A.eq(cancelledReads, 0, 'cancellation suppresses retry');
 
+  const initial = { ok: false, isError: true, summary: 'timeout', content: 'timed out' };
+  for (const injected of [false, true]) {
+    const controller = new AbortController();
+    let dispatches = 0;
+    const options = {
+      tool: { provenance: 'host', scope: 'read', readOnly: true }, result: initial, signal: controller.signal,
+      policy: input => Object.assign({}, require('../sidecar/recovery-policy.js').toolFailure(input), { delayMs: 60000 }),
+      dispatch: async () => { dispatches++; return { content: 'must not execute' }; },
+      onRecovery: () => queueMicrotask(() => controller.abort())
+    };
+    if (injected) options.sleep = (ms, liveSignal) => {
+      A.eq(liveSignal, controller.signal, 'injected delay receives the live cancellation signal');
+      return require('../sidecar/providers/provider.js').runtime.abortableDelay(ms, liveSignal);
+    };
+    let deadline;
+    let result;
+    try {
+      result = await Promise.race([recoverToolResult(options), new Promise((_, reject) => {
+        deadline = setTimeout(() => reject(new Error('cancel failed to interrupt tool retry wait')), 2000);
+      })]);
+    } finally { clearTimeout(deadline); }
+    A.eq(result, initial, 'cancelled retry preserves the original failure evidence');
+    A.eq(dispatches, 0, 'cancel during backoff prevents redispatch');
+    A.eq(require('node:events').getEventListeners(controller.signal, 'abort').length, 0, 'cancelled wait removes its listener');
+  }
+
+  let delayError = null;
+  try {
+    await recoverToolResult({ tool: { provenance: 'host', scope: 'read', readOnly: true }, result: initial,
+      dispatch: async () => { throw new Error('must not dispatch after a broken delay'); },
+      sleep: async () => { throw new Error('delay failed'); } });
+  } catch (e) { delayError = e; }
+  A.eq(delayError && delayError.message, 'delay failed', 'a delay failure without cancellation is not swallowed');
   A.report('tool-recovery.test');
 })().catch(e => { console.error(e && e.stack || e); process.exit(1); });

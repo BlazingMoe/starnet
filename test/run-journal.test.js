@@ -53,6 +53,42 @@ bad.checkpoint('broken', { phase: 'after-repair', messages: [] });
 A.eq(bad.inspect('broken').records, 2, 'new records remain visible after a torn tail is repaired');
 
 const unknownIo = memoryIo();
+// A write can fail before any bytes, after a complete record, or after a torn prefix.
+for (const shape of ['none', 'complete', 'partial']) {
+  const disk = memoryIo();
+  const append = disk.append.bind(disk);
+  let failOnce = true;
+  disk.append = (id, line) => {
+    if (!failOnce) return append(id, line);
+    failOnce = false;
+    if (shape === 'complete') append(id, line);
+    if (shape === 'partial') disk.files.set(id, disk.files.get(id) + line.slice(0, 12));
+    throw new Error('simulated write/fsync failure');
+  };
+  const writer = J.makeRunJournal({ io: disk });
+  writer.begin({ runId: 'write-failure' });
+  A.throws(() => writer.checkpoint('write-failure', { phase: 'failed' }), 'write failure propagates to its caller');
+  const beforeRetry = disk.read('write-failure');
+  if (shape === 'partial') {
+    A.throws(() => writer.checkpoint('write-failure', {}), 'same-instance retry refuses a torn prefix');
+    A.eq(disk.read('write-failure'), beforeRetry, 'retry does not append onto torn bytes');
+  } else {
+    writer.checkpoint('write-failure', { phase: 'retry' });
+    A.ok(!writer.inspect('write-failure').corrupt, 'retry adopts the real chain after an ambiguous write failure');
+    A.eq(writer.inspect('write-failure').records, shape === 'complete' ? 3 : 2, 'sequence reflects bytes actually present');
+  }
+}
+
+const failedRepairIo = memoryIo();
+const failedRepair = J.makeRunJournal({ io: failedRepairIo });
+failedRepair.begin({ runId: 'repair-failure' });
+failedRepairIo.files.set('repair-failure', failedRepairIo.read('repair-failure') + '{broken');
+failedRepairIo.repair = () => { throw new Error('repair denied'); };
+A.ok(!!failedRepair.recoverAll()[0].repairError, 'failed repair is exposed');
+const failedRepairBytes = failedRepairIo.read('repair-failure');
+A.throws(() => failedRepair.checkpoint('repair-failure', {}), 'failed repair cannot leave a trusted cached chain');
+A.eq(failedRepairIo.read('repair-failure'), failedRepairBytes, 'failed repair and later append preserve damaged evidence');
+
 const unknown = J.makeRunJournal({ io: unknownIo, clock: { now: () => 2 } });
 unknown.begin({ runId: 'unknown', messages: [] });
 unknown.toolIntent('unknown', { callId: 'side-effect', name: 'shell.exec', mutating: true });
@@ -165,4 +201,49 @@ const fakeFs = {
 J._internals.writeAll(fakeFs, 1, 'abcdefghij');
 A.eq(Buffer.concat(chunks).toString(), 'abcdefghij', 'short writes are completed fully');
 
+// Valid hashes alone do not authorize mixing evidence from two different runs.
+const identityIo = memoryIo();
+const identityJournal = J.makeRunJournal({ io: identityIo });
+identityJournal.begin({ runId: 'identity-a' });
+identityJournal.checkpoint('identity-a', { messages: [{ role: 'assistant', content: 'own evidence' }] });
+const identityRows = J._internals.parseRecords(identityIo.read('identity-a')).records;
+identityRows[1].runId = 'identity-b';
+identityRows[1].hash = J._internals.hashRecord(identityRows[1]);
+identityIo.files.set('identity-a', identityRows.map(r => JSON.stringify(r)).join('\n') + '\n');
+const mixed = identityJournal.inspect('identity-a');
+A.ok(mixed.corrupt, 'a hash-valid foreign-run record is still corruption');
+A.eq(mixed.records, 1, 'only the same-run prefix is accepted');
+A.throws(() => identityJournal.prepareContinuation('identity-a', { continuationId: 'no', mode: 'automatic' }), 'mixed identity evidence cannot start a continuation');
+const identityRecovery = identityJournal.recoverAll()[0];
+A.ok(identityRecovery.corrupt && !!identityRecovery.repairedFrom, 'explicit recovery preserves mixed-run evidence in a forensic backup');
+A.ok(identityIo.read(identityRecovery.repairedFrom).includes('identity-b'), 'forensic original retains the foreign record');
+
+identityIo.files.set('wrong-name', identityIo.read('identity-a'));
+A.ok(identityJournal.inspect('wrong-name').corrupt, 'inspection binds journal content to the requested run');
+A.throws(() => identityJournal.prepareContinuation('wrong-name', { continuationId: 'no', mode: 'automatic' }), 'wrong-run lookup cannot continue a different run');
+for (const runId of ['', null, 7]) {
+  const invalid = Object.assign({}, identityRows[0], { runId });
+  invalid.hash = J._internals.hashRecord(invalid);
+  A.ok(J._internals.parseRecords(JSON.stringify(invalid)).corrupt, 'invalid identity is rejected despite a valid hash');
+}
+
+// A transcript acknowledgement does not authorize deleting corrupt journal evidence.
+for (const damage of ['torn-tail', 'chunk-gap']) {
+  const io = memoryIo(), journal = J.makeRunJournal({ io });
+  journal.begin({ runId: damage });
+  if (damage === 'chunk-gap') {
+    journal.checkpoint(damage, { phase: 'assistant', checkpointMessageCount: 2, messages: [{ role: 'assistant', content: 'only one durable message' }] });
+  }
+  journal.finish(damage, { transcriptAck: true });
+  if (damage === 'torn-tail') io.files.set(damage, io.files.get(damage) + '{');
+  const before = io.files.get(damage);
+  A.eq(journal.inspect(damage).status, 'finished', 'terminal status can coexist with damaged evidence');
+  A.eq(journal.inspect(damage).corrupt, true, 'damage is independently disclosed');
+  A.eq(journal.remove(damage), false, 'ordinary retirement refuses damaged evidence');
+  A.eq(io.files.get(damage), before, 'retirement preserves original journal bytes');
+  if (damage === 'chunk-gap') {
+    A.eq(journal.finishAndRetire(damage, { transcriptAck: true }).retired, false, 'finish-and-retire also keeps incomplete chunks');
+    A.ok(io.files.has(damage), 'incomplete checkpoint remains available for inspection');
+  }
+}
 A.report('run-journal.test');

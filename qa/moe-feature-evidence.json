@@ -1,0 +1,300 @@
+{
+  "schemaVersion": "moe.feature-evidence.v1",
+  "updatedAt": "2026-09-10",
+  "usageTarget": "private-starnet-fork",
+  "features": [
+    {
+      "id": "fork.update-isolation",
+      "name": "Fork update isolation",
+      "status": "verified",
+      "code": [
+        "src-tauri/tauri.conf.json",
+        "frontend/app/updates.js",
+        "website/app/app/updates.js"
+      ],
+      "tests": [
+        "test/fork-update-isolation.test.js",
+        "test/update-state-parity.test.js"
+      ],
+      "integrationEvidence": [
+        "fast-gate update/release tests reached green after derivative adaptation"
+      ],
+      "notes": "No upstream StarNet update endpoint remains authoritative. This prevents accidental release-channel coupling while the private fork may continue to reuse compatible StarNet subsystems in-process."
+    },
+    {
+      "id": "architecture.starnet-reuse",
+      "name": "Prefer compatible StarNet subsystem reuse",
+      "status": "design-boundary",
+      "code": [],
+      "tests": [],
+      "integrationEvidence": [
+        "Existing orchestration, permissions, consent, E-STOP, providers, tools, memory, workflows, channels, MCP and UI foundations remain valid dependencies unless a Moe-specific requirement needs an extension."
+      ],
+      "notes": "Moe AI Station is a private StarNet fork, not a clean-room replacement. Extend proven authoritative subsystems rather than duplicating them."
+    },
+    {
+      "id": "orchestration.org-roles",
+      "name": "Commander/Manager/Specialist/Worker organizational roles",
+      "status": "verified",
+      "code": [
+        "sidecar/orchestration/org-role.js",
+        "sidecar/orchestration/role-policy.js",
+        "shared/org-specialties.js",
+        "frontend/app/specialties.js",
+        "frontend/app/app.js",
+        "sidecar/tools/builtin/orchestration-core.js",
+        "sidecar/index.js"
+      ],
+      "tests": [
+        "test/org-role.test.js",
+        "test/orchestration-role-policy.test.js",
+        "test/org-specialties.test.js",
+        "test/specialties.test.js",
+        "test/class-loadouts.test.js",
+        "test/org-roster-frontend-contract.test.js",
+        "test/control-agent-roster-e2e.test.js"
+      ],
+      "integrationEvidence": [
+        "real Recruitment Bay classes resolve through the shared org-specialties catalog",
+        "team.summon receives the same shared organizational class metadata without implicit capabilities",
+        "browser summon persistence writes orgRole and explicit parentAgentId",
+        "Moe AI Station CI and inherited gates passed on the integrated branch"
+      ],
+      "notes": "Organizational metadata layers over the inherited runtime. Capability and consent gates remain authoritative."
+    },
+    {
+      "id": "orchestration.managed-delegation",
+      "name": "Managed delegation with typed task contracts",
+      "status": "verified",
+      "code": [
+        "sidecar/tools/builtin/managed-orchestration.js",
+        "sidecar/tools/builtin/orchestration.js",
+        "sidecar/orchestration/delegation-adapter.js"
+      ],
+      "tests": [
+        "test/delegation-adapter.test.js",
+        "test/managed-orchestration-tool.test.js",
+        "test/managed-orchestration-wiring.test.js",
+        "test/orchestration.test.js",
+        "test/subagents.test.js"
+      ],
+      "integrationEvidence": [
+        "Moe AI Station CI runtime wiring, inherited orchestration and security-boundary suites passed"
+      ],
+      "notes": "Uses inherited team.dispatch executor and preserves consent/capability gates."
+    },
+    {
+      "id": "orchestration.review-gate",
+      "name": "Deterministic acceptance/revision gate",
+      "status": "verified",
+      "code": [
+        "sidecar/orchestration/review-gate.js",
+        "sidecar/orchestration/quality-pipeline.js"
+      ],
+      "tests": [
+        "test/review-gate.test.js",
+        "test/orchestration-quality-pipeline.test.js",
+        "test/managed-orchestration-tool.test.js"
+      ],
+      "integrationEvidence": [
+        "managed delegation invokes deterministic review before optional auditor"
+      ],
+      "notes": "Bounded revisions; budget and acceptance evidence are host-validated."
+    },
+    {
+      "id": "orchestration.independent-auditor",
+      "name": "Independent auditor stage",
+      "status": "verified",
+      "code": [
+        "sidecar/orchestration/auditor.js",
+        "sidecar/orchestration/quality-pipeline.js",
+        "sidecar/tools/builtin/managed-orchestration.js"
+      ],
+      "tests": [
+        "test/orchestration-auditor.test.js",
+        "test/orchestration-quality-pipeline.test.js",
+        "test/managed-orchestration-tool.test.js"
+      ],
+      "integrationEvidence": [
+        "worker self-audit and lead self-audit are rejected before audit dispatch"
+      ],
+      "notes": "Auditor result is structured and host-validated."
+    },
+    {
+      "id": "telemetry.managed-task-history",
+      "name": "Persistent managed-task history",
+      "status": "verified",
+      "code": [
+        "sidecar/orchestration/task-history.js",
+        "sidecar/orchestration/task-history-disk.js",
+        "sidecar/orchestration/task-history-adapter.js",
+        "sidecar/orchestration/task-history-host.js",
+        "sidecar/orchestration/task-history-http.js",
+        "sidecar/orchestration/task-live.js",
+        "sidecar/orchestration/task-metrics.js",
+        "sidecar/tools/builtin/orchestration.js",
+        "sidecar/index.js"
+      ],
+      "tests": [
+        "test/managed-task-history.test.js",
+        "test/managed-task-history-adapter.test.js",
+        "test/managed-task-history-disk.test.js",
+        "test/managed-task-history-http.test.js",
+        "test/managed-task-history-host.test.js",
+        "test/managed-task-history-host-wiring.test.js",
+        "test/managed-task-metrics.test.js",
+        "test/managed-task-live.test.js"
+      ],
+      "integrationEvidence": [
+        "one managedTaskHistoryHost composes the canonical workspace and injects its singleton store",
+        "GET /api/managed-tasks supports bounded history, summary, active telemetry and exact drilldown",
+        "CI verifies disk history, live lifecycle, metrics, HTTP and host composition"
+      ],
+      "notes": "Durable completion history and bounded in-flight telemetry share one host composition seam; unknown state is not synthesized."
+    },
+    {
+      "id": "control-mode.telemetry-api",
+      "name": "Control Mode telemetry API",
+      "status": "verified",
+      "code": [
+        "sidecar/orchestration/task-history-http.js",
+        "sidecar/control/agent-view.js",
+        "sidecar/control/agent-http.js",
+        "sidecar/index.js",
+        "frontend/app/controlmodeview.js",
+        "frontend/app/controlmode.js",
+        "frontend/app/controlagents.js",
+        "frontend/app/navdock.js"
+      ],
+      "tests": [
+        "test/managed-task-history-http.test.js",
+        "test/managed-task-history-host-wiring.test.js",
+        "test/control-mode-view.test.js",
+        "test/control-mode-ui-contract.test.js",
+        "test/control-agent-view.test.js",
+        "test/control-agent-http.test.js",
+        "test/control-agent-host-wiring.test.js",
+        "test/control-agent-roster-e2e.test.js",
+        "test/control-agent-ui-contract.test.js"
+      ],
+      "integrationEvidence": [
+        "Control Mode consumes GET-only managed-task endpoints",
+        "agent organization projects the authoritative roster",
+        "SYSTEM dock bootstraps the tested projection layer without mutation controls",
+        "CI and inherited gates are green"
+      ],
+      "notes": "V1 remains intentionally read-only and evidence-backed."
+    },
+    {
+      "id": "control-mode.read-only-surfaces",
+      "name": "Verified read-only Control Mode surfaces",
+      "status": "verified",
+      "code": [
+        "sidecar/control/agent-view.js",
+        "sidecar/control/agent-http.js",
+        "sidecar/control/memory-view.js",
+        "sidecar/control/memory-http.js",
+        "sidecar/control/approval-view.js",
+        "sidecar/control/approval-http.js",
+        "sidecar/control/action-view.js",
+        "sidecar/control/action-http.js",
+        "sidecar/control/cost-view.js",
+        "sidecar/control/cost-http.js",
+        "sidecar/control/provider-view.js",
+        "sidecar/control/provider-http.js",
+        "sidecar/index.js",
+        "frontend/app/controlmode.js",
+        "frontend/app/controlagents.js",
+        "frontend/app/controlmemory.js",
+        "frontend/app/controlapprovals.js",
+        "frontend/app/controlactions.js",
+        "frontend/app/controlcosts.js",
+        "frontend/app/controlproviders.js",
+        "website/app/app/controlmode.js",
+        "website/app/app/controlagents.js",
+        "website/app/app/controlmemory.js",
+        "website/app/app/controlapprovals.js",
+        "website/app/app/controlactions.js",
+        "website/app/app/controlcosts.js",
+        "website/app/app/controlproviders.js"
+      ],
+      "tests": [
+        "test/control-mode-surface-contract.test.js",
+        "test/control-mode-schema-contract.test.js",
+        "test/control-mode-lifecycle-contract.test.js",
+        "test/control-mode-http-failure-contract.test.js",
+        "test/control-mode-e2e-contract.test.js",
+        "test/control-mode-accessibility-contract.test.js",
+        "test/control-agent-ui-contract.test.js",
+        "test/control-memory-ui-contract.test.js",
+        "test/control-approval-ui-contract.test.js",
+        "test/control-action-ui-contract.test.js",
+        "test/control-cost-ui-contract.test.js",
+        "test/control-provider-ui-contract.test.js"
+      ],
+      "integrationEvidence": [
+        "six dedicated projections are GET/HEAD-only against existing authoritative runtime stores",
+        "E2E, schema, lifecycle and failure contracts verify fail-closed behavior",
+        "desktop and website surfaces are byte-mirrored",
+        "provider signals expose only registry metadata and observed quota/rate-limit evidence"
+      ],
+      "notes": "Observe-only Control Mode adds no parallel truth stores."
+    },
+    {
+      "id": "integration.google-workspace",
+      "name": "Private Google Workspace operator integration",
+      "status": "implemented",
+      "code": [
+        "sidecar/mcp/google-client.js",
+        "sidecar/mcp/transport.google.js",
+        "sidecar/mcp/catalog.js",
+        "sidecar/mcp/translate.js"
+      ],
+      "tests": [
+        "test/google-connector.test.js"
+      ],
+      "integrationEvidence": [
+        "Google connector contract exercises stable Gmail, Drive, Calendar, Docs and Sheets API paths through the real local transport adapter",
+        "Gmail contract verifies structured MIME draft composition, thread-safe sender reply drafts, reversible inbox/label changes, header/label validation and separate send authority",
+        "Drive contract verifies bounded text/Markdown/CSV/JSON artifact create/read/update paths, upload endpoint confinement and binary-read rejection",
+        "Calendar contract verifies create, patch, delete and read-then-patch self-attendee RSVP semantics",
+        "Docs and Sheets contracts verify simple document text append and table-row append in addition to the advanced batch APIs",
+        "host projection keeps Google connector mutations execute-scoped and consent-gated"
+      ],
+      "notes": "Gmail search/read/inbox-label management/structured-draft/reply-draft/send, Drive metadata/search/export plus bounded text artifact content IO, Calendar read/free-busy/event management, Docs read/create/append/edit and Sheets read/create/write/append/edit are implemented. Automated provider fixtures verify protocol behavior; a real private operator account remains an external acceptance step rather than fabricated CI evidence."
+    },
+    {
+      "id": "release.derivative-signing",
+      "name": "Derivative installer/update signing",
+      "status": "out-of-scope-private-use",
+      "code": [],
+      "tests": [
+        "test/release-cut.test.js",
+        "test/minisign-verify.test.js"
+      ],
+      "integrationEvidence": [],
+      "notes": "Not required for the private-use target. Reassess only if public distribution becomes a goal."
+    },
+    {
+      "id": "branding.derivative-assets",
+      "name": "Complete derivative branding and artwork replacement",
+      "status": "out-of-scope-private-use",
+      "code": [],
+      "tests": [],
+      "integrationEvidence": [],
+      "notes": "Not required for private use. Redistribution remains outside project scope."
+    },
+    {
+      "id": "migration.derivative-app-id",
+      "name": "Safe app identity and data-path migration",
+      "status": "out-of-scope-private-use",
+      "code": [],
+      "tests": [
+        "test/desktop-workspace-migration.test.js",
+        "test/rename-migrate.test.js"
+      ],
+      "integrationEvidence": [],
+      "notes": "Do not force an identifier migration for private use; preserve compatible workspaces and credentials unless a functional requirement justifies a tested migration."
+    }
+  ]
+}
