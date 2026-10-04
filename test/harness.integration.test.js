@@ -204,6 +204,45 @@ const fixture = {
 
   A.ok(seq.filter(e => e.name === 'agent.token').some(e => /Saved report\.md/.test(e.payload.delta)), 'the final answer streamed to the user');
 
+  // Decision-dossier acceptance fixture: real registry, permissions, loop and disk; scripted model/web.
+  // This proves execution plumbing, not research quality or a live provider acceptance.
+  {
+    const recipe = require('../frontend/app/recipe-catalog/research.js').find(r => r.id === 'decision-dossier');
+    const task = require('../frontend/app/recipes.js').fillTask(recipe, { question: 'Compare the fixture options', constraints: 'Use only observed evidence', workspace: 'dossier' });
+    const outputs = {
+      'sources.md': '# Sources\nhttps://example.com/article\nClaim: the fixture answer is 42. Checked: 2026-10-04. Publication date: unknown.\n',
+      'comparison.csv': 'option,criterion,evidence,source,uncertainty,fit\nA,answer,42,https://example.com/article,fixture only,meets\nB,answer,unknown,,no evidence,unknown\n',
+      'decision.md': '# Decision\nPrefer A in this fixture because the source reports 42. B is unknown.\nConfidence is limited to the fixture. Next reversible step: verify with a real primary source.\n',
+      'progress.md': '# Progress\nSource recorded; comparison and decision saved. Real-world verification remains open.\n'
+    };
+    const turn = (id, name, args) => [
+      { type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: JSON.stringify(args) }, { type: 'done', finishReason: 'tool_calls' }
+    ];
+    const turns = [turn('ds', 'web_search', { query: 'the answer' }), turn('df', 'web_fetch', { url: 'https://example.com/article' })];
+    for (const [name, content] of Object.entries(outputs)) turns.push(turn('write-' + name, 'fs_write', { path: 'dossier/' + name, content }));
+    for (const name of Object.keys(outputs)) turns.push(turn('read-' + name, 'fs_read', { path: 'dossier/' + name }));
+    turns.push([{ type: 'text', delta: 'Fixture dossier saved and read back; live acceptance remains unverified.' }, { type: 'done', finishReason: 'stop' }]);
+    const db = A.makeBus(), ds = A.collectBus(db, events.names()), de = makeEmitter(db, () => {});
+    const dp = makeReplayProvider({ models: fixture.models, turns });
+    const journalDir = path.join(ROOT, 'dossier-journal');
+    const journal = require('../sidecar/run-journal.js').makeRunJournal({ dir: journalDir });
+    journal.begin({ runId: 'dossier-fixture', agentId: 'agent' });
+    const result = await runAgentLoop({ messages: [{ role: 'user', content: task }], provider: dp, emit: de,
+      cost: makeCostEngine({ priceOf: dp.priceOf }), tools: toolDefs, dispatch, capCtx,
+      model: 'replay/model', agentId: 'agent', runId: 'dossier-fixture',
+      onCheckpoint({ phase, messages, turn }) { journal.checkpointMessages('dossier-fixture', { phase, messages, turn }); },
+      limits: { maxIters: 15, maxCostUsd: 1 }, clock: { now: () => 0 }
+    });
+    A.eq(result.reason, 'done', 'decision dossier completes through the shared execution path');
+    const results = ds.filter(e => e.name === 'agent.tool_result').map(e => e.payload);
+    A.eq(results.length, 10, 'search, fetch, four writes and four read-backs have paired results');
+    A.ok(results.every(r => r.isError === false), 'all dossier tool operations succeed');
+    for (const [name, content] of Object.entries(outputs)) A.eq(await fsp.readFile(path.join(ROOT, 'agent', 'dossier', name), 'utf8'), content, 'dossier file is really persisted: ' + name);
+    const restored = require('../sidecar/run-journal.js').makeRunJournal({ dir: journalDir }).inspect('dossier-fixture');
+    A.eq(restored.corrupt, false, 'cold journal inspection reconstructs dossier checkpoints');
+    for (const content of Object.values(outputs)) A.ok(restored.checkpoint.messages.some(m => m.role === 'tool' && String(m.content).includes(content.trim())), 'read-back evidence survives a fresh journal instance');
+  }
+
   // ---- P1.5 default-deny: an UN-granted mutation under an autonomous surface is denied, body never runs ----
   // (a fresh broker with no grant — the same fs.write the model is fully capable of calling otherwise.)
   const denyCtx = makeCapCtx(resolved, { emit, consent: makeConsentBroker({ sessionKey: 'deny', surface: 'autonomous' }), timeoutMs: 5000 });
