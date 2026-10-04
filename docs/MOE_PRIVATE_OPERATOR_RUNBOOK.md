@@ -182,6 +182,32 @@ Only an `ok: true` inspected bundle is a recovery point. Store at least one copy
 station disk. OAuth grants, provider keys and other credentials are deliberately excluded and
 must be reauthorized after a machine/profile restore.
 
+### Verify a restore before relying on the backup
+
+Restore into a new, empty test profile, never over the active station for a rehearsal:
+
+```bash
+npm run recovery:restore -- --bundle "<backup>.starnet-recovery.json" --target "<new-test-WORKSPACES>" --browser-output "<browser-restore>.json"
+```
+
+Keep browser output outside the target workspace. Start the existing sidecar against that
+isolated profile with cron/loop execution disabled, import the emitted browser backup,
+and inspect identity, conversation history, memories, tasks and saved deliverables.
+Compare representative file contents with the source. Inspect routines without executing
+them. Review the receipt's reauthentication list: reconnect providers/connectors and grant
+machine-specific project access only when appropriate. Browser import now keeps partial
+results visible if the durable agent save or notebook merge is unconfirmed; retain the
+original backup and reconnect before retrying. A successful export alone is not a restore test.
+
+On 2026-10-04, source commit fcdb95356 was exercised on Windows with disposable profiles:
+station-recovery.test.js (72 assertions), station-recovery-cli.test.js (20), and
+station-recovery.e2e.test.js (23) all passed. This includes the production offline CLI,
+rejected existing targets, credential exclusion, and a second real sidecar boot serving
+restored identity, layout, routines, project references and deliverable bytes. These are
+synthetic station fixtures with external model calls and routine execution disabled;
+installed-app browser interaction, Moe's actual data, an off-disk copy, and real account
+reauthentication have not been accepted. Those remain the operator rehearsal criteria.
+
 ## 9. Private readiness checklist
 
 A private working build is ready for daily use when:
@@ -190,9 +216,9 @@ A private working build is ready for daily use when:
 - The provider(s) you intend to use complete a real test task.
 - Budgets and E-STOP are configured.
 - The needed connectors complete one real read and one reversible write/draft test.
-- The Revenue Pipeline completes one evidence-backed run and saves its state.
+- A representative task chosen for your actual needs completes an evidence-backed end-to-end run, saves its outputs, and resumes safely after interruption; no particular business domain is mandatory.
 - A Night Shift/cron task has completed one bounded attended rehearsal before unattended use.
-- A recovery bundle has been created, inspected and stored off-disk.
+- A recovery bundle has been created, inspected and stored off-disk, and an isolated restore rehearsal has verified the needed data.
 
 Public branding, public updater, code signing, app-ID migration and public release proofs are
 not part of this private readiness checklist.
