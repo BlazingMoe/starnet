@@ -30,6 +30,8 @@ jobs:
 
       - name: Derivative verification contract
         run: |
+          node test/backup-restore-outcome.test.js
+          node test/backup-secrets.test.js
           node test/moe-feature-evidence.test.js
           node test/moe-claims-evidence-alignment.test.js
 

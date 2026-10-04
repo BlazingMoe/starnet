@@ -5035,6 +5035,15 @@ const App = (() => {
       // bad(), not a bespoke error() — that cue never existed, so the `&&` guard silently swallowed
       // the only audible signal a restore had failed. bad() is the station's negative-outcome voice.
       if (!r.ok) { dataStatus('import failed — ' + r.error); SFX.bad(); return; }
+      if (r.partial) {
+        const missing = [];
+        if (r.durableSave !== 'confirmed') missing.push('durable agent save');
+        if (r.notebookRestore && r.notebookRestore.status === 'unconfirmed') missing.push('memories');
+        dataStatus('Browser records restored; not confirmed: ' + missing.join(' + ')
+          + '. Keep your backup. Reconnect the station and import it again to retry.');
+        SFX.bad();
+        return; // keep the partial result visible
+      }
       SFX.boot();
       const mem = (typeof r.memoriesRestored === 'number') ? r.memoriesRestored
         : (r.memories ? r.memories + ' in file' : 0);
