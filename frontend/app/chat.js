@@ -416,9 +416,12 @@ const Chat = (() => {
     try { rows = await Harness.runRecoveries(); } catch (_) { return 'unavailable'; }
     const owned = rows.filter(r => r && r.streamId === ws.id && r.agentId === (ws.agentId || 'agent'))
       .sort((a, b) => (+b.startedAt || 0) - (+a.startedAt || 0));
-    const safe = owned.find(r => r.canAutoContinue && !recoveryClaims.has(r.runId));
+    // Unresolved evidence in this stream takes precedence over any automatic candidate.
+    const forensic = owned.find(r => r.forensicOnly || r.corrupt || r.repairError);
+    const review = forensic ? null : owned.find(r => r.operationalState === 'needs_review');
+    const safe = !forensic && !review ? owned.find(r => r.canAutoContinue) : null;
+    if (safe && recoveryClaims.has(safe.runId)) return 'deferred';
     if (!safe) {
-      const review = owned.find(r => r.operationalState === 'needs_review');
       if (review && announce && isActiveWs(ws) && !recoveryNotices.has(review.runId)) {
         recoveryNotices.add(review.runId);
         const names = (review.uncertain || []).map(x => x.name || 'action').join(', ');
@@ -426,7 +429,6 @@ const Chat = (() => {
         offerRecoveryReview(review, ws);
       }
       if (review) return 'review';
-      const forensic = owned.find(r => r.forensicOnly || r.corrupt || r.repairError);
       if (forensic && announce && isActiveWs(ws) && !recoveryNotices.has(forensic.runId)) {
         recoveryNotices.add(forensic.runId);
         toolLine('recovery evidence is incomplete or damaged. Automatic continuation is blocked; inspect the saved journal before starting this task again.', true);

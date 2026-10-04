@@ -81,5 +81,20 @@ A.ok(!/last run was interrupted and can\\'t resume/.test(chat), 'obsolete uncond
     A.eq(lines.some(line => line.includes('use Try again')), outcome === 'none', 'retry advice requires a successful empty recovery check: ' + outcome);
     if (outcome === 'unavailable') A.ok(lines.some(line => line.includes('could not be checked or prepared')), 'failed check is reported as unknown');
   }
+
+  for (const blocker of ['review', 'forensic', 'claimed', 'foreign']) {
+    const ws = { id: 'stream', agentId: 'agent' }, prepared = [], sent = [];
+    const safe = { runId: 'safe', streamId: ws.id, agentId: ws.agentId, startedAt: 1, canAutoContinue: true };
+    const other = { runId: 'newer', streamId: blocker === 'foreign' ? 'other' : ws.id, agentId: ws.agentId, startedAt: 2,
+      canAutoContinue: blocker === 'claimed', operationalState: ['review', 'foreign'].includes(blocker) ? 'needs_review' : '', forensicOnly: blocker === 'forensic' };
+    const run = new Function('Harness', 'fetch', 'Channels', 'isActiveWs', 'toolLine', 'send', 'offerRecoveryReview', 'recoveryClaims',
+      'const recoveryNotices = new Set();' + recoveryBody + '\nreturn recoverSafeRun;')(
+      { runRecoveries: async () => [safe, other], prepareAutomaticRecovery: async row => { prepared.push(row.runId); return {}; } },
+      async () => ({ ok: true, json: async () => ({ briefs: [] }) }), { isBusy: () => false }, () => true,
+      () => {}, async () => sent.push(true), () => {}, new Set(blocker === 'claimed' ? ['newer'] : []));
+    A.eq(await run(ws, true), { review: 'review', forensic: 'forensic', claimed: 'deferred', foreign: 'started' }[blocker], 'stream recovery prioritizes unresolved evidence: ' + blocker);
+    A.eq(prepared, blocker === 'foreign' ? ['safe'] : [], 'blocked or claimed recovery never falls back to older work: ' + blocker);
+    A.eq(sent.length, blocker === 'foreign' ? 1 : 0, 'dispatch respects stream recovery precedence: ' + blocker);
+  }
   A.report('run-recovery-ui.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });
