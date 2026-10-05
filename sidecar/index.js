@@ -72,6 +72,7 @@ const spotifyPkce = require('./spotify/pkce.js');                          // pu
 const { makeSaveStore } = require('./savestore.js');
 const { mergeNotes } = require('./notebookrestore.js');
 const { makeRunStore } = require('./runstore.js');
+const { parseRunRequestLimits, tightenRunLimits } = require('./run-request-limits.js');
 const { makeGrowthRatings, deriveRating: deriveGrowthRating } = require('./growthratings.js');
 const { makeAutonomyLedger } = require('./autonomy-ledger.js');   // NS-0: durable append-only ledger of autonomy decisions
 const { makeArtifactCollector } = require('./artifacts.js');   // work-visibility: per-run "what did it produce" ledger
@@ -14640,6 +14641,11 @@ async function handleRun(req, res) {
   let body;
   try { body = JSON.parse(await readBody(req, 2 << 20, res)); }
   catch (e) { if (res.headersSent) return; res.writeHead(400); return res.end('bad json'); }   // over-limit already answered 413
+  const requestLimits = parseRunRequestLimits(body && body.limits);
+  if (!requestLimits.ok) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: requestLimits.error }));
+  }
   const { model, system, messages = [], agentId = 'agent', isTask = false, provider, fallbackModels, fallbackProviders } = body || {};
   const recurring = !!(body && body.recurring);   // the browser's mint detector saw this task SHAPE before → salience boost for reflection
   // REASON-ONLY SELF-TALK (retitle / goal-judge / pitch / autopilot): the caller composed a complete strict-format
@@ -14856,6 +14862,7 @@ async function handleRun(req, res) {
     const continuedResult = await runOnce({
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
+      requestLimits: requestLimits.limits,
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -15210,9 +15217,14 @@ async function runOnce(o) {
   // worker's ORCH_WORKER_MAX_ITERS) is honored, but may only LOWER the ceiling. Without this the value
   // orchestration.js has always passed was silently dropped and every worker ran the lead's full budget.
   const stationMaxIters = (CAPS.maxIters > 0 && isFinite(CAPS.maxIters)) ? CAPS.maxIters : Infinity;
-  const runMaxIters = (o.maxIters > 0 && isFinite(o.maxIters))
+  const callerMaxIters = (o.maxIters > 0 && isFinite(o.maxIters))
     ? Math.max(1, Math.min(Math.floor(o.maxIters), stationMaxIters))
     : stationMaxIters;
+  // HTTP callers may opt into smaller bounds without changing station settings.
+  // Apply before credit reservation and orchestration inherit the effective cap.
+  const narrowedLimits = tightenRunLimits({ maxIters: callerMaxIters, maxCostUsd: runCapUsd }, o.requestLimits);
+  const runMaxIters = narrowedLimits.maxIters;
+  runCapUsd = narrowedLimits.maxCostUsd;
   // WHO IS MANAGED (issue #6, 2026-08-30): only a run whose spend actually lands on the managed account.
   // On a device-LINKED station that is solely the 'starnet' relay provider — a BYOK run (own Gemini/OpenAI/…
   // key) pays its own vendor directly, so gating it on StarNet balance stranded linked-but-unfunded users at
@@ -17146,6 +17158,8 @@ async function runOnce(o) {
       // operator's narrowly authorized continuation and make the recovery non-idempotent.
       limits: {
         maxIters: runMaxIters, maxCostUsd: runCapUsd, failureRecovery: o.recovery ? false : undefined,
+        // An explicit request turn ceiling is strict: no extra paid grace turn.
+        grace: o.requestLimits && o.requestLimits.maxIters ? false : undefined,
         // unpriced-token seatbelt: metered API-key providers only — a subscription/OAuth/unmetered run bills nothing
         maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens
       },

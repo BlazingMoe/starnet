@@ -118,6 +118,29 @@ Control Mode is the operator truth surface for active stage, task history, actio
 approval state, costs/budgets, memory provenance and provider signals. Missing evidence stays
 unknown rather than becoming a synthetic green status.
 
+### Bound one attended acceptance request
+
+The existing authenticated `POST /api/run` entry accepts an optional `limits` object:
+
+```json
+{"limits":{"maxIters":6,"maxCostUsd":0.25}}
+```
+
+Include this alongside the normal configured agent, model, provider and messages. Limits
+only lower the existing run policy; a larger requested value cannot increase a station
+ceiling. Invalid, zero, negative, nonnumeric or unsupported fields return HTTP 400 before
+starting a run. Omitting limits preserves the existing behavior and does not change saved
+station settings. All normal tool, consent, E-STOP and budget checks still apply.
+
+An explicit `maxIters` bounds the main agent loop and disables its extra grace model turn.
+`maxCostUsd` uses the existing observed/estimated spend guard between model calls; an
+in-flight call can exceed the threshold, and unpriced usage cannot establish a dollar cost.
+For subscription runs, a cost estimate is not an invoice; use the iteration limit to bound
+the acceptance. Delegated workers and auxiliary model work retain their own existing
+governors, so these fields alone do not cap every model call in a whole team. Keep a client
+timeout and cancel the stream if the attended test must stop. Closing the interactive
+stream cancels its run; detached background jobs follow their own lifecycle.
+
 ## 6. Revenue workflow
 
 Open **Recipes → Business → Revenue Pipeline**.

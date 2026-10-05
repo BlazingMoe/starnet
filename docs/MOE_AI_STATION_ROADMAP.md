@@ -100,7 +100,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Safety | Audit log | Existing/Partial | Durable run journal + managed-task history | Broader append-only actor/resource/result coverage | P0 |
 | Safety | Sandboxing | Partial | Existing capability and workspace boundaries | OS/process/network limits where feasible | P0 |
 | Cost | Token/cost ledger | Existing | Cost/spend/ledger files | Per-agent/task/project/provider attribution | P1 |
-| Cost | Budgets | Existing/Partial | Spend controls + read-only budget projection | Hard/soft alerts, fallback models, daily/monthly policy breadth | P1 |
+| Cost | Budgets | Existing/Partial | Spend controls + read-only budget projection; authenticated run requests can lower their own iteration/spend ceilings without changing station settings | Hard/soft alerts, fallback models, daily/monthly policy breadth | P1 |
 | Memory | Working/context memory | Existing | `context.js` | Explicit scopes, compression strategy, provenance | P0 |
 | Memory | Agent long-term memory | Existing | `memcore.js` and agent memory concepts | Retrieval quality, TTL/importance, contradiction handling | P0 |
 | Memory | Project memory | Partial | Workspace/memory primitives | Shared project knowledge with access control | P1 |
