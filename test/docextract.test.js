@@ -96,6 +96,26 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
     A.ok(/^### Notes$/m.test(text), 'the second sheet is present, under its own name');
   }
 
+  // Sparse Excel rows must retain their column positions, including explicit empty cells.
+  {
+    const buf = zip({
+      'xl/worksheets/sheet1.xml': '<worksheet><sheetData>' +
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>Item</t></is></c><c r="B1" t="inlineStr"><is><t>Cost</t></is></c><c r="C1" t="inlineStr"><is><t>Count</t></is></c></row>' +
+        '<row r="2"><c r="A2" t="inlineStr"><is><t>Paper</t></is></c><c r="C2"><v>9</v></c></row>' +
+        '<row r="3"><c r="A3"/><c r="C3"><v>4</v></c></row>' +
+        '<row r="4"><c r="AA4"><v>27</v></c></row>' +
+        '<row r="5"><c r="XFD5"><v>16384</v></c><c r="B5"><v>2</v></c></row>' +
+        '</sheetData></worksheet>'
+    });
+    const text = doc.extract(buf, 'xlsx');
+    A.ok(text.includes('Paper\t\t9'), 'omitted B cell does not shift C beneath Cost');
+    A.ok(text.includes('\n\t\t4\n'), 'self-closing empty cell does not swallow the next value');
+    A.ok(text.includes('\n' + '\t'.repeat(26) + '27\n'), 'multi-letter column AA retains its index');
+    A.ok(text.includes('\n\t2\n'), 'out-of-order in-range cells remain readable after a far column');
+    A.ok(text.includes('[columns beyond 256 omitted]'), 'column bound is disclosed');
+    A.ok(!text.includes('16384'), 'far columns do not create unbounded output');
+  }
+
   // ---- 3. IPYNB: source AND outputs — the RESULT is usually the answer, not the code ----
   {
     const nb = Buffer.from(JSON.stringify({
