@@ -199,7 +199,12 @@ const ModelDock = (() => {
   function mergeCurrent(list) {
     const current = getModel();
     const p = provider();
-    // Preserve a saved current model only while the active catalog is unavailable. Once a successful catalog
+    // Codex discovery can omit a saved model that still executes through the authenticated runtime.
+    // Keep that explicit choice, labeled unlisted rather than claiming availability or switching models.
+    if (current && p === 'codex' && !list.some(m => m.id === current && normalizeProvider(m.provider) === p) && catalogState[p] && catalogState[p].confirmed) {
+      list.unshift({ id: current, name: current, provider: p, unlistedCurrent: true });
+    }
+    // Preserve other saved current models only while the active catalog is unavailable. Once a successful catalog
     // says it is absent, reconcileCurrentModel() has either mapped it to a proven provider-native id or cleared
     // it. Re-inserting it here was the stale-model bug: a bare Anthropic id appeared selectable under STARNET.
     if (current && !list.some(m => m.id === current && normalizeProvider(m.provider) === p) && !(catalogState[p] && catalogState[p].confirmed)) {
@@ -228,6 +233,7 @@ const ModelDock = (() => {
     if (!(catalogState[p] && catalogState[p].confirmed)) return;
     const current = getModel();
     if (!current || (Array.isArray(list) && list.some(m => m && m.id === current))) return;
+    if (p === 'codex') return; // discovery is not an execution rejection; preserve the operator's choice
     const next = catalogEquivalent(current, p, list);
     const picked = next && list.find(m => m && m.id === next);
     const effort = picked ? clampEffortForModel(currentEffort(), picked) : currentEffort();
@@ -554,13 +560,13 @@ const ModelDock = (() => {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'model-dock-row' + (m.id === current && normalizeProvider(m.provider) === activeProvider ? ' sel' : '') + (m.fallback ? ' fallback' : '');
-      row.title = m.fallback ? m.id + ' — fallback (catalog offline, unverified)' : m.id;
+      row.title = m.unlistedCurrent ? m.id + ' — saved selection, not listed; availability unverified' : (m.fallback ? m.id + ' — fallback (catalog offline, unverified)' : m.id);
       row.dataset.provider = normalizeProvider(m.provider);
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(m.id === current && normalizeProvider(m.provider) === activeProvider));
       const name = document.createElement('span');
       name.className = 'model-dock-row-name';
-      name.textContent = modelLabel(m);
+      name.textContent = modelLabel(m) + (m.unlistedCurrent ? ' (saved, not listed)' : '');
       const eff = document.createElement('span');
       eff.className = 'model-dock-row-effort';
       eff.textContent = effortLabel(effectiveEffort(m));
