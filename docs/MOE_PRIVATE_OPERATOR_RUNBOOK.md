@@ -245,3 +245,9 @@ A private working build is ready for daily use when:
 
 Public branding, public updater, code signing, app-ID migration and public release proofs are
 not part of this private readiness checklist.
+
+An attended API rehearsal on 2026-10-06 completed a real Codex read-only dossier review
+after an intentional sidecar interruption and restart, preserving all four artifact hashes.
+See [the acceptance record](research/2026-10-04-reuse/decision.md) for run IDs and limits.
+This is evidence for that read-only boundary; browser interaction, writes interrupted in flight,
+unattended routines and the full private-readiness checklist remain separate acceptance work.
