@@ -188,6 +188,18 @@ Before leaving work unattended:
 Do not add blanket retry around mutating tools. Central recovery only retries failure classes
 that the host can identify as safe/transient.
 
+For an initial bounded rehearsal, open Automation → Create Routine and set **Stop after this
+many settled runs** to a small positive integer. Blank keeps a recurring routine repeating;
+a one-time schedule always has one settlement. The Active Routines row shows the durable
+settled count and configured total, and the existing scheduler disables the routine once
+that total is reached. Successes and terminal failures count; transient retries do not.
+This is not a spend cap or a guarantee that every run succeeds. RUN NOW is a separate,
+explicit manual execution and can run a finished routine again.
+
+The create-handler/row regression passes its submitted limit through the existing scheduler
+store, including transient failure, persistence/reload and terminal exhaustion. This verifies
+the UI boundary and reducer using fixtures; it is not an attended live-model routine rehearsal.
+
 ## 8. Recovery point before important changes
 
 The full station recovery path is already integrity-checked and secret-aware. It requires a

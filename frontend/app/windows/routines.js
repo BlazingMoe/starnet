@@ -92,6 +92,9 @@
           : '<input id="rt-sched" class="key-input" placeholder="schedule — every 30m · 0 9 * * * · in 2h" autocomplete="off">') +
         '</div>' +
         '<div id="rt-preview" class="dim" style="min-height:1em;font-size:.9em"></div>' +
+        '<label for="rt-times">Stop after this many settled runs (optional)</label>' +
+        '<input id="rt-times" class="key-input" type="number" min="1" step="1" placeholder="blank = keep repeating" aria-describedby="rt-times-help">' +
+        '<div id="rt-times-help" class="dim">Successes and terminal failures count. Transient retries do not; keep a separate spend budget. One-time schedules always run once. RUN NOW can explicitly run a finished routine again.</div>' +
         '<div class="rt-agent-pick" role="group" aria-label="Routine agent">' + roster.map(agentButton).join('') + '</div>' +
         '<input id="rt-agent" type="hidden" value="' + esc(routineAgentId) + '">' +
         '<details class="brief-block" style="margin:4px 0"><summary>ADVANCED RUNTIME</summary>' +
@@ -237,10 +240,15 @@
       // ENABLE round-tripped and the row then read "● scheduled · next 3d ago" forever. RESCHEDULE (which
       // genuinely re-arms it with a fresh time) is the honest re-run path and stays.
       const completedOnce = !on && j.state === 'completed' && j.schedule && j.schedule.kind === 'once';
+      const repeat = j.repeat || {};
+      const finite = Number.isSafeInteger(repeat.times) && repeat.times > 0;
+      const exhausted = finite && repeat.completed >= repeat.times;
+      const finished = completedOnce || (!on && exhausted);
+      const repeatLine = finite ? ' · settled runs ' + esc(repeat.completed || 0) + '/' + esc(repeat.times) : '';
       // real lease state off GET /api/cron (additive `inFlight`) — never synthesized client-side.
       const running = j.inFlight === true;
       const stateBadge = running ? '<span style="color:var(--gold)">● running</span>'
-        : completedOnce ? '<span style="color:var(--good,var(--gold))">✓ completed</span>'
+        : finished ? '<span>' + (j.state === 'error' ? 'limit reached — last run failed' : '✓ completed') + '</span>'
         : on ? '<span style="color:var(--gold)">● scheduled</span>'
         : autoPaused ? '<span style="color:var(--bad)">○ paused — failing</span>'
         : '<span class="dim">○ paused</span>';
@@ -282,7 +290,7 @@
       return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '">' +
         '<div class="mc-top"><b>' + esc(j.name || '(unnamed)') + '</b> <span class="dim"' +
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
-        '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + '</div>' +
+        '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + repeatLine + '</div>' +
         (j.lastError ? '<div class="mc-detail">' + esc(j.lastError === 'schedule-unfireable' ? 'schedule can never fire — reschedule this routine' : j.lastError) + '</div>' : '') +
         failureStreakLine(j) +
         deliveryLine(j) +
@@ -292,7 +300,7 @@
           // only DELETE and re-create a routine to move it an hour, which also threw away its run history.
           '<button class="bb xs" data-act="resched">◷ RESCHEDULE</button>' +
           // no toggle on a settled one-shot: ENABLE can't re-arm it (see completedOnce above)
-          (completedOnce ? '' : '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>') +
+          (finished ? '' : '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>') +
           // REVOKE — a standing unattended permission must be withdrawable without deleting the routine.
           // Only rendered when there is something to revoke, so an ordinary routine's action row is unchanged.
           (grantsOf.length ? '<button class="bb xs" data-act="revoke" title="stop this routine using the terminal / your connected tools">⌫ REVOKE ACCESS</button>' : '') +
@@ -611,6 +619,12 @@
       const prompt = (body.querySelector('#rt-prompt').value || '').trim();
       const schedule = (body.querySelector('#rt-sched').value || '').trim();
       const agentId = (body.querySelector('#rt-agent').value || '').trim();
+      const timesEl = body.querySelector('#rt-times');
+      const timesText = (timesEl.value || '').trim();
+      const times = timesText === '' ? null : Number(timesText);
+      if ((timesEl.validity && timesEl.validity.badInput) || (times !== null && (!Number.isSafeInteger(times) || times < 1))) {
+        sfx('bad'); msgEl.textContent = 'run limit must be a positive whole number, or blank'; return;
+      }
       const provider = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined;
       if (!prompt || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt and a schedule are required'; return; }
       addBtn.disabled = true;
@@ -631,7 +645,7 @@
         const deliveryMode = body.querySelector('#rt-deliver').value;
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
-          name, prompt, schedule, agentId: agentId || undefined, provider, tz,
+          name, prompt, schedule, repeat: { times }, agentId: agentId || undefined, provider, tz,
           meta: body.querySelector('#rt-prompt').dataset.widgetId
             ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
             : body.querySelector('#rt-prompt').dataset.workflowTakeoverId
