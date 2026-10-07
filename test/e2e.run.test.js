@@ -136,7 +136,7 @@ function boot(port, env, attemptsLeft) {
     let out = '', settled = false;
     const onData = d => {
       out += d.toString();
-      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port }); }
+      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port, getOutput: () => out }); }
       else if (!settled && /already in use/i.test(out)) { settled = true; try { child.kill(); } catch (_) {}
         if (attemptsLeft > 0) resolve(boot(port + 1, env, attemptsLeft - 1)); else reject(new Error('no free port')); }
     };
@@ -150,9 +150,10 @@ function boot(port, env, attemptsLeft) {
   const mock = await startMockOpenRouter();
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-e2e-'));
   const env = { SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base, SKYNET_STREAM_KA_MS: '40' };   // fast heartbeat so the KA test observes it in ms, not 20s
-  const { child, port } = await boot(8840 + (process.pid % 50), env, 20);
+  const { child, port, getOutput } = await boot(8840 + (process.pid % 50), env, 20);
   const B = 'http://' + HOST + ':' + port;
   try {
+    A.ok(!getOutput().includes('managed-task-history.read'), 'managed task history initializes without a bounded-log temporal-dead-zone failure');
     // a bootstrapped API token is required for privileged /api routes (api-hardening).
     const token = await bootToken(B, B);
     A.ok(token.length >= 32, 'got a session API token');

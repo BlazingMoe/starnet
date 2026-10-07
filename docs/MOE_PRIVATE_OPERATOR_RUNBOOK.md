@@ -54,6 +54,19 @@ explicit spend caps before unattended jobs are enabled. Provider registry presen
 treated as health evidence; the UI only reports liveness/rate-limit facts the runtime actually
 observed.
 
+For an attended manual chat send, **Manual send limits** in COMMS can set a per-request
+iteration ceiling and/or recorded-cost ceiling in USD. Leave either field blank to use the
+station policy for that dimension. The sidecar validates the values and only tightens its
+existing limits. The controls apply to the main agent request for that send; they do not budget
+retries, recovery, delegation or later automatic stages. Recorded cost may lag a running request,
+and an unknown provider cost is not treated as free. Use provider and station limits for unattended
+work.
+
+Manual-send-limit implementation evidence (2026-10-07): the composer fixture contract passed 49
+assertions and the sidecar e2e with a mocked provider passed 79 assertions. Browser UI acceptance
+was unavailable in the worker environment, so these results do not claim real-model/provider
+acceptance.
+
 ## 3. Configure private Google Workspace access
 
 Moe AI Station uses the stable Gmail, Drive, Calendar, Docs and Sheets APIs through the local

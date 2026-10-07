@@ -419,10 +419,6 @@ function defaultWorkspaces() {
 }
 const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : defaultWorkspaces();
 const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
-const managedTaskHistoryHost = makeTaskHistoryHost({
-  path, fs, workspaces: WORKSPACES, readBoundedJsonl, appendJsonlDurable, failNote, respondJson,
-  clock: { now: () => Date.now() }
-});
 
 const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
   path: path, env: process.env, platform: process.platform, homedir: () => os.homedir()
@@ -648,6 +644,13 @@ const MAX_TOOL_BYTES_PINNED = knobEnvLocked('MAX_TOOL_BYTES');
 // num() passes a parsed value through (including 0 -> UNGOVERNED via budget.js capOf, e.g. SKYNET_BUDGET_PER_DAY=0
 // disables the day pool); only an empty/missing/negative/non-numeric value falls back to the default.
 const num = (v, d) => { if (v == null || String(v).trim() === '') return d; const n = Number(v); return (typeof n === 'number' && !isNaN(n) && n >= 0) ? n : d; };
+// Bounded JSONL readers are used during store construction below, so the ceiling must be
+// initialized before any store calls readBoundedJsonl() at boot.
+const LOG_MAX_BYTES = Math.max(1 << 20, num(ENV('LOG_MAX_BYTES'), 16 * 1024 * 1024));
+const managedTaskHistoryHost = makeTaskHistoryHost({
+  path, fs, workspaces: WORKSPACES, readBoundedJsonl, appendJsonlDurable, failNote, respondJson,
+  clock: { now: () => Date.now() }
+});
 // Users may opt into any cap in SETTINGS → BUDGET (0/blank = no cap); environment variables
 // still override for locked-down deploys. Unmetered subscription runs remain ungoverned.
 const BUDGET_CAPS = {
@@ -900,7 +903,6 @@ function reportDomainStoreIssue(tag) {
    insights bucket the last 24 h), so this is behavior-neutral in practice; the one residual — a global
    ledger total can under-count only past ~2×LOG_MAX_BYTES of lifetime spend, which is far beyond any
    default cap — is documented in docs/PERSISTENCE_HARDENING.md. Env-overridable. */
-const LOG_MAX_BYTES = Math.max(1 << 20, num(ENV('LOG_MAX_BYTES'), 16 * 1024 * 1024));
 function readBoundedJsonl(file) {
   return loadBounded({ fs: fs }, file, LOG_MAX_BYTES)
     .map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);

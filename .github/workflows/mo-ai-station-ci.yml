@@ -121,6 +121,7 @@ jobs:
         run: |
           node test/cron.bounded-restart.e2e.test.js
           node test/run-request-limits.test.js
+          node test/chat-run-limits-ui.test.js
           node test/e2e.run.test.js
           node test/google-connector.test.js
           node test/github-readonly-connector.test.js

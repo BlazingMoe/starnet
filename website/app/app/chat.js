@@ -785,6 +785,20 @@ const Chat = (() => {
   // THE ONE SEND PATH — shared by Enter and the SEND chip. Handles: attachment-only sends, session history recall,
   // typo'd/unknown slash commands (a LOCAL system line, never a paid model turn), type-ahead queueing while busy,
   // and settling in-flight uploads so a staged file is never silently dropped.
+  function composerRunLimits() {
+    const limits = {};
+    for (const [id, key] of [['chat-limit-iters', 'maxIters'], ['chat-limit-usd', 'maxCostUsd']]) {
+      const field = el(id);
+      if (!field) continue;
+      const raw = String(field.value || '').trim();
+      const n = Number(raw);
+      if ((field.validity && (field.validity.badInput || field.validity.rangeUnderflow)) || (raw && (!Number.isFinite(n) || n <= 0 || (key === 'maxIters' && !Number.isSafeInteger(n))))) {
+        return { error: 'Message kept — run limits must be positive numbers; iterations must be a whole number. Leave a field blank to use station limits.' };
+      }
+      if (raw) limits[key] = n;
+    }
+    return { limits: Object.keys(limits).length ? limits : undefined };
+  }
   async function submitComposer() {
     const t = input.value.trim();
     const hasStaged = pendingAtts.length > 0;   // ANY staged file (uploading or ready) makes this a valid send
@@ -816,6 +830,12 @@ const Chat = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('paste kept — selected model context is too small', 'warn');
       return;
     }
+    const requested = composerRunLimits();
+    if (requested.error) { localLine(requested.error); return; }
+    if (requested.limits && (isBusy() || activeWs?.conversationMode === 'group')) {
+      localLine('Message kept — limited sends require an idle single-agent conversation. They cannot be queued or sent to a group.');
+      return;
+    }
     if (t) recordSent(t);
     if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
       const ws = activeWs;
@@ -834,7 +854,7 @@ const Chat = (() => {
     const atts = takeAttachments();   // snapshot the READY refs + clear the composer strip
     if (!t && !atts.length) return;   // everything failed to upload and there's no text → nothing to send
     input.value = ''; closeSlash(); autoGrowInput();   // COMPOSER: collapse back to one line after a send
-    send(t, { attachments: atts });
+    send(t, { attachments: atts, limits: requested.limits });
   }
 
   /* ── ATTACHMENTS ────────────────────────────────────────────────────────────────────────────────────
@@ -8231,6 +8251,7 @@ const Chat = (() => {
       const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd } = await Harness.chat({
         system: sys, messages: historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
         taskAction: taskAction || undefined,
+        limits: opts && opts.limits,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
         recovery: recoveryResume ? opts.recovery : undefined,
         connectorContinuationOf: opts && opts.connectorContinuationOf,
