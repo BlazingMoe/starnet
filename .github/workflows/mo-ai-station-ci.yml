@@ -123,6 +123,7 @@ jobs:
           node test/run-request-limits.test.js
           node test/e2e.run.test.js
           node test/google-connector.test.js
+          node test/github-readonly-connector.test.js
           node test/recovery-policy.test.js
           node test/moe-revenue-pipeline.test.js
           node test/moe-opportunity-discovery-recipe.test.js

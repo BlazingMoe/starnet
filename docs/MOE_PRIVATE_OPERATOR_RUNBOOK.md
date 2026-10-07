@@ -94,6 +94,32 @@ calendar events and other external mutations remain separate consent-gated actio
 
 ## 4. Connect GitHub and other services
 
+For repository review, start in **ABILITIES → CONNECTORS → GitHub (read-only)**.
+This uses the official `https://api.githubcopilot.com/mcp/readonly` endpoint through the
+existing HTTP MCP client, credential storage and consent boundary. Supply a repository-scoped
+personal access token in the connector's credential field, with only the read permissions
+needed for contents, pull requests, issues or Actions. Never put the token in a task prompt.
+Installing this card does not replace an existing `GitHub` connection; disable broader
+connections for agents whose work should only inspect repositories.
+
+For an attended first task, specify the exact owner/repository and branch or PR, then ask Moe
+to read the current commit, summarize a relevant file and list CI checks for that exact commit.
+The answer should include the commit SHA, source links and pending/failed/unknown checks;
+an empty check list is not proof of green CI. Stop on authentication, repository-access or
+scope errors. This connection offers no posting, merging or workflow dispatch; a later write
+workflow requires separately scoped access and authorization.
+
+GitHub documents the server-side read-only URL in its
+[remote MCP guide](https://github.com/github/github-mcp-server/blob/main/docs/remote-server.md).
+The 2026-10-07 implementation reuses that hosted service and the existing StarNet transport;
+it adds no dependency, bundled third-party code or second credential store. The checked StarNet
+upstream `e0a36dcd31787248b877aea01a6e53741012bc46` has the general GitHub card but no distinct
+read-only card. A protocol fixture verifies catalog installation, separate connection identity,
+initialization, tool discovery and a read call with the exact endpoint and header-only credential.
+This is not real GitHub account acceptance, a verification of available account scopes, or a
+claim that all GitHub integration work is complete. Hosted availability and account policies
+remain GitHub-controlled; no new paid service is provisioned by adding the catalog card.
+
 Use the Connector/MCP catalog for services that are already supported generically rather than
 building a second connector implementation. For GitHub, scope the token/installation to the
 repositories and actions you actually need.

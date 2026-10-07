@@ -187,6 +187,10 @@
     /* apikey, NOT oauth: github.com/login/oauth exposes no RFC 7591 dynamic registration (live-probed
        2026-07-18 — discovery succeeds but registration_endpoint is absent), so our DCR sign-in flow can
        never complete against it. A PAT as `Authorization: Bearer` is the documented remote-server path. */
+    { id: 'github-readonly', name: 'GitHub (read-only)', category: 'Developer Tools', authType: 'apikey', transport: 'http',
+      url: 'https://api.githubcopilot.com/mcp/readonly', official: true, homepage: 'https://github.com/github/github-mcp-server',
+      aliases: ['github', 'repository', 'repo', 'pull request', 'code review', 'ci'],
+      blurb: 'Inspect repositories, issues, pull requests and CI through GitHub’s read-only MCP endpoint. Use a repository-scoped personal access token with only the read permissions you need. No posting, merging or workflow dispatch through this connection.' },
     { id: 'github', name: 'GitHub', category: 'Developer Tools', authType: 'apikey', transport: 'http',
       url: 'https://api.githubcopilot.com/mcp', official: true, homepage: 'https://github.com',
       blurb: 'Issues, pull requests, code search, and Actions across your repos. Paste a GitHub personal access token (github.com → Settings → Developer settings).' },
