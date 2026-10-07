@@ -200,6 +200,16 @@ The create-handler/row regression passes its submitted limit through the existin
 store, including transient failure, persistence/reload and terminal exhaustion. This verifies
 the UI boundary and reducer using fixtures; it is not an attended live-model routine rehearsal.
 
+On 2026-10-07, `node test/cron.bounded-restart.e2e.test.js` passed on Windows against
+the real sidecar at source commit 105f8f775. The isolated, credential-free profile executed
+a local script twice on its actual one-minute schedule, retained the first settlement across
+a host restart, and stopped automatically at two settlements. A second restart followed by
+another complete cadence window produced no third file receipt. The recorded output was also
+retrievable from the routine transcript. The test disarmed and stopped its own host and removed
+its disposable profile afterward. This is real local script/scheduler execution through HTTP,
+with synthetic input; it does not accept browser operation, model quality, external connectors,
+interruption inside a mutating script or unattended use of the operator's actual workflows.
+
 ## 8. Recovery point before important changes
 
 The full station recovery path is already integrity-checked and secret-aware. It requires a

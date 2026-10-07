@@ -119,6 +119,7 @@ jobs:
 
       - name: Private operator capability contracts
         run: |
+          node test/cron.bounded-restart.e2e.test.js
           node test/run-request-limits.test.js
           node test/e2e.run.test.js
           node test/google-connector.test.js
