@@ -20,6 +20,8 @@
   const { parsePatch, hunkOldText, hunkNewText, addText } = require('./patchparse.js');
   const { fuzzyFindAndReplace } = require('./fuzzymatch.js');
   const crypto = require('node:crypto');
+  const { StringDecoder } = require('node:string_decoder');
+  const { createCsvProfiler } = require('./csv-profile.js');
 
   function safeAgentId(id) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id || '')) throw new Error('bad agentId');
@@ -302,6 +304,68 @@
       }
     };
 
+    const profileCsvTool = {
+      name: 'fs.profile_csv', capability: 'cabinet', scope: 'read', readOnly: true, requiresConsent: false, timeoutMs: 30000,
+      description: 'Profile a workspace/project CSV without returning data rows. Streams at most maxBytes and maxRows, understands UTF-8 BOM, RFC-style doubled quotes and quoted newlines, and never evaluates formulas. Defaults are delimiter comma and hasHeader true; supply delimiter or hasHeader explicitly when the source uses different conventions. Result reports complete/partial/malformed status, source identity, per-column missing/type counts and finite numeric summaries.',
+      schema: { type:'object', required:['path'], properties: {
+        path:{type:'string'}, delimiter:{type:'string', enum:[',',';','\t','|']}, hasHeader:{type:'boolean'},
+        maxBytes:{type:'number', minimum:1024, maximum:16777216}, maxRows:{type:'number', minimum:1, maximum:100000}
+      } },
+      run: async (args, ctx) => {
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
+        const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        const maxBytes = args.maxBytes == null ? 8388608 : Math.floor(Number(args.maxBytes));
+        const maxRows = args.maxRows == null ? 100000 : Math.floor(Number(args.maxRows));
+        if (![',',';','\t','|'].includes(delimiter)) throw new Error('delimiter must be comma, semicolon, tab, or pipe');
+        if (typeof hasHeader !== 'boolean') throw new Error('hasHeader must be true or false');
+        if (!Number.isFinite(maxBytes) || maxBytes < 1024 || maxBytes > 16777216) throw new Error('maxBytes must be between 1024 and 16777216');
+        if (!Number.isFinite(maxRows) || maxRows < 1 || maxRows > 100000) throw new Error('maxRows must be between 1 and 100000');
+        const { abs } = await resolveInside(aid, args.path, { scope:'read', ctx });
+        let handle;
+        try {
+          handle = await fsp.open(abs, 'r');
+          const stat = await handle.stat();
+          const profiler = createCsvProfiler({ delimiter, hasHeader, maxRows, redact });
+          const decoder = new StringDecoder('utf8');
+          const hash = crypto.createHash('sha256');
+          const chunk = Buffer.alloc(64 * 1024);
+          let bytesRead = 0, eof = false, partial = false;
+          while (bytesRead < maxBytes && !profiler.stopped && !profiler.malformed) {
+            if (ctx && ctx.signal && ctx.signal.aborted) { const e = new Error('CSV profile cancelled'); e.name = 'AbortError'; throw e; }
+            const size = Math.min(chunk.length, maxBytes - bytesRead);
+            const r = await handle.read(chunk, 0, size, bytesRead);
+            if (!r.bytesRead) { eof = true; break; }
+            bytesRead += r.bytesRead;
+            const bytes = chunk.subarray(0, r.bytesRead);
+            hash.update(bytes);
+            profiler.push(decoder.write(bytes));
+          }
+          if (profiler.stopped) partial = true;
+          if (!partial && bytesRead === maxBytes) {
+            const probe = Buffer.alloc(1);
+            const look = await handle.read(probe, 0, 1, bytesRead);
+            partial = look.bytesRead > 0;
+            eof = !partial;
+          }
+          if (!partial && (eof || bytesRead < maxBytes)) profiler.push(decoder.end());
+          const finalStat = await handle.stat();
+          if (Number(finalStat.size) !== Number(stat.size) || Number(finalStat.mtimeMs) !== Number(stat.mtimeMs)) throw new Error('CSV source changed during profiling; retry against a stable file');
+          const result = profiler.finish(partial);
+          result.source = {
+            path: String(redact(String(args.path))), bytes: stat.size,
+            lastModified: stat.mtime.toISOString(), bytesRead,
+            sha256ReadPrefix: hash.digest('hex')
+          };
+          result.limits = { maxBytes, maxRows, maxColumns:256, maxCellChars:65536, byteLimitReached:bytesRead >= maxBytes, rowLimitReached:profiler.stopReason === 'row_limit' };
+          const content = JSON.stringify(result);
+          return { content, summary:'CSV profile ' + result.status + ': ' + result.rows.data + ' data row(s), ' + result.columns.length + ' column(s)' };
+        } catch (e) {
+          if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path))));
+          throw e;
+        } finally { if (handle) { try { await handle.close(); } catch (_) {} } }
+      }
+    };
     const readTool = {
       name: 'fs.read', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 10000,
       description: 'Read a file from the current project folder when this session is project-scoped, otherwise from your private workspace. Text files come back as text; for large text use offset and limit to page character ranges without rerunning the command that produced the file. Word (.docx), Excel (.xlsx) and Jupyter (.ipynb) files are extracted to readable text automatically; PNG/JPEG/GIF/WEBP images are shown to you as actual pixels so you can look at them directly.',
@@ -856,9 +920,9 @@
     };
 
     return {
-      writeTool, readTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, readTool, profileCsvTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, readTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, readTool, profileCsvTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 
