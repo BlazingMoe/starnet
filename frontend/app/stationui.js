@@ -1962,7 +1962,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   //      edit / forget. Rendered as a .gx-framed placeholder, then filled by loadMemoryCore() after the async
   //      fetch (survives retab without a refetch race). Record cards are built as DOM (textContent bodies —
   //      a poisoned/injection entry is inspectable + deletable here but never interpreted, §5.6). ----
-  const MEM_KIND = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE' };
+  const MEM_KIND = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE', lesson:'LESSON' };
 
   function agMemory(a) {
     // same de-duplication as GROWTH: the window is already titled AGENT DOSSIER, the tab is already MEMORY, and
@@ -2032,6 +2032,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const org = originChip(p.origin); if (org) head.appendChild(org);
     card.appendChild(head);
     const bodyEl = mkEl('div', 'mc-body'); bodyEl.textContent = p.content || '(empty)'; card.appendChild(bodyEl);   // textContent — never interpreted
+    if (p.proposalType === 'decision-lesson') {
+      const source = mkEl('div', 'mc-meta'); source.textContent = 'UNVERIFIED OUTCOME SOURCE · decision ' + p.sourceDecisionId + ' · outcome ' + p.sourceOutcomeEventId + '\nDecision: ' + p.sourceDecision + '\nOutcome (model-reported): ' + p.sourceOutcome + '\nEvidence refs: ' + (p.evidenceRefs || []).join(', ') + '\nUncertainty: ' + p.uncertainty; card.appendChild(source);
+    }
     const meta = mkEl('div', 'mc-meta');
     const prov = mkEl('span', 'mc-prov');
     const when = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—';

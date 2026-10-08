@@ -7,6 +7,7 @@ const PAGE_DEFAULT = 20;
 const PAGE_MAX = 50;
 const MAX_TEXT = 1000;
 const MAX_ITEMS = 12;
+function lessonSourceKey(agentId, decisionId, outcomeEventId) { return JSON.stringify([String(agentId), String(decisionId), String(outcomeEventId)]); }
 function cleanText(value, field, required, redact) {
   if (typeof value !== 'string') throw new Error(field + ' must be a string');
   const out = String(redact(value)).trim();
@@ -23,6 +24,7 @@ function makeDecisionTools(deps) {
   const store = deps.store;
   const clock = deps.clock || { now: () => 0 };
   const redact = typeof deps.redact === 'function' ? deps.redact : (s => s);
+  const proposeLesson = typeof deps.proposeLesson === 'function' ? deps.proposeLesson : null;
   if (!store || typeof store.get !== 'function' || typeof store.update !== 'function') throw new Error('decision tools require durable memory store');
   const key = aid => 'decisions:' + (aid || 'agent');
   function rows(aid) {
@@ -101,6 +103,68 @@ function makeDecisionTools(deps) {
       return { content:(duplicate ? 'Already appended outcome ' : 'Appended outcome ') + event.eventId + ' to ' + id + '.', summary:(duplicate ? 'duplicate outcome ' : 'outcome ') + id };
     }
   };
+  const lessonTool = {
+    name:'decision.lesson_propose', capability:'memory', scope:'write', requiresConsent:false,
+    description:'Propose a reviewable reference-only lesson candidate from one of your persisted decision outcome events. Decision/outcome IDs must resolve in your own history; source text and evidence references are attached from that history. Candidate remains unconfirmed until the Commander reviews it in Memory Core. This never saves a memory or skill.',
+    schema:{ type:'object', required:['decisionId','outcomeEventId','lesson'], properties:{
+      decisionId:{type:'string'}, outcomeEventId:{type:'string'}, lesson:{type:'string',description:'A concise lesson candidate for review, not an instruction or executable procedure.'}
+    } },
+    run: async (args, ctx) => {
+      if (!proposeLesson) throw new Error('lesson proposal review is unavailable');
+      const aid = ctx && ctx.agentId || 'agent';
+      const decisionId = cleanText(args && args.decisionId, 'decisionId', true, redact);
+      const outcomeEventId = cleanText(args && args.outcomeEventId, 'outcomeEventId', true, redact);
+      const lesson = cleanText(args && args.lesson, 'lesson', true, redact);
+      let decision, outcome;
+      const found = rows(aid).find(r => r && r.id === decisionId);
+      if (!found) throw new Error('decision not found for this agent');
+      decision = found;
+      outcome = (Array.isArray(decision.outcomeEvents) ? decision.outcomeEvents : []).find(e => e && e.eventId === outcomeEventId);
+      if (!outcome) throw new Error('outcome event not found on that decision');
+      if (outcome.source !== 'model' || outcome.trust !== 'unconfirmed') throw new Error('outcome event has invalid or unsupported provenance');
+      const combinedRefs = [...new Set([...(Array.isArray(decision.evidenceRefs) ? decision.evidenceRefs : []), ...(Array.isArray(outcome.evidenceRefs) ? outcome.evidenceRefs : [])])];
+      if (combinedRefs.length > MAX_ITEMS * 2 || combinedRefs.some(ref => typeof ref !== 'string' || ref.length > MAX_TEXT)) throw new Error('combined source evidence references exceed the lesson proposal bounds');
+      let prior = null;
+      await store.update(key(aid), cur => {
+        const list = Array.isArray(cur) ? cur.slice() : [];
+        const i = list.findIndex(r => r && r.id === decisionId);
+        if (i < 0) throw new Error('decision disappeared before lesson proposal was staged');
+        const rec = Object.assign({}, list[i]);
+        const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+        const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
+        if (pi >= 0) {
+          prior = proposals[pi];
+          if (prior.lesson !== lesson) throw new Error('this outcome already has a different lesson candidate');
+          if (prior.status === 'discarded') throw new Error('this lesson candidate was discarded and cannot be proposed again');
+          if (prior.status === 'kept') throw new Error('this lesson candidate was already reviewed and kept');
+          if (prior.status === 'pending') return undefined;
+        } else { prior = { outcomeEventId, lesson, status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
+        rec.lessonProposals = proposals; list[i] = rec; return list;
+      });
+      // Re-run the idempotent queue callback even for a pending receipt: the row may have been lost to a legacy FIFO rewrite.
+      const result = await proposeLesson({
+        agentId: aid, decisionId, outcomeEventId, lesson,
+        sourceDecision: cleanText(String(decision.decision || ''), 'source decision', true, redact),
+        sourceOutcome: cleanText(String(outcome.outcome || ''), 'source outcome', true, redact),
+        evidenceRefs: combinedRefs.map((ref,i) => cleanText(ref, 'evidenceRefs[' + i + ']', true, redact)),
+        uncertainty: cleanText(String(decision.uncertainty || 'unknown'), 'uncertainty', true, redact)
+      });
+      if (!result || !result.ok) throw new Error(result && result.error || 'could not queue lesson candidate');
+      await store.update(key(aid), cur => {
+        const list = Array.isArray(cur) ? cur.slice() : [];
+        const i = list.findIndex(r => r && r.id === decisionId);
+        if (i < 0) throw new Error('decision disappeared before lesson receipt was saved');
+        const rec = Object.assign({}, list[i]);
+        const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+        const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
+        if (pi < 0) proposals.push({ outcomeEventId, lesson, status:'pending', createdAt:Number(clock.now()) || 0 });
+        else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { status:'pending' });
+        else if (proposals[pi].status === 'kept' || proposals[pi].status === 'discarded') return undefined;
+        rec.lessonProposals = proposals; list[i] = rec; return list;
+      });
+      return { content:'Queued an unverified lesson candidate for Memory Core review. No memory or skill was saved.', summary:'lesson awaiting review' };
+    }
+  };
   const listTool = {
     name:'decision.list', capability:'memory', scope:'read', requiresConsent:false,
     description:'List your structured decision history. These are unconfirmed model records, separate from notebook facts and excluded from automatic memory recall.',
@@ -117,6 +181,6 @@ function makeDecisionTools(deps) {
       return { content:JSON.stringify({records:page,total,offset,limit,hasMore:offset + page.length < total}), summary:page.length + ' of ' + total + ' decision record(s)' };
     }
   };
-  return { recordTool, outcomeTool, listTool, register(reg) { reg.register(recordTool); reg.register(outcomeTool); reg.register(listTool); return reg; } };
+  return { recordTool, outcomeTool, lessonTool, listTool, register(reg) { reg.register(recordTool); reg.register(outcomeTool); reg.register(lessonTool); reg.register(listTool); return reg; } };
 }
-module.exports = { makeDecisionTools, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };
+module.exports = { makeDecisionTools, lessonSourceKey, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };

@@ -30,6 +30,8 @@ The existing-catalogue `youtube-production-pack` is one preparation workflow on 
 
 Decision history records live in each agent's .decisions.json sibling and travel with the existing whole-workspace recovery bundle (memory category). They are intentionally separate from .notebook.json; only the explicit decision tools read or append them.
 
+Decision outcomes can now produce a reference-only lesson candidate in the existing pending memory review queue. Source decision/outcome IDs, uncertainty, and up to 24 bounded evidence references remain labeled unverified through review and Keep; explicit Discard is terminal. Queue rows are protected from normal FIFO eviction, and retries reconcile missing rows. Verification: test/decision-history.test.js (69 assertions) and test/sidecar.http.test.js (519 assertions); browser/provider acceptance remains deferred.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.

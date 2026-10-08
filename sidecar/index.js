@@ -56,7 +56,7 @@ const docExtract = require('./tools/builtin/docextract.js').makeDocExtract({ inf
 // image, so the `images` channel has more than a single caller (a channel with one caller is a special case).
 const imageWire = require('./tools/builtin/imagewire.js').makeImageWire({});
 const { makeNotebookTools } = require('./tools/builtin/notebook.js');
-const { makeDecisionTools } = require('./tools/builtin/decisions.js');
+const { makeDecisionTools, lessonSourceKey } = require('./tools/builtin/decisions.js');
 const { makeRecallTool } = require('./tools/builtin/recall.js');
 const { makeToolSearchTool } = require('./tools/builtin/toolsearch.js');   // tool.search: reach a granted-but-unadvertised (deferred) tool
 const CodeMode = require('./tools/builtin/code.js');                      // code.run: bounded JS composition over this run's read-only grants
@@ -2355,6 +2355,32 @@ function stashProposals(agentId, runId, proposals) {
   proposalsByRun.set(runId, { agentId, runId, createdAt: Date.now(), proposals });
   latestProposalRun.set(agentId, runId);
   while (proposalsByRun.size > PROPOSALS_CAP) { const k = proposalsByRun.keys().next().value; proposalsByRun.delete(k); }
+}
+// Decision-outcome lessons enter the existing durable Keep/Discard queue. A source-pair hash gives a stable
+// review key across retries; the content and source labels are copied only from the verified per-agent outcome.
+async function queueDecisionLessonCandidate(input) {
+  const sourceKey = lessonSourceKey(input.agentId, input.decisionId, input.outcomeEventId);
+  const digest = crypto.createHash('sha256').update(sourceKey).digest('hex').slice(0, 24);
+  const runId = 'decisionlesson_' + digest;
+  const id = 'lesson_' + digest;
+  const prop = {
+    id, kind:'lesson', proposalType:'decision-lesson', content:String(input.lesson), scope:'global', origin:'decision-outcome',
+    sourceDecisionId:String(input.decisionId), sourceOutcomeEventId:String(input.outcomeEventId),
+    sourceDecision:String(input.sourceDecision), sourceOutcome:String(input.sourceOutcome),
+    evidenceRefs:Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 24) : [], uncertainty:String(input.uncertainty || 'unknown')
+  };
+  const pending = MemoryStore.findPending(notebookStore, input.agentId, runId, id);
+  if (!pending) {
+    const added = await MemoryStore.appendPending(notebookStore, input.agentId, runId, [prop], Date.now());
+    if (!added && !MemoryStore.findPending(notebookStore, input.agentId, runId, id)) return { ok:false, error:'lesson candidate was not durably queued' };
+  }
+  let batch = proposalsByRun.get(runId);
+  if (batch && batch.agentId === input.agentId) {
+    if (!batch.proposals.some(p => p && p.id === id)) batch.proposals.push(prop);
+  } else stashProposals(input.agentId, runId, [prop]);
+  latestProposalRun.set(input.agentId, runId);
+  chanEmit('memory.proposed', { agentId:input.agentId, runId, id, kind:'lesson', scope:'global' });
+  return { ok:true, proposal:prop };
 }
 
 /* ---- the DURABLE pending queue (pending:<agent>) ----
@@ -15438,7 +15464,7 @@ async function runOnce(o) {
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
-  makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
+  makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
@@ -20442,15 +20468,21 @@ async function writeMemoryRecord(agentId, prop, opts) {
   }
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
   // against the current notebook and a concurrent run's memory.write isn't clobbered by this whole-array set.
-  let writtenId = null, rec = null;
+  let writtenId = null, rec = null, duplicateLesson = false;
   await notebookStore.update('notebook:' + agentId, (stored) => {
-    const list = Array.isArray(stored) ? stored : [];
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    if (prop && prop.proposalType === 'decision-lesson') {
+      const prior = list.find(r => r && r.lessonSource && r.lessonSource.decisionId === prop.sourceDecisionId && r.lessonSource.outcomeEventId === prop.sourceOutcomeEventId);
+      if (prior) { rec = prior; writtenId = prior.id; duplicateLesson = true; return undefined; }
+    }
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
     rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
+    if (prop && prop.proposalType === 'decision-lesson') rec.lessonSource = { decisionId:prop.sourceDecisionId, outcomeEventId:prop.sourceOutcomeEventId, decision:prop.sourceDecision, outcome:prop.sourceOutcome, evidenceRefs:Array.isArray(prop.evidenceRefs) ? prop.evidenceRefs.slice(0,24) : [], uncertainty:prop.uncertainty || 'unknown', trust:'unconfirmed' };
     list.push(rec);
     return list;
   });
+  if (duplicateLesson) return { ok:true, id:writtenId, kind:rec.kind, duplicate:true };
   chanEmit('memory.write', { agentId, runId: runId || rec.sourceRunId || writtenId, id: writtenId, kind: rec.kind, scope: rec.scope });
   // HOOKS — on_memory_write, at the OTHER path that commits a record (the silent auto-save + the Keep/Edit
   // turn-in both land here, not in notebook.write). Both sites fire it or the event would be true only half
@@ -20470,6 +20502,41 @@ async function writeMemoryRecord(agentId, prop, opts) {
   return { ok: true, id: writtenId, kind: rec.kind };
 }
 
+async function claimDecisionLessonKeep(agentId, prop) {
+  if (!prop || prop.proposalType !== 'decision-lesson') return;
+  await notebookStore.update('decisions:' + agentId, stored => {
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    const idx = list.findIndex(d => d && d.id === prop.sourceDecisionId);
+    if (idx < 0) throw new Error('source decision disappeared before lesson review');
+    const rec = Object.assign({}, list[idx]);
+    const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+    const pi = proposals.findIndex(p => p && p.outcomeEventId === prop.sourceOutcomeEventId);
+    if (pi < 0) throw new Error('source outcome has no pending lesson proposal');
+    const prior = proposals[pi];
+    if (prior.lesson !== prop.content) throw new Error('lesson candidate no longer matches its source receipt');
+    if (prior.status === 'kept') return undefined;
+    if (prior.status === 'discarded') throw new Error('lesson candidate was discarded and cannot be kept');
+    if (prior.status !== 'pending' && prior.status !== 'staging' && prior.status !== 'reviewing-kept') throw new Error('lesson candidate is not available for Keep');
+    if (prior.status !== 'reviewing-kept') proposals[pi] = Object.assign({}, prior, { status:'reviewing-kept', reviewStartedAt:Date.now() });
+    rec.lessonProposals = proposals; list[idx] = rec; return list;
+  });
+}async function markDecisionLessonReviewed(agentId, prop, status, memoryId) {
+  if (!prop || prop.proposalType !== 'decision-lesson') return;
+  await notebookStore.update('decisions:' + agentId, stored => {
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    const idx = list.findIndex(d => d && d.id === prop.sourceDecisionId);
+    if (idx < 0) throw new Error('source decision disappeared before lesson review was recorded');
+    const rec = Object.assign({}, list[idx]);
+    const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+    const pi = proposals.findIndex(p => p && p.outcomeEventId === prop.sourceOutcomeEventId);
+    if (pi < 0) throw new Error('source outcome has no pending lesson proposal');
+    const prior = proposals[pi];
+    if (prior.status === status) return undefined;
+    if (prior.status !== 'pending' && prior.status !== 'staging' && !(status === 'kept' && prior.status === 'reviewing-kept')) throw new Error('lesson candidate was already reviewed as ' + prior.status);
+    proposals[pi] = Object.assign({}, prior, { status, reviewedAt:Date.now(), memoryId:memoryId || null });
+    rec.lessonProposals = proposals; list[idx] = rec; return list;
+  });
+}
 // §5.6 "discard/veto = never again": append the rejected belief text to the permanent per-agent declined list
 // (capped FIFO) so reflection's dedup suppresses it forever. Idempotent (no dup entries). A failed write never
 // fails the caller (the reject-list is best-effort observability; the negative feedback still calibrates trust).
@@ -20540,6 +20607,7 @@ async function handleMemoryTurnin(req, res) {
   };
 
   if (verdict === 'discard') {
+    try { await markDecisionLessonReviewed(agentId, prop, 'discarded', null); } catch (e) { return json(500, { error:'could not save lesson review: ' + ((e && e.message) || e) }); }
     await takePending(agentId, runId, id);
     dropLive();
     // §5.6 "discard = never again": no NOTEBOOK record is written, but the rejected text IS recorded to the
@@ -20550,12 +20618,14 @@ async function handleMemoryTurnin(req, res) {
   }
   // keep/edit -> commit a real §5.2 record via the ONE write path (shared with silent auto-save). The keep/edit
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
+  if (prop.proposalType === 'decision-lesson') { try { await claimDecisionLessonKeep(agentId, prop); } catch (e) { return json(409, { error:'lesson review is no longer available: ' + ((e && e.message) || e) }); } }
   const content = (verdict === 'edit' ? String(body.content != null ? body.content : prop.content) : prop.content).trim();
   const w = await writeMemoryRecord(agentId, prop, {
     content, runId, trustDelta: fb.delta, origin: prop.origin, userConfirmed: true,   // the surface that PROPOSED it, not the one approving it
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });
+  try { await markDecisionLessonReviewed(agentId, prop, 'kept', w.id); } catch (e) { return json(500, { error:'memory saved but lesson review receipt failed: ' + ((e && e.message) || e) }); }
   await takePending(agentId, runId, id);   // consume only after the kept bytes are durably accepted
   dropLive();
   const writtenId = w.id;
@@ -20618,7 +20688,8 @@ function servePending(req, res) {
     const rows = listPending(agent).map(p => redact({
       runId: p.runId || '', id: p.id || '', kind: p.kind || 'note',
       content: String(p.content || ''), scope: p.scope || 'global',
-      origin: p.origin || 'commander', createdAt: p.createdAt || 0
+      origin: p.origin || 'commander', createdAt: p.createdAt || 0,
+      ...(p.proposalType === 'decision-lesson' ? { proposalType:p.proposalType, sourceDecisionId:p.sourceDecisionId, sourceOutcomeEventId:p.sourceOutcomeEventId, sourceDecision:p.sourceDecision, sourceOutcome:p.sourceOutcome, evidenceRefs:p.evidenceRefs, uncertainty:p.uncertainty, sourceTrust:'unconfirmed' } : {})
     }));
     json(200, { agentId: agent, pending: rows });
   } catch (e) { json(500, readRouteFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty

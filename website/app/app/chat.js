@@ -494,7 +494,7 @@ const Chat = (() => {
     setTimeout(finish, 460);   // fallback: a dropped transitionend (engine quirk / not displayed) still clears the card
   }
 
-  const KIND_TAG = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE' };
+  const KIND_TAG = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE', lesson:'LESSON' };
 
   // COMMS GLYPHS — small currentColor SVGs that replace color emoji (📁/📄/🖼/📋) so they inherit the phosphor
   // theme instead of puncturing the CRT look with an OS-coloured emoji. Static developer markup (no model/user
@@ -3892,6 +3892,11 @@ const Chat = (() => {
       const item = document.createElement('div'); item.className = 'turnin-item';
       const kind = document.createElement('span'); kind.className = 'turnin-kind'; kind.textContent = KIND_TAG[prop.kind] || 'NOTE';
       const text = document.createElement('span'); text.className = 'turnin-text'; text.textContent = prop.content;
+      if (prop.proposalType === 'decision-lesson') {
+        const source = document.createElement('div'); source.className = 'turnin-source';
+        source.textContent = 'UNVERIFIED OUTCOME SOURCE · decision ' + prop.sourceDecisionId + ' · outcome ' + prop.sourceOutcomeEventId + '\nDecision: ' + prop.sourceDecision + '\nOutcome (model-reported): ' + prop.sourceOutcome + '\nEvidence refs: ' + (prop.evidenceRefs || []).join(', ') + '\nUncertainty: ' + prop.uncertainty;
+        item.appendChild(source);
+      }
       const btns = document.createElement('span'); btns.className = 'consent-btns';
       item.appendChild(kind); item.appendChild(text); item.appendChild(btns);
       slot.appendChild(item);
