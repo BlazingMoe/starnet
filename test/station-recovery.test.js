@@ -33,6 +33,7 @@ function seedCompleteStation() {
   write('transcript.jsonl', JSON.stringify({ workstreamId: 'general', role: 'assistant', content: 'conversation survives', ts: 1 }) + '\n');
   write('channels/agent.history.json', { version: 1, messages: [{ role: 'user', content: 'telegram conversation', ts: 2 }] });
   write('agent.notebook.json', { entries: [{ id: 'memory-1', title: 'Remember', body: 'the station' }] });
+  write('agent.decisions.json', [{ id: 'decision-durable', source: 'model', trust: 'unconfirmed' }]);
   write('_commander.dossier.json', { version: 1, block: 'Commander context' });
   write('cron.jobs.json', { version: 1, jobs: [{ id: 'routine-1', schedule: '0 9 * * 1-5', prompt: 'weekday briefing' }] });
   write('loops.json', { version: 1, loops: [{ id: 'loop-1', objective: 'keep testing until green', status: 'active' }] });
@@ -84,6 +85,7 @@ A.ok(v1.report.reauthentication.some(x => x.kind === 'provider' && x.id === 'kim
 A.ok(v1.report.reauthentication.some(x => x.kind === 'project-path' && x.id === 'C:/Projects/demo'), 'machine-specific project authority requires explicit reauthorization');
 A.ok(v1.report.skipped.some(x => x.path === '.browser-profile/Cookies'), 'browser cookie profile is explicitly skipped');
 A.ok(v1.report.skipped.some(x => x.path === 'proc-ledger.json'), 'ephemeral process ownership is explicitly skipped');
+A.ok(v1.files.some(f => f.path === 'agent.decisions.json'), 'decision history is included in whole-workspace recovery');
 A.eq(R.validate(v1).ok, true, 'fresh bundle validates');
 
 // B. Atomic bundle creation and genuinely clean-profile restore preserve the semantic fingerprint.
@@ -100,6 +102,7 @@ A.eq(restoredV1.ok, true, 'complete bundle restores onto a clean profile');
 A.eq(restoredV1.rollback, null, 'clean restore needs no rollback generation');
 A.eq(cleanBrowser['starnet.station.v1'], browserV1['starnet.station.v1'], 'browser-owned station layout state restores');
 A.eq(cleanBrowser['starnet.byok.key'], undefined, 'browser credential is not restored');
+A.ok(fs.readFileSync(path.join(cleanTarget,'agent.decisions.json'),'utf8').includes('decision-durable'), 'decision history survives clean-profile restore');
 A.ok(read(cleanTarget, 'agent/workshop/run-1/report.md').includes('User-created deliverable bytes survive'), 'deliverable bytes restore');
 A.ok(!JSON.parse(read(cleanTarget, 'permissions.allow.json')).allow.includes('path:C:/Projects/demo'), 'clean profile never inherits machine-specific path authority');
 A.ok(JSON.parse(read(cleanTarget, 'permissions.allow.json')).allow.includes('fs.write:workspace'), 'portable non-path permissions are preserved');

@@ -56,6 +56,7 @@ const docExtract = require('./tools/builtin/docextract.js').makeDocExtract({ inf
 // image, so the `images` channel has more than a single caller (a channel with one caller is a special case).
 const imageWire = require('./tools/builtin/imagewire.js').makeImageWire({});
 const { makeNotebookTools } = require('./tools/builtin/notebook.js');
+const { makeDecisionTools } = require('./tools/builtin/decisions.js');
 const { makeRecallTool } = require('./tools/builtin/recall.js');
 const { makeToolSearchTool } = require('./tools/builtin/toolsearch.js');   // tool.search: reach a granted-but-unadvertised (deferred) tool
 const CodeMode = require('./tools/builtin/code.js');                      // code.run: bounded JS composition over this run's read-only grants
@@ -15437,6 +15438,7 @@ async function runOnce(o) {
   });
   makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({

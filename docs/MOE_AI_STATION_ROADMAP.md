@@ -28,6 +28,8 @@ The [upstream capability audit and delivery plan](MOE_LIFE_BUSINESS_AUTOMATION.m
 
 The existing-catalogue `youtube-production-pack` is one preparation workflow on this foundation. Its possible continuation is verified video rendering, private upload and policy-bounded public publication. Etsy would progress from research/drafts through managed OAuth and reconciled operations; trading would start in simulation with explicit risk and account-state controls and separate authorization for live execution. Select subsequent blocks by actual operator needs, reuse across domains, runtime reliability and demonstrable end-to-end value; these examples must not crowd out general-purpose capabilities. Catalogue availability, local tests and real unattended operation must remain distinct evidence levels.
 
+Decision history records live in each agent's .decisions.json sibling and travel with the existing whole-workspace recovery bundle (memory category). They are intentionally separate from .notebook.json; only the explicit decision tools read or append them.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.
@@ -107,7 +109,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Memory | Global user memory | Partial | Commander dossier/taste concepts | User-approved durable preferences and facts | P1 |
 | Memory | Episodic memory | Partial | Event/history primitives | Task episodes with outcome and retrospective | P1 |
 | Memory | Semantic knowledge | Partial | Memory primitives | Indexed facts/entities/documents with source provenance | P1 |
-| Memory | Decision history | Missing/Partial | Logs/events | Store decision, alternatives, evidence, confidence, outcome | P2 |
+| Memory | Decision history | Existing/Partial | `decision.record` / `decision.list` / `decision.outcome` in the per-agent durable memory store | Bounded untrusted records with alternatives, evidence references, uncertainty, optional confidence, and append-only outcome events; excluded from notebook recall; broader retrospective/UI remains future work | P2 |
 | Learning | Ratings/feedback | Existing | Feedback/taste-profile concepts | Structured evaluator signals and regression tracking | P1 |
 | Learning | Mistake/lesson memory | Partial | Memory + feedback | Verified lessons generated from failures/successes | P1 |
 | Learning | Skill extraction | Partial | Skills system exists | Experience → proposed reusable skill → validation → publish | P1 |

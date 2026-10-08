@@ -21,6 +21,7 @@ function memoryFileFor(workspaces, pathMod, key) {
   const k = String(key || '');
   if (k.indexOf('notebook:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^notebook:/) + '.notebook.json');
   if (k.indexOf('todo:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^todo:/) + '.todo.json');
+  if (k.indexOf('decisions:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^decisions:/) + '.decisions.json');
   if (k.indexOf('declined:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^declined:/) + '.declined.json');
   if (k.indexOf('minted:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^minted:/) + '.minted.json');
   if (k.indexOf('pending:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^pending:/) + '.pending.json');
@@ -70,7 +71,7 @@ function makeMemoryStore(deps) {
 // without booting the server (the new-hero clean-slate is a named hard rule, not just a source-grep).
 async function resetAgentMemory(store, agentId) {
   const id = String(agentId || 'agent');
-  for (const key of ['notebook:' + id, 'declined:' + id, 'todo:' + id, 'minted:' + id, 'pending:' + id]) {
+  for (const key of ['notebook:' + id, 'declined:' + id, 'todo:' + id, 'minted:' + id, 'pending:' + id, 'decisions:' + id]) {
     try { await store.update(key, () => []); } catch (e) { failNote('memory.clear', e); }
   }
 }
