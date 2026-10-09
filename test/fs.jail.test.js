@@ -95,6 +95,20 @@ async function rejects(promise, msg) { try { await promise; A.ok(false, msg + ' 
     const afterProfileWrite=await profiled.writeTool.run({path:'stale.csv',content:'fresh replacement'},{agentId:'csv-agent'});
     A.eq(afterProfileWrite.receipt.state,'read-back-verified','aggregate profiling does not rearm the fs.read freshness stamp');
     A.ok(!result.content.includes('say "hi"') && !result.content.includes('line one'),'profile output does not expose data rows');
+    // A close failure is visible through the fail-open counter but does not replace a successful profile.
+    {
+      const failopen = require('../sidecar/failopen.js');
+      const before = failopen.counts()['fs.profile_csv.close'] || 0;
+      await fsp.writeFile(path.join(csvRoot,'close.csv'),'n\n7\n','utf8');
+      const closeFailFsp = Object.assign({}, fsp, { open: async (...args) => {
+        const file = await fsp.open(...args);
+        return { stat: file.stat.bind(file), read: file.read.bind(file), close: async () => { await file.close(); throw new Error('simulated close failure'); } };
+      } });
+      const closeFailTools = makeFsTools({ fsp:closeFailFsp, pathMod:path, root:ROOT });
+      const closeFailResult = await closeFailTools.profileCsvTool.run({path:'close.csv'},{agentId:'csv-agent'});
+      A.eq(JSON.parse(closeFailResult.content).rows.data,1,'close failure does not mask the completed profile');
+      A.eq(failopen.counts()['fs.profile_csv.close'],before+1,'profile close failure is reported through the tagged fail-open counter');
+    }
 
     await fsp.writeFile(path.join(csvRoot,'semicolon.csv'),'a;b\n1;2\n3;4\n','utf8');
     result=await dispatch({path:'semicolon.csv',delimiter:';',hasHeader:false}); report=JSON.parse(result.content);

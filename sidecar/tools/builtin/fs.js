@@ -22,6 +22,7 @@
   const crypto = require('node:crypto');
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
+  const { note: failNote } = require('../../failopen.js');
 
   function safeAgentId(id) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id || '')) throw new Error('bad agentId');
@@ -363,7 +364,7 @@
         } catch (e) {
           if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path))));
           throw e;
-        } finally { if (handle) { try { await handle.close(); } catch (_) {} } }
+        } finally { if (handle) { try { await handle.close(); } catch (e) { failNote('fs.profile_csv.close', e); } } }
       }
     };
     const readTool = {
