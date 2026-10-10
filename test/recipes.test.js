@@ -95,6 +95,15 @@ const dfill = R.fillTask(dangling.id, { thing: 'it' });
 A.ok(dfill.indexOf('Do it with {undeclared}.') >= 0, 'an undeclared token is left as-is');
 R.removeCustom(dangling.id);
 
+/* CSV data explanation composes the registered bounded read tools into a safe saved deliverable. */
+const dataExplain = R.get('data-explain');
+A.ok(dataExplain, 'Explain This Data remains a built-in recipe');
+A.eq(dataExplain.params.map(p => p.key), ['file', 'question', 'workspace'], 'dataset workflow accepts source, analysis question and output folder');
+A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task), 'dataset workflow uses the real streaming profile and paged row tools');
+A.ok(/partial/.test(dataExplain.task) && /100000/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
+A.ok(/credential-pattern redactor/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
+A.ok(/numericSemantics caveat/.test(dataExplain.task) && /approximate finite numeric summaries/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
+A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
 /* every built-in, filled with sample values, must READ AS A REAL TASK DIRECTIVE (so it launches work, not
    chatter) AND carry a ranking lane consistent with what the app's own classifier tags the filled task as. */
 for (const b of builtins) {

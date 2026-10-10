@@ -41,7 +41,7 @@ const { makeQuestStore } = require('../sidecar/quest-store.js');
 const { resolveTools } = require('../sidecar/capability/resolve.js');
 const { makeCapCtx } = require('../sidecar/capability/capGate.js');
 const { makeConsentBroker } = require('../sidecar/permissions.js');
-const { renderRecall, injectRecall, rank } = require('../sidecar/context.js');
+const { renderRecall, injectRecall, rank, redact } = require('../sidecar/context.js');
 
 const ROOT = path.join(os.tmpdir(), 'starnet-itest-' + process.pid);
 
@@ -97,7 +97,7 @@ const fixture = {
   makeWebTools({ fetchImpl: cannedFetch, lookup: null }).register(registry);
   makeBrowserTools({ driver: { navigate: async u => u, snapshot: async () => [], click: async () => '', type: async () => '', press: async k => k, scroll: async () => '', back: async () => '', getText: async () => '', consoleLog: () => [], handleDialog: async () => ({}), screenshot: async () => '' } }).register(registry);
   makeDesktopTools({ opener: async () => 'launched' }).register(registry);
-  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 } }).register(registry);
+  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact }).register(registry);
   makeNotebookTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);
   makeWidgetTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);   // WIDGET RAILS Phase 2: widget.set rides the notebook (memory) grant
   makeTodoTool({ store: new Map() }).register(registry);
@@ -141,7 +141,7 @@ const fixture = {
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.read', 'fs.search', 'fs.write', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.search', 'fs.write', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -241,6 +241,77 @@ const fixture = {
     const restored = require('../sidecar/run-journal.js').makeRunJournal({ dir: journalDir }).inspect('dossier-fixture');
     A.eq(restored.corrupt, false, 'cold journal inspection reconstructs dossier checkpoints');
     for (const content of Object.values(outputs)) A.ok(restored.checkpoint.messages.some(m => m.role === 'tool' && String(m.content).includes(content.trim())), 'read-back evidence survives a fresh journal instance');
+  }
+
+  // CSV data-explanation acceptance fixture: real tool registry/capability/consent, bounded input,
+  // paged rows, redaction, two saved artifacts, and independent read-back on the normal agent loop.
+  {
+    const dataDir = path.join(ROOT, 'agent', 'analysis');
+    await fsp.mkdir(dataDir, { recursive: true });
+    const csvPath = path.join(ROOT, 'agent', 'sales.csv');
+    const csvBytes = Buffer.from('region,amount,note,credential\nNorth,10,first,password=fixture-sensitive-value\nSouth,20,"two\nlines",none\nNorth,30,"=SUM(1,2)",none\n');
+    await fsp.writeFile(csvPath, csvBytes);
+    const csvStat = await fsp.stat(csvPath);
+    const taskRecipe = require('../frontend/app/recipe-catalog/data.js').find(r => r.id === 'data-explain');
+    const task = require('../frontend/app/recipes.js').fillTask(taskRecipe, {
+      file: 'sales.csv', question: 'Which region has the most revenue?', workspace: 'analysis'
+    });
+    const turns = [];
+    const tool = (id, name, args) => turns.push([
+      { type: 'tool_start', index: 0, id, name },
+      { type: 'tool_args', index: 0, chunk: JSON.stringify(args) },
+      { type: 'done', finishReason: 'tool_calls' }
+    ]);
+    tool('profile-csv', 'fs_profile_csv', { path: 'sales.csv', delimiter: ',', hasHeader: true, maxRows: 2 });
+    tool('rows-1', 'fs_read_csv_rows', { path: 'sales.csv', delimiter: ',', hasHeader: true, offset: 0, limit: 2 });
+    tool('rows-2', 'fs_read_csv_rows', { path: 'sales.csv', delimiter: ',', hasHeader: true, offset: 2, limit: 2 });
+    tool('choose-output-folder', 'fs_list', { path: 'analysis' });
+    const report = '# Dataset brief\n\nSource: sales.csv; bytes: ' + csvStat.size + '; last modified: ' + csvStat.mtime.toISOString() + '. Profile is PARTIAL: exactly the first 2 data rows were profiled, so these are not whole-file totals. Finite IEEE-754 binary64 values; decimal summaries are approximate and integers outside the safe range may be rounded. The row review covered source rows 1-3 in pages 1-2. Credential-shaped content was scrubbed by StarNet’s configured key-pattern redactor; this is not general PII detection. The quoted multiline field stayed on one logical row and the formula-looking value remained inert. North has $40 and South $20 in this three-row fixture. This describes the fixture data only, not a causal or population claim.\n';
+    const findings = 'finding,evidence_range,observed_evidence,interpretation,confidence\nRevenue by region,rows 1-3,"North 10+30; South 20",North is highest in the complete row review,high within this fixture\nCoverage,profile rows 1-2,"profile status partial",Profile totals describe only the first two rows,high\n';
+    tool('write-report', 'fs_write', { path: 'analysis/dataset-brief-fixture/report.md', content: report });
+    tool('write-findings', 'fs_write', { path: 'analysis/dataset-brief-fixture/findings.csv', content: findings });
+    tool('read-report', 'fs_read', { path: 'analysis/dataset-brief-fixture/report.md' });
+    tool('read-findings', 'fs_read', { path: 'analysis/dataset-brief-fixture/findings.csv' });
+    turns.push([{ type: 'text', delta: 'Fixture analysis saved and both files read back. The profile covers only rows 1-2; all three data rows were reviewed.' }, { type: 'done', finishReason: 'stop' }]);
+
+    const eb = A.makeBus(), es = A.collectBus(eb, events.names()), ee = makeEmitter(eb, () => {});
+    const ep = makeReplayProvider({ models: fixture.models, turns });
+    const dispatched = [];
+    const dataDispatch = async (call, ctx) => {
+      const result = await dispatch(call, ctx);
+      dispatched.push({ call, result });
+      return result;
+    };
+    const er = await runAgentLoop({
+      messages: [{ role: 'user', content: task }], provider: ep, emit: ee,
+      cost: makeCostEngine({ priceOf: ep.priceOf }), tools: toolDefs, dispatch: dataDispatch, capCtx,
+      model: 'replay/model', agentId: 'agent', runId: 'csv-explain-fixture',
+      limits: { maxIters: 12, maxCostUsd: 1 }, clock: { now: () => 0 }
+    });
+    A.eq(er.reason, 'done', 'dataset workflow completes through the shared execution path');
+    const calls = es.filter(e => e.name === 'agent.tool_call').map(e => e.payload.name);
+    A.eq(calls, ['fs_profile_csv','fs_read_csv_rows','fs_read_csv_rows','fs_list','fs_write','fs_write','fs_read','fs_read'],
+      'workflow profiles, pages rows, checks output folder, saves both files and reads both back');
+    const results = dispatched.map(entry => entry.result);
+    const csvProfile = JSON.parse(dispatched[0].result.content);
+    A.eq(csvProfile.source.bytes, csvStat.size, 'report fixture captures the exact source byte count');
+    A.eq(csvProfile.source.lastModified, csvStat.mtime.toISOString(), 'report fixture captures the source timestamp returned by the tool');
+    A.ok(report.includes(csvProfile.numericSemantics), 'saved report preserves the exact numeric approximation caveat from the profiler');
+    A.ok(report.includes('Source: ' + csvProfile.source.path + '; bytes: ' + csvProfile.source.bytes + '; last modified: ' + csvProfile.source.lastModified), 'saved report metadata matches the actual tool provenance');
+    A.eq(results.length, calls.length, 'each dataset workflow action has a paired result');
+    A.ok(results.every(r => r.isError === false), 'all dataset workflow tool calls succeed');
+    A.ok(results.some(r => /"status":"partial"/.test(r.content || '')), 'fixture exercises and exposes an actual partial CSV profile');
+    A.ok(!results.some(r => /fixture-sensitive-value/.test(r.content || '')), 'CSV row output scrubs key-shaped secrets with the shared production redactor');
+    A.ok(results.some(r => (r.content || '').includes('[redacted-secret]')), 'row pages contain the configured redaction result');
+    const firstCsvPage = JSON.parse(dispatched[1].result.content);
+    const secondCsvPage = JSON.parse(dispatched[2].result.content);
+    A.eq(firstCsvPage.rows[1][2], 'two\nlines', 'quoted newline stays inside one logical CSV cell');
+    A.eq(secondCsvPage.rows[0][2], '=SUM(1,2)', 'formula-like input remains an inert string');
+    A.eq(await fsp.readFile(csvPath), csvBytes, 'source dataset remains byte-for-byte unchanged');
+    A.eq(await fsp.readFile(path.join(dataDir, 'dataset-brief-fixture', 'report.md'), 'utf8'), report, 'report artifact is persisted exactly');
+    A.eq(await fsp.readFile(path.join(dataDir, 'dataset-brief-fixture', 'findings.csv'), 'utf8'), findings, 'structured findings artifact is persisted exactly');
+    A.ok(results.some(r => (r.content || '').includes('PARTIAL: exactly the first 2 data rows')), 'read-back tool returns the explicit partial coverage caveat');
+    A.ok(results.some(r => (r.content || '').includes('Revenue by region,rows 1-3')), 'read-back tool returns the structured findings artifact');
   }
 
   // ---- P1.5 default-deny: an UN-granted mutation under an autonomous surface is denied, body never runs ----
