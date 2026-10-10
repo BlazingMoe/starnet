@@ -21,6 +21,7 @@ function memoryFileFor(workspaces, pathMod, key) {
   const k = String(key || '');
   if (k.indexOf('notebook:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^notebook:/) + '.notebook.json');
   if (k.indexOf('todo:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^todo:/) + '.todo.json');
+  if (k.indexOf('decisions:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^decisions:/) + '.decisions.json');
   if (k.indexOf('declined:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^declined:/) + '.declined.json');
   if (k.indexOf('minted:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^minted:/) + '.minted.json');
   if (k.indexOf('pending:') === 0) return pathMod.join(workspaces, agentIdFromKey(k, /^pending:/) + '.pending.json');
@@ -70,7 +71,7 @@ function makeMemoryStore(deps) {
 // without booting the server (the new-hero clean-slate is a named hard rule, not just a source-grep).
 async function resetAgentMemory(store, agentId) {
   const id = String(agentId || 'agent');
-  for (const key of ['notebook:' + id, 'declined:' + id, 'todo:' + id, 'minted:' + id, 'pending:' + id]) {
+  for (const key of ['notebook:' + id, 'declined:' + id, 'todo:' + id, 'minted:' + id, 'pending:' + id, 'decisions:' + id]) {
     try { await store.update(key, () => []); } catch (e) { failNote('memory.clear', e); }
   }
 }
@@ -117,15 +118,28 @@ async function appendPending(store, agentId, runId, items, now) {
     for (const p of list) {
       const key = pendingKey(runId, p.id);
       if (cur.some(e => e && e.key === key)) continue;
-      cur.push({
+      const lesson = p.proposalType === 'decision-lesson';
+      if (lesson && cur.length >= PENDING_CAP) throw new Error('pending memory review queue is full');
+      const row = {
         key: key, runId: String(runId == null ? '' : runId), id: String(p.id == null ? '' : p.id),
         kind: p.kind || 'note', content: String(p.content == null ? '' : p.content),
         scope: p.scope || 'global', origin: p.origin || 'commander', createdAt: stamp
+      };
+      if (lesson) Object.assign(row, {
+        proposalType: 'decision-lesson', sourceDecisionId: String(p.sourceDecisionId || ''),
+        sourceOutcomeEventId: String(p.sourceOutcomeEventId || ''), sourceDecision: String(p.sourceDecision || '').slice(0, 1000),
+        sourceOutcome: String(p.sourceOutcome || '').slice(0, 1000), evidenceRefs: (Array.isArray(p.evidenceRefs) ? p.evidenceRefs : []).slice(0, 24).map(x => String(x)),
+        uncertainty: String(p.uncertainty || 'unknown').slice(0, 1000)
       });
+      cur.push(row);
       added++;
     }
     if (!added) return undefined;   // nothing new — skip the write
-    while (cur.length > PENDING_CAP) cur.shift();
+    while (cur.length > PENDING_CAP) {
+      const evict = cur.findIndex(e => !(e && e.proposalType === 'decision-lesson'));
+      if (evict < 0) throw new Error('pending memory review queue is full of protected decision lessons');
+      cur.splice(evict, 1);
+    }
     return cur;
   });
   return added;

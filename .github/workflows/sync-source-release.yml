@@ -2,6 +2,9 @@
 # Publishing on androoAGI/starnet-releases remains the human ship gate. This workflow observes
 # only its latest published stable release, mirrors the human installers byte-for-byte, and
 # creates the source release draft-first so a failed copy can never expose a partial release.
+#
+# DERIVATIVE SAFETY: this workflow is inherited upstream infrastructure and must never mirror
+# StarNet releases into forks/derivatives. The job is hard-gated to the original repository.
 name: sync-source-release
 
 on:
@@ -18,6 +21,7 @@ concurrency:
 
 jobs:
   sync:
+    if: github.repository == 'androoAGI/starnet'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

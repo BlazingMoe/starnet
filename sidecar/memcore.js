@@ -174,6 +174,7 @@
       lastFeedbackAt: r.lastFeedbackAt || null,
       useCount: r.useCount || 0, trust: trust, pinned: !!r.pinned
     };
+    if (r.lessonSource && typeof r.lessonSource === 'object') out.lessonSource = Object.assign({}, r.lessonSource);
     if (now != null) out.effectiveTrust = decayTrust(trust, r.lastFeedbackAt || r.createdAt || r.ts || 0, now);
     return out;
   }

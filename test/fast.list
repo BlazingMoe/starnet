@@ -11,6 +11,7 @@ test/clock-rng.test.js
 test/context.test.js
 test/runtimeinfo.test.js
 test/harness-snapshot.test.js
+test/chat-run-limits-ui.test.js
 test/station-inspect.test.js
 test/diagnostics.test.js
 test/diagnostics-support-email.test.js
@@ -53,6 +54,7 @@ test/task-postconditions-ui.test.js
 test/recovery-policy.test.js
 test/tool-recovery.test.js
 test/run-journal-disk-boundary.test.js
+test/decision-history.test.js
 test/todo.durability.test.js
 test/halt.test.js
 test/readbody.test.js
@@ -122,6 +124,7 @@ test/loop.tool-images.test.js
 test/loop.turn-budget.test.js
 test/loop.provider-recovery.test.js
 test/loop.failure-recovery.test.js
+test/loop.stall-giveup.test.js
 test/loop.stop-means-stop.test.js
 test/output-continuation.test.js
 test/compaction.test.js
@@ -312,6 +315,7 @@ test/web.fetch-jina.test.js
 test/web.calm.test.js
 test/web.reach.test.js
 test/browser.test.js
+test/browser-proxy.test.js
 test/browser.desktop-login-journey.test.js
 test/browser.login-seed.test.js
 test/browser.reach-measure.test.js
@@ -376,6 +380,9 @@ test/launchmemory.test.js
 test/starters.test.js
 test/starterstore.test.js
 test/routinenudgestore.test.js
+test/control-nightshift-evidence.test.js
+test/control-recovery-evidence.test.js
+test/control-recovery-detail.test.js
 test/bottlestore.test.js
 test/bottle-wiring.test.js
 test/resummonstore.test.js
@@ -728,3 +735,6 @@ test/workflow-takeover.test.js
 test/workflow-takeover-ui.test.js
 test/task-conversation.test.js
 test/task-conversation-ui.test.js
+
+test/journal-delta.test.js
+test/run-request-limits.test.js

@@ -139,8 +139,22 @@
       const xml = readText(buf, entries, sheetName, inflateRaw) || '';
       const rows = xml.match(/<row\b[\s\S]*?<\/row>|<row\b[^>]*\/>/g) || [];
       const lines = [];
+      let columnsOmitted = false;
       for (const row of rows.slice(0, MAX_SHEET_ROWS)) {
-        const cells = (row.match(/<c\b[\s\S]*?<\/c>|<c\b[^>]*\/>/g) || []).slice(0, MAX_ROW_CELLS).map(c => {
+        const cells = [];
+        let nextColumn = 0;
+        for (const c of (row.match(/<c\b[^>]*\/>|<c\b[^>]*>[\s\S]*?<\/c>/g) || [])) {
+          const address = (/^<c\b[^>]*\br="([A-Za-z]+)[1-9][0-9]*"/.exec(c) || [])[1];
+          let column = nextColumn;
+          if (address) {
+            column = 0;
+            for (const letter of address.toUpperCase()) column = column * 26 + letter.charCodeAt(0) - 64;
+            column--;
+          }
+          nextColumn = column + 1;
+          if (column >= MAX_ROW_CELLS) { columnsOmitted = true; continue; }
+          while (cells.length <= column) cells.push('');
+          cells[column] = (() => {
           const type = (/\bt="([^"]*)"/.exec(c) || [])[1] || 'n';
           if (type === 'inlineStr') {
             const runs = c.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
@@ -150,10 +164,12 @@
           if (!v) return '';
           if (type === 's') { const i = parseInt(v[1], 10); return (i >= 0 && i < shared.length) ? shared[i] : ''; }
           return unescapeXml(v[1]);   // numbers, dates-as-serials, booleans, cached formula results
-        });
+          })();
+        }
         // A row that is entirely empty carries nothing a reader would see.
         if (cells.some(c => c !== '')) lines.push(cells.join('\t'));
       }
+      if (columnsOmitted) lines.push('[columns beyond ' + MAX_ROW_CELLS + ' omitted]');
       const label = names[si] || ('sheet' + (si + 1));
       out.push('### ' + label + (rows.length > MAX_SHEET_ROWS ? ' (first ' + MAX_SHEET_ROWS + ' of ' + rows.length + ' rows)' : '') + '\n' + lines.join('\n'));
     });

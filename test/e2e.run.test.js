@@ -21,7 +21,10 @@ function startMockOpenRouter() {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ data: [{ id: 'test/model', context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] }] }));
+        res.end(JSON.stringify({ data: [
+          { id: 'test/model', context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] },
+          { id: 'test/priced', context_length: 8000, pricing: { prompt: '0.001', completion: '0.001' }, supported_parameters: ['tools'] }
+        ] }));
         return;
       }
       if (req.url.indexOf('/chat/completions') >= 0) {
@@ -55,6 +58,12 @@ function startMockOpenRouter() {
             return;
           }
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+          // A model that keeps requesting a harmless read proves host-level request ceilings.
+          if (body.indexOf('LIMITLOOP') >= 0) {
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'limit_read', type: 'function', function: { name: 'tool_search', arguments: '{"query":"fs.read"}' } }] } }] }) + '\n\n');
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 8, total_tokens: 16 } }) + '\n\n');
+            res.write('data: [DONE]\n\n'); res.end(); return;
+          }
           // DOMAINSTOP sentinel: one exact-host fetch; terminal evidence leaves only a final report turn.
           if (body.indexOf('DOMAINSTOP') >= 0) {
             const hasToolResult = !!(parsed && (parsed.messages || []).some(m => m && m.role === 'tool'));
@@ -127,7 +136,7 @@ function boot(port, env, attemptsLeft) {
     let out = '', settled = false;
     const onData = d => {
       out += d.toString();
-      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port }); }
+      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port, getOutput: () => out }); }
       else if (!settled && /already in use/i.test(out)) { settled = true; try { child.kill(); } catch (_) {}
         if (attemptsLeft > 0) resolve(boot(port + 1, env, attemptsLeft - 1)); else reject(new Error('no free port')); }
     };
@@ -141,9 +150,10 @@ function boot(port, env, attemptsLeft) {
   const mock = await startMockOpenRouter();
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-e2e-'));
   const env = { SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base, SKYNET_STREAM_KA_MS: '40' };   // fast heartbeat so the KA test observes it in ms, not 20s
-  const { child, port } = await boot(8840 + (process.pid % 50), env, 20);
+  const { child, port, getOutput } = await boot(8840 + (process.pid % 50), env, 20);
   const B = 'http://' + HOST + ':' + port;
   try {
+    A.ok(!getOutput().includes('managed-task-history.read'), 'managed task history initializes without a bounded-log temporal-dead-zone failure');
     // a bootstrapped API token is required for privileged /api routes (api-hardening).
     const token = await bootToken(B, B);
     A.ok(token.length >= 32, 'got a session API token');
@@ -184,6 +194,44 @@ function boot(port, env, attemptsLeft) {
     A.ok(firstSystem.indexOf('Provider: openrouter') >= 0, 'runtime block names the selected provider');
     A.ok(firstSystem.indexOf('Requested model at run start: test/model') >= 0, 'runtime block names the requested model');
     A.ok(firstSystem.indexOf('If the Commander asks what StarNet build, model, provider') >= 0, 'runtime block tells the agent to answer build/model/provider questions from host state');
+
+    // Validate before starting a stream/provider call, then enforce limits in the real loop.
+    {
+      const headers = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
+      const invalidPrompt = 'INVALID-LIMIT-MUST-NOT-REACH-PROVIDER';
+      for (const limits of [{ maxIters: 0 }, { maxIters: '1' }, { maxCostUsd: -1 }, { grace: true }, null]) {
+        const invalid = await fetch(B + '/api/run', { method: 'POST', headers,
+          body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'limits-invalid', messages: [{ role: 'user', content: invalidPrompt }], limits }) });
+        A.eq(invalid.status, 400, 'invalid request ceiling rejected before execution');
+        A.ok((await invalid.json()).error.includes('limit'), 'invalid ceiling has an actionable error');
+      }
+      A.ok(!mock.requests.some(q => JSON.stringify(q).includes(invalidPrompt)), 'invalid limits never contact the provider');
+      const run = async (agentId, model, limits) => {
+        const prompt = 'LIMITLOOP ' + agentId;
+        const r = await fetch(B + '/api/run', { method: 'POST', headers,
+          body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model, agentId, streamId: agentId, messages: [{ role: 'user', content: prompt }], limits }) });
+        A.eq(r.status, 200, 'bounded request starts through normal run entry');
+        const evs = (await r.text()).split('\n').filter(Boolean).map(l => JSON.parse(l));
+        const mainCalls = mock.requests.filter(q => (q.messages || []).some(m => m.role === 'user' && m.content === prompt));
+        return { end: evs.find(e => e.name === 'agent.run.end'), evs, mainCalls };
+      };
+      const turns = await run('limits-turns', 'test/model', { maxIters: 1 });
+      A.eq(turns.mainCalls.length, 1, 'one requested iteration permits no grace provider call');
+      A.eq(turns.end && turns.end.payload.reason, 'max_iters', 'explicit iteration ceiling settles truthfully');
+      A.ok(turns.evs.some(e => e.name === 'agent.tool_result'), 'bounded turn still uses the normal tool path');
+
+      const spend = await run('limits-spend', 'test/priced', { maxCostUsd: 0.005 });
+      A.eq(spend.mainCalls.length, 1, 'request spend ceiling stops another priced call');
+      A.eq(spend.end && spend.end.payload.reason, 'budget', 'request spend ceiling ends with budget');
+
+      const cap = await fetch(B + '/api/budget/caps', { method: 'POST', headers, body: JSON.stringify({ perRun: 0.005 }) });
+      A.eq(cap.status, 200, 'set an isolated station cap');
+      const station = await run('limits-station', 'test/priced', { maxCostUsd: 1 });
+      A.eq(station.mainCalls.length, 1, 'larger request cannot raise station spend ceiling');
+      A.eq(station.end && station.end.payload.reason, 'budget', 'station cap remains authoritative');
+      const restore = await fetch(B + '/api/budget/caps', { method: 'POST', headers, body: JSON.stringify({ perRun: 0 }) });
+      A.eq(restore.status, 200, 'restore isolated cap for remaining regressions');
+    }
 
     // CURRENT-RELEASE INCIDENT: an orphaned tool result used to pass straight through OpenRouter and make
     // every replay fail with the same provider 400. Drive the malformed history through the real HTTP route,

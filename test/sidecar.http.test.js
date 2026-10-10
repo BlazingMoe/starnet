@@ -1022,6 +1022,41 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.eq(pend.body.pending, [], 'a station with nothing awaiting a verdict reports an empty deck');
     const pendBad = await j('GET', '/api/memory/pending?agent=..%2Fetc');
     A.eq(pendBad.status, 403, 'a bad agent id is refused, not path-joined');
+    // Decision lessons reuse this durable review queue. Exercise the real GET/Keep/Discard API after seeding
+    // source-linked proposals as if the sidecar had restarted; provenance must reach the notebook and receipt.
+    const decisionRows = [
+      { id:'decision_keep', lessonProposals:[{outcomeEventId:'outcome_keep',lesson:'Retest the finding.',status:'pending'}] },
+      { id:'decision_discard', lessonProposals:[{outcomeEventId:'outcome_discard',lesson:'Avoid this path.',status:'pending'}] }
+    ];
+    const lessonRows = [
+      { key:'lesson_keep:lesson_keep',runId:'lesson_keep',id:'lesson_keep',kind:'lesson',content:'Retest the finding.',scope:'global',origin:'decision-outcome',createdAt:1,proposalType:'decision-lesson',sourceDecisionId:'decision_keep',sourceOutcomeEventId:'outcome_keep',sourceDecision:'chose route B',sourceOutcome:'model says run 2 passed',evidenceRefs:Array.from({length:24},(_,i)=>'R'.repeat(990)+String(i).padStart(10,'0')),uncertainty:'single rerun; unverified' },
+      { key:'lesson_discard:lesson_discard',runId:'lesson_discard',id:'lesson_discard',kind:'lesson',content:'Avoid this path.',scope:'global',origin:'decision-outcome',createdAt:2,proposalType:'decision-lesson',sourceDecisionId:'decision_discard',sourceOutcomeEventId:'outcome_discard',sourceDecision:'chose route A',sourceOutcome:'model says latency rose',evidenceRefs:['run:r7'],uncertainty:'no control group; unverified' }
+    ];
+    fs.writeFileSync(path.join(ws,'agent.decisions.json'),JSON.stringify(decisionRows));
+    fs.writeFileSync(path.join(ws,'agent.pending.json'),JSON.stringify(lessonRows));
+    const lessonDeck=await j('GET','/api/memory/pending?agent=agent');
+    A.eq(lessonDeck.body.pending[0].sourceTrust,'unconfirmed','review API labels lesson source as unconfirmed');
+    A.eq(lessonDeck.body.pending[0].evidenceRefs.length,24,'review API retains the complete bounded source evidence list'); A.ok(lessonDeck.body.pending[0].evidenceRefs.every(x=>x.length===1000),'review API does not truncate valid long references');
+    A.ok(/unverified/.test(lessonDeck.body.pending[0].uncertainty),'review API preserves explicit uncertainty');
+    const keptLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_keep',id:'lesson_keep',verdict:'keep'});
+    A.eq(keptLesson.status,200,'operator Keep processes lesson through the existing review handler');
+    const discardedLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_discard',id:'lesson_discard',verdict:'discard'});
+    A.eq(discardedLesson.status,200,'operator Discard processes lesson through the existing review handler');
+    const keptRecords=await j('GET','/api/memory/records?agent=agent');
+    const lessonRecord=(keptRecords.body.records||[]).find(r=>r.kind==='lesson');
+    A.ok(lessonRecord,'kept lesson is persisted as a lesson reference in notebook');
+    const keptNotebookRows=JSON.parse(fs.readFileSync(path.join(ws,'agent.notebook.json'),'utf8')); A.eq(keptNotebookRows.find(r=>r.id===lessonRecord.id).authority,'reference-only','kept lesson remains reference-only in durable record');
+    A.eq(lessonRecord.lessonSource.evidenceRefs.length,24,'kept record retains every source evidence reference'); A.ok(lessonRecord.lessonSource.evidenceRefs.every(x=>x.length===1000),'kept record preserves full reference values');
+    A.eq(lessonRecord.lessonSource.trust,'unconfirmed','kept candidate source remains unconfirmed');
+    const reviewedRows=JSON.parse(fs.readFileSync(path.join(ws,'agent.decisions.json'),'utf8'));
+    A.eq(reviewedRows[0].lessonProposals[0].status,'kept','Keep receipt is recorded on source decision');
+    A.eq(reviewedRows[1].lessonProposals[0].status,'discarded','Discard receipt is recorded on source decision');
+    A.eq((await j('GET','/api/memory/pending?agent=agent')).body.pending.length,0,'reviewed candidates no longer reappear in pending deck');    // A stale card after Discard must be rejected before the notebook write path can run.
+    fs.writeFileSync(path.join(ws,'agent.pending.json'),JSON.stringify([lessonRows[1]]));
+    const staleKeep=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_discard',id:'lesson_discard',verdict:'keep'});
+    A.eq(staleKeep.status,409,'stale Keep after Discard is rejected before writing memory');
+    const afterStaleKeep=await j('GET','/api/memory/records?agent=agent');
+    A.eq((afterStaleKeep.body.records||[]).filter(r=>r.kind==='lesson').length,1,'stale Keep after Discard creates no notebook lesson');
 
     // ---- FORGET = NEVER AGAIN (2026-07-16 resurrect audit): Memory Core's Forget must be as durable as a
     //      veto/discard — the removed belief's text joins the SAME permanent declined denylist, or reflection

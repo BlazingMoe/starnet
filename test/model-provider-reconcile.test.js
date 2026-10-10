@@ -8,9 +8,9 @@ const path = require('path');
 const dockPath = path.join(__dirname, '..', 'frontend', 'app', 'modeldock.js');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function scenario(savedModel, catalog, switchFrom) {
+async function scenario(savedModel, catalog, switchFrom, activeProvider) {
   let model = savedModel;
-  let provider = switchFrom || 'starnet';
+  let provider = activeProvider || switchFrom || 'starnet';
   let effort = 'medium';
   const applied = [];
   const old = { document: global.document, localStorage: global.localStorage, Harness: global.Harness, U: global.U };
@@ -37,6 +37,7 @@ async function scenario(savedModel, catalog, switchFrom) {
     listModels: async () => [],
     apiFetch: async url => {
       if (url === '/api/models/starnet') return new Response(JSON.stringify({ provider: 'starnet', models: catalog }), { status: 200 });
+      if (url === '/api/auth/codex/models') return new Response(JSON.stringify({ models: catalog }), { status: 200 });
       if (/^\/api\/auth\/(codex|grok|kimi)\/status$/.test(url)) return new Response(JSON.stringify({ connected: false }), { status: 200 });
       return new Response(JSON.stringify({ models: [], error: 'not configured' }), { status: 200 });
     }
@@ -76,6 +77,17 @@ module.exports = (async () => {
   A.eq(stale.applied[0].reason, 'catalog_unavailable', 'the app receives the explicit unavailable state');
   A.eq(stale.internals.catalogEquivalent('claude-sonnet-5', 'starnet', live), 'anthropic/claude-sonnet-5', 'mapping requires an exact live-catalog match');
   A.eq(stale.internals.catalogEquivalent('invented-model', 'starnet', live), '', 'mapping never invents a managed slug');
+
+  const omitted = await scenario('gpt-5.5', [{ id: 'gpt-6-sol' }], null, 'codex');
+  A.eq(omitted.model, 'gpt-5.5', 'Codex discovery omission does not erase the saved runnable choice');
+  A.eq(omitted.provider, 'codex', 'Codex provider remains unchanged');
+  A.eq(omitted.applied.length, 0, 'no automatic model switch or persisted clearing on discovery omission');
+  A.eq(omitted.effort, 'medium', 'saved reasoning effort is preserved');
+  const empty = await scenario('gpt-5.5', [], null, 'codex');
+  A.eq(empty.model, 'gpt-5.5', 'an empty successful Codex catalog also preserves the explicit choice');
+  const listed = await scenario('gpt-5.5', [{ id: 'gpt-5.5' }], null, 'codex');
+  A.eq(listed.model, 'gpt-5.5', 'a listed Codex model remains selected');
+  A.eq(listed.applied.length, 0, 'listed selection is not rewritten');
 
   A.report('model-provider-reconcile.test');
 })().catch(e => { console.error(e); process.exitCode = 1; });

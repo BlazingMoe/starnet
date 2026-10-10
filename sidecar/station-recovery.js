@@ -60,7 +60,7 @@ function categoriesFor(rel) {
   if (p === 'agent.roster.json' || /(^|\/)[a-z0-9_-]+\.save\.json$/.test(p)) out.add('agents');
   if (/\.save\.json$/.test(p) || p === 'station.widgets.json') out.add('rooms_props');
   if (/transcript|history\.json$|chatmap\.json$|outbox\.json$|runs\.jsonl$|\.run-journal\//.test(p)) out.add('conversations');
-  if (/notebook|memory|personalization|dossier|goals|declined|threads/.test(p)) out.add('memories');
+  if (/notebook|memory|decision|personalization|dossier|goals|declined|threads/.test(p)) out.add('memories');
   if (/^cron\.|usercommands|routine/.test(p)) out.add('routines');
   if (/^loops(?:\.|\/)|loopjob/.test(p)) out.add('loops');
   if (/todo|taskbrief|quest|workshop|nightshift|scout/.test(p)) out.add('tasks');

@@ -373,5 +373,49 @@ const openCtx = () => ({ canRun: () => true, canUse: () => ({ ok: true }), agent
     A.ok(res.messages.some(m => m.role === 'assistant' && m.content === 'Completely different answer.'), 'the transcript holds ONLY the final retried text');
   }
 
+  for (const sample of [0, 1]) {
+    const { emit } = setup();
+    const waits = [], recoveries = [];
+    let attempts = 0;
+    const provider = scriptedProvider(async function* () { attempts++; throw timeoutErr(); });
+    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'x' }], provider, emit,
+      model: 'm', agentId: 'a', runId: 'jitter', random: () => sample,
+      sleep: async ms => { waits.push(ms); }, onRecovery: row => recoveries.push(row) });
+    A.eq(attempts, 7, 'jitter preserves the attempt bound');
+    A.eq(res.reason, 'error', 'persistent failure remains a failure');
+    A.eq(waits[0], sample === 0 ? 320 : 480, 'the loop uses its injected sample for the real wait');
+    A.ok(waits.reduce((sum, ms) => sum + ms, 0) <= 105600, 'actual loop waits retain the original local patience bound');
+    A.eq(recoveries.map(row => row.delayMs), waits, 'recovery evidence records the actual jittered delays');
+  }
+  const host = require('fs').readFileSync(require('path').join(__dirname, '../sidecar/index.js'), 'utf8');
+  A.ok(/random: Math.random/.test(host), 'production injects randomness for retries');
+  A.ok(/sleep: \(ms, signal\) => require\('\.\/providers\/provider.js'\)\.runtime.abortableDelay\(ms, signal\)/.test(host), 'production uses the existing cancellable provider timer');
+  for (const truncated of [false, true]) {
+    const { emit } = setup();
+    const controller = new AbortController();
+    let attempts = 0, waits = 0;
+    const provider = scriptedProvider(async function* () {
+      attempts++;
+      if (!truncated) throw timeoutErr();
+      yield { type: 'text', delta: 'partial answer' };
+      yield { type: 'done', truncated: true };
+    });
+    const res = await runAgentLoop({ messages: [{ role: 'user', content: 'x' }], provider, emit,
+      model: 'm', agentId: 'a', runId: 'cancel-wait', signal: controller.signal,
+      sleep: (ms, signal) => {
+        waits++;
+        A.eq(signal, controller.signal, 'both retry paths pass the live run cancellation signal');
+        // Fail promptly if the signal was omitted, rather than leaving a long test timer running.
+        if (signal !== controller.signal) { controller.abort(); return Promise.resolve(); }
+        const delay = require('../sidecar/providers/provider.js').runtime.abortableDelay(60000, signal);
+        queueMicrotask(() => controller.abort());
+        return delay;
+      }
+    });
+    A.eq(res.reason, 'cancelled', 'cancel interrupts a provider or truncated-stream backoff');
+    A.eq(attempts, 1, 'cancellation never sends a second paid request');
+    A.eq(waits, 1, 'only one wait was entered');
+    A.eq(require('node:events').getEventListeners(controller.signal, 'abort').length, 0, 'the shared delay removes its abort listener');
+  }
   A.report('loop.provider-recovery.test');
 })();

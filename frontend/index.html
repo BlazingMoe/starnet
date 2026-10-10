@@ -589,6 +589,14 @@
       </div>
       <!-- CHAR COUNTER: dim, appears only as the message nears the 100,000-char cap; turns --warn at the edge (chat.js) -->
       <div id="chat-charcount" class="chat-charcount" aria-hidden="true" hidden></div>
+      <details class="brief-block" id="chat-run-limits">
+        <summary>Manual send limits</summary>
+        <label for="chat-limit-iters">Maximum iterations</label>
+        <input id="chat-limit-iters" class="key-input" type="number" min="1" step="1" placeholder="station limit" aria-describedby="chat-limit-help">
+        <label for="chat-limit-usd">Recorded cost limit (USD)</label>
+        <input id="chat-limit-usd" class="key-input" type="number" min="0.000001" step="any" placeholder="station limit" aria-describedby="chat-limit-help">
+        <div id="chat-limit-help" class="dim">Applies to the main agent request on each manual send while these fields are filled. Blank uses station limits. These only lower existing limits. Not a whole-workflow or delegation budget; retries, recovery and later automatic stages need their own limits. Recorded cost can lag a running request; unknown provider cost is not free. Clear fields to send normally.</div>
+      </details>
       <!-- CONTROL CLUSTER: interrupt · model dock · voice · mic — a second row so they never steal the input's width -->
       <div class="chat-tools">
       <!-- INTERRUPT: cancel just the active stream's run (also bound to Esc while COMMS is focused); hidden unless busy -->
@@ -805,6 +813,7 @@
    point at the sidecar explicitly (window.__STARNET_API__, injected by the shell before any page script).
    document.write during parse keeps the load order guarantee a static tag had. */
 document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/specialties.js') + '"><\/script>');
+document.write('<script src="' + ((window.__STARNET_API__ || '') + '/shared/org-specialties.js') + '"><\/script>');
 </script>
 <script src="app/specialties.js"></script>
 <script src="app/recipe-catalog/core.js"></script><!-- Recipe Marketplace R1: the DATA catalog of built-in recipes — MUST load before recipe-catalog/index.js (persona files register here too) -->

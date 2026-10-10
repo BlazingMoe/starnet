@@ -88,6 +88,8 @@
     // M5: object = capability made real — placing these grants the agent real-world reach.
     cabinet: [
       { capId: 'cabinet', tool: 'fs.read', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.profile_csv', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.read_csv_rows', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.write', scope: 'write', requiresConsent: true, network: false },
