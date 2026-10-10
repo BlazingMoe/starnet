@@ -10,14 +10,18 @@ function createCsvProfiler(options) {
   if (![',', ';', '\t', '|'].includes(delimiter)) throw new Error('delimiter must be comma, semicolon, tab, or pipe');
   const hasHeader = options.hasHeader !== false;
   const maxRows = Number(options.maxRows) || 100000;
+  const maxRowChars = Number.isFinite(Number(options.maxRowChars)) && Number(options.maxRowChars) > 0 ? Number(options.maxRowChars) : Infinity;
+  const onRow = typeof options.onRow === 'function' ? options.onRow : null;
   const redact = typeof options.redact === 'function' ? options.redact : (s => s);
   let state = 'start', cell = '', row = [], swallowLF = false, firstChar = true;
   let stopped = false, stopReason = null, header = null, width = null, dataRows = 0, rowWidthMismatches = 0;
-  let columns = [], parseError = null;
+  let columns = [], parseError = null, rowChars = 0;
   function ensureColumns(n) {
     while (columns.length < n) columns.push({ missing: dataRows, number: 0, boolean: 0, string: 0, numericCount: 0, min: null, max: null, mean: null, formulaLike: 0 });
   }
   function append(ch) {
+    rowChars += ch.length;
+    if (rowChars > maxRowChars) { stopped = true; stopReason = 'row_size_limit'; cell = ''; row = []; return; }
     cell += ch;
     if (cell.length > MAX_CELL_CHARS) { stopped = true; stopReason = 'cell_limit'; cell = ''; row = []; }
   }
@@ -28,7 +32,7 @@ function createCsvProfiler(options) {
   function finishRow() {
     finishCell();
     if (stopped) return;
-    const current = row; row = [];
+    const current = row; row = []; rowChars = 0;
     if (hasHeader && header === null) {
       header = current;
       width = current.length;
@@ -55,6 +59,7 @@ function createCsvProfiler(options) {
       } else c.string++;
       if (value[0] === '=') c.formulaLike++;
     }
+    if (onRow && onRow(current, dataRows) === false) { stopped = true; stopReason = 'output_limit'; return; }
     if (dataRows >= maxRows) { stopped = true; stopReason = 'row_limit'; }
   }
   function push(text) {

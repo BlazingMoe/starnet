@@ -11,7 +11,7 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 
 const ROOT = path.join(os.tmpdir(), 'starnet-fs-test-' + process.pid);
-const { writeTool, readTool, profileCsvTool, listTool, appendTool, editTool, searchTool, _internals } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 32, readReturn: 1000 } });
+const { writeTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, searchTool, _internals } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 32, readReturn: 1000 } });
 
 async function rejects(promise, msg) { try { await promise; A.ok(false, msg + ' — did NOT reject'); } catch (e) { A.ok(true, msg); } }
 
@@ -149,6 +149,57 @@ async function rejects(promise, msg) { try { await promise; A.ok(false, msg + ' 
     result=await dispatch({path:'exact.csv',hasHeader:false,maxBytes:1024}); report=JSON.parse(result.content);
     A.eq(report.status,'complete','exact EOF at byte boundary is complete'); A.eq(report.rows.data,512,'exact boundary retains final complete row'); A.eq(report.limits.byteLimitReached,true,'exact boundary still discloses the byte cap');
     result=await dispatch({path:'../outside.csv'}); A.ok(!result.ok,'registered profiler cannot escape workspace');
+  }
+  // ---- bounded CSV row reads reuse parser semantics and never refresh write freshness ----
+  {
+    const csvRoot = path.join(ROOT, 'csv-agent');
+    const rowTools = makeFsTools({ fsp, pathMod:path, root:ROOT, redact:s=>String(s).replace(/secret-value/g,'[redacted-secret]').replace(/report-secret/g,'[redacted-path]') });
+    const reg = makeRegistry(); rowTools.register(reg);
+    const tool = reg.get('fs.read_csv_rows');
+    A.ok(tool && tool.scope==='read' && tool.requiresConsent===false && tool.readOnly===true,'CSV row reader is an ordinary read-only cabinet tool');
+    const dispatch = async args => reg.dispatch({id:'csv-rows',name:'fs.read_csv_rows',args,argsRaw:JSON.stringify(args),parseError:null},{agentId:'csv-agent'});
+    const result = await dispatch({path:'report-secret.csv',offset:1,limit:1});
+    A.ok(result.ok,'CSV row read uses the existing registered filesystem dispatch');
+    const page = JSON.parse(result.content);
+    A.eq(page.status,'partial','page ending exactly at the scan limit is conservatively marked partial');
+    A.ok(page.limits.rowLimitReached,'a page at the requested scan limit discloses that more rows may exist');
+    A.eq(page.assumptions,{delimiter:',',hasHeader:true},'row page declares CSV assumptions');
+    A.eq(page.headers[0],'name','header uses profile duplicate/empty-name rules');
+    A.eq(page.rows,[['Bob','','line one\r\nline two','=SUM(A1:A2)','','dup']],'quoted newline and formula remain inert strings');
+    A.eq(page.returnedRange,{start:2,end:2},'offset is zero-based and returned range is one-based source data rows');
+    A.ok(!result.content.includes('secret-value'),'the CSV page fixture contains no unredacted secret-shaped text');
+    await fsp.writeFile(path.join(csvRoot,'sensitive.csv'),'token\nsecret-value\n','utf8');
+    const sensitive = await dispatch({path:'sensitive.csv'});
+    A.ok(!sensitive.content.includes('secret-value') && sensitive.content.includes('[redacted-secret]'),'sensitive cell contents are redacted before they reach tool output');
+    A.ok(!page.source.path.includes('report-secret'),'source path is redacted too');
+    const semicolon = await dispatch({path:'semicolon.csv',delimiter:';',hasHeader:false});
+    A.eq(JSON.parse(semicolon.content).rows,[['a','b'],['1','2'],['3','4']],'explicit delimiter and headerless assumptions work');
+    await fsp.writeFile(path.join(csvRoot,'output-limit.csv'),'value\n' + Array.from({length:100},()=> 'x'.repeat(4000)).join('\n') + '\n','utf8');
+    const capped = await dispatch({path:'output-limit.csv',limit:100});
+    const cappedPage = JSON.parse(capped.content);
+    A.ok(cappedPage.partial && cappedPage.limits.outputLimitReached && cappedPage.partialReason==='output_limit','aggregate payload limit is disclosed');
+    A.ok(Buffer.byteLength(capped.content,'utf8')<=256*1024,'final serialized response stays within the output cap');
+    await fsp.writeFile(path.join(csvRoot,'malformed-rows.csv'),'h\n"SECRET_RAW_VALUE','utf8');
+    const malformed = await dispatch({path:'malformed-rows.csv'});
+    A.ok(!malformed.ok && /malformed CSV input/.test(malformed.content) && !malformed.content.includes('SECRET_RAW_VALUE'),'malformed rows fail without exposing raw source contents');
+    const badPath = await dispatch({path:'../outside.csv'});
+    A.ok(!badPath.ok,'CSV row reader cannot escape the workspace jail');
+    const tooMany = await dispatch({path:'many.csv',offset:99999,limit:2});
+    A.ok(!tooMany.ok,'row scan cap rejects excessive offset plus page size');
+    const fractional = await dispatch({path:'many.csv',offset:1.5});
+    A.ok(!fractional.ok,'fractional row offsets are rejected rather than silently rounded');
+    await fsp.writeFile(path.join(csvRoot,'large-row.csv'),'a,b\n' + 'x'.repeat(70000) + ',tail\n','utf8');
+    const large = await dispatch({path:'large-row.csv'}), largePage = JSON.parse(large.content);
+    A.ok(largePage.partial && largePage.limits.rowSizeLimitReached && largePage.rows.length===0,'oversized logical row is stopped before building a returned payload');
+    A.ok(Buffer.byteLength(large.content,'utf8') < 8192,'oversized row rejection stays small');
+    await fsp.writeFile(path.join(csvRoot,'freshness.csv'),'n\n1\n','utf8');
+    await rowTools.readTool.run({path:'freshness.csv'},{agentId:'csv-agent'});
+    await fsp.writeFile(path.join(csvRoot,'freshness.csv'),'n\n2\n','utf8');
+    const future = new Date(Date.now()+5000); await fsp.utimes(path.join(csvRoot,'freshness.csv'),future,future);
+    await rowTools.readCsvRowsTool.run({path:'freshness.csv'},{agentId:'csv-agent'});
+    let stale = null;
+    try { await rowTools.writeTool.run({path:'freshness.csv',content:'replace'},{agentId:'csv-agent'}); } catch(e) { stale=e; }
+    A.ok(stale && /stale write refused/.test(stale.message),'CSV row read does not refresh a previous fs.read freshness stamp');
   }
   // ---- size cap rejects oversize writes ----
   await rejects(writeTool.run({ path: 'big.txt', content: 'x'.repeat(64) }, { agentId: 'ag' }), 'oversize write rejected by cap');
