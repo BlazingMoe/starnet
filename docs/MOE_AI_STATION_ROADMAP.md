@@ -96,7 +96,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Autonomy | Assist mode | Partial | Existing trust/capability model | Research/plan without side effects | P0 |
 | Autonomy | Execute mode | Partial | Permissions/tools | Allowed actions without per-step confirmation | P0 |
 | Autonomy | Autonomous mode | Existing/Partial | Delegation/night-shift primitives | Goal decomposition, budgets, checkpoints, escalation | P1 |
-| Autonomy | Night Shift | Existing/Partial | Server night-shift driver, persisted leash accounting, readiness precheck, E-STOP abort and decision/outcome ledger | Continue unattended workflow breadth, checkpoint recovery and operator digest polish | P1 |
+| Autonomy | Night Shift | Existing/Partial | Server night-shift driver, persisted leash accounting, readiness precheck, E-STOP abort, decision/outcome ledger, shared 24-hour operator digest in Control Mode | Continue unattended workflow breadth and checkpoint recovery | P1 |
 | Safety | Emergency stop | Existing | Halt/E-STOP subsystem | Global and scoped stop, durable kill state, UI visibility | P0 |
 | Safety | Permission grants | Existing | `permissions.js`, `permgrants.js` | Capability + resource + action + duration scopes | P0 |
 | Safety | API authentication | Existing | `apiauth.js` | Threat-model audit, local bind defaults, token rotation | P0 |
@@ -163,7 +163,7 @@ Existing inherited memory/feedback/skills foundations remain available. The veri
 
 ### Phase 4 — Workflow and autonomy
 
-Inherited workflow/autonomy primitives remain substantial. Managed delegation now has verification-backed durable recovery: interrupted tasks are classified from the authoritative task-history store, only `SAFE_RESTART` work can be atomically claimed, and restart execution re-enters the normal managed delegation capability/consent/budget path. This does not yet claim durable checkpoint/resume coverage for every workflow type; the complete formal workflow IR, broader cross-workflow recovery and all autonomy-level product UX remain future scope. The v1 Approval Center is observe-only rather than a new consent mutation system.
+Inherited workflow/autonomy primitives remain substantial. Managed delegation now has verification-backed durable recovery: interrupted tasks are classified from the authoritative task-history store, only `SAFE_RESTART` work can be atomically claimed, and restart execution re-enters the normal managed delegation capability/consent/budget path. Control Mode also reuses the existing NightReport projection to show a bounded 24-hour Night Shift digest from the same status, decision-ledger and draft endpoints, with partial-history errors kept explicit and draft bodies hidden. This does not yet claim durable checkpoint/resume coverage for every workflow type; the complete formal workflow IR, broader cross-workflow recovery and all autonomy-level product UX remain future scope. The v1 Approval Center is observe-only rather than a new consent mutation system.
 
 ### Phase 5 — Control Mode
 
