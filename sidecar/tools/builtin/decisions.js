@@ -19,6 +19,19 @@ function cleanList(value, field, redact) {
   if (!Array.isArray(value) || value.length > MAX_ITEMS) throw new Error(field + ' must be an array of up to ' + MAX_ITEMS + ' strings');
   return value.map((v, i) => cleanText(v, field + '[' + i + ']', true, redact));
 }
+// One recovery-aware read seam is shared by the model tool and the operator's read-only Memory Core view.
+// Missing history is an honest empty list; corrupt/unreadable/malformed durable state always throws.
+function readDecisionRows(store, agentId) {
+  if (!store || typeof store.readKey !== 'function') throw new Error('decision history requires recovery-aware readKey');
+  const result = store.readKey('decisions:' + (agentId || 'agent'));
+  // A failed main file may have been quarantined by the durable store, which re-reads as absent.
+  // Keep that recovery evidence loud instead of presenting a damaged history as a confirmed empty one.
+  if (result.status === 'absent' && !result.quarantined) return [];
+  if (result.status !== 'ok' && result.status !== 'recovered') throw new Error('decision history unavailable: durable store is ' + result.status);
+  if (!Array.isArray(result.value)) throw new Error('decision history unavailable: stored value is malformed');
+  if (result.value.some(x => !x || typeof x !== 'object' || Array.isArray(x))) throw new Error('decision history unavailable: stored row is malformed');
+  return result.value;
+}
 function makeDecisionTools(deps) {
   deps = deps || {};
   const store = deps.store;
@@ -27,14 +40,7 @@ function makeDecisionTools(deps) {
   const proposeLesson = typeof deps.proposeLesson === 'function' ? deps.proposeLesson : null;
   if (!store || typeof store.get !== 'function' || typeof store.update !== 'function') throw new Error('decision tools require durable memory store');
   const key = aid => 'decisions:' + (aid || 'agent');
-  function rows(aid) {
-    if (typeof store.readKey !== 'function') throw new Error('decision history requires recovery-aware readKey');
-    const result = store.readKey(key(aid));
-    if (result.status === 'absent') return [];
-    if (result.status !== 'ok' && result.status !== 'recovered') throw new Error('decision history unavailable: durable store is ' + result.status);
-    if (!Array.isArray(result.value)) throw new Error('decision history unavailable: stored value is malformed');
-    return result.value.filter(x => x && typeof x === 'object');
-  }
+  function rows(aid) { return readDecisionRows(store, aid); }
   const recordTool = {
     name: 'decision.record', capability: 'memory', scope: 'write', requiresConsent: false,
     description: 'Record a structured, untrusted decision for later retrieval. This does not approve a fact or instruction. Use a stable clientId so retries do not duplicate it. Confidence may be omitted (unknown); outcomes begin pending and are added separately.',
@@ -183,4 +189,4 @@ function makeDecisionTools(deps) {
   };
   return { recordTool, outcomeTool, lessonTool, listTool, register(reg) { reg.register(recordTool); reg.register(outcomeTool); reg.register(lessonTool); reg.register(listTool); return reg; } };
 }
-module.exports = { makeDecisionTools, lessonSourceKey, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };
+module.exports = { makeDecisionTools, readDecisionRows, lessonSourceKey, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };

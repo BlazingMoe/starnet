@@ -3,7 +3,7 @@
 const A = require('./_assert.js');
 const path = require('path');
 const { makeMemoryStore, memoryFileFor, resetAgentMemory, appendPending, listPending } = require('../sidecar/memory-store.js');
-const { makeDecisionTools, lessonSourceKey } = require('../sidecar/tools/builtin/decisions.js');
+const { makeDecisionTools, lessonSourceKey, readDecisionRows } = require('../sidecar/tools/builtin/decisions.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 const { _internals: { toolKind } } = require('../sidecar/acp/core.js');
 const { categoriesFor } = require('../sidecar/station-recovery.js');
@@ -94,6 +94,10 @@ function memFs() {
   await resetAgentMemory(cold,'hero'); A.eq(cold.get('decisions:hero'),[],'agent memory reset clears decision history');
   fs.files.delete(path.join(root,'hero.decisions.json.bak')); fs.files.set(path.join(root,'hero.decisions.json'),'{malformed');
   r=await coldReg.dispatch({id:'c',name:'decision.list',args:{},argsRaw:'{}',parseError:null},{agentId:'hero'}); A.ok(!r.ok && /unavailable/.test(r.content),'corrupt history is reported instead of shown as empty');
+  let quarantinedReadFailed=false; try { readDecisionRows({readKey:()=>({status:'absent',quarantined:'/private/history.decisions.json'})},'hero'); } catch (_) { quarantinedReadFailed=true; }
+  A.ok(quarantinedReadFailed,'a corrupt file quarantined by the durable store remains unavailable, not empty after its reread');
+  let malformedRowFailed=false; try { readDecisionRows({readKey:()=>({status:'ok',value:[null]})},'hero'); } catch (_) { malformedRowFailed=true; }
+  A.ok(malformedRowFailed,'a non-object row in a durable history array fails closed instead of disappearing');
   const unreadableFs=memFs(), lockedFile=path.join(root,'locked.decisions.json'); unreadableFs.files.set(lockedFile,'[]'); unreadableFs.failures.set(lockedFile,'EACCES');
   const unreadable=makeMemoryStore({fs:unreadableFs,path,workspaces:root}), unreadableReg=makeRegistry(); makeDecisionTools({store:unreadable}).register(unreadableReg);
   r=await unreadableReg.dispatch({id:'u',name:'decision.list',args:{},argsRaw:'{}',parseError:null},{agentId:'locked'}); A.ok(!r.ok && /unavailable/.test(r.content),'unreadable history is reported instead of shown as empty');

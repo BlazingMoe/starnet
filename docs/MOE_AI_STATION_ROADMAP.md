@@ -30,7 +30,7 @@ The existing-catalogue `youtube-production-pack` is one preparation workflow on 
 
 Decision history records live in each agent's .decisions.json sibling and travel with the existing whole-workspace recovery bundle (memory category). They are intentionally separate from .notebook.json; only the explicit decision tools read or append them.
 
-Decision outcomes can now produce a reference-only lesson candidate in the existing pending memory review queue. Source decision/outcome IDs, uncertainty, and up to 24 bounded evidence references remain labeled unverified through review and Keep; explicit Discard is terminal. Queue rows are protected from normal FIFO eviction, and retries reconcile missing rows. Verification: test/decision-history.test.js (69 assertions) and test/sidecar.http.test.js (519 assertions); browser/provider acceptance remains deferred.
+Decision outcomes can now produce a reference-only lesson candidate in the existing pending memory review queue. Source decision/outcome IDs, uncertainty, and up to 24 bounded evidence references remain labeled unverified through review and Keep; explicit Discard is terminal. Queue rows are protected from normal FIFO eviction, and retries reconcile missing rows. The selected agent's Memory Core now also has a read-only, paginated retrospective over that same decision ledger, including append-only outcomes and distinct pending/staging/reviewing-kept/kept/discarded review receipts. Unknown fields are excluded, model claims remain unconfirmed, and corrupt or quarantined storage is reported as unavailable rather than empty. Verification: test/decision-history.test.js (71 assertions), test/decision-history-http.test.js (28), test/memory-decisions-ui.test.js (28), and test/sidecar.http.test.js (537); live browser/provider acceptance remains deferred.
 
 ## Status legend
 
@@ -111,7 +111,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Memory | Global user memory | Partial | Commander dossier/taste concepts | User-approved durable preferences and facts | P1 |
 | Memory | Episodic memory | Partial | Event/history primitives | Task episodes with outcome and retrospective | P1 |
 | Memory | Semantic knowledge | Partial | Memory primitives | Indexed facts/entities/documents with source provenance | P1 |
-| Memory | Decision history | Existing/Partial | `decision.record` / `decision.list` / `decision.outcome` in the per-agent durable memory store | Bounded untrusted records with alternatives, evidence references, uncertainty, optional confidence, and append-only outcome events; excluded from notebook recall; broader retrospective/UI remains future work | P2 |
+| Memory | Decision history | Existing/Partial | `decision.record` / `decision.list` / `decision.outcome` in the per-agent durable memory store | Bounded untrusted records with alternatives, evidence references, uncertainty, optional confidence, and append-only outcome events; excluded from notebook recall; selected-agent read-only paginated retrospective in Memory Core; quality evaluation remains future work | P2 |
 | Learning | Ratings/feedback | Existing | Feedback/taste-profile concepts | Structured evaluator signals and regression tracking | P1 |
 | Learning | Mistake/lesson memory | Partial | Memory + feedback | Verified lessons generated from failures/successes | P1 |
 | Learning | Skill extraction | Partial | Skills system exists | Experience → proposed reusable skill → validation → publish | P1 |

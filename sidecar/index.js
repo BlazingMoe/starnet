@@ -56,7 +56,7 @@ const docExtract = require('./tools/builtin/docextract.js').makeDocExtract({ inf
 // image, so the `images` channel has more than a single caller (a channel with one caller is a special case).
 const imageWire = require('./tools/builtin/imagewire.js').makeImageWire({});
 const { makeNotebookTools } = require('./tools/builtin/notebook.js');
-const { makeDecisionTools, lessonSourceKey } = require('./tools/builtin/decisions.js');
+const { makeDecisionTools, readDecisionRows, lessonSourceKey } = require('./tools/builtin/decisions.js');
 const { makeRecallTool } = require('./tools/builtin/recall.js');
 const { makeToolSearchTool } = require('./tools/builtin/toolsearch.js');   // tool.search: reach a granted-but-unadvertised (deferred) tool
 const CodeMode = require('./tools/builtin/code.js');                      // code.run: bounded JS composition over this run's read-only grants
@@ -301,6 +301,7 @@ const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');
 const { makeManagedRecoveryLifecycleHook } = require('./orchestration/managed-recovery-lifecycle.js');   // Moe AI Station: bounded restart-safe managed-task recovery
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
+const { makeDecisionHistoryHttp } = require('./control/decision-history-http.js');   // selected-agent Memory Core history reader
 const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
 const { makeProviderControlHttp } = require('./control/provider-http.js');   // Moe AI Station: read-only registry + observed quota evidence
 const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview
@@ -9105,6 +9106,10 @@ const memoryControlHttp = makeMemoryControlHttp({
   },
   respondJson
 });
+const decisionHistoryHttp = makeDecisionHistoryHttp({
+  readForAgent: (agentId) => readDecisionRows(notebookStore, agentId),
+  respondJson, redact, isAgentId
+});
 
 const ROUTES = [
   { m: 'GET', qsplit: '/api/groups', h: handleGroups },
@@ -9461,6 +9466,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/memory/reset', h: handleMemoryReset },
   { m: 'POST', exact: '/api/memory/declined/restore', h: handleDeclinedRestore },
   { m: 'GET', prefix: '/api/memory/declined', h: serveDeclined },
+  // Include mutation verbs so the read-only handler can answer 405 instead of falling through to static 404.
+  { m: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], prefix: '/api/memory/decisions', h: decisionHistoryHttp.serve },
   { m: 'GET', prefix: '/api/memory/records', h: serveMemoryRecords },
   { m: 'POST', exact: '/api/memory/pin', h: handleMemoryPin },
   { m: 'POST', exact: '/api/memory/edit', h: handleMemoryEdit },

@@ -55,6 +55,8 @@ test/recovery-policy.test.js
 test/tool-recovery.test.js
 test/run-journal-disk-boundary.test.js
 test/decision-history.test.js
+test/decision-history-http.test.js
+test/memory-decisions-ui.test.js
 test/todo.durability.test.js
 test/halt.test.js
 test/readbody.test.js

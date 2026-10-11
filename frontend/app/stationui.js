@@ -1983,6 +1983,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="gx-sec" id="mc-pending-sec" style="display:none;"><span class="gx-ref gold">?</span><span class="gx-title">Awaiting your decision</span><span class="gx-tag" id="mc-pending-count"></span></div>' +
       '<div class="mc-note" id="mc-pending-note" style="display:none;">Sensitive beliefs raised while you were away — <b>nothing here is remembered yet</b>. <b>Keep</b> to save one &middot; <b>Discard</b> to reject it for good.</div>' +
       '<div id="mc-pending-list" class="mc-list"></div>' +
+      // The durable structured ledger is separate from notebook recall. Model-reported outcomes stay unconfirmed;
+      // only this selected agent's records are read, and review status mirrors the existing proposal receipt.
+      '<div class="gx-sec" id="mc-decision-history-sec" style="display:none;"><span class="gx-ref">◷</span><span class="gx-title">Decision history</span><span class="gx-tag" id="mc-decision-history-status"></span></div>' +
+      '<div class="mc-note">Structured decisions and append-only outcomes for this agent. Model reports are unverified; lesson candidates become reference-only memory only after your existing Keep review.</div>' +
+      '<div id="mc-decision-history" class="mc-list" aria-live="polite"></div>' +
       // ▤ not "M": the ref chip is a marker, and every other one in the dossier is a glyph. A bare letter reads as
       // a code the reader is expected to already know (which is exactly what GROWTH's retired A/B/B2/B3 were).
       '<div class="gx-sec"><span class="gx-ref gold">▤</span><span class="gx-title">Stored beliefs</span><span class="gx-tag" id="mc-count">&hellip;</span></div>' +
@@ -2005,6 +2010,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }).catch(() => { const cur = $('#mc-list'); if (cur) cur.textContent = 'Could not read the Memory Core.'; });
     loadDeclined(a);   // the reject-list renders alongside (its own fetch; absent/empty → the section stays hidden)
     loadPending(a);    // …as does the un-answered high-stakes deck (same pattern, same hidden-when-empty rule)
+    if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id);
     loadReflectionConfig();   // P1-10 reflection on/off + cooldown (station-wide)
   }
 
