@@ -176,6 +176,7 @@ Read-only v1 is implemented and verification-backed:
 5. Cost/budget dashboard — delivered from spend ledger/budget governor.
 6. Permission/approval center — delivered read-only from existing grant/consent stores.
 7. Provider signals — delivered from registry metadata plus observed quota/rate-limit evidence; **provider health is not claimed** because no authoritative liveness source exists.
+8. Cost view now groups spend by the runtime-stamped recipe ID and includes same-run auxiliary ledger rows. Amounts sum per ledger row; recipe/unassigned run counts deduplicate by full `(agentId, runId)`, an unmetered run has at least one unmetered row, and mixed-billing runs are called out. Legacy rows and runs with conflicting recipe IDs stay in a visible unassigned bucket; no historical attribution is inferred. This remains provider-reported/metered ledger evidence, not a cost-saving claim.
 
 ### Phase 6 — Integrations and productionization
 

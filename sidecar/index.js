@@ -17319,7 +17319,9 @@ async function runOnce(o) {
     const finalUsd = effectiveUsd({ usd: (result && result.usd) || 0, unmetered: providerUnmetered, unpricedUsage: result && result.unpricedUsage, priceOf: provider && provider.priceOf });
     const finalTurns = (result && result.turns) || 0;
     const finalTokens = (result && result.tokens) || 0;
-    try { ledger.record({ runId, agentId, turns: finalTurns, usd: finalUsd, tokens: finalTokens, model: finalModel, unmetered: providerUnmetered }); } catch (_) {}
+    // The recipe launch provenance comes from the validated run envelope (not model tool output). Stamp it
+    // beside this run's spend so Control Mode can attribute it without guessing from titles or prompts.
+    try { ledger.record({ runId, agentId, turns: finalTurns, usd: finalUsd, tokens: finalTokens, model: finalModel, unmetered: providerUnmetered, recipeId: o.recipeId || '' }); } catch (_) {}
     // managed-credit SETTLE: reconcile the reservation to the real spend — refund the unused headroom to the
     // account (billing.js caps finalUsd at the reservation). Inert/no-op unless this run actually reserved credit.
     if (billed) { try { credits.finishRun({ runId, agentId, usd: finalUsd, tokens: finalTokens, turns: finalTurns, reason: (result && result.reason) || 'done' }); } catch (_) {} }

@@ -123,13 +123,33 @@
       modelsBox.appendChild(row);
     });
 
+    const recipesBox = make('section', 'cm-cost-box'); recipesBox.appendChild(make('h4', '', 'WORKFLOWS / RECIPES'));
+    const recipes = rows(overview.recipes).slice(0,20);
+    if (!recipes.length) recipesBox.appendChild(make('div', 'cm-cost-empty', 'No runtime-attributed recipe spend is present.'));
+    else recipes.forEach(recipe => {
+      const row = make('div', 'cm-cost-row');
+      row.append(make('div', '', label(recipe.recipeId, '(unknown recipe)')),
+        make('div', 'cm-cost-meta', 'METERED ' + usd(recipe.meteredUsd) + ' · RUNS ' + num(recipe.runs) + ' · TOKENS ' + num(recipe.tokens) + ' · UNMETERED RUNS ' + num(recipe.unmeteredRuns) + ' · MIXED BILLING RUNS ' + num(recipe.mixedBillingRuns) + ' · LEDGER ROWS ' + num(recipe.ledgerRows)));
+      recipesBox.appendChild(row);
+    });
+    if (recipes.length) {
+      const evidence = overview.evidence || {};
+      const scope = evidence.recipeGroupsTruncated ? 'FIRST ' + num(recipes.length) + ' OF ' + num(evidence.recipeGroups) + ' ATTRIBUTED RECIPES · API LIST CAPPED AT 50' : 'SHOWING ' + num(recipes.length) + ' OF ' + num(evidence.recipeGroups) + ' ATTRIBUTED RECIPES';
+      recipesBox.appendChild(make('div', 'cm-cost-meta', scope));
+      recipesBox.appendChild(make('div', 'cm-cost-meta', 'RUN COUNTS deduplicate by agent and full run ID; UNMETERED RUNS means at least one unmetered ledger row. MIXED BILLING RUNS have both metered and unmetered rows. Amounts still sum per ledger row.'));
+    }
+    const unassigned = overview.unassigned || {};
+    const unassignedBox = make('section', 'cm-cost-box'); unassignedBox.appendChild(make('h4', '', 'UNASSIGNED / AMBIGUOUS'));
+    unassignedBox.appendChild(make('div', 'cm-cost-row', 'METERED ' + usd(unassigned.meteredUsd) + ' · RUNS ' + num(unassigned.runs) + ' · TOKENS ' + num(unassigned.tokens) + ' · UNMETERED RUNS ' + num(unassigned.unmeteredRuns) + ' · MIXED BILLING RUNS ' + num(unassigned.mixedBillingRuns)));
+    unassignedBox.appendChild(make('div', 'cm-cost-meta', 'Legacy spend without recipe metadata and conflicting run labels stay here; no historical recipe is inferred.'));
+
     const evidenceBox = make('section', 'cm-cost-box'); evidenceBox.appendChild(make('h4', '', 'EVIDENCE'));
     const evidence = overview.evidence || {};
     evidenceBox.appendChild(make('div', 'cm-cost-row', 'LEDGER ROWS · ' + num(evidence.ledgerRows)));
     evidenceBox.appendChild(make('div', 'cm-cost-meta', evidence.budgetGovernorKnown ? 'Budget governor status is present.' : 'Budget governor status is unavailable; no governor state is inferred.'));
     evidenceBox.appendChild(make('div', 'cm-cost-meta', evidence.unmeteredExcludedFromMeteredUsd ? 'Unmetered/subscription runs are excluded from metered USD.' : 'Metering exclusion evidence unavailable.'));
 
-    grid.append(budgetBox, agentsBox, modelsBox, evidenceBox); root.appendChild(grid);
+    grid.append(budgetBox, agentsBox, modelsBox, recipesBox, unassignedBox, evidenceBox); root.appendChild(grid);
     root.appendChild(make('div', 'cm-cost-warning', 'OBSERVE ONLY · Control Mode cannot change caps, budgets, billing, or ledger records. Displayed values come from the existing spend ledger and budget governor projection.'));
   }
   async function refresh() {

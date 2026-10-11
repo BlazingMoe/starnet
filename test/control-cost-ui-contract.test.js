@@ -15,6 +15,12 @@ A.ok(src.includes("'SPEND LEDGER + BUDGET GOVERNOR · READ ONLY'"), 'cost pane i
 A.ok(src.includes('Cost and budget state unavailable — no spend, token, cap, or governor values are inferred.'), 'endpoint outage cannot fabricate spend or governor state');
 A.ok(src.includes("['METERED USD', usd(totals.meteredUsd)]"), 'metered spend comes from the cost projection');
 A.ok(src.includes("['UNMETERED RUNS', num(totals.unmeteredRuns)]"), 'unmetered work remains visible without treating it as charged USD');
+A.ok(src.includes("overview.recipes).slice(0,20)"), 'workflow attribution is bounded in the UI');
+A.ok(src.includes("overview.unassigned || {}"), 'unknown historical attribution stays visible');
+A.ok(src.includes('UNMETERED RUNS means at least one unmetered ledger row. MIXED BILLING RUNS have both metered and unmetered rows.'), 'recipe UI explains unique-run and mixed-billing count semantics');
+A.ok(src.includes('MIXED BILLING RUNS \' + num(recipe.mixedBillingRuns)'), 'recipe rows expose runs that contain both billing modes');
+A.ok(src.includes('API LIST CAPPED AT 50'), 'the UI discloses the recipe projection cap');
+A.ok(src.includes('Legacy spend without recipe metadata and conflicting run labels stay here; no historical recipe is inferred.'), 'the UI explains that missing attribution is not guessed');
 A.ok(src.includes("['PER RUN CAP', usd(budgets.perRun)]"), 'existing per-run cap is rendered');
 A.ok(src.includes("['GLOBAL CAP', usd(budgets.globalCap)]"), 'existing global cap is rendered');
 A.ok(src.includes("evidence.budgetGovernorKnown ? 'Budget governor status is present.' : 'Budget governor status is unavailable; no governor state is inferred.'"), 'missing governor evidence remains explicitly unknown');

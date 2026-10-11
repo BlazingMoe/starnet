@@ -162,7 +162,7 @@ function boot(port, env, attemptsLeft) {
     const res = await fetch(B + '/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
-      body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'e2e', messages: [{ role: 'user', content: 'hi' }] })
+      body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'e2e', recipeId: 'e2e-recipe', messages: [{ role: 'user', content: 'hi' }] })
     });
     A.eq(res.status, 200, 'POST /api/run streams (200)');
 
@@ -188,6 +188,12 @@ function boot(port, env, attemptsLeft) {
     const ends = events.filter(e => e.name === 'agent.run.end');
     A.eq(ends.length, 1, 'exactly one agent.run.end');
     A.eq(ends[0].payload.reason, 'done', 'the run completes with reason done');
+    const startedRunId = ((events.find(e => e.name === 'agent.run.start') || {}).payload || {}).runId;
+    A.ok(startedRunId, 'real HTTP recipe run exposes its runtime run identity');
+    const durableRuns = await (await fetch(B + '/api/runs?agent=e2e&runId=' + encodeURIComponent(startedRunId), { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
+    A.eq((durableRuns.runs || [])[0] && durableRuns.runs[0].recipeId, 'e2e-recipe', 'validated POST /api/run recipe metadata reaches durable run history');
+    const durableLedger = fs.readFileSync(path.join(ws, 'ledger.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+    A.ok(durableLedger.some(row => row.runId === startedRunId && row.agentId === 'e2e' && row.recipeId === 'e2e-recipe'), 'the actual spend-ledger writer persists request provenance on the completed HTTP run');
     const firstReq = mock.requests[0] || {};
     const firstSystem = (((firstReq.messages || [])[0] || {}).content) || '';
     A.ok(firstSystem.indexOf('[RUNTIME]') >= 0, 'runtime identity block reaches the provider system prompt');
