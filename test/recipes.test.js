@@ -69,6 +69,15 @@ A.ok(fb.indexOf('{error}') < 0, 'fillTask leaves no unresolved token for a fille
 const fb2 = R.fillTask(R.get('fix-bug'), { error: 'X' });
 A.ok(fb2.indexOf('X') >= 0, 'fillTask accepts a recipe object, not just an id');
 
+// PR Sweep uses the real, dynamically discovered GitHub MCP connector and writes local evidence only.
+const prSweep = R.fillTask('pr-sweep', { scope: 'acme/app', workspace: 'github-pr-review' });
+A.ok(prSweep.includes('list_pull_requests') && prSweep.includes('pull_request_read') && prSweep.includes('get_diff'), 'PR Sweep directs discovery through the advertised GitHub MCP read tools');
+A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && prSweep.includes('read both back'), 'PR Sweep saves and verifies local review artifacts');
+A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
+A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
+A.ok(prSweep.includes('PARTIAL/UNVERIFIED') && prSweep.includes('never comment, approve') && prSweep.includes('modify GitHub'), 'PR Sweep preserves evidence limits and forbids remote mutations');
+A.ok(prSweep.includes('acme/app') && prSweep.includes('github-pr-review') && !/[{}](?:scope|workspace)/.test(prSweep), 'PR Sweep launch resolves repository and output-workspace inputs');
+
 // an optional param left blank falls back to its DEFAULT (morning-brief.window default = "the last 24 hours")
 const mb = R.fillTask('morning-brief', { topic: 'AI agents' });
 A.ok(mb.indexOf('the last 24 hours') >= 0, 'a blank optional param uses its default');

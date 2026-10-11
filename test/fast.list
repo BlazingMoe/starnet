@@ -738,3 +738,4 @@ test/task-conversation-ui.test.js
 
 test/journal-delta.test.js
 test/run-request-limits.test.js
+test/github-pr-review.integration.test.js
