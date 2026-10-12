@@ -153,19 +153,34 @@ function makeTaskHistoryStore(opts) {
   function listRecoveries(filter, options) {
     filter = filter || {}; options = options || {};
     const cap = Math.max(1, Math.min(1000, Math.floor(num(options.limit) || defaultLimit)));
-    const out = [];
-    let truncated = checkpointTruncated;
+    const matching = [];
     for (const raw of Array.from(checkpoints.values()).reverse()) {
       if (filter.taskId && raw.taskId !== filter.taskId) continue;
       if (filter.leadAgentId && raw.leadAgentId !== filter.leadAgentId) continue;
       if (filter.agentId && raw.leadAgentId !== filter.agentId && raw.workerAgentId !== filter.agentId && raw.auditorAgentId !== filter.agentId) continue;
       const checkpoint = checkpointWithReconciliation(raw.taskId);
       const disposition = recoveryDisposition(checkpoint);
-        if (filter.disposition && disposition.disposition !== filter.disposition) continue;
-        if (out.length >= cap) { truncated = true; break; }
-        out.push(Object.assign({ state: 'RESUME_REQUIRED', taskId: checkpoint.taskId, checkpoint, terminal: null }, disposition));
+      if (filter.disposition && disposition.disposition !== filter.disposition) continue;
+      matching.push(Object.assign({ state: 'RESUME_REQUIRED', taskId: checkpoint.taskId, checkpoint, terminal: null }, disposition));
     }
-      return { items: out, truncated };
+    let start = 0;
+    if (options.after) {
+      const anchorTaskId = str(options.after.taskId, 120);
+      const anchorTs = num(options.after.ts);
+      const anchor = matching.findIndex(row => row.taskId === anchorTaskId && row.checkpoint && row.checkpoint.ts === anchorTs);
+      if (anchor < 0) {
+        const error = new Error('recovery cursor anchor is unknown or expired');
+        error.code = 'RECOVERY_CURSOR_EXPIRED';
+        throw error;
+      }
+      start = anchor + 1;
+    }
+    const window = matching.slice(start, start + cap + 1);
+    const hasMore = window.length > cap;
+    const items = window.slice(0, cap);
+    return { items, hasMore, storageTruncated: checkpointTruncated,
+      // Preserve the original aggregate signal for schedulers and older callers.
+      truncated: checkpointTruncated || hasMore };
   }
 
   function claimSafeRestart(taskId, claimId) {

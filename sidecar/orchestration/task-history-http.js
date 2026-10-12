@@ -10,6 +10,29 @@ function clampLimit(v) {
   return Math.max(1, Math.min(500, Math.floor(n)));
 }
 function clean(v, max) { return v == null ? '' : String(v).trim().slice(0, max); }
+function encodeRecoveryCursor(row, filter) {
+  const value = { v: 1, taskId: row.taskId, ts: row.checkpoint.ts, agent: filter.agentId, disposition: filter.disposition };
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+function decodeRecoveryCursor(raw, filter) {
+  if (raw == null) return { ok: true, after: null };
+  if (typeof raw !== 'string' || raw.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(raw)) return { ok: false, error: 'invalid recovery cursor' };
+  let value;
+  try {
+    const bytes = Buffer.from(raw, 'base64url');
+    if (!bytes.length || bytes.toString('base64url') !== raw) return { ok: false, error: 'invalid recovery cursor' };
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch (_) { return { ok: false, error: 'invalid recovery cursor' }; }
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.v !== 1 ||
+      typeof value.taskId !== 'string' || !value.taskId || value.taskId.length > 120 ||
+      typeof value.ts !== 'number' || !Number.isFinite(value.ts) || value.ts < 0 ||
+      typeof value.agent !== 'string' || typeof value.disposition !== 'string' ||
+      Object.keys(value).sort().join(',') !== 'agent,disposition,taskId,ts,v') return { ok: false, error: 'invalid recovery cursor' };
+  if (value.agent !== filter.agentId || value.disposition !== filter.disposition) {
+    return { ok: false, error: 'recovery cursor does not match the current filters' };
+  }
+  return { ok: true, after: { taskId: value.taskId, ts: value.ts } };
+}
 
 function makeTaskHistoryHttp(opts) {
   opts = opts || {};
@@ -54,8 +77,21 @@ function makeTaskHistoryHttp(opts) {
         const agentId = clean(url.searchParams.get('agent'), 80);
         const disposition = clean(url.searchParams.get('disposition'), 48);
         const limit = clampLimit(url.searchParams.get('limit'));
-        const page = store.listRecoveries({ agentId, disposition }, { limit });
-        return send(res, 200, { ok: true, recoveries: projectManagedRecoveryList(page, { limit }) });
+        const filter = { agentId, disposition };
+        const cursor = decodeRecoveryCursor(url.searchParams.get('cursor'), filter);
+        if (!cursor.ok) return send(res, 400, { ok: false, error: cursor.error });
+        let page;
+        try { page = store.listRecoveries(filter, { limit, after: cursor.after }); }
+        catch (error) {
+          if (error && error.code === 'RECOVERY_CURSOR_EXPIRED') {
+            return send(res, 410, { ok: false, error: 'recovery cursor expired; reload recovery history' });
+          }
+          throw error;
+        }
+        const rows = Array.isArray(page.items) ? page.items : [];
+        const nextCursor = page.hasMore && rows.length ? encodeRecoveryCursor(rows[rows.length - 1], filter) : '';
+        return send(res, 200, { ok: true, recoveries: projectManagedRecoveryList(page, { limit }),
+          page: { hasMore: page.hasMore === true, storageTruncated: page.storageTruncated === true, nextCursor } });
       }
       if (pathname === '/api/managed-tasks') {
         const agentId = clean(url.searchParams.get('agent'), 80);
@@ -98,4 +134,4 @@ function makeTaskHistoryHttp(opts) {
   return { serve, clampLimit };
 }
 
-module.exports = { makeTaskHistoryHttp, clampLimit };
+module.exports = { makeTaskHistoryHttp, clampLimit, encodeRecoveryCursor, decodeRecoveryCursor };

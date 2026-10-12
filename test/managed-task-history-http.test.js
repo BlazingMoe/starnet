@@ -2,6 +2,7 @@
 'use strict';
 const A = require('./_assert.js');
 const { makeTaskHistoryHttp, clampLimit } = require('../sidecar/orchestration/task-history-http.js');
+const { makeTaskHistoryStore } = require('../sidecar/orchestration/task-history.js');
 
 const rows = [
   { taskId: 't1', leadAgentId: 'lead', workerAgentId: 'worker', status: 'accepted', accepted: true },
@@ -101,4 +102,43 @@ for (const [count, truncated, expected] of [[500, false, false], [501, false, tr
   A.eq(page.historyWindow.bounded, expected, 'response cap and store retention both bound history evidence');
   A.eq(page.historyWindow.returnedRows, page.history.length, 'window describes only returned rows');
 }
+
+let now = 100;
+const recoveryDisk = [];
+const recoveryStore = makeTaskHistoryStore({ clock: { now: () => now++ }, ramMax: 10,
+  io: { readAll: () => recoveryDisk.slice(), append: row => recoveryDisk.push(row) } });
+for (const taskId of ['older-a', 'middle-b', 'newest-c']) recoveryStore.recordCheckpoint({ taskId, leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract' });
+const recoveryApi = makeTaskHistoryHttp({ store: recoveryStore, respondJson(res, code, body) { sent.push({ code, body }); return body; } });
+function recoveryHit(url) { sent.length = 0; recoveryApi.serve({ url }, {}); return sent[0]; }
+r = recoveryHit('/api/managed-task-recoveries?limit=1');
+A.eq(r.code, 200, 'first recovery page returns successfully');
+A.eq(r.body.recoveries.rows.map(row => row.taskId), ['newest-c'], 'recovery HTTP page is newest first');
+A.eq(r.body.page.hasMore, true, 'HTTP exposes retained continuation separately');
+A.eq(r.body.page.storageTruncated, false, 'HTTP reports no retained-store loss independently');
+A.ok(r.body.page.nextCursor, 'HTTP returns an opaque continuation cursor');
+recoveryStore.recordCheckpoint({ taskId: 'inserted-after-page-one', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract' });
+r = recoveryHit('/api/managed-task-recoveries?limit=1&cursor=' + encodeURIComponent(r.body.page.nextCursor));
+A.eq(r.code, 200, 'cursor continues after new records arrive');
+A.eq(r.body.recoveries.rows.map(row => row.taskId), ['middle-b'], 'new records do not shift the cursor page');
+A.eq(r.body.recoveries.rows.some(row => row.taskId === 'newest-c'), false, 'HTTP cursor pages do not duplicate their anchor');
+const validCursor = recoveryHit('/api/managed-task-recoveries?limit=1').body.page.nextCursor;
+A.eq(recoveryHit('/api/managed-task-recoveries?limit=1&agent=other&cursor=' + encodeURIComponent(validCursor)).code, 400, 'cursor cannot be reused with another filter context');
+A.eq(recoveryHit('/api/managed-task-recoveries?cursor=not-a-cursor').code, 400, 'malformed cursor returns a clear client error');
+A.eq(recoveryHit('/api/managed-task-recoveries?cursor=').code, 400, 'an explicitly empty cursor is malformed rather than treated as the first page');
+const unknownAnchor = Buffer.from(JSON.stringify({ v: 1, taskId: 'unknown-anchor', ts: 1, agent: '', disposition: '' })).toString('base64url');
+A.eq(recoveryHit('/api/managed-task-recoveries?cursor=' + unknownAnchor).code, 410, 'unknown or expired anchor returns a clear reload status');
+A.ok(/expired.*reload/i.test(recoveryHit('/api/managed-task-recoveries?cursor=' + unknownAnchor).body.error), 'expired cursor response explains recovery');
+const anchorValue = JSON.parse(Buffer.from(validCursor, 'base64url').toString('utf8'));
+recoveryStore.recordCheckpoint({ taskId: anchorValue.taskId, leadAgentId: 'lead', workerAgentId: 'worker', stage: 'dispatch' });
+A.eq(recoveryHit('/api/managed-task-recoveries?cursor=' + encodeURIComponent(validCursor)).code, 410, 'cursor is rejected when its retained checkpoint has changed');
+
+const truncatedStore = makeTaskHistoryStore({ clock: { now: () => 500 }, ramMax: 1,
+  io: { readAll: () => [], append() {} } });
+truncatedStore.recordCheckpoint({ taskId: 'retained', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract' });
+truncatedStore.recordCheckpoint({ taskId: 'dropped', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract' });
+const truncatedApi = makeTaskHistoryHttp({ store: truncatedStore, respondJson(res, code, body) { sent.push({ code, body }); return body; } });
+sent.length = 0; truncatedApi.serve({ url: '/api/managed-task-recoveries?limit=10' }, {});
+A.eq(sent[0].body.page.hasMore, false, 'no cursor continuation when retained rows fit the page');
+A.eq(sent[0].body.page.storageTruncated, true, 'dropped store history remains visible independently of hasMore');
+
 A.report('managed-task-history-http.test');

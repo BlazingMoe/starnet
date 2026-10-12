@@ -64,6 +64,8 @@ function projectManagedRecoveryList(page, options) {
   const limit = Math.max(1, Math.min(500, Number(options.limit) || 100));
   const items = Array.isArray(page.items) ? page.items : [];
   const rows = items.slice(0, limit).map(projectManagedRecovery).filter(x => x.taskId);
+  const hasMore = page.hasMore === true;
+  const storageTruncated = page.storageTruncated === true;
   return {
     schemaVersion: 'moe.control-recoveries.v1',
     rows,
@@ -71,7 +73,9 @@ function projectManagedRecoveryList(page, options) {
       source: 'managed-task-history',
       authoritative: true,
       returnedRows: rows.length,
-      bounded: items.length > rows.length || page.truncated === true,
+      bounded: items.length > rows.length || page.truncated === true || hasMore || storageTruncated,
+      hasMore,
+      storageTruncated,
       providerReferencesExposed: false,
       taskContentExposed: false
     }

@@ -48,6 +48,31 @@ A.eq(h.store.listRecoveries({}, { limit: 1 }).truncated, true, 'caller limit rep
 A.eq(h.store.listRecoveries({}, { limit: 2 }).truncated, false, 'exactly filling the limit does not invent omitted recoveries');
 A.eq(h.store.listRecoveries({ disposition: 'SAFE_RESTART' }, { limit: 1 }).truncated, false, 'nonmatching recoveries do not imply truncation');
 
+const cursorWindow = harness(10);
+for (const taskId of ['older-a', 'middle-b', 'newest-c']) cursorWindow.store.recordCheckpoint({
+  taskId, leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract'
+});
+const firstPage = cursorWindow.store.listRecoveries({}, { limit: 1 });
+A.eq(firstPage.items.map(row => row.taskId), ['newest-c'], 'first cursor page is newest first');
+A.eq(firstPage.hasMore, true, 'page continuation is explicit when matching rows remain');
+A.eq(firstPage.storageTruncated, false, 'continuation is not confused with dropped storage');
+cursorWindow.store.recordCheckpoint({ taskId: 'inserted-after-page-one', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'contract' });
+const secondPage = cursorWindow.store.listRecoveries({}, { limit: 1, after: {
+  taskId: firstPage.items[0].taskId, ts: firstPage.items[0].checkpoint.ts
+} });
+A.eq(secondPage.items.map(row => row.taskId), ['middle-b'], 'new data ahead of the cursor does not shift the next page');
+A.eq(secondPage.items.some(row => firstPage.items.some(first => first.taskId === row.taskId)), false, 'adjacent cursor pages are disjoint');
+const thirdPage = cursorWindow.store.listRecoveries({}, { limit: 3, after: {
+  taskId: secondPage.items[0].taskId, ts: secondPage.items[0].checkpoint.ts
+} });
+A.eq(thirdPage.items.map(row => row.taskId), ['older-a'], 'cursor continues in stable newest-to-oldest order');
+A.eq(thirdPage.hasMore, false, 'last page has no continuation');
+A.throws(() => cursorWindow.store.listRecoveries({}, { limit: 1, after: { taskId: 'missing-anchor', ts: 1 } }), 'unknown cursor anchor is rejected');
+cursorWindow.store.recordCheckpoint({ taskId: 'newest-c', leadAgentId: 'lead', workerAgentId: 'worker', stage: 'dispatch' });
+A.throws(() => cursorWindow.store.listRecoveries({}, { limit: 1, after: {
+  taskId: firstPage.items[0].taskId, ts: firstPage.items[0].checkpoint.ts
+} }), 'updated cursor anchor expires rather than duplicating or skipping records');
+
 const leadScoped = harness(10);
 leadScoped.store.recordCheckpoint({
   taskId: 'owned', leadAgentId: 'lead-main', workerAgentId: 'worker-owned', objective: 'owned', stage: 'contract'
@@ -74,6 +99,8 @@ const boundedList = bounded.store.listRecoveries();
 A.eq(boundedList.items.length, 1, 'bounded checkpoint mirror exposes only its retained recovery window');
 A.eq(boundedList.items[0].taskId, 'new', 'bounded recovery window retains newest checkpoint');
 A.eq(boundedList.truncated, true, 'bounded recovery listing explicitly reports omitted older checkpoint evidence');
+A.eq(boundedList.hasMore, false, 'store truncation does not claim more retained rows are pageable');
+A.eq(boundedList.storageTruncated, true, 'dropped checkpoints are explicitly distinct from page continuation');
 
 const restarted = makeTaskHistoryStore({
   io: {
