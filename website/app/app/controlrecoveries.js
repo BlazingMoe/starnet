@@ -224,7 +224,7 @@
   function loadNightshiftPane() {
     if (window.ControlModeNightshift || typeof document.createElement !== 'function' || !document.head || typeof document.head.appendChild !== 'function') return;
     if (document.getElementById('mo-control-mode-nightshift')) return;
-    const script = document.createElement('script'); script.id = 'mo-control-mode-nightshift'; script.src = 'app/controlnightshift.js'; script.async = false; document.head.appendChild(script);
+    const script = document.createElement('script'); script.id = 'mo-control-mode-nightshift'; script.src='app/controlnightshift.js'; script.async = false; document.head.appendChild(script);
   }
   installStyle(); watch(); loadNightshiftPane();
   window.ControlModeRecoveries = Object.freeze({ refresh, endpoint: endpoint('', filters), host: () => ensureHost() });
