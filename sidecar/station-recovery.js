@@ -21,6 +21,7 @@
 const crypto = require('crypto');
 const fsNative = require('fs');
 const pathNative = require('path');
+const { note: failNote } = require('./failopen.js');
 
 const SCHEMA = 'starnet.station-recovery';
 const VERSION = 1;
@@ -341,11 +342,19 @@ function writeBundleAtomic(opts) {
     if (typeof fs.fsyncSync === 'function') fs.fsyncSync(fd);
     fs.closeSync(fd); fd = undefined;
     if (typeof o.beforeCommit === 'function') o.beforeCommit({ temp, file, bytes: raw.length });
-    fs.renameSync(temp, file);
-    return { ok: true, file, bytes: raw.length, sha256: sha256(raw), manifestSha256: o.bundle.manifestSha256 };
+    let stagingFileLeft = false;
+    if (o.noReplace) {
+      if (typeof fs.linkSync !== 'function') throw new Error('atomic no-replace backup creation is unavailable on this filesystem');
+      // Hard-link commit is atomic and refuses an existing destination (unlike rename on common platforms).
+      // The staged file is on the same directory/filesystem; only after link succeeds is the temp name removed.
+      fs.linkSync(temp, file);
+      try { fs.unlinkSync(temp); } catch (e) { stagingFileLeft = true; failNote('station-recovery.backup-stage-cleanup', e); }
+    } else fs.renameSync(temp, file);
+    return { ok: true, file, bytes: raw.length, sha256: sha256(raw), manifestSha256: o.bundle.manifestSha256,
+      stagingFileLeft: stagingFileLeft ? temp : undefined };
   } catch (e) {
-    try { if (fd !== undefined) fs.closeSync(fd); } catch (_) {}
-    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+    try { if (fd !== undefined) fs.closeSync(fd); } catch (e) { failNote('station-recovery.backup-close', e); }
+    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (e) { failNote('station-recovery.backup-temp-cleanup', e); }
     throw e;
   }
 }

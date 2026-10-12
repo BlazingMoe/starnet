@@ -205,7 +205,7 @@ const SYNC_BASELINE = {
   'skillstore.js': 3,   // AUDITED — 3 left: corrupt log -> empty library (documented), digest stamp, history view projection
   'slash-actions.js': 1,
   'station-bridge.js': 2,
-  'station-recovery.js': 3,
+  'station-recovery.js': 1,   // AUDITED — only failed-restore staging cleanup remains intentionally best-effort.
   'subagents.js': 10,
   'taskbrief-tools.js': 3,
   'terminal-sessions.js': 3,

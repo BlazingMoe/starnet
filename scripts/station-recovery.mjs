@@ -12,7 +12,7 @@ function usage(code = 1) {
     'StarNet station recovery (offline — stop StarNet first)',
     '',
     'Backup:',
-    '  node scripts/station-recovery.mjs backup --workspace <WORKSPACES> --output <file> [--browser-state <backup.json>] [--app-version <v>] [--mutation <id>]',
+    '  node scripts/station-recovery.mjs backup --workspace <WORKSPACES> --output <file> [--replace-backup] [--browser-state <backup.json>] [--app-version <v>] [--mutation <id>]',
     '',
     'Inspect:',
     '  node scripts/station-recovery.mjs inspect --bundle <file>',
@@ -49,6 +49,44 @@ function browserStoreFrom(file) {
   if (doc && typeof doc === 'object' && !Array.isArray(doc)) return doc;
   throw new Error('browser state must be an object or a StarNet browser backup with {store}');
 }
+function lstatOptional(file) {
+  try { return fs.lstatSync(file); }
+  catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null; throw e; }
+}
+function prospectiveRealPath(file) {
+  const absolute = path.resolve(file);
+  const existing = lstatOptional(absolute);
+  if (existing) {
+    if (existing.isSymbolicLink()) throw new Error('backup output must not be a symbolic link');
+    if (!existing.isFile()) throw new Error('backup output must be a regular file');
+    return fs.realpathSync(absolute);
+  }
+  let ancestor = absolute;
+  const missing = [];
+  while (!lstatOptional(ancestor)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) throw new Error('cannot resolve backup output path');
+    missing.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+  if (!fs.statSync(ancestor).isDirectory()) throw new Error('backup output parent is not a directory');
+  return path.resolve(fs.realpathSync(ancestor), ...missing);
+}
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
+}
+function validateBackupOutput(workspace, output, replaceBackup) {
+  const realWorkspace = fs.realpathSync(workspace);
+  const absoluteOutput = path.resolve(output);
+  const existing = lstatOptional(absoluteOutput);
+  if (existing && existing.isSymbolicLink()) throw new Error('backup output must not be a symbolic link');
+  if (existing && !existing.isFile()) throw new Error('backup output must be an existing regular file when present');
+  if (existing && !replaceBackup) throw new Error('backup output already exists; choose a new path or pass --replace-backup to replace this regular file');
+  if (!existing && replaceBackup) throw new Error('--replace-backup requires an existing regular backup file');
+  const realOutput = prospectiveRealPath(absoluteOutput);
+  if (isWithin(realWorkspace, realOutput)) throw new Error('backup output must be outside the captured WORKSPACES directory');
+}
 function printReport(doc) { console.log(JSON.stringify(doc, null, 2)); }
 
 const a = argsOf(process.argv.slice(2));
@@ -59,6 +97,7 @@ try {
   if (cmd === 'backup') {
     const workspace = required(a.workspace, 'workspace');
     const output = required(a.output, 'output');
+    validateBackupOutput(workspace, output, !!a['replace-backup']);
     const bundle = Recovery.capture({
       workspaceRoot: workspace,
       browserStore: browserStoreFrom(a['browser-state']),
@@ -70,7 +109,7 @@ try {
       printReport({ ok: false, action: 'backup', output, report: bundle.report });
       process.exit(2);
     }
-    const receipt = Recovery.writeBundleAtomic({ bundle, file: output });
+    const receipt = Recovery.writeBundleAtomic({ bundle, file: output, noReplace: !a['replace-backup'] });
     printReport({ ok: true, action: 'backup', receipt, recoveryPoint: bundle.recoveryPoint, requirements: bundle.report.requirements, skipped: bundle.report.skipped, reauthentication: bundle.report.reauthentication });
   } else if (cmd === 'inspect') {
     const file = required(a.bundle, 'bundle');

@@ -262,6 +262,10 @@ npm run recovery:backup -- --workspace "<WORKSPACES>" --output "<backup>.starnet
 npm run recovery:inspect -- --bundle "<backup>.starnet-recovery.json"
 ```
 
+Choose an output outside the captured WORKSPACES directory; the CLI resolves symlinked path
+parents before enforcing this boundary. It refuses a symbolic-link destination and will not
+replace an existing bundle unless `--replace-backup` is explicit; that option applies only to an
+existing regular file. A failed capture or write leaves the previous valid bundle intact.
 Only an `ok: true` inspected bundle is a recovery point. Store at least one copy off the
 station disk. OAuth grants, provider keys and other credentials are deliberately excluded and
 must be reauthorized after a machine/profile restore.

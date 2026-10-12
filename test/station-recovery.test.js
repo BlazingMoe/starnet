@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const A = require('./_assert.js');
 const R = require('../sidecar/station-recovery.js');
 const Save = require('../frontend/app/save.js');
+const FailOpen = require('../sidecar/failopen.js');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-disaster-recovery-'));
 const source = path.join(tmp, 'source-profile', 'workspaces');
@@ -148,6 +149,27 @@ A.throws(() => R.writeBundleAtomic({ bundle: missing, file: path.join(backups, '
 const stableFile = path.join(backups, 'stable.json');
 R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'stable' });
 const stableHash = hashFile(stableFile);
+A.throws(() => R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'no-replace', noReplace: true }), 'atomic no-replace writer refuses an existing recovery point');
+A.eq(hashFile(stableFile), stableHash, 'atomic no-replace refusal preserves the prior recovery point byte-for-byte');
+const racedFile = path.join(backups, 'raced.json');
+const racedWinner = 'another process created this recovery point';
+A.throws(() => R.writeBundleAtomic({ bundle: v1, file: racedFile, nonce: 'race', noReplace: true, beforeCommit() { fs.writeFileSync(racedFile, racedWinner, { flag: 'wx' }); } }), 'atomic no-replace commit rejects a destination created after preflight');
+A.eq(fs.readFileSync(racedFile, 'utf8'), racedWinner, 'a racing writer keeps its recovery point unchanged');
+A.eq(fs.existsSync(racedFile + '.tmp-' + process.pid + '-race'), false, 'failed no-replace race removes this writer staging file');
+const cleanupFile = path.join(backups, 'cleanup-warning.json');
+const cleanupFailopen = FailOpen.counts()['station-recovery.backup-stage-cleanup'] || 0;
+const cleanupFs = new Proxy(fs, { get(target, prop) {
+  if (prop === 'unlinkSync') return function (file) {
+    if (String(file).startsWith(cleanupFile + '.tmp-')) { const e = new Error('simulated staging cleanup failure'); e.code = 'EACCES'; throw e; }
+    return target.unlinkSync(file);
+  };
+  const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+} });
+const cleanupReceipt = R.writeBundleAtomic({ bundle: v1, file: cleanupFile, nonce: 'cleanup', noReplace: true, fs: cleanupFs });
+A.eq(fs.existsSync(cleanupFile), true, 'no-replace link commits a valid bundle before best-effort staging cleanup');
+A.eq(cleanupReceipt.stagingFileLeft, cleanupFile + '.tmp-' + process.pid + '-cleanup', 'receipt identifies a staging link left by cleanup failure');
+A.eq((FailOpen.counts()['station-recovery.backup-stage-cleanup'] || 0), cleanupFailopen + 1, 'staging cleanup failure is visible through fail-open diagnostics');
+fs.unlinkSync(cleanupReceipt.stagingFileLeft);
 A.throws(() => R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'interrupt', beforeCommit() { throw new Error('simulated power loss'); } }), 'interrupted backup reports failure');
 A.eq(hashFile(stableFile), stableHash, 'interrupted backup preserves the previous recovery point');
 A.eq(fs.readdirSync(backups).some(x => x.includes('interrupt')), false, 'interrupted temp file is cleaned');

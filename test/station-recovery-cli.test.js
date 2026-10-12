@@ -39,9 +39,49 @@ const backupReceipt = JSON.parse(backup.stdout);
 A.eq(backupReceipt.ok, true, 'backup CLI prints a machine-readable receipt');
 A.eq(backupReceipt.recoveryPoint.lastCompletedMutation, '7', 'backup receipt binds the requested mutation');
 
+// An output path must not be captured as an ordinary workspace file or silently replace the only old recovery point.
+const nestedBundle = path.join(ws, 'nested.starnet-recovery.json');
+const nested = run(['backup', '--workspace', ws, '--output', nestedBundle]);
+A.ok(nested.status !== 0 && /outside the captured WORKSPACES/i.test(nested.stderr), 'backup CLI rejects an output inside the captured workspace');
+A.eq(fs.existsSync(nestedBundle), false, 'rejected in-workspace output creates no bundle');
+const workspaceAlias = path.join(root, 'workspace-alias');
+fs.symlinkSync(ws, workspaceAlias, process.platform === 'win32' ? 'junction' : 'dir');
+const aliasBundle = run(['backup', '--workspace', ws, '--output', path.join(workspaceAlias, 'alias.starnet-recovery.json')]);
+A.ok(aliasBundle.status !== 0 && /outside the captured WORKSPACES/i.test(aliasBundle.stderr), 'backup CLI canonicalizes a symlinked workspace output path');
+A.eq(fs.existsSync(path.join(ws, 'alias.starnet-recovery.json')), false, 'symlink alias rejection writes no bundle into the source workspace');
+const originalBundleBytes = fs.readFileSync(bundle, 'utf8');
+const refusedOverwrite = run(['backup', '--workspace', ws, '--output', bundle]);
+A.ok(refusedOverwrite.status !== 0 && /--replace-backup/.test(refusedOverwrite.stderr), 'backup CLI refuses to overwrite an existing recovery point by default');
+A.eq(fs.readFileSync(bundle, 'utf8'), originalBundleBytes, 'refused overwrite preserves the existing recovery point byte-for-byte');
+const absentReplacement = run(['backup', '--workspace', ws, '--output', path.join(root, 'not-created.json'), '--replace-backup']);
+A.ok(absentReplacement.status !== 0 && /requires an existing regular backup file/.test(absentReplacement.stderr), '--replace-backup is accepted only for an existing regular file');
+const directoryOutput = path.join(root, 'backup-output-directory');
+fs.mkdirSync(directoryOutput);
+const refusedDirectory = run(['backup', '--workspace', ws, '--output', directoryOutput]);
+A.ok(refusedDirectory.status !== 0 && /regular file/.test(refusedDirectory.stderr), 'backup CLI refuses to treat a directory as an existing bundle');
+const badBrowserState = path.join(root, 'invalid-browser-state.json');
+fs.writeFileSync(badBrowserState, '{broken');
+const failedReplacement = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', badBrowserState]);
+A.ok(failedReplacement.status !== 0, 'failed replacement export is reported');
+A.eq(fs.readFileSync(bundle, 'utf8'), originalBundleBytes, 'failed replacement export preserves the previous verified backup');
+const replace = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', browserIn, '--app-version', 'replacement']);
+A.eq(replace.status, 0, 'explicit replacement of an existing regular backup succeeds');
+const fileLink = path.join(root, 'linked-backup.json');
+try {
+  fs.symlinkSync(bundle, fileLink, 'file');
+  const targetBeforeSymlinkAttempt = fs.readFileSync(bundle);
+  const linked = run(['backup', '--workspace', ws, '--output', fileLink, '--replace-backup']);
+  A.ok(linked.status !== 0 && /symbolic link/i.test(linked.stderr), 'backup CLI refuses a symlink destination even with explicit replacement');
+  A.eq(fs.readFileSync(bundle).equals(targetBeforeSymlinkAttempt), true, 'symlink rejection leaves the target bytes unchanged');
+} catch (e) {
+  if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(e && e.code)) throw e;
+  console.log('SKIP: file symlink destination test unavailable on this host (' + e.code + ')');
+}
+
 const inspect = run(['inspect', '--bundle', bundle]);
 A.eq(inspect.status, 0, 'inspect CLI exits green');
 const inspection = JSON.parse(inspect.stdout);
+A.eq(inspection.appVersion, 'replacement', 'explicit replacement commits the new valid recovery point');
 A.eq(inspection.requirements.filter(x => x.status === 'present').length, 11, 'inspect reports all required categories');
 A.ok(inspection.reauthentication.some(x => x.id === 'notion'), 'inspect reports connector reauthentication');
 
