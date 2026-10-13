@@ -305,6 +305,55 @@
       }
     };
 
+    // Structured CSV export. Serialization happens before delegation so every write uses exactly the
+    // fs.write consent, path, freshness, verified mutation and recovery behavior. The writer never evaluates formulas.
+    const writeCsvTool = {
+      name: 'fs.write_csv', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded structured CSV table to the current project or private workspace. Supply column names and rows of cells (string, finite number, boolean, or null). Strings whose first non-whitespace character is =, +, -, or @ receive a leading apostrophe as a formula-injection mitigation; CSV consumers may interpret this convention differently. The writer does not evaluate formulas. Uses UTF-8 and RFC-style CRLF records; returns a verified byte receipt.',
+      schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
+        path: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 256 },
+        rows: { type: 'array', maxItems: 10000, items: { type: 'array', minItems: 1, maxItems: 256, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+      } },
+      run: async (args, ctx) => {
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (!Array.isArray(args.columns) || args.columns.length < 1 || args.columns.length > 256) throw new Error('columns must contain 1-256 names');
+        if (!Array.isArray(args.rows) || args.rows.length > 10000) throw new Error('rows must contain at most 10000 records');
+        const columns = args.columns;
+        const rows = args.rows;
+        const MAX_CELL = 16384;
+        function csvCell(value, rowIndex, colIndex) {
+          if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') throw new Error('invalid cell at row ' + rowIndex + ', column ' + colIndex + ': use string, finite number, boolean, or null');
+          if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('non-finite number at row ' + rowIndex + ', column ' + colIndex);
+          let text = value == null ? '' : String(value);
+          text = text.replace(/\r\n|\r|\n/g, '\r\n');
+          if (text.length > MAX_CELL) throw new Error('cell exceeds ' + MAX_CELL + ' characters at row ' + rowIndex + ', column ' + colIndex);
+          if (typeof value === 'string' && /^\s*[=+\-@\t\r]/.test(text)) text = "'" + text;
+          return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+        }
+        for (let i = 0; i < columns.length; i++) if (typeof columns[i] !== 'string' || columns[i].length > MAX_CELL) throw new Error('column ' + (i + 1) + ' must be a string of at most ' + MAX_CELL + ' characters');
+        const records = [];
+        let outputBytes = 0;
+        function addRecord(cells) {
+          const record = cells.join(',');
+          const bytes = Buffer.byteLength(record, 'utf8') + 2;
+          if (outputBytes + bytes > WRITE_BYTES) throw new Error('CSV file too large (' + (outputBytes + bytes) + ' > ' + WRITE_BYTES + ' bytes)');
+          records.push(record);
+          outputBytes += bytes;
+        }
+        addRecord(columns.map((v, i) => csvCell(v, 0, i + 1)));
+        for (let r = 0; r < rows.length; r++) {
+          if (!Array.isArray(rows[r]) || rows[r].length !== columns.length) throw new Error('row ' + (r + 1) + ' must contain exactly ' + columns.length + ' cells');
+          addRecord(rows[r].map((v, c) => csvCell(v, r + 1, c + 1)));
+        }
+        const data = Buffer.from(records.join('\r\n') + '\r\n', 'utf8');
+        const written = await writeTool.run({ path: args.path, content: data.toString('utf8') }, ctx);
+        return Object.assign({}, written, {
+          content: 'Structured CSV: ' + columns.length + ' columns, ' + rows.length + ' data rows. Formula-like strings were prefixed with an apostrophe; the writer did not evaluate formulas. CSV consumers may interpret the escape convention differently.\n' + written.content,
+          summary: 'wrote CSV ' + args.path + ' (' + kb(data.length) + ')'
+        });
+      }
+    };
+
     const profileCsvTool = {
       name: 'fs.profile_csv', capability: 'cabinet', scope: 'read', readOnly: true, requiresConsent: false, timeoutMs: 30000,
       description: 'Profile a workspace/project CSV without returning data rows. Streams at most maxBytes and maxRows, understands UTF-8 BOM, RFC-style doubled quotes and quoted newlines, and never evaluates formulas. Defaults are delimiter comma and hasHeader true; supply delimiter or hasHeader explicitly when the source uses different conventions. Result reports complete/partial/malformed status, source identity, per-column missing/type counts and finite numeric summaries.',
@@ -1019,9 +1068,9 @@
     };
 
     return {
-      writeTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

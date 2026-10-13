@@ -138,10 +138,11 @@ const fixture = {
   // flows through the cache tier — proving a granted mutation is allowed without resorting to Full Access.
   const consent = makeConsentBroker({ sessionKey: 'itest', surface: 'autonomous' });
   consent.grant('session', { name: 'fs.write' }, registry.get('fs.write'));
+  consent.grant('session', { name: 'fs.write_csv' }, registry.get('fs.write_csv'));
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.search', 'fs.write', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.search', 'fs.write', 'fs.write_csv', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -267,9 +268,9 @@ const fixture = {
     tool('rows-2', 'fs_read_csv_rows', { path: 'sales.csv', delimiter: ',', hasHeader: true, offset: 2, limit: 2 });
     tool('choose-output-folder', 'fs_list', { path: 'analysis' });
     const report = '# Dataset brief\n\nSource: sales.csv; bytes: ' + csvStat.size + '; last modified: ' + csvStat.mtime.toISOString() + '. Profile is PARTIAL: exactly the first 2 data rows were profiled, so these are not whole-file totals. Finite IEEE-754 binary64 values; decimal summaries are approximate and integers outside the safe range may be rounded. The row review covered source rows 1-3 in pages 1-2. Credential-shaped content was scrubbed by StarNet’s configured key-pattern redactor; this is not general PII detection. The quoted multiline field stayed on one logical row and the formula-looking value remained inert. North has $40 and South $20 in this three-row fixture. This describes the fixture data only, not a causal or population claim.\n';
-    const findings = 'finding,evidence_range,observed_evidence,interpretation,confidence\nRevenue by region,rows 1-3,"North 10+30; South 20",North is highest in the complete row review,high within this fixture\nCoverage,profile rows 1-2,"profile status partial",Profile totals describe only the first two rows,high\n';
+    const findings = 'finding,evidence_range,observed_evidence,interpretation,confidence\r\nRevenue by region,rows 1-3,North 10+30; South 20,North is highest in the complete row review,high within this fixture\r\nCoverage,profile rows 1-2,profile status partial,Profile totals describe only the first two rows,high\r\n';
     tool('write-report', 'fs_write', { path: 'analysis/dataset-brief-fixture/report.md', content: report });
-    tool('write-findings', 'fs_write', { path: 'analysis/dataset-brief-fixture/findings.csv', content: findings });
+    tool('write-findings', 'fs_write_csv', { path: 'analysis/dataset-brief-fixture/findings.csv', columns: ['finding','evidence_range','observed_evidence','interpretation','confidence'], rows: [['Revenue by region','rows 1-3','North 10+30; South 20','North is highest in the complete row review','high within this fixture'],['Coverage','profile rows 1-2','profile status partial','Profile totals describe only the first two rows','high']] });
     tool('read-report', 'fs_read', { path: 'analysis/dataset-brief-fixture/report.md' });
     tool('read-findings', 'fs_read', { path: 'analysis/dataset-brief-fixture/findings.csv' });
     turns.push([{ type: 'text', delta: 'Fixture analysis saved and both files read back. The profile covers only rows 1-2; all three data rows were reviewed.' }, { type: 'done', finishReason: 'stop' }]);
@@ -290,7 +291,7 @@ const fixture = {
     });
     A.eq(er.reason, 'done', 'dataset workflow completes through the shared execution path');
     const calls = es.filter(e => e.name === 'agent.tool_call').map(e => e.payload.name);
-    A.eq(calls, ['fs_profile_csv','fs_read_csv_rows','fs_read_csv_rows','fs_list','fs_write','fs_write','fs_read','fs_read'],
+    A.eq(calls, ['fs_profile_csv','fs_read_csv_rows','fs_read_csv_rows','fs_list','fs_write','fs_write_csv','fs_read','fs_read'],
       'workflow profiles, pages rows, checks output folder, saves both files and reads both back');
     const results = dispatched.map(entry => entry.result);
     const csvProfile = JSON.parse(dispatched[0].result.content);
@@ -319,6 +320,10 @@ const fixture = {
   const denyCtx = makeCapCtx(resolved, { emit, consent: makeConsentBroker({ sessionKey: 'deny', surface: 'autonomous' }), timeoutMs: 5000 });
   const denied = await dispatch({ name: 'fs_write', args: { path: 'unsanctioned.md', content: 'nope' } }, denyCtx);
   A.eq(denied.isError, true, 'un-granted mutation default-denies');
+  const deniedCsv = await dispatch({ name: 'fs_write_csv', args: { path: 'unsanctioned.csv', columns: ['x'], rows: [['=1+1']] } }, denyCtx);
+  A.eq(deniedCsv.isError, true, 'un-granted structured CSV mutation default-denies');
+  let csvWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.csv')); } catch (e) { csvWrote = false; }
+  A.ok(!csvWrote, 'the denied CSV mutation never touched disk');
   A.eq(denied.summary, 'denied', 'denial surfaced as a consent denial, not a crash');
   A.ok(/silence is not consent/.test(denied.content), 'denial carries the silence-is-not-consent reason');
   let wrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.md')); } catch (e) { wrote = false; }

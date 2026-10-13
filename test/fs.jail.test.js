@@ -11,7 +11,7 @@ const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 
 const ROOT = path.join(os.tmpdir(), 'starnet-fs-test-' + process.pid);
-const { writeTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, searchTool, _internals } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 32, readReturn: 1000 } });
+const { writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, searchTool, _internals } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 32, readReturn: 1000 } });
 
 async function rejects(promise, msg) { try { await promise; A.ok(false, msg + ' — did NOT reject'); } catch (e) { A.ok(true, msg); } }
 
@@ -61,6 +61,28 @@ async function rejects(promise, msg) { try { await promise; A.ok(false, msg + ' 
     await writeTool.run({ path: 'sub/deep.txt', content: 'x' }, ctx);
     const ls = await listTool.run({}, ctx);
     A.ok(ls.content.indexOf('note.md') >= 0 && ls.content.indexOf('sub') >= 0, 'list shows files + subdir');
+  }
+
+  // ---- structured CSV export uses the same scoped, consent-gated verified write boundary ----
+  {
+    const csvOutTool = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1000 } }).writeCsvTool;
+    const csvOut = await csvOutTool.run({ path: 'analysis/findings.csv', columns: ['finding', '  =header'], rows: [['Top "result"', 'rows 1,2\nall good'], ['Formula', '=1+1'], ['Tab trigger', '\t=2+2'], ['CR trigger', '\r=3+3'], ['Negative number', -2], ['Unicode', 'café ✓']] }, { agentId: 'ag' });
+    const bytes = await fsp.readFile(path.join(ROOT, 'ag', 'analysis', 'findings.csv'));
+    A.eq(bytes.toString('utf8'), "finding,'  =header\r\n\"Top \"\"result\"\"\",\"rows 1,2\r\nall good\"\r\nFormula,'=1+1\r\nTab trigger,'\t=2+2\r\nCR trigger,\"'\r\n=3+3\"\r\nNegative number,-2\r\nUnicode,café ✓\r\n", 'structured CSV normalizes newlines, quotes fields, escapes formula-like header/cell strings, and leaves numeric negatives numeric');
+    A.eq(csvOut.mutationReceipt.state, 'read-back-verified', 'CSV write is verified from disk');
+    A.eq(csvOut.mutationReceipt.verifiedBytes, bytes.length, 'CSV receipt reports exact UTF-8 verified bytes');
+    A.eq(bytes.length, Buffer.byteLength(bytes.toString('utf8'), 'utf8'), 'CSV receipt byte basis matches exact UTF-8 encoding including non-ASCII cells');
+    await rejects(csvOutTool.run({ path: 'analysis/invalid.csv', columns: ['x', 'y'], rows: [[1]] }, { agentId: 'ag' }), 'rejects ragged CSV before mutation');
+    A.ok(!fs.existsSync(path.join(ROOT, 'ag', 'analysis', 'invalid.csv')), 'invalid CSV input leaves no file behind');
+    await rejects(csvOutTool.run({ path: 'analysis/invalid-cell.csv', columns: ['x'], rows: [[Infinity]] }, { agentId: 'ag' }), 'rejects non-finite structured values');
+    await rejects(csvOutTool.run({ path: 'analysis/invalid-shape.csv', columns: ['x'], rows: [[{ value: 1 }]] }, { agentId: 'ag' }), 'rejects object cells');
+    const tinyCsvTool = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 8 } }).writeCsvTool;
+    await rejects(tinyCsvTool.run({ path: 'analysis/too-large.csv', columns: ['x'], rows: [['0123456789']] }, { agentId: 'ag' }), 'rejects byte overflow before creating output');
+    A.ok(!fs.existsSync(path.join(ROOT, 'ag', 'analysis', 'too-large.csv')), 'oversized CSV input leaves no file behind');
+    await rejects(csvOutTool.run({ path: 'analysis/too-many-rows.csv', columns: ['x'], rows: Array.from({ length: 10001 }, () => ['x']) }, { agentId: 'ag' }), 'rejects row count above configured cap');
+    await rejects(csvOutTool.run({ path: 'analysis/too-many-cols.csv', columns: Array.from({ length: 257 }, (_, i) => 'c' + i), rows: [] }, { agentId: 'ag' }), 'rejects column count above configured cap');
+    await rejects(csvOutTool.run({ path: 'analysis/too-long-cell.csv', columns: ['x'], rows: [['x'.repeat(16385)]] }, { agentId: 'ag' }), 'rejects cells above configured cap');
+    await rejects(csvOutTool.run({ path: '../outside.csv', columns: ['x'], rows: [[1]] }, { agentId: 'ag' }), 'CSV writer remains jailed');
   }
 
   // ---- bounded CSV profiling through the registered read-only file tool ----
