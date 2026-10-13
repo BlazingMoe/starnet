@@ -92,6 +92,13 @@
           : '<input id="rt-sched" class="key-input" placeholder="schedule — every 30m · 0 9 * * * · in 2h" autocomplete="off">') +
         '</div>' +
         '<div id="rt-preview" class="dim" style="min-height:1em;font-size:.9em"></div>' +
+        '<label for="rt-misfire">If this routine is noticed late after downtime</label>' +
+        '<select id="rt-misfire" class="key-input" aria-describedby="rt-misfire-help">' +
+          '<option value="">Automatic for this schedule (recommended)</option>' +
+          '<option value="fire_once">Run the missed occurrence once</option>' +
+          '<option value="skip">Skip stale occurrences</option>' +
+        '</select>' +
+        '<div id="rt-misfire-help" class="dim">Automatic: cron and intervals of 1 hour or longer catch up once; faster intervals skip stale runs. This applies only beyond the grace window and never replays a backlog. One-time routines run when first noticed.</div>' +
         '<label for="rt-times">Stop after this many settled runs (optional)</label>' +
         '<input id="rt-times" class="key-input" type="number" min="1" step="1" placeholder="blank = keep repeating" aria-describedby="rt-times-help">' +
         '<div id="rt-times-help" class="dim">Successes and terminal failures count. Transient retries do not; keep a separate spend budget. One-time schedules always run once. RUN NOW can explicitly run a finished routine again.</div>' +
@@ -144,7 +151,7 @@
     // schedulerArmed mirrors GET /api/cron `.enabled` (set in refresh) so the create-confirm can tell the honest
     // armed/disarmed story via AutoJobs.armStateLine. #rt-out lives in the ACTIVE pane (sibling of #rt-list); when a
     // run fires we splice it in right AFTER its row, and after every list re-render positionOut() re-slots it there.
-    let lastRunId = null, schedulerArmed = false;
+    let lastRunId = null, schedulerArmed = false, misfireEditor = null;
     function showRunOut(rowEl, id) {
       lastRunId = id;
       const nmEl = rowEl && rowEl.querySelector('.mc-top b');
@@ -158,6 +165,61 @@
       let placed = false;
       if (lastRunId) listEl.querySelectorAll('.mc-row').forEach(r => { if (!placed && r.dataset.id === lastRunId) { r.insertAdjacentElement('afterend', outEl); placed = true; } });
       if (!placed) listEl.insertAdjacentElement('afterend', outEl);   // its row is gone (deleted) → park below the list
+    }
+    function mountMisfireEditor(rowEl, btn, state) {
+      listEl.querySelectorAll('.rt-misfire-editor').forEach(el => el.remove());
+      listEl.querySelectorAll('button[data-act="misfire"]').forEach(b => b.classList.remove('on'));
+      const editor = document.createElement('div');
+      editor.className = 'rt-misfire-editor';
+      editor.innerHTML = '<label class="dim" for="rt-misfire-editor-select">When a recurring run is noticed later than its grace window:</label>' +
+        '<select class="key-input" id="rt-misfire-editor-select" data-misfire>' +
+          '<option value="">Automatic: cron and intervals ≥1 hour catch up once; faster intervals skip stale runs</option>' +
+          '<option value="fire_once">Run one missed occurrence, then continue at the next scheduled time</option>' +
+          '<option value="skip">Skip stale occurrences and continue at the next scheduled time</option>' +
+        '</select>' +
+        '<div class="mc-acts"><button class="bb xs" data-misfire-save>✓ SAVE POLICY</button><button class="bb xs" data-misfire-cancel>CANCEL</button></div>';
+      rowEl.insertAdjacentElement('afterend', editor);
+      const select = editor.querySelector('[data-misfire]');
+      const save = editor.querySelector('[data-misfire-save]');
+      const cancel = editor.querySelector('[data-misfire-cancel]');
+      select.value = state.policy;
+      select.disabled = state.pending;
+      save.disabled = state.pending;
+      cancel.disabled = state.pending;
+      if (state.pending) save.textContent = '… saving';
+      select.addEventListener('change', () => { state.policy = select.value; });
+      btn.classList.add('on');
+      editor.addEventListener('click', async ev2 => {
+        const action = ev2.target.closest('button'); if (!action) return;
+        if (action.hasAttribute('data-misfire-cancel')) {
+          if (state.pending) return;
+          misfireEditor = null; editor.remove(); btn.classList.remove('on'); return;
+        }
+        if (!action.hasAttribute('data-misfire-save') || state.pending) return;
+        state.policy = select.value;
+        state.pending = true;
+        select.disabled = true; save.disabled = true; cancel.disabled = true; save.textContent = '… saving';
+        try {
+          const response = await post('/api/cron/update', { id: state.id, patch: { misfire: state.policy || null } });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error((result && result.error) || 'the policy was not saved');
+          if (misfireEditor === state) misfireEditor = null;
+          notify('missed-run policy saved', 'good'); sfx('click'); refresh();
+        } catch (e) {
+          state.pending = false;
+          notify('could not save missed-run policy — ' + ((e && e.message) || 'the routine was not changed'), 'warn'); sfx('bad');
+          restoreMisfireEditor();
+        }
+      });
+    }
+    function restoreMisfireEditor() {
+      if (!misfireEditor) return;
+      let rowEl = null;
+      listEl.querySelectorAll('.mc-row').forEach(row => { if (row.dataset.id === misfireEditor.id) rowEl = row; });
+      if (!rowEl) { if (!misfireEditor.pending) misfireEditor = null; return; }
+      const btn = rowEl.querySelector('button[data-act="misfire"]');
+      if (!btn) { if (!misfireEditor.pending) misfireEditor = null; return; }
+      mountMisfireEditor(rowEl, btn, misfireEditor);
     }
     outEl.addEventListener('click', ev => { if (ev.target.closest('.rt-out-x')) { outEl.hidden = true; outEl.innerHTML = ''; lastRunId = null; sfx('click'); } });
 
@@ -287,10 +349,16 @@
       // at 9:00 AM", and the audit string that actually fires the job is one hover away, never hidden.
       const sched = j.scheduleDisplay || '';
       const schedHuman = human(sched);
-      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '">' +
+      const recurring = !!(j.schedule && (j.schedule.kind === 'cron' || j.schedule.kind === 'interval'));
+      const misfire = j.misfire === 'fire_once' || j.misfire === 'skip' ? j.misfire : '';
+      const automaticPolicy = j.schedule && (j.schedule.kind === 'cron' || (j.schedule.kind === 'interval' && Number(j.schedule.minutes) >= 60))
+        ? 'catch up once' : 'skip stale runs';
+      const misfireLabel = misfire === 'fire_once' ? 'run one stale occurrence' : misfire === 'skip' ? 'skip stale occurrences' : 'automatic: ' + automaticPolicy;
+      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-misfire="' + esc(misfire) + '">' +
         '<div class="mc-top"><b>' + esc(j.name || '(unnamed)') + '</b> <span class="dim"' +
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + repeatLine + '</div>' +
+        (recurring ? '<div class="mc-url dim" title="A stale occurrence is one later than its grace window; catch-up never replays a backlog.">missed run: ' + esc(misfireLabel) + '</div>' : '') +
         (j.lastError ? '<div class="mc-detail">' + esc(j.lastError === 'schedule-unfireable' ? 'schedule can never fire — reschedule this routine' : j.lastError) + '</div>' : '') +
         failureStreakLine(j) +
         deliveryLine(j) +
@@ -299,6 +367,7 @@
           // RESCHEDULE — the same picker, opened on this routine's current schedule. Before this you could
           // only DELETE and re-create a routine to move it an hour, which also threw away its run history.
           '<button class="bb xs" data-act="resched">◷ RESCHEDULE</button>' +
+          (recurring ? '<button class="bb xs" data-act="misfire">↻ MISSED-RUN POLICY</button>' : '') +
           // no toggle on a settled one-shot: ENABLE can't re-arm it (see completedOnce above)
           (finished ? '' : '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>') +
           // REVOKE — a standing unattended permission must be withdrawable without deleting the routine.
@@ -400,6 +469,7 @@
           });
         }
         positionOut();   // re-slot a live RUN NOW result under its row after the list re-renders (P0 #11)
+        restoreMisfireEditor(); // preserve an open policy editor, its selection and any in-flight save
       } catch (_) {
         schedulerArmed = false;
         const createState = body.querySelector('#rt-create-state');
@@ -430,13 +500,28 @@
       inp.addEventListener('input', () => {
       clearTimeout(pvTimer);
       const v = inp.value.trim();
+      const revision = (inp._previewRevision || 0) + 1;
+      inp._previewRevision = revision;
+      if (inp.id === 'rt-sched') {
+        const policy = body.querySelector('#rt-misfire'), help = body.querySelector('#rt-misfire-help');
+        if (policy) policy.disabled = false;
+        if (help) help.textContent = 'Automatic: cron and intervals of 1 hour or longer catch up once; faster intervals skip stale runs. This applies only beyond the grace window and never replays a backlog. One-time routines run when first noticed.';
+      }
       if (!v) { pvEl.textContent = ''; return; }
       pvTimer = setTimeout(async () => {
         try {
           // tz honesty in the PREVIEW too: the create POST sends the device zone, so a preview computed
           // without it would quote a different 9:00 than the routine will actually keep.
           const r = await (await post('/api/cron/preview', { schedule: v, tz: deviceTz() })).json();
+          if (inp._previewRevision !== revision) return;
           if (r && r.ok) {
+            if (inp.id === 'rt-sched') {
+              const policy = body.querySelector('#rt-misfire'), help = body.querySelector('#rt-misfire-help');
+              const once = r.kind === 'once';
+              if (policy) policy.disabled = once;
+              if (help && once) help.textContent = 'One-time routines run when first noticed. Missed-run policy applies only to recurring routines.';
+              else if (help) help.textContent = 'Automatic: cron and intervals of 1 hour or longer catch up once; faster intervals skip stale runs. This applies only beyond the grace window and never replays a backlog. One-time routines run when first noticed.';
+            }
             // show the LOCAL wall-clock time the routine fires (with its tz), not just a relative delta, so a
             // cron schedule reads honestly across DST (e.g. "next: 9:00 AM EDT (in 3h)"). Falls back to the
             // relative-only line when the server didn't supply a localNext (interval/once).
@@ -534,6 +619,18 @@
         const wasOpen = btn.classList.contains('on');
         closeResched();                       // one editor at a time; the button toggles its own
         if (!wasOpen) openResched(rowEl, id, btn);
+        return;
+      }
+      if (act === 'misfire') {
+        if (misfireEditor && misfireEditor.pending) return;
+        if (misfireEditor && misfireEditor.id === id) {
+          misfireEditor = null;
+          listEl.querySelectorAll('.rt-misfire-editor').forEach(el => el.remove());
+          btn.classList.remove('on');
+          return;
+        }
+        misfireEditor = { id, policy: rowEl.dataset.misfire || '', pending: false };
+        mountMisfireEditor(rowEl, btn, misfireEditor);
         return;
       }
       if (act === 'remove') {
@@ -646,6 +743,7 @@
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
           name, prompt, schedule, repeat: { times }, agentId: agentId || undefined, provider, tz,
+          misfire: (body.querySelector('#rt-misfire') || {}).value || undefined,
           meta: body.querySelector('#rt-prompt').dataset.widgetId
             ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
             : body.querySelector('#rt-prompt').dataset.workflowTakeoverId

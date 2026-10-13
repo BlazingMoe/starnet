@@ -245,6 +245,27 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.ok(Date.parse(s.getJob('j1').nextRunAt) > s.clock.now(), 'nextRunAt fast-forwarded to a FUTURE occurrence');
   }
 
+  // ---- 6b. explicit missed-run choices feed the same durable scheduler policy ----
+  {
+    const j = intervalJob('catch-up-once', 'every 10m');
+    j.nextRunAt = cron._internals.iso(T0); j.misfire = 'fire_once';
+    const s = setup([j], okRun(), { t0: T0 });
+    s.clock.set(T0 + 5000000);
+    const summary = s.driver.applyTick(s.clock.now());
+    A.eq(summary.fired, 1, 'explicit fire_once runs one stale occurrence after downtime');
+    A.eq(s.getJob('catch-up-once').misfire, 'fire_once', 'chosen policy remains durable on the scheduled job');
+    A.ok(Date.parse(s.getJob('catch-up-once').nextRunAt) > s.clock.now(), 'catch-up still advances directly to a future time');
+  }
+  {
+    const j = intervalJob('skip-stale', 'every 10m');
+    j.nextRunAt = cron._internals.iso(T0); j.misfire = 'skip';
+    const s = setup([j], okRun(), { t0: T0 });
+    s.clock.set(T0 + 5000000);
+    const summary = s.driver.applyTick(s.clock.now());
+    A.eq(summary.fired, 0, 'explicit skip policy drops an occurrence after downtime beyond its grace window');
+    A.eq(firstOf(s.events, 'cron.skipped').reason, 'caught-up', 'explicit stale skip retains the auditable skip event');
+  }
+
   // ---- 7. a throwing run records lastStatus:error and does NOT stop the next job from firing ----
   {
     const a = intervalJob('ja', 'every 1m');

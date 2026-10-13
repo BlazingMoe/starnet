@@ -32,6 +32,8 @@ Decision history records live in each agent's .decisions.json sibling and travel
 
 Decision outcomes can now produce a reference-only lesson candidate in the existing pending memory review queue. Source decision/outcome IDs, uncertainty, and up to 24 bounded evidence references remain labeled unverified through review and Keep; explicit Discard is terminal. Queue rows are protected from normal FIFO eviction, and retries reconcile missing rows. The selected agent's Memory Core now also has a read-only, paginated retrospective over that same decision ledger, including append-only outcomes and distinct pending/staging/reviewing-kept/kept/discarded review receipts. Unknown fields are excluded, model claims remain unconfirmed, and corrupt or quarantined storage is reported as unavailable rather than empty. Verification: test/decision-history.test.js (71 assertions), test/decision-history-http.test.js (28), test/memory-decisions-ui.test.js (28), and test/sidecar.http.test.js (537); live browser/provider acceptance remains deferred.
 
+ROUTINES now exposes the scheduler's existing stale missed-run policy. Recurring routines can keep the schedule-derived default (cron and intervals of at least one hour catch up once; faster intervals skip stale work), explicitly run one missed occurrence, or skip it. This choice applies only beyond the scheduler's grace window; catch-up never replays a backlog, and one-shot routines are unaffected. Create and existing-routine edits use the existing API/store; the active row states the selected policy. Verification: test/routine-repeat-ui.test.js, test/cron.tick.test.js, and test/cron.api.test.js; live browser/provider acceptance remains deferred.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.
@@ -90,7 +92,7 @@ Public distribution is intentionally **outside the current product target**. Ind
 | Workflow | Model fallback | Existing/Partial | Central provider-failure policy plus existing multi-provider fallback/credential rotation paths | Broaden cost/quality/context-aware routing policy | P1 |
 | Workflow | Human approvals | Existing/Partial | Permission system + verified read-only Approval Center | Future mutation UX only with existing consent/grant stores as authority | P0 |
 | Workflow | Recipes/templates | Existing | Recipes/workstreams | Versioning, parameters, marketplace/local catalog | P1 |
-| Scheduling | Cron/schedules | Existing | Sidecar cron/scheduling | UI scheduler, timezone handling, missed-run policy | P1 |
+| Scheduling | Cron/schedules | Existing/Partial | Sidecar cron with IANA timezone handling, grace windows and schedule-derived or per-routine stale-run policy; ROUTINES exposes create/edit/display for that policy | Broader unattended workflow acceptance and explicit DST/missed-run operator evidence | P1 |
 | Scheduling | Event-driven triggers | Partial | Channels/runtime events | Webhooks, file/email/calendar/CI triggers | P2 |
 | Autonomy | Manual mode | Partial | Existing leash/trust concepts | Explicit global/per-agent autonomy policy | P0 |
 | Autonomy | Assist mode | Partial | Existing trust/capability model | Research/plan without side effects | P0 |

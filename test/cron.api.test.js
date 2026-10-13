@@ -76,12 +76,13 @@ function boot(port, workspaces, attemptsLeft) {
 
   try {
     // ---- create: a valid interval routine ----
-    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief' });
+    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once' });
     A.eq(create.status, 200, 'POST /api/cron (valid) -> 200');
     A.ok(create.body.ok && create.body.job && create.body.job.id, 'create returns the new job with an id');
     const id = create.body.job.id;
     A.eq(create.body.job.schedule.kind, 'interval', 'schedule parsed to an interval');
     A.eq(create.body.job.agentId, 'cron_brief', 'agentId stored');
+    A.eq(create.body.job.misfire, 'fire_once', 'create persists the chosen one-catch-up policy');
     A.ok(create.body.job.nextRunAt, 'an enabled interval job is armed with a nextRunAt');
     const roster = await j('POST', '/api/roster', { agents: [{ agentId: 'cron_brief', system: 'ROSTER SYSTEM', name: 'Briefing Agent', model: 'roster/model', provider: 'codex', role: 'news briefings' }] });
     A.eq(roster.status, 200, 'POST /api/roster -> 200');
@@ -161,6 +162,12 @@ function boot(port, workspaces, attemptsLeft) {
     A.eq(res.body.job.enabled, true, 'resumed via enabled:true');
     A.eq(res.body.job.state, 'scheduled', 'state scheduled after resume');
     A.ok(res.body.job.nextRunAt, 're-armed nextRunAt on resume');
+    const misfireUpdate = await j('POST', '/api/cron/update', { id, patch: { misfire: 'skip' } });
+    A.eq(misfireUpdate.status, 200, 'missed-run policy update -> 200');
+    A.eq(misfireUpdate.body.job.misfire, 'skip', 'policy change persists through the same routine update route');
+    const badMisfire = await j('POST', '/api/cron/update', { id, patch: { misfire: 'replay-all' } });
+    A.eq(badMisfire.status, 200, 'unknown policy is safely normalized rather than widening scheduler behavior');
+    A.eq(badMisfire.body.job.misfire, null, 'unknown policy falls back to the schedule-derived default');
     const updMissing = await j('POST', '/api/cron/update', { id: 'nope', patch: { name: 'z' } });
     A.eq(updMissing.status, 404, 'update of an unknown id -> 404');
     const updBadAgent = await j('POST', '/api/cron/update', { id, patch: { agentId: 'bad agent!' } });
@@ -214,6 +221,7 @@ function boot(port, workspaces, attemptsLeft) {
     const after = await j('GET', '/api/cron');
     A.eq(after.body.jobs.length, 2, 'the routines persisted across a restart');
     A.ok(after.body.jobs.some(job => job.name === 'Renamed brief'), 'the edited name persisted');
+    A.eq(after.body.jobs.find(job => job.name === 'Renamed brief').misfire, null, 'derived missed-run policy survives restart as the explicit default marker');
     A.ok(after.body.jobs.some(job => job.schedule && job.schedule.kind === 'cron'), 'the cron routine persisted');
     A.ok(after.body.jobs.some(job => job.provider === 'codex'), 'the routine provider persisted');
     const recoveries = await j('GET', '/api/run-recoveries');
