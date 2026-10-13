@@ -52,7 +52,7 @@ function startMockOpenRouter() {
           }
           // KABOOM sentinel: a hard non-retryable provider failure (401 auth) whose message carries a
           // distinctive needle — used to provoke a REAL recorded run error for the diagnostics-tail tests.
-          if (body.indexOf('KABOOM') >= 0) {
+          if (body.indexOf('KABOOM') >= 0 && body.indexOf('SCHEDCAP-E2E') < 0) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'KABOOM-DIAG-NEEDLE: mock provider rejected this run', code: 401 } }));
             return;
@@ -462,13 +462,48 @@ function boot(port, env, attemptsLeft) {
 
   // reboot the sidecar on the SAME workspace: the persisted diag tail must come back.
   {
-    const boot2 = await boot(8890 + (process.pid % 50), env, 20);
+    // Exercise the real scheduler -> runOnce -> loop path under a low station-wide turn cap. The two
+    // persisted routines carry a lower cap and a higher cap respectively, proving the routine cap stops
+    // execution and that the station cap still wins when it is lower.
+    const cronEnv = Object.assign({}, env, {
+      SKYNET_CRON_ENABLED: '1', SKYNET_CRON_TICK_MS: '5000', SKYNET_MAX_ITERS: '2',
+      SKYNET_OPENROUTER_KEY: 'sk-or-v1-e2e-fake'
+    });
+    const boot2 = await boot(8890 + (process.pid % 50), cronEnv, 20);
     const B2 = 'http://' + HOST + ':' + boot2.port;
     try {
       const token2 = await bootToken(B2, B2);
       const d2 = await (await fetch(B2 + '/api/diagnostics', { headers: { 'X-StarNet-Token': token2, Origin: B2 } })).json();
       A.ok(d2.text.indexOf('KABOOM-DIAG-NEEDLE') >= 0, 'RESTART-SAFE: the error tail survived the sidecar restart (diag.errors.json)');
       A.ok(d2.text.indexOf('(none recorded)') < 0, 'the report no longer claims an empty tail after restart');
+      const hdr2 = { 'Content-Type': 'application/json', 'X-StarNet-Token': token2, Origin: B2 };
+      for (const spec of [
+        { name: 'Routine one-turn cap', prompt: 'SCHEDCAP-E2E LIMITLOOP routine-one-turn-cap', maxIters: 1 },
+        { name: 'Station cap wins', prompt: 'SCHEDCAP-E2E LIMITLOOP routine-station-cap', maxIters: 5 }
+      ]) {
+        const made = await fetch(B2 + '/api/cron', { method: 'POST', headers: hdr2,
+          body: JSON.stringify({ name: spec.name, prompt: spec.prompt, schedule: 'in 1s', model: 'test/model', maxIters: spec.maxIters }) });
+        A.eq(made.status, 200, 'bounded scheduled routine is accepted');
+        spec.id = (await made.json()).job.id;
+      }
+      let cronJobs = [];
+      for (let i = 0; i < 25; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        cronJobs = ((await (await fetch(B2 + '/api/cron', { headers: hdr2 })).json()).jobs || []);
+        const finished = ['Routine one-turn cap', 'Station cap wins'].every(name => {
+          const j = cronJobs.find(x => x.name === name); return j && j.lastReason === 'max_iters';
+        });
+        if (finished) break;
+      }
+      for (const name of ['Routine one-turn cap', 'Station cap wins']) {
+        const j = cronJobs.find(x => x.name === name);
+        A.eq(j && j.lastReason, 'max_iters', name + ' reaches the actual loop iteration stopping condition (lastError=' + String(j && j.lastError) + ')');
+      }
+      const entryRequestCount = needle => mock.requests.filter(q =>
+        (q.messages || []).some(m => m && m.role === 'system' && String(m.content || '').startsWith('You are an autonomous STARNET station agent running a SCHEDULED routine')) &&
+        (q.messages || []).some(m => m && m.role === 'user' && String(m.content || '').includes(needle))).length;
+      A.eq(entryRequestCount('routine-one-turn-cap'), 1, 'scheduled routine cap of 1 stops after one tool-turn request');
+      A.eq(entryRequestCount('routine-station-cap'), 2, 'routine cap 5 is clamped to the lower station cap of 2');
     } finally {
       try { boot2.child.kill(); } catch (_) {}
       try { mock.server.close(); } catch (_) {}

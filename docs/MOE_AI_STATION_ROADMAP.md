@@ -34,6 +34,8 @@ Decision outcomes can now produce a reference-only lesson candidate in the exist
 
 ROUTINES now exposes the scheduler's existing stale missed-run policy. Recurring routines can keep the schedule-derived default (cron and intervals of at least one hour catch up once; faster intervals skip stale work), explicitly run one missed occurrence, or skip it. This choice applies only beyond the scheduler's grace window; catch-up never replays a backlog, and one-shot routines are unaffected. Create and existing-routine edits use the existing API/store; the active row states the selected policy. Verification: test/routine-repeat-ui.test.js, test/cron.tick.test.js, and test/cron.api.test.js; live browser/provider acceptance remains deferred.
 
+ROUTINES also supports an optional per-run tool-turn cap on create and edit. It is durable with the routine, applies to scheduled entry runs and RUN NOW, and narrows the existing station iteration limit at the shared run host; blank or invalid stored values inherit normal station run-limit behavior. The cap applies to the routine's entry run; downstream work-line stages retain their existing line limits. Invalid API values are rejected, and the routine row reports the configured cap or station default. Verification: test/routine-repeat-ui.test.js, test/cron-store.test.js, test/cron.tick.test.js, test/run-request-limits.test.js, test/cron.api.test.js, and test/e2e.run.test.js; live browser acceptance remains deferred.
+
 ## Status legend
 
 - **Existing** — substantial implementation exists and the target behavior is present.

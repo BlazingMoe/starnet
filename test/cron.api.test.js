@@ -76,13 +76,18 @@ function boot(port, workspaces, attemptsLeft) {
 
   try {
     // ---- create: a valid interval routine ----
-    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once' });
+    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once', maxIters: 8 });
     A.eq(create.status, 200, 'POST /api/cron (valid) -> 200');
     A.ok(create.body.ok && create.body.job && create.body.job.id, 'create returns the new job with an id');
     const id = create.body.job.id;
     A.eq(create.body.job.schedule.kind, 'interval', 'schedule parsed to an interval');
     A.eq(create.body.job.agentId, 'cron_brief', 'agentId stored');
     A.eq(create.body.job.misfire, 'fire_once', 'create persists the chosen one-catch-up policy');
+    A.eq(create.body.job.maxIters, 8, 'create persists the explicit per-routine iteration cap');
+    const badCreateLimit = await j('POST', '/api/cron', { name: 'Bad limit', prompt: 'summarize AI news', schedule: 'every 30m', maxIters: 0 });
+    A.eq(badCreateLimit.status, 400, 'create rejects zero iteration cap');
+    const badCreateType = await j('POST', '/api/cron', { name: 'Bad limit type', prompt: 'summarize AI news', schedule: 'every 30m', maxIters: '8' });
+    A.eq(badCreateType.status, 400, 'create rejects nonnumeric iteration cap');
     A.ok(create.body.job.nextRunAt, 'an enabled interval job is armed with a nextRunAt');
     const roster = await j('POST', '/api/roster', { agents: [{ agentId: 'cron_brief', system: 'ROSTER SYSTEM', name: 'Briefing Agent', model: 'roster/model', provider: 'codex', role: 'news briefings' }] });
     A.eq(roster.status, 200, 'POST /api/roster -> 200');
@@ -165,6 +170,16 @@ function boot(port, workspaces, attemptsLeft) {
     const misfireUpdate = await j('POST', '/api/cron/update', { id, patch: { misfire: 'skip' } });
     A.eq(misfireUpdate.status, 200, 'missed-run policy update -> 200');
     A.eq(misfireUpdate.body.job.misfire, 'skip', 'policy change persists through the same routine update route');
+    const limitUpdate = await j('POST', '/api/cron/update', { id, patch: { maxIters: 5 } });
+    A.eq(limitUpdate.status, 200, 'per-routine iteration cap update -> 200');
+    A.eq(limitUpdate.body.job.maxIters, 5, 'updated iteration cap reads back');
+    const badLimitUpdate = await j('POST', '/api/cron/update', { id, patch: { maxIters: 1.5 } });
+    A.eq(badLimitUpdate.status, 400, 'update rejects fractional iteration cap');
+    A.eq((await j('GET', '/api/cron')).body.jobs.find(job => job.id === id).maxIters, 5, 'rejected edit leaves the existing durable cap unchanged');
+    const clearLimit = await j('POST', '/api/cron/update', { id, patch: { maxIters: null } });
+    A.eq(clearLimit.body.job.maxIters, null, 'null clears the routine cap and restores station default');
+    const restoreLimit = await j('POST', '/api/cron/update', { id, patch: { maxIters: 5 } });
+    A.eq(restoreLimit.body.job.maxIters, 5, 'cap can be set again after clearing');
     const badMisfire = await j('POST', '/api/cron/update', { id, patch: { misfire: 'replay-all' } });
     A.eq(badMisfire.status, 200, 'unknown policy is safely normalized rather than widening scheduler behavior');
     A.eq(badMisfire.body.job.misfire, null, 'unknown policy falls back to the schedule-derived default');
@@ -290,6 +305,7 @@ function boot(port, workspaces, attemptsLeft) {
     const recovered = await j('GET', '/api/cron');
     A.eq(recovered.body.jobs.length, 3, 'torn cron.jobs.json recovered from .bak on boot');
     A.ok(recovered.body.jobs.some(job => job.name === 'Renamed brief'), 'recovered routine keeps the edited name');
+    A.eq(recovered.body.jobs.find(job => job.id === id).maxIters, 5, 'per-routine iteration cap survives restart and backup recovery');
     A.ok(recovered.body.jobs.some(job => job.schedule && job.schedule.kind === 'cron'), 'recovered routine keeps the cron schedule');
     const recoveriesAfterReboot = await j('GET', '/api/run-recoveries');
     const durableResolution = (recoveriesAfterReboot.body.recoveries || []).find(row => row.runId === 'uncertain-cron-run');

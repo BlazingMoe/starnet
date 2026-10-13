@@ -12,11 +12,13 @@ const start = src.indexOf("body.querySelector('#rt-add').addEventListener('click
 const handler = src.slice(start, src.indexOf('\n    refresh();\n    }', start));
 const rowSrc = src.slice(src.indexOf('    function row(j) {'), src.indexOf('    async function refresh()'));
 const T = Date.UTC(2026, 9, 6, 12);
-async function create(value, badInput, misfire) {
+async function create(value, badInput, misfire, maxItersText, badIters) {
   const elements = {};
   const el = id => elements[id] || (elements[id] = { value: '', dataset: {}, checked: false });
   el('#rt-times').value = value;
   el('#rt-times').validity = { badInput: !!badInput };
+  el('#rt-max-iters').value = maxItersText || '';
+  el('#rt-max-iters').validity = { badInput: !!badIters };
   el('#rt-name').value = 'Bounded rehearsal';
   el('#rt-prompt').value = 'Summarize local notes';
   el('#rt-sched').value = 'every 30m';
@@ -38,6 +40,68 @@ function row(job) {
     runsLine: () => 'agent', lastResult: () => '', spendLine: () => '',
     failureStreakLine: () => '', deliveryLine: () => '',
   });
+}
+function makeLimitEditorHarness(outcome) {
+  const harness = { calls: [], notices: [], refreshes: 0, list: { rows: [], editors: [] } };
+  class Element {
+    constructor(tag) {
+      this.tagName = tag; this.listeners = {}; this.attrs = {}; this.value = ''; this.validity = { badInput: false }; this.disabled = false; this.textContent = '';
+      this.classes = new Set(); this.classList = { add: x => this.classes.add(x), remove: x => this.classes.delete(x), contains: x => this.classes.has(x) };
+    }
+    set innerHTML(value) { this.markup = value; }
+    querySelector(selector) {
+      if (selector === '[data-limit]') return this.input || (this.input = new Element('input'));
+      if (selector === '[data-limit-save]') return this.save || (this.save = button('data-limit-save'));
+      if (selector === '[data-limit-cancel]') return this.cancel || (this.cancel = button('data-limit-cancel'));
+      if (selector === 'button[data-act="limit"]') return this.limitButton || null;
+      return null;
+    }
+    querySelectorAll(selector) {
+      if (selector === '.rt-limit-editor') return harness.list.editors.slice();
+      if (selector === 'button[data-act="limit"]') return harness.list.rows.map(r => r.limitButton);
+      if (selector === '.mc-row') return harness.list.rows.slice();
+      return [];
+    }
+    addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
+    async fire(name, target) { for (const fn of this.listeners[name] || []) await fn({ target }); }
+    insertAdjacentElement(_, el) { harness.list.editors.push(el); }
+    remove() { harness.list.editors = harness.list.editors.filter(x => x !== this); }
+    hasAttribute(name) { return !!this.attrs[name]; }
+    closest(selector) { return selector === 'button' ? this : null; }
+  }
+  function button(attr) { const b = new Element('button'); b.attrs[attr] = true; return b; }
+  function replaceRows() {
+    harness.list.editors = [];
+    const row = new Element('div'); row.dataset = { id: 'job-a' }; row.limitButton = button('data-act');
+    row.limitButton.dataset = { act: 'limit' }; row.querySelector = s => s === 'button[data-act="limit"]' ? row.limitButton : null;
+    harness.list.rows = [row]; return row;
+  }
+  replaceRows();
+  harness.list.querySelectorAll = selector => selector === '.rt-limit-editor' ? harness.list.editors.slice()
+    : selector === 'button[data-act="limit"]' ? harness.list.rows.map(r => r.limitButton)
+    : selector === '.mc-row' ? harness.list.rows.slice() : [];
+  const helperStart = src.indexOf('    function mountLimitEditor('), helperEnd = src.indexOf('\n    outEl.addEventListener', helperStart);
+  const ctx = {
+    listEl: harness.list, document: { createElement: tag => new Element(tag) }, limitEditor: null,
+    post: async (_, payload) => {
+      harness.calls.push(payload);
+      if (outcome === 'network') throw new Error('offline');
+      if (outcome === 'http') return { ok: false, json: async () => ({ error: 'http rejected' }) };
+      if (outcome === 'api') return { ok: true, json: async () => ({ ok: false, error: 'api rejected' }) };
+      if (outcome === 'deferred') return new Promise(resolve => { harness.resolvePost = resolve; });
+      return { ok: true, json: async () => ({ ok: true }) };
+    },
+    notify: (message, level) => harness.notices.push({ message, level }), sfx() {},
+    refresh: () => { harness.refreshes++; replaceRows(); vm.runInNewContext('restoreLimitEditor()', ctx); }
+  };
+  vm.runInNewContext(src.slice(helperStart, helperEnd), ctx);
+  harness.ctx = ctx; harness.Element = Element; harness.button = button; harness.replaceRows = replaceRows;
+  harness.mount = (state, btn, rowEl) => vm.runInNewContext('mountLimitEditor(rowEl, btn, state)', Object.assign(ctx, { rowEl: rowEl || harness.list.rows[0], btn, state }));
+  harness.open = () => {
+    const row = harness.list.rows[0], btn = row.limitButton;
+    const state = { id: 'job-a', value: 4, pending: false }; ctx.limitEditor = state; harness.mount(state, btn); return state;
+  };
+  return harness;
 }
 function makePolicyHarness(outcome) {
   class Element {
@@ -153,6 +217,13 @@ async function previewRace() {
   A.eq((await create('')).payload.misfire, undefined, 'untouched missed-run policy keeps the schedule-derived default');
   A.eq((await create('', false, 'fire_once')).payload.misfire, 'fire_once', 'create posts explicit one-catch-up policy');
   A.eq((await create('', false, 'skip')).payload.misfire, 'skip', 'create posts explicit skip-stale policy');
+  for (const invalid of ['0', '-1', '1.5', '9007199254740992']) {
+    const r = await create('', false, '', invalid);
+    A.eq(r.payload, undefined, invalid + ' maximum tool turns never posts a routine');
+    A.ok(/maximum tool turns/.test(r.message), 'invalid per-run cap is explained');
+  }
+  A.eq((await create('', false, '', '4')).payload.maxIters, 4, 'create posts a positive integer maxIters cap');
+  A.eq((await create('', false, '', '')).payload.maxIters, undefined, 'blank iteration cap inherits station limits');
   A.eq((await create('', true)).payload, undefined, 'browser invalid numeric input cannot become unlimited');
   const p = (await create('2')).payload;
   A.eq(p.repeat.times, 2, 'create posts chosen finite limit');
@@ -181,8 +252,55 @@ async function previewRace() {
   A.ok(row({ id: 'auto-daily', enabled: true, schedule: { kind: 'cron' }, scheduleDisplay: 'cron 0 9 * * *' }).includes('missed run: automatic: catch up once'), 'automatic cron policy shows its effective behavior');
   A.ok(row({ id: 'auto-fast', enabled: true, schedule: { kind: 'interval', minutes: 30 }, scheduleDisplay: 'every 30m' }).includes('missed run: automatic: skip stale runs'), 'automatic faster-interval policy shows its effective behavior');
   A.ok(row({ id: 'auto-hour', enabled: true, schedule: { kind: 'interval', minutes: 60 }, scheduleDisplay: 'every 1h' }).includes('missed run: automatic: catch up once'), 'automatic hourly policy catches up once at the boundary');
+  A.ok(row({ id: 'bounded', enabled: true, maxIters: 4 }).includes('tool-turn limit: 4'), 'routine row shows its effective per-run iteration cap');
+  A.ok(row({ id: 'unbounded', enabled: true }).includes('tool-turn limit: station default'), 'legacy routine truthfully inherits station default');
   A.ok(!row({ id: 'once', enabled: true, schedule: { kind: 'once' }, scheduleDisplay: 'in 2h' }).includes('MISSED-RUN POLICY'), 'one-time routines do not offer an unused missed-run control');
   A.ok(src.includes('Automatic: cron and intervals of 1 hour or longer catch up once; faster intervals skip stale runs.'), 'create form explains how Automatic resolves');
+  const limits = makeLimitEditorHarness('success');
+  let limitState = limits.open(), limitForm = limits.list.editors[0];
+  limitForm.input.value = '6'; await limitForm.input.fire('input', limitForm.input);
+  limits.replaceRows(); vm.runInNewContext('restoreLimitEditor()', limits.ctx);
+  limitForm = limits.list.editors[0];
+  A.eq(limitForm.input.value, '6', 'refresh restores the current unsaved editor value');
+  limitForm.input.value = '1.5'; await limitForm.input.fire('input', limitForm.input);
+  limits.replaceRows(); vm.runInNewContext('restoreLimitEditor()', limits.ctx);
+  A.eq(limits.list.editors[0].input.value, '1.5', 'refresh preserves invalid raw text for correction');
+  limits.list.editors[0].input.value = '6'; await limits.list.editors[0].input.fire('input', limits.list.editors[0].input);
+  await limits.list.editors[0].fire('click', limits.list.editors[0].save);
+  A.eq(limits.calls[0].patch.maxIters, 6, 'editor saves a positive cap through the routine update API');
+  A.eq(limits.refreshes, 1, 'successful cap save refreshes authoritative routine data');
+  const clearLimit = makeLimitEditorHarness('success'); clearLimit.open();
+  clearLimit.list.editors[0].input.value = '';
+  await clearLimit.list.editors[0].fire('click', clearLimit.list.editors[0].save);
+  A.eq(clearLimit.calls[0].patch.maxIters, null, 'blank edit clears the cap and restores station inheritance');
+  for (const failure of ['http', 'api', 'network']) {
+    const failed = makeLimitEditorHarness(failure); limitState = failed.open();
+    failed.list.editors[0].input.value = '9'; await failed.list.editors[0].input.fire('input', failed.list.editors[0].input);
+    await failed.list.editors[0].fire('click', failed.list.editors[0].save);
+    A.eq(limitState.pending, false, failure + ' failure re-enables a retry');
+    A.eq(failed.refreshes, 0, failure + ' failure does not claim success or refresh away the edit');
+    A.ok(failed.notices.some(n => n.level === 'warn'), failure + ' failure is surfaced');
+    A.eq(failed.list.editors[0].input.value, '9', failure + ' failure preserves the attempted value');
+  }
+  const pendingLimit = makeLimitEditorHarness('deferred'); pendingLimit.open();
+  const pendingLimitEditor = pendingLimit.list.editors[0]; pendingLimitEditor.input.value = '3';
+  const firstLimitSave = pendingLimitEditor.fire('click', pendingLimitEditor.save); await Promise.resolve();
+  await pendingLimitEditor.fire('click', pendingLimitEditor.save);
+  A.eq(pendingLimit.calls.length, 1, 'a pending editor blocks duplicate saves');
+  A.eq(pendingLimitEditor.input.disabled, true, 'pending save disables its input');
+  pendingLimit.resolvePost({ ok: true, json: async () => ({ ok: true }) }); await firstLimitSave;
+  const cancelLimit = makeLimitEditorHarness('success'); cancelLimit.open();
+  await cancelLimit.list.editors[0].fire('click', cancelLimit.list.editors[0].cancel);
+  A.eq(cancelLimit.list.editors.length, 0, 'cancel closes the cap editor without a request');
+  const oldLimitRow = cancelLimit.list.rows[0], oldLimitBtn = oldLimitRow.limitButton; oldLimitBtn.classList.add('on');
+  const newLimitRow = new cancelLimit.Element('div'); newLimitRow.dataset = { id: 'job-b' }; newLimitRow.limitButton = cancelLimit.button('data-act');
+  newLimitRow.querySelector = s => s === 'button[data-act="limit"]' ? newLimitRow.limitButton : null;
+  cancelLimit.ctx.listEl.querySelectorAll = selector => selector === '.rt-limit-editor' ? cancelLimit.list.editors.slice()
+    : selector === 'button[data-act="limit"]' ? [oldLimitBtn, newLimitRow.limitButton]
+    : selector === '.mc-row' ? [oldLimitRow, newLimitRow] : [];
+  cancelLimit.mount({ id: 'job-b', value: null, pending: false }, newLimitRow.limitButton, newLimitRow);
+  A.eq(oldLimitBtn.classList.contains('on'), false, 'opening another limit editor clears stale button highlight');
+  A.eq(cancelLimit.list.editors[0].input.value, '', 'reopened cleared cap starts with inheritance selected');
   const success = makePolicyHarness('success'); success.list.replaceRows(); await success.open();
   let editor = success.list.editors[0];
   A.ok(editor.markup.includes('for="rt-misfire-editor-select"') && editor.markup.includes('id="rt-misfire-editor-select"'), 'editor label is associated with its selection control');

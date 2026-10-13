@@ -16,6 +16,10 @@ A.eq(parse({ grace: true }).ok, false, 'request cannot enable grace or other int
 A.eq(parse({ maxIters: 2, capability: 'all' }).ok, false, 'reject unknown limit fields');
 A.eq(tighten({ maxIters: 4, maxCostUsd: 0.5 }, { maxIters: 20, maxCostUsd: 10 }),
   { maxIters: 4, maxCostUsd: 0.5 }, 'request cannot expand station limits');
+A.eq(tighten({ maxIters: 4, maxCostUsd: 0.5 }, { maxIters: 20 }),
+  { maxIters: 4, maxCostUsd: 0.5 }, 'a routine cap above the operator iteration limit remains clamped to the operator limit');
+A.eq(tighten({ maxIters: 4, maxCostUsd: 0.5 }, { maxIters: 2 }),
+  { maxIters: 2, maxCostUsd: 0.5 }, 'a routine can lower iterations while inheriting the operator spend limit');
 A.eq(tighten({ maxIters: 4, maxCostUsd: 0.5 }, { maxIters: 2, maxCostUsd: 0.1 }),
   { maxIters: 2, maxCostUsd: 0.1 }, 'request narrows both limits');
 A.eq(tighten({ maxIters: Infinity, maxCostUsd: Infinity }, { maxIters: 6 }),

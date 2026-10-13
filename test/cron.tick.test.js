@@ -91,6 +91,7 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
   // ---- 1. a due job fires exactly once; surface:'autonomous' + trigger:'schedule'; cron.fire carries the runId ----
   {
     const j = intervalJob('j1', 'every 1m');                  // armed nextRunAt = T0 + 60000
+    j.maxIters = 4;
     const s = setup([j], okRun());
     s.clock.set(T0 + 60000);                                  // now the interval is due
     const summary = s.driver.applyTick(s.clock.now());
@@ -98,6 +99,7 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.eq(s.runs.length, 1, 'runOnce called exactly once');
     A.eq(s.runs[0].surface, 'autonomous', 'fire passes surface:autonomous (the unattended-consent keystone)');
     A.eq(s.runs[0].trigger, 'schedule', 'fire passes trigger:schedule');
+    A.eq(s.runs[0].requestLimits, { maxIters: 4 }, 'scheduled fire forwards its durable per-routine iteration cap through the run-limits narrowing path');
     A.eq(s.runs[0].isTask, true, 'a scheduled run is a task');
     A.eq(s.runs[0].agentId, 'cron_j1', 'fire runs as the job agent');
     A.eq(s.runs[0].streamId, 'cron-' + s.runs[0].runId, 'fire passes streamId=cron-<runId> so the transcript is durable + surfaceable as a session');
@@ -108,6 +110,13 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.eq(countOf(s.events, 'cron.result'), 1, 'one cron.result after it settles');
     A.eq(firstOf(s.events, 'cron.result').outcome, 'ok', 'a normal reply -> outcome ok');
     A.eq(s.runs[0].station, undefined, 'no resolveStation dep -> station undefined (default office, pre-fix behavior)');
+  }
+
+  // A corrupt persisted cap cannot widen a run or produce an invalid request limit.
+  {
+    const j = intervalJob('bad-limit', 'every 1m'); j.maxIters = '999';
+    const s = setup([j], okRun()); s.clock.set(T0 + 60000); s.driver.applyTick(s.clock.now());
+    A.eq(s.runs[0].requestLimits, undefined, 'invalid persisted per-routine cap is ignored safely');
   }
 
   // ---- 1b. B5 parity: a fire passes the agent's per-bay station from resolveStation (null -> undefined) ----

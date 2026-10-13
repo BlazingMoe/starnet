@@ -74,6 +74,12 @@ const iso = cron._internals.iso;
 // ---- 5. updateJob: patch editable fields; id immutable; schedule change re-anchors nextRunAt ----
 {
   let jobs = store.createJob([], { id: 'u1', name: 'old', schedule: cron.parseSchedule('every 1h', T0) }, { now: T0 });
+  jobs = store.updateJob(jobs, 'u1', { maxIters: 7 }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxIters, 7, 'per-routine maxIters is editable');
+  jobs = store.updateJob(jobs, 'u1', { maxIters: null }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxIters, null, 'clearing per-routine maxIters restores station default');
+  jobs = store.updateJob(jobs, 'u1', { maxIters: 0 }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxIters, null, 'invalid legacy maxIters fails safe to station default');
   jobs = store.updateJob(jobs, 'u1', { name: 'new', id: 'hacked' }, { now: T0 });
   A.eq(store.getJob(jobs, 'u1').name, 'new', 'name patched');
   A.eq(store.getJob(jobs, 'hacked'), null, 'id is immutable (patch.id ignored)');

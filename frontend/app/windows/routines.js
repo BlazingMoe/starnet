@@ -102,6 +102,9 @@
         '<label for="rt-times">Stop after this many settled runs (optional)</label>' +
         '<input id="rt-times" class="key-input" type="number" min="1" step="1" placeholder="blank = keep repeating" aria-describedby="rt-times-help">' +
         '<div id="rt-times-help" class="dim">Successes and terminal failures count. Transient retries do not; keep a separate spend budget. One-time schedules always run once. RUN NOW can explicitly run a finished routine again.</div>' +
+        '<label for="rt-max-iters">Maximum tool turns per run (optional)</label>' +
+        '<input id="rt-max-iters" class="key-input" type="number" min="1" step="1" placeholder="blank = use station limit" aria-describedby="rt-max-iters-help">' +
+        '<div id="rt-max-iters-help" class="dim">Caps each scheduled or RUN NOW entry run. The station-wide iteration limit still applies if it is lower.</div>' +
         '<div class="rt-agent-pick" role="group" aria-label="Routine agent">' + roster.map(agentButton).join('') + '</div>' +
         '<input id="rt-agent" type="hidden" value="' + esc(routineAgentId) + '">' +
         '<details class="brief-block" style="margin:4px 0"><summary>ADVANCED RUNTIME</summary>' +
@@ -151,7 +154,7 @@
     // schedulerArmed mirrors GET /api/cron `.enabled` (set in refresh) so the create-confirm can tell the honest
     // armed/disarmed story via AutoJobs.armStateLine. #rt-out lives in the ACTIVE pane (sibling of #rt-list); when a
     // run fires we splice it in right AFTER its row, and after every list re-render positionOut() re-slots it there.
-    let lastRunId = null, schedulerArmed = false, misfireEditor = null;
+    let lastRunId = null, schedulerArmed = false, misfireEditor = null, limitEditor = null, routineJobs = [];
     function showRunOut(rowEl, id) {
       lastRunId = id;
       const nmEl = rowEl && rowEl.querySelector('.mc-top b');
@@ -220,6 +223,42 @@
       const btn = rowEl.querySelector('button[data-act="misfire"]');
       if (!btn) { if (!misfireEditor.pending) misfireEditor = null; return; }
       mountMisfireEditor(rowEl, btn, misfireEditor);
+    }
+    function mountLimitEditor(rowEl, btn, state) {
+      listEl.querySelectorAll('.rt-limit-editor').forEach(el => el.remove());
+      listEl.querySelectorAll('button[data-act="limit"]').forEach(b => b.classList.remove('on'));
+      const editor = document.createElement('div'); editor.className = 'rt-limit-editor';
+      editor.innerHTML = '<label class="dim" for="rt-limit-editor-input">Maximum tool turns per entry run (blank inherits station limit):</label>' +
+        '<input class="key-input" id="rt-limit-editor-input" data-limit type="number" min="1" step="1" placeholder="inherit station limit">' +
+        '<div class="mc-acts"><button class="bb xs" data-limit-save>✓ SAVE LIMIT</button><button class="bb xs" data-limit-cancel>CANCEL</button></div>';
+      rowEl.insertAdjacentElement('afterend', editor);
+      const input = editor.querySelector('[data-limit]'), save = editor.querySelector('[data-limit-save]'), cancel = editor.querySelector('[data-limit-cancel]');
+      input.value = state.rawValue !== undefined ? state.rawValue : (state.value == null ? '' : String(state.value));
+      input.disabled = save.disabled = cancel.disabled = state.pending;
+      if (state.pending) save.textContent = '… saving';
+      input.addEventListener('input', () => { state.rawValue = input.value; });
+      btn.classList.add('on');
+      editor.addEventListener('click', async ev2 => {
+        const action = ev2.target.closest('button'); if (!action) return;
+        if (action.hasAttribute('data-limit-cancel')) { if (state.pending) return; limitEditor = null; editor.remove(); btn.classList.remove('on'); return; }
+        if (!action.hasAttribute('data-limit-save') || state.pending) return;
+        const raw = input.value.trim(), n = raw === '' ? null : Number(raw);
+        if (input.validity.badInput || (n !== null && (!Number.isSafeInteger(n) || n < 1))) { notify('tool-turn limit must be a positive whole number or blank', 'warn'); return; }
+        state.value = n; state.rawValue = raw; state.pending = true; input.disabled = save.disabled = cancel.disabled = true; save.textContent = '… saving';
+        try {
+          const response = await post('/api/cron/update', { id: state.id, patch: { maxIters: n } });
+          const result = await response.json();
+          if (!response.ok || !result || result.ok !== true) throw new Error((result && result.error) || 'the limit was not saved');
+          if (limitEditor === state) limitEditor = null; notify('routine turn limit saved', 'good'); sfx('click'); refresh();
+        } catch (e) { state.pending = false; notify('could not save run limit — ' + ((e && e.message) || 'the routine was not changed'), 'warn'); restoreLimitEditor(); }
+      });
+    }
+    function restoreLimitEditor() {
+      if (!limitEditor) return;
+      let rowEl = null; listEl.querySelectorAll('.mc-row').forEach(row => { if (row.dataset.id === limitEditor.id) rowEl = row; });
+      if (!rowEl) { if (!limitEditor.pending) limitEditor = null; return; }
+      const btn = rowEl.querySelector('button[data-act="limit"]'); if (!btn) return;
+      mountLimitEditor(rowEl, btn, limitEditor);
     }
     outEl.addEventListener('click', ev => { if (ev.target.closest('.rt-out-x')) { outEl.hidden = true; outEl.innerHTML = ''; lastRunId = null; sfx('click'); } });
 
@@ -354,11 +393,12 @@
       const automaticPolicy = j.schedule && (j.schedule.kind === 'cron' || (j.schedule.kind === 'interval' && Number(j.schedule.minutes) >= 60))
         ? 'catch up once' : 'skip stale runs';
       const misfireLabel = misfire === 'fire_once' ? 'run one stale occurrence' : misfire === 'skip' ? 'skip stale occurrences' : 'automatic: ' + automaticPolicy;
-      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-misfire="' + esc(misfire) + '">' +
+      return '<div class="mc-row" data-id="' + esc(j.id) + '" data-on="' + (on ? '1' : '0') + '" data-sched="' + esc(sched) + '" data-misfire="' + esc(misfire) + '" data-max-iters="' + (Number.isSafeInteger(j.maxIters) && j.maxIters > 0 ? esc(j.maxIters) : '') + '">' +
         '<div class="mc-top"><b>' + esc(j.name || '(unnamed)') + '</b> <span class="dim"' +
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + repeatLine + '</div>' +
         (recurring ? '<div class="mc-url dim" title="A stale occurrence is one later than its grace window; catch-up never replays a backlog.">missed run: ' + esc(misfireLabel) + '</div>' : '') +
+        '<div class="mc-url dim">tool-turn limit: ' + (Number.isSafeInteger(j.maxIters) && j.maxIters > 0 ? esc(j.maxIters) : 'station default') + '</div>' +
         (j.lastError ? '<div class="mc-detail">' + esc(j.lastError === 'schedule-unfireable' ? 'schedule can never fire — reschedule this routine' : j.lastError) + '</div>' : '') +
         failureStreakLine(j) +
         deliveryLine(j) +
@@ -368,6 +408,7 @@
           // only DELETE and re-create a routine to move it an hour, which also threw away its run history.
           '<button class="bb xs" data-act="resched">◷ RESCHEDULE</button>' +
           (recurring ? '<button class="bb xs" data-act="misfire">↻ MISSED-RUN POLICY</button>' : '') +
+          '<button class="bb xs" data-act="limit">⌁ RUN LIMIT</button>' +
           // no toggle on a settled one-shot: ENABLE can't re-arm it (see completedOnce above)
           (finished ? '' : '<button class="bb xs" data-act="toggle">' + (on ? '⏸ DISABLE' : '▶ ENABLE') + '</button>') +
           // REVOKE — a standing unattended permission must be withdrawable without deleting the routine.
@@ -383,6 +424,7 @@
         const j = typeof QuerySpine !== 'undefined' && QuerySpine.refresh
           ? (await QuerySpine.refresh('cron')).data : await Harness.api.get('/api/cron');
         const jobs = (j && j.jobs) || [];
+        routineJobs = jobs;
         // the live cronArmed — feeds the create-confirm's honest arm-state line. A HALTED scheduler is not armed no
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.
         schedulerArmed = !!(j && j.enabled && !j.halted);
@@ -470,6 +512,7 @@
         }
         positionOut();   // re-slot a live RUN NOW result under its row after the list re-renders (P0 #11)
         restoreMisfireEditor(); // preserve an open policy editor, its selection and any in-flight save
+        restoreLimitEditor();
       } catch (_) {
         schedulerArmed = false;
         const createState = body.querySelector('#rt-create-state');
@@ -621,6 +664,13 @@
         if (!wasOpen) openResched(rowEl, id, btn);
         return;
       }
+      if (act === 'limit') {
+        if (limitEditor && limitEditor.pending) return;
+        if (limitEditor && limitEditor.id === id) { limitEditor = null; listEl.querySelectorAll('.rt-limit-editor').forEach(el => el.remove()); btn.classList.remove('on'); return; }
+        const job = routineJobs.find(j => j && j.id === id);
+        limitEditor = { id, value: job && Number.isSafeInteger(job.maxIters) ? job.maxIters : null, pending: false };
+        mountLimitEditor(rowEl, btn, limitEditor); return;
+      }
       if (act === 'misfire') {
         if (misfireEditor && misfireEditor.pending) return;
         if (misfireEditor && misfireEditor.id === id) {
@@ -722,6 +772,11 @@
       if ((timesEl.validity && timesEl.validity.badInput) || (times !== null && (!Number.isSafeInteger(times) || times < 1))) {
         sfx('bad'); msgEl.textContent = 'run limit must be a positive whole number, or blank'; return;
       }
+      const iterEl = body.querySelector('#rt-max-iters');
+      const maxItersText = (iterEl.value || '').trim(), maxIters = maxItersText === '' ? null : Number(maxItersText);
+      if ((iterEl.validity && iterEl.validity.badInput) || (maxIters !== null && (!Number.isSafeInteger(maxIters) || maxIters < 1))) {
+        sfx('bad'); msgEl.textContent = 'maximum tool turns must be a positive whole number, or blank'; return;
+      }
       const provider = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined;
       if (!prompt || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt and a schedule are required'; return; }
       addBtn.disabled = true;
@@ -742,7 +797,7 @@
         const deliveryMode = body.querySelector('#rt-deliver').value;
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
-          name, prompt, schedule, repeat: { times }, agentId: agentId || undefined, provider, tz,
+          name, prompt, schedule, repeat: { times }, maxIters: maxIters || undefined, agentId: agentId || undefined, provider, tz,
           misfire: (body.querySelector('#rt-misfire') || {}).value || undefined,
           meta: body.querySelector('#rt-prompt').dataset.widgetId
             ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
