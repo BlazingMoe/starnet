@@ -72,6 +72,8 @@ A.ok(fb2.indexOf('X') >= 0, 'fillTask accepts a recipe object, not just an id');
 // PR Sweep uses the real, dynamically discovered GitHub MCP connector and writes local evidence only.
 const prSweep = R.fillTask('pr-sweep', { scope: 'acme/app', workspace: 'github-pr-review' });
 A.ok(prSweep.includes('list_pull_requests') && prSweep.includes('pull_request_read') && prSweep.includes('get_diff'), 'PR Sweep directs discovery through the advertised GitHub MCP read tools');
+A.ok(prSweep.includes('Require the catalog connector named GitHub (read-only)') && prSweep.includes('Connectors catalog') && prSweep.includes('Never substitute the full-access GitHub connector'), 'PR Sweep requires the read-only connector and explains setup instead of falling back to full access');
+A.ok(prSweep.includes('Use only list_pull_requests and pull_request_read'), 'PR Sweep limits remote calls to the required read tools');
 A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && prSweep.includes('read both back'), 'PR Sweep saves and verifies local review artifacts');
 A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
 A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');

@@ -180,6 +180,7 @@ const { makeRouter } = require('./routing/router.js');
 const { makeChainRunner, effectiveLimits: chainEffectiveLimits } = require('./routing/chain.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const { makeConnectorManager } = require('./mcp/manager.js');
+const PrSweepPolicy = require('./mcp/pr-sweep-policy.js');
 const { makeHttpTransport } = require('./mcp/transport.http.js');
 const googleApiTransport = require('./mcp/transport.google.js');
 const googleClientConfig = require('./mcp/google-client.js');
@@ -15872,15 +15873,38 @@ async function runOnce(o) {
   // MCP CONNECTORS (per-agent): a connector object placed in THIS agent's room grants its server's live tools.
   // Register them into this run's fresh registry and union their names into the resolved set so the capability
   // gate, network classification, and the wire tool-list treat them exactly like a built-in. Never breaks a run.
+  const room = station.rooms && station.agents && station.agents[agentId] && station.rooms[station.agents[agentId].room];
+  const roomObjects = (room && room.objects) || [];
+  const prSweep = o.recipeId === 'pr-sweep';
+  const failPrSweepReadiness = message => {
+    emit('agent.run.start', { agentId, runId, trigger, model });
+    emit('agent.run.error', { agentId, runId, transient: true, message });
+    emit('agent.run.end', { agentId, runId, reason: 'error', turns: 0, usd: 0 });
+  };
+  let connectorDefs = [];
+  try { connectorDefs = connectors.toolDefsForObjects(roomObjects); }
+  catch (e) {
+    if (prSweep) { failPrSweepReadiness('Remote PR review is unavailable: the GitHub (read-only) connector could not be inspected. Open Connectors, check its status, and retry.'); return; }
+    console.warn('[mcp] connector tool projection failed:', (e && e.message) || e);
+  }
+  if (prSweep) {
+    let selected;
+    try { selected = PrSweepPolicy.selectTools(connectors, roomObjects, connectorDefs); }
+    catch (_) { selected = { ok: false, error: 'Remote PR review is unavailable: GitHub (read-only) readiness could not be verified. Open Connectors, check its status, and retry.' }; }
+    if (!selected || !selected.ok) { failPrSweepReadiness((selected && selected.error) || 'Remote PR review is unavailable: the required read-only connector is not ready. Open Connectors and retry.'); return; }
+    connectorDefs = selected.tools;
+  }
   try {
-    const room = station.rooms && station.agents && station.agents[agentId] && station.rooms[station.agents[agentId].room];
-    for (const def of connectors.toolDefsForObjects((room && room.objects) || [])) {
+    for (const def of connectorDefs) {
       registry.register(def, { provenance: 'connector' });
       if (resolved.tools.indexOf(def.name) < 0) resolved.tools.push(def.name);
       resolved.networkCaps[def.name] = true;
       resolved.approvalRules[def.name] = { requiresConsent: !!def.requiresConsent, scope: def.scope, network: true };
     }
-  } catch (e) { console.warn('[mcp] connector tool projection failed:', (e && e.message) || e); }
+  } catch (e) {
+    if (prSweep) { failPrSweepReadiness('Remote PR review is unavailable: the approved read-only tools could not be installed for this run. Open Connectors, check its status, and retry.'); return; }
+    console.warn('[mcp] connector tool projection failed:', (e && e.message) || e);
+  }
   // Connector projection happens after the base office is resolved. Re-apply the host floor so
   // no dynamic server or future registration order can restore a real-screen tool by name.
   resolved = enforceSyntheticOnly(resolved, realDesktopAuthority);
