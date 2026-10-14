@@ -117,6 +117,62 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
   }
 
   // ---- 3. IPYNB: source AND outputs — the RESULT is usually the answer, not the code ----
+  // Structured, bounded sheet discovery and coordinate reads retain workbook relationships and formula limits.
+  {
+    const buf = zip({
+      'xl/workbook.xml':'<workbook><sheets><sheet name="Sales &amp; Ops" sheetId="4" state="hidden" r:id="rId1"/><sheet name="Broken" sheetId="5" r:id="rId2"/></sheets></workbook>',
+      'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="rId1" Target="worksheets/sheet7.xml"/><Relationship Id="rId2" Target="worksheets/gone.xml"/></Relationships>',
+      'xl/sharedStrings.xml':'<sst><si><t>Shared</t></si></sst>',
+      'xl/worksheets/sheet7.xml':'<worksheet><sheetData><row r="2"><c r="A2" t="s"><v>0</v></c><c r="C2" t="inlineStr"><is><t>Inline</t></is></c><c r="D2"><f>A2+1</f><v>7</v></c><c r="E2"><f>1+1</f></c><c r="F2" t="b"><v>1</v></c><c r="G2" t="e"><v>#N/A</v></c><c r="H2" t="d"><v>2026-01-02T00:00:00Z</v></c></row></sheetData></worksheet>'
+    });
+    const sheets=doc.xlsxSheets(buf);
+    A.eq(sheets[0].name,'Sales & Ops','worksheet names resolve XML entities');
+    A.eq(sheets[0].state,'hidden','worksheet visibility state is discovered');
+    A.eq(sheets[0].available,true,'worksheet relation resolves its actual XML target');
+    A.eq(sheets[1].available,false,'a missing worksheet part is reported explicitly');
+    const page=doc.xlsxRange(buf,{sheet:'Sales & Ops',startRow:2,rowCount:1,startCol:1,colCount:8});
+    A.eq(page.rows[0].cells[0].value,'Shared','shared string is resolved');
+    A.eq(page.rows[0].cells[1].value,null,'missing B2 stays null with its coordinate');
+    A.eq(page.rows[0].cells[2].value,'Inline','inline string is resolved');
+    A.eq(page.rows[0].cells[3].value,'7','cached formula value is returned as stored text');
+    A.eq(page.rows[0].cells[3].formula,'A2+1','formula is surfaced as inert text');
+    A.eq(page.rows[0].cells[3].formulaCache,'present_unverified','present cached formula values are explicitly unverified');
+    A.eq(page.rows[0].cells[4].value,null,'formula without cache has no invented result');
+    A.eq(page.rows[0].cells[4].cachedValueMissing,true,'missing formula cache is flagged');
+    A.eq(page.rows[0].cells[5].valueType,'boolean','boolean cell types remain distinct');
+    A.eq(page.rows[0].cells[5].value,true,'boolean cell value is decoded');
+    A.eq(page.rows[0].cells[6].valueType,'error','error cell type remains distinct from numeric data');
+    A.eq(page.rows[0].cells[7].valueType,'dateRaw','ISO date cell is explicitly raw');
+    A.eq(page.rows[0].cells[7].value,'2026-01-02T00:00:00Z','date values are not interpreted or formatted');
+    let bad=false; try { doc.xlsxRange(buf,{sheet:'Broken',startRow:1,rowCount:1,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'reading a named sheet whose part is missing fails explicitly');
+    bad=false; try { doc.xlsxSheets(zip({'other.xml':'<x/>'})); } catch (_) { bad=true; }
+    A.ok(bad,'a ZIP without workbook metadata is malformed, not an empty workbook');
+    bad=false; try { doc.xlsxRange(buf,{sheet:'Sales & Ops',startRow:1,rowCount:101,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'row-page bounds are enforced by the extractor API');
+    bad=false; try { doc.xlsxRange(buf,{sheetIndex:0,startRow:1048576,rowCount:2,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'the final worksheet row cannot overflow into an unbounded range');
+    A.eq(doc.xlsxRange(buf,{sheetIndex:0,startRow:1048576,rowCount:1,startCol:1,colCount:1}).range.endRow,1048576,'the final legal worksheet row can be read');
+    const malformed=zip({'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1"><c r="A1"><v>5</c></row></sheetData></worksheet>'});
+    bad=false; try { doc.xlsxRange(malformed,{sheetIndex:0,startRow:1,rowCount:1,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'malformed worksheet XML fails closed instead of synthesizing empty cells');
+    const namespaced=zip({'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'<x:worksheet><x:sheetData/></x:worksheet>'});
+    bad=false; try { doc.xlsxRange(namespaced,{sheetIndex:0,startRow:1,rowCount:1,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'namespace-prefixed worksheet elements fail explicitly as unsupported');
+    const rowBoundary=zip({'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1"/><row r="2"><c r="A2"><v>5</v></c></row></sheetData></worksheet>'});
+    A.eq(doc.xlsxRange(rowBoundary,{sheetIndex:0,startRow:2,rowCount:1,startCol:1,colCount:1}).rows[0].cells[0].value,'5','a self-closing row cannot consume the following populated row');
+    const spacedEquals=zip({'xl/workbook.xml':'<workbook><sheets><sheet name = "Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r = "1"><c r="A1"><v>5</v></c></row></sheetData></worksheet>'});
+    bad=false; try { doc.xlsxRange(spacedEquals,{sheetIndex:0,startRow:1,rowCount:1,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'whitespace around structured XML attribute equals is rejected rather than silently dropping coordinates');
+    const singleQuoted=zip({'xl/workbook.xml':"<workbook><sheets><sheet name='Data' sheetId='1' r:id='r1'/></sheets></workbook>"});
+    bad=false; try { doc.xlsxSheets(singleQuoted); } catch (_) { bad=true; }
+    A.ok(bad,'single-quoted XML attributes fail explicitly instead of yielding an empty sheet list');
+    const bomb=zip({'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'x'.repeat(16*1024*1024+1)});
+    bad=false; try { doc.xlsxRange(bomb,{sheet:'Data',startRow:1,rowCount:1,startCol:1,colCount:1}); } catch (_) { bad=true; }
+    A.ok(bad,'a compressed ZIP entry cannot expand beyond the per-entry output bound');
+  }
+
+  // ---- 3. IPYNB: source AND outputs — the RESULT is usually the answer, not the code ----
   {
     const nb = Buffer.from(JSON.stringify({
       metadata: { kernelspec: { language: 'python' } },
@@ -146,6 +202,12 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
     A.eq(doc.extract(commented, 'docx'), 'commented', 'the EOCD is found past a 300-byte archive comment (not just the last 22 bytes)');
   }
 
+  // The structured XLSX entry bound is opt-in: historic fs.read document extraction retains its prior cap.
+  {
+    const expanded=DOCX('<w:p><w:r><w:t>'+'x'.repeat(16*1024*1024+1)+'</w:t></w:r></w:p>');
+    A.ok(doc.extract(expanded,'docx',{maxChars:32}).endsWith('…[truncated]'),'the XLSX structured ZIP bound does not reduce existing fs.read DOCX extraction');
+  }
+
   // ---- 5. HONEST FAILURE. A malformed or mislabelled document must not be reported as empty content. ----
   {
     let threw = false;
@@ -162,7 +224,8 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
   // ---- 6. END TO END through fs.read — including the fall-through that keeps a mislabelled file readable ----
   {
     const ROOT = path.join(os.tmpdir(), 'starnet-docx-test-' + process.pid);
-    const { readTool } = makeFsTools({ fsp, pathMod: path, root: ROOT, docExtract: doc, limits: { readReturn: 100000 } });
+    const fsTools = makeFsTools({ fsp, pathMod: path, root: ROOT, docExtract: doc, redact:s=>String(s).replace(/secret@domain\.test|hidden/g,'[REDACTED]'), limits: { readReturn: 100000 } });
+    const { readTool } = fsTools;
     const CTX = { agentId: 'ag', emit: () => {} };
     await fsp.mkdir(path.join(ROOT, 'ag'), { recursive: true });
     try {
@@ -170,6 +233,50 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
       const r = await readTool.run({ path: 'r.docx' }, CTX);
       A.eq(r.content, 'from disk', 'fs.read returns extracted TEXT for a .docx, not binary noise');
       A.ok(/docx/.test(r.summary), 'the summary says the file was extracted');
+
+      const book=zip({
+        'xl/workbook.xml':'<workbook><sheets><sheet name="secret@domain.test" sheetId="secret@domain.test" state="hidden" r:id="r1"/></sheets></workbook>',
+        'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
+        'xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>secret@domain.test</t></is></c></row></sheetData></worksheet>'
+      });
+      await fsp.writeFile(path.join(ROOT,'ag','data.xlsx'),book);
+      const tools=fsTools;
+      const listed=JSON.parse((await tools.xlsxSheetsTool.run({path:'data.xlsx'},CTX)).content);
+      A.eq(listed.sheets[0].name,'[REDACTED]','cabinet sheet listing redacts workbook names');
+      A.eq(listed.sheets[0].sheetId,'[REDACTED]','cabinet sheet listing redacts worksheet IDs');
+      A.eq(listed.sheets[0].state,'[REDACTED]','cabinet sheet listing redacts worksheet state metadata');
+      A.ok(!JSON.stringify(listed).includes('secret@domain.test'),'no raw worksheet metadata escapes in the sheet listing');
+      const sheetNodes=Array.from({length:101},(_,i)=>'<sheet name="'+(i===0?'n'.repeat(400):'S'+i)+'" sheetId="'+(i+1)+'" r:id="r'+i+'"/>').join('');
+      await fsp.writeFile(path.join(ROOT,'ag','many-sheets.xlsx'),zip({'xl/workbook.xml':'<workbook><sheets>'+sheetNodes+'</sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships></Relationships>'}));
+      const sheetPage=JSON.parse((await tools.xlsxSheetsTool.run({path:'many-sheets.xlsx'},CTX)).content);
+      A.eq(sheetPage.status,'partial','worksheet metadata is paged with an explicit partial status');
+      A.eq(sheetPage.sheets.length,100,'worksheet metadata page count is bounded');
+      A.eq(sheetPage.omitted.after.end,100,'omitted worksheet indexes are explicit');
+      A.eq(sheetPage.sheets[0].nameTruncated,true,'clipped worksheet names are marked');
+      A.ok((await tools.xlsxSheetsTool.run({path:'many-sheets.xlsx'},CTX)).content.length<60000,'worksheet metadata output stays within its character cap');
+      const sheetPage2=JSON.parse((await tools.xlsxSheetsTool.run({path:'many-sheets.xlsx',offset:100,limit:100},CTX)).content);
+      A.eq(sheetPage2.sheets[0].sheetIndex,100,'sheet metadata pagination continues by stable index');
+      A.eq(sheetPage2.status,'partial','a later metadata page reports partial coverage of the full workbook');
+      A.eq(sheetPage2.omitted.before.start,0,'earlier omitted metadata indexes remain explicit');
+      const page=JSON.parse((await tools.xlsxRangeTool.run({path:'data.xlsx',sheetIndex:0,startRow:1,rowCount:1,startCol:1,colCount:2},CTX)).content);
+      A.eq(page.sheet,'[REDACTED]','range response redacts selected worksheet metadata');
+      A.eq(page.rows[0].cells[0].value,'[REDACTED]','XLSX cell values pass through configured secret-pattern redaction');
+      A.eq(page.rows[0].cells[1].coordinate,'B1','the requested missing coordinate is returned');
+      A.eq(page.rows[0].cells[1].value,null,'the missing coordinate is explicitly null');
+      A.ok((await fsp.readFile(path.join(ROOT,'ag','data.xlsx'))).equals(book),'read-only XLSX tools leave source bytes unchanged');
+      const manyRows=[];
+      const columnName=n=>{let out='';while(n){const rem=(n-1)%26;out=String.fromCharCode(65+rem)+out;n=Math.floor((n-1)/26);}return out;};
+      for(let rr=1;rr<=100;rr++) manyRows.push('<row r="'+rr+'">'+Array.from({length:64},(_,ci)=>'<c r="'+columnName(ci+1)+rr+'" t="inlineStr"><is><t>'+('v'.repeat(500))+'</t></is></c>').join('')+'</row>');
+      const largeBook=zip({'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>','xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>','xl/worksheets/sheet1.xml':'<worksheet><sheetData>'+manyRows.join('')+'</sheetData></worksheet>'});
+      await fsp.writeFile(path.join(ROOT,'ag','large.xlsx'),largeBook);
+      const limited=JSON.parse((await tools.xlsxRangeTool.run({path:'large.xlsx',sheetIndex:0,startRow:1,rowCount:100,startCol:1,colCount:64},CTX)).content);
+      A.eq(limited.status,'partial','an oversized page is marked partial instead of silently clipped');
+      A.eq(limited.omitted.reason,'output_limit','the output-limit reason is explicit');
+      A.eq(limited.omitted.range.startRow,1,'the omitted requested range is preserved as evidence');
+      A.eq(limited.rows.length,0,'the tool returns no misleading partial subset of the requested rectangle');
+      await fsp.writeFile(path.join(ROOT,'ag','too-large.xlsx'),Buffer.alloc(16*1024*1024+1));
+      let rejected=false; try { await tools.xlsxSheetsTool.run({path:'too-large.xlsx'},CTX); } catch (_) { rejected=true; }
+      A.ok(rejected,'the archive size cap rejects oversized input before parsing');
 
       // A file someone named .docx that is really text must still be readable — the extractor falls through.
       await fsp.writeFile(path.join(ROOT, 'ag', 'fake.docx'), 'actually plain text', 'utf8');

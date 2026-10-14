@@ -12,6 +12,7 @@ const fsp = require('fs/promises');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const zlib = require('node:zlib');
 const events = require('../shared/events.js');
 const { makeEmitter } = require('../shared/emitter.js');
 const { makeReplayProvider } = require('../sidecar/providers/replay.js');
@@ -23,6 +24,7 @@ const { makeConnectorTools } = require('../sidecar/tools/builtin/connectors.js')
 const { makeBrowserTools } = require('../sidecar/tools/builtin/browser.js');
 const { makeDesktopTools } = require('../sidecar/tools/builtin/desktop.js');
 const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
+const { makeDocExtract } = require('../sidecar/tools/builtin/docextract.js');
 const { makeNotebookTools } = require('../sidecar/tools/builtin/notebook.js');
 const { makeWidgetTools } = require('../sidecar/tools/builtin/widgets.js');
 const { makeTodoTool } = require('../sidecar/tools/builtin/todo.js');
@@ -44,6 +46,20 @@ const { makeConsentBroker } = require('../sidecar/permissions.js');
 const { renderRecall, injectRecall, rank, redact } = require('../sidecar/context.js');
 
 const ROOT = path.join(os.tmpdir(), 'starnet-itest-' + process.pid);
+const docExtract = makeDocExtract({ inflateRaw:zlib.inflateRawSync });
+
+function zipFixture(files) {
+  const locals=[],central=[]; let offset=0;
+  for(const [name,text] of Object.entries(files)){
+    const nameBuf=Buffer.from(name),data=Buffer.from(text),body=zlib.deflateRawSync(data),lh=Buffer.alloc(30);
+    lh.writeUInt32LE(0x04034b50,0);lh.writeUInt16LE(20,4);lh.writeUInt16LE(8,8);lh.writeUInt32LE(body.length,18);lh.writeUInt32LE(data.length,22);lh.writeUInt16LE(nameBuf.length,26);locals.push(lh,nameBuf,body);
+    const ch=Buffer.alloc(46);ch.writeUInt32LE(0x02014b50,0);ch.writeUInt16LE(20,4);ch.writeUInt16LE(20,6);ch.writeUInt16LE(8,10);ch.writeUInt32LE(body.length,20);ch.writeUInt32LE(data.length,24);ch.writeUInt16LE(nameBuf.length,28);ch.writeUInt32LE(offset,42);central.push(ch,nameBuf);
+    offset+=lh.length+nameBuf.length+body.length;
+  }
+  const localBuf=Buffer.concat(locals),centralBuf=Buffer.concat(central),eocd=Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50,0);eocd.writeUInt16LE(Object.keys(files).length,8);eocd.writeUInt16LE(Object.keys(files).length,10);eocd.writeUInt32LE(centralBuf.length,12);eocd.writeUInt32LE(localBuf.length,16);
+  return Buffer.concat([localBuf,centralBuf,eocd]);
+}
 
 // canned web: a DDG results page for search, and the ARTICLE ITSELF for fetch. (No real network.)
 // The article is served on the DIRECT url, not through r.jina.ai, because that is the path a default
@@ -97,7 +113,7 @@ const fixture = {
   makeWebTools({ fetchImpl: cannedFetch, lookup: null }).register(registry);
   makeBrowserTools({ driver: { navigate: async u => u, snapshot: async () => [], click: async () => '', type: async () => '', press: async k => k, scroll: async () => '', back: async () => '', getText: async () => '', consoleLog: () => [], handleDialog: async () => ({}), screenshot: async () => '' } }).register(registry);
   makeDesktopTools({ opener: async () => 'launched' }).register(registry);
-  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact }).register(registry);
+  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, docExtract }).register(registry);
   makeNotebookTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);
   makeWidgetTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);   // WIDGET RAILS Phase 2: widget.set rides the notebook (memory) grant
   makeTodoTool({ store: new Map() }).register(registry);
@@ -142,7 +158,7 @@ const fixture = {
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.search', 'fs.write', 'fs.write_csv', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.write', 'fs.write_csv', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -313,6 +329,54 @@ const fixture = {
     A.eq(await fsp.readFile(path.join(dataDir, 'dataset-brief-fixture', 'findings.csv'), 'utf8'), findings, 'structured findings artifact is persisted exactly');
     A.ok(results.some(r => (r.content || '').includes('PARTIAL: exactly the first 2 data rows')), 'read-back tool returns the explicit partial coverage caveat');
     A.ok(results.some(r => (r.content || '').includes('Revenue by region,rows 1-3')), 'read-back tool returns the structured findings artifact');
+  }
+
+  // XLSX Explain This Data: actual cabinet capability, redacted metadata/cells, bounded pages, consented
+  // saved outputs/read-back, an unchanged source, jailed path denial, and no read-side freshness refresh.
+  {
+    const bytes=zipFixture({
+      'xl/workbook.xml':'<workbook><sheets><sheet name="sk-or-v1-abcdef0123456789abcdef0123456789" sheetId="sk-or-v1-abcdef0123456789abcdef0123456789" state="hidden" r:id="r1"/><sheet name="Other" sheetId="2" state="visible" r:id="r2"/></sheets></workbook>',
+      'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/><Relationship Id="r2" Target="worksheets/sheet2.xml"/></Relationships>',
+      'xl/sharedStrings.xml':'<sst><si><t>Region</t></si><si><t>Amount</t></si><si><t>North</t></si><si><t>South</t></si></sst>',
+      'xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="inlineStr"><is><t>credential</t></is></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2"><v>10</v></c><c r="C2" t="inlineStr"><is><t>sk-or-v1-abcdef0123456789abcdef0123456789</t></is></c></row><row r="3"><c r="A3" t="s"><v>3</v></c><c r="B3"><f>10+10</f><v>20</v></c></row></sheetData></worksheet>',
+      'xl/worksheets/sheet2.xml':'<worksheet><sheetData><row r="1"><c r="A1"><v>99</v></c></row></sheetData></worksheet>'
+    });
+    const source=path.join(ROOT,'agent','survey.xlsx'); await fsp.writeFile(source,bytes); const stat=await fsp.stat(source);
+    const recipe=require('../frontend/app/recipe-catalog/data.js').find(r=>r.id==='data-explain');
+    const task=require('../frontend/app/recipes.js').fillTask(recipe,{file:'survey.xlsx',question:'Which region has the higher amount?',workspace:'analysis'});
+    const turns=[],tool=(id,name,args)=>turns.push([{type:'tool_start',index:0,id,name},{type:'tool_args',index:0,chunk:JSON.stringify(args)},{type:'done',finishReason:'tool_calls'}]);
+    tool('xlsx-sheets','fs_xlsx_sheets',{path:'survey.xlsx'});
+    tool('xlsx-page-1','fs_read_xlsx_range',{path:'survey.xlsx',sheetIndex:0,startRow:1,rowCount:2,startCol:1,colCount:3});
+    tool('xlsx-page-2','fs_read_xlsx_range',{path:'survey.xlsx',sheetIndex:0,startRow:3,rowCount:2,startCol:1,colCount:3});
+    tool('xlsx-output-folder','fs_list',{path:'analysis'});
+    const report='# Workbook findings\n\nSource: survey.xlsx; bytes: '+stat.size+'; modified: '+stat.mtime.toISOString()+'. Selected sheetIndex 0; its returned name was redacted. Rows 1-3 show North 10 and South 20 from stored cells. The formula cache for South is present but unverified and may be stale. A credential-shaped cell was redacted; no sensitive-data scan was performed. This fixture does not establish causation.\n';
+    const findings='finding,evidence_range,observed_evidence,interpretation,confidence\r\nHigher amount,rows 1-3,North 10; South cached 20,South is higher in the observed fixture,medium because its cache is unverified\r\n';
+    tool('xlsx-report','fs_write',{path:'analysis/xlsx-fixture/report.md',content:report});
+    tool('xlsx-findings','fs_write_csv',{path:'analysis/xlsx-fixture/findings.csv',columns:['finding','evidence_range','observed_evidence','interpretation','confidence'],rows:[['Higher amount','rows 1-3','North 10; South cached 20','South is higher in the observed fixture','medium because its cache is unverified']]});
+    tool('xlsx-read-report','fs_read',{path:'analysis/xlsx-fixture/report.md'}); tool('xlsx-read-findings','fs_read',{path:'analysis/xlsx-fixture/findings.csv'});
+    turns.push([{type:'text',delta:'Workbook pages reviewed; report and findings saved and read back.'},{type:'done',finishReason:'stop'}]);
+    const eb=A.makeBus(),es=A.collectBus(eb,events.names()),ee=makeEmitter(eb,()=>{}),ep=makeReplayProvider({models:fixture.models,turns}),results=[];
+    const er=await runAgentLoop({messages:[{role:'user',content:task}],provider:ep,emit:ee,cost:makeCostEngine({priceOf:ep.priceOf}),tools:toolDefs,dispatch:async(c,ctx)=>{const r=await dispatch(c,ctx);results.push({call:c,result:r});return r;},capCtx,model:'replay/model',agentId:'agent',runId:'xlsx-explain-fixture',limits:{maxIters:12,maxCostUsd:1},clock:{now:()=>0}});
+    A.eq(er.reason,'done','XLSX data workflow completes through the shared agent loop');
+    A.eq(es.filter(e=>e.name==='agent.tool_call').map(e=>e.payload.name),['fs_xlsx_sheets','fs_read_xlsx_range','fs_read_xlsx_range','fs_list','fs_write','fs_write_csv','fs_read','fs_read'], 'recipe run discovers sheets, pages cells, saves both artifacts and reads them back');
+    A.ok(results.every(x=>!x.result.isError),'all XLSX recipe tools complete successfully');
+    const sheetListing=JSON.parse(results[0].result.content),page1=JSON.parse(results[1].result.content),page2=JSON.parse(results[2].result.content);
+    A.eq(sheetListing.sheets[0].name,'[redacted-key]','production redactor is applied to workbook sheet names');
+    A.eq(sheetListing.sheets[0].state,'hidden','hidden sheet state remains visible when not sensitive');
+    A.ok(!JSON.stringify(sheetListing).includes('sk-or-v1-abcdef0123456789abcdef0123456789'),'workbook listing does not leak raw name or sheetId');
+    A.eq(page1.rows[1].cells[2].value,'[redacted-key]','production redactor is applied to XLSX cell content');
+    A.eq(page2.rows[0].cells[1].formulaCache,'present_unverified','formula cache confidence is explicit in real tool output');
+    A.ok(!results.some(x=>String(x.result.content).includes('sk-or-v1-abcdef0123456789abcdef0123456789')),'credential-shaped XLSX value never appears in tool output');
+    A.eq(await fsp.readFile(source),bytes,'XLSX recipe leaves original source bytes unchanged');
+    A.eq(await fsp.readFile(path.join(ROOT,'agent','analysis','xlsx-fixture','report.md'),'utf8'),report,'XLSX recipe report is saved exactly');
+    A.eq(await fsp.readFile(path.join(ROOT,'agent','analysis','xlsx-fixture','findings.csv'),'utf8'),findings,'XLSX structured findings are saved exactly');
+    const denied=await dispatch({name:'fs.xlsx_sheets',args:{path:'../outside.xlsx'}},capCtx);
+    A.eq(denied.isError,true,'XLSX path traversal outside the agent jail is denied');
+    const freshness=path.join(ROOT,'agent','freshness.xlsx'); await fsp.writeFile(freshness,bytes);
+    const seen=await dispatch({name:'fs.xlsx_sheets',args:{path:'freshness.xlsx'}},capCtx); A.eq(seen.isError,false,'XLSX metadata read succeeds');
+    await fsp.writeFile(freshness,'external replacement');
+    const overwrite=await dispatch({name:'fs.write',args:{path:'freshness.xlsx',content:'authorized fixture replacement'}},capCtx);
+    A.eq(overwrite.isError,false,'read-only XLSX access does not refresh overwrite freshness stamps');
   }
 
   // ---- P1.5 default-deny: an UN-granted mutation under an autonomous surface is denied, body never runs ----

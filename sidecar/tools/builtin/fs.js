@@ -514,6 +514,69 @@
         } finally { if (handle) { try { await handle.close(); } catch (e) { failNote('fs.read_csv_rows.close', e); } } }
       }
     };
+    const XLSX_MAX_BYTES = 16 * 1024 * 1024, XLSX_MAX_OUTPUT = 60000;
+    async function loadXlsx(args, ctx) {
+      if (!docExtract || typeof docExtract.xlsxSheets !== 'function' || typeof docExtract.xlsxRange !== 'function') throw new Error('XLSX sheet tools are unavailable');
+      const aid = (ctx && ctx.agentId) || 'agent';
+      if (String(args.path || '').length > 512) throw new Error('path must not exceed 512 characters');
+      const { abs } = await resolveInside(aid, args.path, { scope:'read', ctx });
+      let handle;
+      try {
+        handle=await fsp.open(abs,'r');
+        const before=await handle.stat();
+        if (!before.isFile()) throw new Error('source must be a regular file');
+        if (before.size > XLSX_MAX_BYTES) throw new Error('XLSX source exceeds the 16777216-byte archive limit');
+        const buf=Buffer.alloc(XLSX_MAX_BYTES+1);
+        let bytesRead=0;
+        while(bytesRead<buf.length){const read=await handle.read(buf,bytesRead,buf.length-bytesRead,bytesRead);if(!read.bytesRead)break;bytesRead+=read.bytesRead;}
+        if (bytesRead > XLSX_MAX_BYTES) throw new Error('XLSX source exceeds the 16777216-byte archive limit');
+        const after=await handle.stat();
+        if (Number(after.size)!==Number(before.size)||Number(after.mtimeMs)!==Number(before.mtimeMs)||bytesRead!==Number(before.size)) throw new Error('XLSX source changed during read; retry against a stable file');
+        const raw=buf.subarray(0,bytesRead), kind=docExtract.sniff(args.path,raw);
+        if (kind !== 'xlsx') throw new Error('source is not a ZIP-based .xlsx workbook');
+        return { raw, source:{ path:String(redact(String(args.path))).slice(0,512), bytes:before.size, lastModified:before.mtime.toISOString(), sha256:sha256(raw) } };
+      } catch(e) {
+        if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0,512)));
+        throw e;
+      } finally { if(handle){try{await handle.close();}catch(e){failNote('fs.xlsx.close',e);}} }
+    }
+    const xlsxSheetsTool = {
+      name:'fs.xlsx_sheets', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
+      description:'List worksheet metadata in pages of up to 100 (offset 0..9900, total access cap 10000). Returned names, IDs and states are redacted and clipped; use the stable zero-based sheetIndex for fs.read_xlsx_range. Reads at most a 16 MiB archive and expands no single ZIP entry beyond 16 MiB. No values, recalc, edit or freshness refresh.',
+      schema:{type:'object',required:['path'],properties:{path:{type:'string'},offset:{type:'number',minimum:0,maximum:9900},limit:{type:'number',minimum:1,maximum:100}}},
+      run:async(args,ctx)=>{
+        const loaded=await loadXlsx(args,ctx), all=docExtract.xlsxSheets(loaded.raw), total=all.length;
+        const offset=args.offset==null?0:Number(args.offset),limit=args.limit==null?100:Number(args.limit);
+        if(!Number.isSafeInteger(offset)||offset<0||offset>9900||!Number.isSafeInteger(limit)||limit<1||limit>100) throw new Error('sheet metadata offset must be 0..9900 and limit 1..100');
+        const page=all.slice(offset,offset+limit);
+        const sheets=page.map(s=>{const name=String(redact(String(s.name))),sheetId=String(redact(String(s.sheetId))),state=String(redact(String(s.state)));return {sheetIndex:s.index,name:name.slice(0,256),nameTruncated:name.length>256,sheetId:sheetId.slice(0,128),sheetIdTruncated:sheetId.length>128,state:state.slice(0,128),stateTruncated:state.length>128,available:s.available};});
+        const status=offset>0||offset+sheets.length<total?'partial':'complete';
+        const result={source:loaded.source,sheets,totalSheets:total,offset,limit,status,...(status==='partial'?{omitted:{reason:'sheet_metadata_page',before:offset?{start:0,end:offset-1}:null,after:offset+sheets.length<total?{start:offset+sheets.length,end:total-1}:null}}:{}),limits:{maxArchiveBytes:XLSX_MAX_BYTES,maxExpandedEntryBytes:XLSX_MAX_BYTES,maxSheets:10000,maxReturnedSheets:100,maxMetadataChars:60000},coverage:'worksheet names and metadata only'};
+        result.source.path=String(redact(result.source.path)).slice(0,512); result.source.lastModified=String(redact(result.source.lastModified)).slice(0,128);
+        let content=JSON.stringify(result);
+        if(content.length>60000) throw new Error('redacted worksheet metadata exceeds the safe response limit');
+        return {content,summary:'XLSX workbook: '+total+' sheet(s), '+sheets.length+' metadata row(s)'};
+      }
+    };
+    const xlsxRangeTool = {
+      name:'fs.read_xlsx_range', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
+      description:'Read a bounded rectangular page by stable zero-based sheetIndex from fs.xlsx_sheets. Returns every requested coordinate, null for cells absent from XML, explicit cell types and formulas as inert text. Stored formula caches may be stale. Numeric/date values remain raw. Maximum 100 rows, 64 columns, 16 MiB archive, 16 MiB expanded per ZIP entry and 60000 response characters. No recalculation, editing, chart or layout interpretation.',
+      schema:{type:'object',required:['path','sheetIndex','startRow','rowCount','startCol','colCount'],properties:{path:{type:'string'},sheetIndex:{type:'number',minimum:0},startRow:{type:'number',minimum:1,maximum:1048576},rowCount:{type:'number',minimum:1,maximum:100},startCol:{type:'number',minimum:1,maximum:16384},colCount:{type:'number',minimum:1,maximum:64}}},
+      run:async(args,ctx)=>{
+        const loaded=await loadXlsx(args,ctx), result=docExtract.xlsxRange(loaded.raw,args);
+        for (const row of result.rows) for (const cell of row.cells) {
+          if (cell.value != null) { const raw=String(cell.value),safe=String(redact(raw)); if(cell.valueType==='boolean'&&safe===raw){} else {cell.value=safe;if(safe!==raw)cell.valueType='redacted';} }
+          if (cell.formula != null) cell.formula=String(redact(String(cell.formula)));
+        }
+        const safeSheet=String(redact(String(result.sheet))); result.sheet=safeSheet.slice(0,256); result.sheetNameTruncated=safeSheet.length>256; result.source=loaded.source;
+        result.source.path=String(redact(result.source.path)).slice(0,512); result.source.lastModified=String(redact(result.source.lastModified)).slice(0,128);
+        result.limits={maxArchiveBytes:XLSX_MAX_BYTES,maxExpandedEntryBytes:XLSX_MAX_BYTES,maxRows:100,maxColumns:64,maxOutputChars:XLSX_MAX_OUTPUT};
+        let content=JSON.stringify(result), outputTruncated=false;
+        if (content.length>XLSX_MAX_OUTPUT) { result.rows=[]; result.omitted={reason:'output_limit',range:result.range,message:'Requested range did not fit the safe response. No cell values are included; request fewer rows or columns.'}; result.status='partial'; content=JSON.stringify(result); outputTruncated=true; }
+        if (content.length>XLSX_MAX_OUTPUT) throw new Error('XLSX response metadata exceeds the safe output limit');
+        return {content:JSON.stringify(result),summary:'XLSX range '+result.sheet+'!'+result.range.startRow+':'+result.range.endRow+(outputTruncated?' (partial: output limit)':'')};
+      }
+    };
     const readTool = {
       name: 'fs.read', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 10000,
       description: 'Read a file from the current project folder when this session is project-scoped, otherwise from your private workspace. Text files come back as text; for large text use offset and limit to page character ranges without rerunning the command that produced the file. Word (.docx), Excel (.xlsx) and Jupyter (.ipynb) files are extracted to readable text automatically; PNG/JPEG/GIF/WEBP images are shown to you as actual pixels so you can look at them directly.',
@@ -1068,9 +1131,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 
