@@ -504,6 +504,39 @@ function boot(port, env, attemptsLeft) {
         (q.messages || []).some(m => m && m.role === 'user' && String(m.content || '').includes(needle))).length;
       A.eq(entryRequestCount('routine-one-turn-cap'), 1, 'scheduled routine cap of 1 stops after one tool-turn request');
       A.eq(entryRequestCount('routine-station-cap'), 2, 'routine cap 5 is clamped to the lower station cap of 2');
+
+      // RUN NOW exercises the other routine entry path against the same real loop and mocked, priced provider.
+      // Each first completion reports spend above these micro-dollar limits; the loop must stop before a second call.
+      const runNowCost = async (name, prompt, routineCap, stationCap) => {
+        if (stationCap != null) {
+          const cap = await fetch(B2 + '/api/budget/caps', { method: 'POST', headers: hdr2, body: JSON.stringify({ perRun: stationCap }) });
+          A.eq(cap.status, 200, name + ' sets its isolated station run cap');
+        }
+        const agentId = name === 'Routine cost cap' ? 'routine_cost_cap_e2e' : 'station_cost_cap_e2e';
+        const made = await fetch(B2 + '/api/cron', { method: 'POST', headers: hdr2,
+          body: JSON.stringify({ name, prompt, schedule: 'in 1h', agentId, model: 'test/priced', provider: 'openrouter', maxCostUsd: routineCap }) });
+        A.eq(made.status, 200, name + ' creates a routine with a cost cap');
+        const madeJob = (await made.json()).job;
+        const beforeRequests = mock.requests.length;
+        const runNow = await fetch(B2 + '/api/cron/run', { method: 'POST', headers: hdr2, body: JSON.stringify({ id: madeJob.id }) });
+        A.eq(runNow.status, 200, name + ' starts through RUN NOW');
+        const events = (await runNow.text()).split('\n').filter(Boolean).map(line => JSON.parse(line));
+        const end = events.find(event => event.name === 'agent.run.end');
+        const calls = mock.requests.filter(q => (q.messages || []).some(message => message.role === 'user' && String(message.content || '').includes(prompt))).length;
+        if (!end || end.payload.reason !== 'budget') A.eq(events.filter(event => event.name === 'agent.run.error').map(event => event.payload.message), [], name + ' reaches the loop instead of failing in setup');
+        A.ok(mock.requests.length > beforeRequests, name + ' reached the mocked provider');
+        return { end, calls };
+      };
+      const routineCost = await runNowCost('Routine cost cap', 'SCHEDCAP-E2E LIMITLOOP COSTCAP-RUN-NOW routine-cost-cap', 0.0000001, null);
+      A.eq(routineCost.end && routineCost.end.payload.reason, 'budget', 'routine cost cap stops the real Run Now loop');
+      A.eq(routineCost.end && routineCost.end.payload.budgetCapUsd, 0.0000001, 'Run Now passes the routine cost cap into the loop');
+      A.eq(routineCost.calls, 1, 'routine cost cap stops before a second priced provider request');
+      const stationCost = await runNowCost('Station cost cap wins', 'SCHEDCAP-E2E LIMITLOOP COSTCAP-RUN-NOW station-cost-wins', 0.001, 0.000001);
+      A.eq(stationCost.end && stationCost.end.payload.reason, 'budget', 'station cost cap stops the real Run Now loop');
+      A.eq(stationCost.end && stationCost.end.payload.budgetCapUsd, 0.000001, 'a lower station cap wins over the routine cost cap');
+      A.eq(stationCost.calls, 1, 'the station cap stops before a second priced provider request');
+      const restoreCost = await fetch(B2 + '/api/budget/caps', { method: 'POST', headers: hdr2, body: JSON.stringify({ perRun: 0 }) });
+      A.eq(restoreCost.status, 200, 'restore the isolated station cap');
     } finally {
       try { boot2.child.kill(); } catch (_) {}
       try { mock.server.close(); } catch (_) {}

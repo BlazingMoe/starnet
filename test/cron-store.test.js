@@ -33,6 +33,7 @@ const iso = cron._internals.iso;
   A.eq(j.nextRunAt, iso(T0 + HOUR), 'interval nextRunAt = now + period');
   A.eq(j.createdAt, iso(T0), 'createdAt = now');
   A.eq(j.lastRunAt, null, 'no last run yet');
+  A.eq(j.maxCostUsd, null, 'missing spend cap inherits station policy');
 }
 
 // ---- 2. createJob: a one-shot is times:1 and arms at its runAt ----
@@ -80,6 +81,12 @@ const iso = cron._internals.iso;
   A.eq(store.getJob(jobs, 'u1').maxIters, null, 'clearing per-routine maxIters restores station default');
   jobs = store.updateJob(jobs, 'u1', { maxIters: 0 }, { now: T0 });
   A.eq(store.getJob(jobs, 'u1').maxIters, null, 'invalid legacy maxIters fails safe to station default');
+  jobs = store.updateJob(jobs, 'u1', { maxCostUsd: 0.25 }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxCostUsd, 0.25, 'per-routine maxCostUsd is editable');
+  jobs = store.updateJob(jobs, 'u1', { maxCostUsd: null }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxCostUsd, null, 'clearing per-routine cost cap restores station policy');
+  jobs = store.updateJob(jobs, 'u1', { maxCostUsd: 0 }, { now: T0 });
+  A.eq(store.getJob(jobs, 'u1').maxCostUsd, null, 'invalid legacy maxCostUsd fails safe to station policy');
   jobs = store.updateJob(jobs, 'u1', { name: 'new', id: 'hacked' }, { now: T0 });
   A.eq(store.getJob(jobs, 'u1').name, 'new', 'name patched');
   A.eq(store.getJob(jobs, 'hacked'), null, 'id is immutable (patch.id ignored)');
@@ -88,6 +95,15 @@ const iso = cron._internals.iso;
   jobs = store.updateJob(jobs, 'u1', { schedule: cron.parseSchedule('every 30m', now2) }, { now: now2 });
   A.eq(store.getJob(jobs, 'u1').schedule.minutes, 30, 'schedule replaced');
   A.eq(store.getJob(jobs, 'u1').nextRunAt, iso(now2 + 30 * MIN), 'schedule change re-anchors nextRunAt at now');
+}
+
+// ---- 5b. cost cap survives the durable envelope/restart path; legacy omissions remain inherited ----
+{
+  const jobs = store.createJob([], { id: 'cost1', maxCostUsd: 0.125, schedule: cron.parseSchedule('every 1h', T0) }, { now: T0 });
+  const restarted = store.loadEnvelope(JSON.stringify(store.toEnvelope(jobs))).jobs;
+  A.eq(store.getJob(restarted, 'cost1').maxCostUsd, 0.125, 'cost cap survives serialize/load restart');
+  const legacy = store.loadEnvelope({ version: 1, jobs: [{ id: 'oldcost', schedule: null }] }).jobs;
+  A.eq(store.getJob(legacy, 'oldcost').maxCostUsd, undefined, 'old record omission remains distinguishable and inherits at runtime');
 }
 
 // ---- 6. pause / resume: resume re-anchors the next fire at now ----

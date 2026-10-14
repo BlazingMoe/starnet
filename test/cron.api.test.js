@@ -76,7 +76,7 @@ function boot(port, workspaces, attemptsLeft) {
 
   try {
     // ---- create: a valid interval routine ----
-    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once', maxIters: 8 });
+    const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once', maxIters: 8, maxCostUsd: 0.2 });
     A.eq(create.status, 200, 'POST /api/cron (valid) -> 200');
     A.ok(create.body.ok && create.body.job && create.body.job.id, 'create returns the new job with an id');
     const id = create.body.job.id;
@@ -84,6 +84,11 @@ function boot(port, workspaces, attemptsLeft) {
     A.eq(create.body.job.agentId, 'cron_brief', 'agentId stored');
     A.eq(create.body.job.misfire, 'fire_once', 'create persists the chosen one-catch-up policy');
     A.eq(create.body.job.maxIters, 8, 'create persists the explicit per-routine iteration cap');
+    A.eq(create.body.job.maxCostUsd, 0.2, 'create persists the explicit per-routine cost cap');
+    const badCostCreate = await j('POST', '/api/cron', { name: 'Bad cost', prompt: 'summarize AI news', schedule: 'every 30m', maxCostUsd: 0 });
+    A.eq(badCostCreate.status, 400, 'create rejects a zero cost cap');
+    const badCostTypeCreate = await j('POST', '/api/cron', { name: 'Bad cost type', prompt: 'summarize AI news', schedule: 'every 30m', maxCostUsd: '0.2' });
+    A.eq(badCostTypeCreate.status, 400, 'create rejects a string cost cap');
     const badCreateLimit = await j('POST', '/api/cron', { name: 'Bad limit', prompt: 'summarize AI news', schedule: 'every 30m', maxIters: 0 });
     A.eq(badCreateLimit.status, 400, 'create rejects zero iteration cap');
     const badCreateType = await j('POST', '/api/cron', { name: 'Bad limit type', prompt: 'summarize AI news', schedule: 'every 30m', maxIters: '8' });
@@ -173,6 +178,19 @@ function boot(port, workspaces, attemptsLeft) {
     const limitUpdate = await j('POST', '/api/cron/update', { id, patch: { maxIters: 5 } });
     A.eq(limitUpdate.status, 200, 'per-routine iteration cap update -> 200');
     A.eq(limitUpdate.body.job.maxIters, 5, 'updated iteration cap reads back');
+    const costUpdate = await j('POST', '/api/cron/update', { id, patch: { maxCostUsd: 0.08 } });
+    A.eq(costUpdate.status, 200, 'per-routine cost cap update -> 200');
+    A.eq(costUpdate.body.job.maxCostUsd, 0.08, 'updated cost cap reads back');
+    const badCostUpdate = await j('POST', '/api/cron/update', { id, patch: { maxCostUsd: -1 } });
+    A.eq(badCostUpdate.status, 400, 'update rejects negative cost cap');
+    A.eq((await j('GET', '/api/cron')).body.jobs.find(job => job.id === id).maxCostUsd, 0.08, 'rejected edit leaves existing durable cost cap unchanged');
+    const badCostTypeUpdate = await j('POST', '/api/cron/update', { id, patch: { maxCostUsd: '0.1' } });
+    A.eq(badCostTypeUpdate.status, 400, 'update rejects a string cost cap');
+    A.eq((await j('GET', '/api/cron')).body.jobs.find(job => job.id === id).maxCostUsd, 0.08, 'rejected type edit leaves existing durable cost cap unchanged');
+    const clearCost = await j('POST', '/api/cron/update', { id, patch: { maxCostUsd: null } });
+    A.eq(clearCost.body.job.maxCostUsd, null, 'null clears the routine cost cap and restores station policy');
+    const restoreCost = await j('POST', '/api/cron/update', { id, patch: { maxCostUsd: 0.08 } });
+    A.eq(restoreCost.body.job.maxCostUsd, 0.08, 'cost cap can be set again after clearing');
     const badLimitUpdate = await j('POST', '/api/cron/update', { id, patch: { maxIters: 1.5 } });
     A.eq(badLimitUpdate.status, 400, 'update rejects fractional iteration cap');
     A.eq((await j('GET', '/api/cron')).body.jobs.find(job => job.id === id).maxIters, 5, 'rejected edit leaves the existing durable cap unchanged');
@@ -237,6 +255,7 @@ function boot(port, workspaces, attemptsLeft) {
     A.eq(after.body.jobs.length, 2, 'the routines persisted across a restart');
     A.ok(after.body.jobs.some(job => job.name === 'Renamed brief'), 'the edited name persisted');
     A.eq(after.body.jobs.find(job => job.name === 'Renamed brief').misfire, null, 'derived missed-run policy survives restart as the explicit default marker');
+    A.eq(after.body.jobs.find(job => job.name === 'Renamed brief').maxCostUsd, 0.08, 'per-routine cost cap survives restart');
     A.ok(after.body.jobs.some(job => job.schedule && job.schedule.kind === 'cron'), 'the cron routine persisted');
     A.ok(after.body.jobs.some(job => job.provider === 'codex'), 'the routine provider persisted');
     const recoveries = await j('GET', '/api/run-recoveries');
@@ -306,6 +325,7 @@ function boot(port, workspaces, attemptsLeft) {
     A.eq(recovered.body.jobs.length, 3, 'torn cron.jobs.json recovered from .bak on boot');
     A.ok(recovered.body.jobs.some(job => job.name === 'Renamed brief'), 'recovered routine keeps the edited name');
     A.eq(recovered.body.jobs.find(job => job.id === id).maxIters, 5, 'per-routine iteration cap survives restart and backup recovery');
+    A.eq(recovered.body.jobs.find(job => job.id === id).maxCostUsd, 0.08, 'per-routine cost cap survives backup recovery');
     A.ok(recovered.body.jobs.some(job => job.schedule && job.schedule.kind === 'cron'), 'recovered routine keeps the cron schedule');
     const recoveriesAfterReboot = await j('GET', '/api/run-recoveries');
     const durableResolution = (recoveriesAfterReboot.body.recoveries || []).find(row => row.runId === 'uncertain-cron-run');

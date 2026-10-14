@@ -11885,8 +11885,8 @@ function handleCronCreate(req, res) {
 async function createCronJobFromSpec(body) {
   body = body || {};
   const out = (status, obj) => ({ status: status, body: obj });
-  if (body.maxIters != null) {
-    const checked = parseRunRequestLimits({ maxIters: body.maxIters });
+  if (body.maxIters != null || body.maxCostUsd != null) {
+    const checked = parseRunRequestLimits({ ...(body.maxIters != null ? { maxIters: body.maxIters } : {}), ...(body.maxCostUsd != null ? { maxCostUsd: body.maxCostUsd } : {}) });
     if (!checked.ok) return out(400, { error: checked.error });
   }
   const takeoverId = body.meta && body.meta.workflowTakeoverId;
@@ -11953,7 +11953,7 @@ async function createCronJobFromSpec(body) {
       return cronStore.createJob(jobs, {
       id: id, name: body.name, prompt: body.prompt, schedule: schedule,
       agentId: agentId, model: body.model, provider: provider, deliver: body.deliver,
-      enabled: body.enabled, repeat: body.repeat, maxIters: body.maxIters,
+      enabled: body.enabled, repeat: body.repeat, maxIters: body.maxIters, maxCostUsd: body.maxCostUsd,
       // MISFIRE POLICY (2026-07-15 audit): optional 'fire_once'|'skip'; the store normalizes anything
       // else to null (schedule-derived default: daily/cron -> fire_once, fast intervals -> skip).
       misfire: body.misfire,
@@ -11993,6 +11993,10 @@ function handleCronUpdate(req, res) {
     const patch = Object.assign({}, body.patch || {});
     if (Object.prototype.hasOwnProperty.call(patch, 'maxIters') && patch.maxIters != null) {
       const checked = parseRunRequestLimits({ maxIters: patch.maxIters });
+      if (!checked.ok) return json(400, { error: checked.error });
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'maxCostUsd') && patch.maxCostUsd != null) {
+      const checked = parseRunRequestLimits({ maxCostUsd: patch.maxCostUsd });
       if (!checked.ok) return json(400, { error: checked.error });
     }
     // INJECTION TRIPWIRE — an EDIT is the same surface as a create; without this, a routine could be created
@@ -12232,7 +12236,9 @@ async function handleCronRun(req, res) {
         + (runNowBrief ? '\n\nYOUR STANDING BRIEF FOR THIS STATION:\n' + String(runNowBrief).slice(0, 2000) : ''),
       messages: [{ role: 'user', content: assembledPrompt }],
       agentId: job.agentId, isTask: true, emit: teeEmit, signal: ac.signal,
-      requestLimits: Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : undefined,
+      requestLimits: (Number.isSafeInteger(job.maxIters) && job.maxIters > 0) || (Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0)
+        ? Object.assign({}, Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : {}, Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0 ? { maxCostUsd: job.maxCostUsd } : {})
+        : undefined,
       // streamId 'cron-'+runId matches the SCHEDULED fire (cron-driver.js): Run Now must persist its transcript
       // under the SAME per-run stream so the frontend cron-session (autosessions.js), which forms off the
       // identical cron.fire/cron.result events, can fetch the real output via /api/transcript?stream=cron-<runId>.

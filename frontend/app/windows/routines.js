@@ -105,6 +105,9 @@
         '<label for="rt-max-iters">Maximum tool turns per run (optional)</label>' +
         '<input id="rt-max-iters" class="key-input" type="number" min="1" step="1" placeholder="blank = use station limit" aria-describedby="rt-max-iters-help">' +
         '<div id="rt-max-iters-help" class="dim">Caps each scheduled or RUN NOW entry run. The station-wide iteration limit still applies if it is lower.</div>' +
+        '<label for="rt-max-cost">Maximum run cost in USD (optional)</label>' +
+        '<input id="rt-max-cost" class="key-input" type="number" min="0.000001" step="any" placeholder="blank = use station limit" aria-describedby="rt-max-cost-help">' +
+        '<div id="rt-max-cost-help" class="dim">Stops before another provider call when provider-reported or catalog-priced USD reaches this amount; the lower station limit wins. Catalog prices for subscription providers are estimates, unpriced usage cannot trigger a USD cap, and an in-flight call may exceed it. The cap covers the entry run; downstream line stages keep their existing limits.</div>' +
         '<div class="rt-agent-pick" role="group" aria-label="Routine agent">' + roster.map(agentButton).join('') + '</div>' +
         '<input id="rt-agent" type="hidden" value="' + esc(routineAgentId) + '">' +
         '<details class="brief-block" style="margin:4px 0"><summary>ADVANCED RUNTIME</summary>' +
@@ -230,13 +233,18 @@
       const editor = document.createElement('div'); editor.className = 'rt-limit-editor';
       editor.innerHTML = '<label class="dim" for="rt-limit-editor-input">Maximum tool turns per entry run (blank inherits station limit):</label>' +
         '<input class="key-input" id="rt-limit-editor-input" data-limit type="number" min="1" step="1" placeholder="inherit station limit">' +
+        '<label class="dim" for="rt-cost-editor-input">Maximum USD per entry run (blank inherits station limit):</label>' +
+        '<input class="key-input" id="rt-cost-editor-input" data-cost type="number" min="0.000001" step="any" placeholder="inherit station limit" aria-describedby="rt-cost-editor-help">' +
+        '<div id="rt-cost-editor-help" class="dim">Stops before another provider call when provider-reported or catalog-priced USD reaches this amount. Catalog prices for subscription providers are estimates, unpriced usage cannot trigger a USD cap, and an in-flight call may exceed it. The cap covers the entry run; downstream line stages keep their existing limits.</div>' +
         '<div class="mc-acts"><button class="bb xs" data-limit-save>✓ SAVE LIMIT</button><button class="bb xs" data-limit-cancel>CANCEL</button></div>';
       rowEl.insertAdjacentElement('afterend', editor);
-      const input = editor.querySelector('[data-limit]'), save = editor.querySelector('[data-limit-save]'), cancel = editor.querySelector('[data-limit-cancel]');
+      const input = editor.querySelector('[data-limit]'), costInput = editor.querySelector('[data-cost]'), save = editor.querySelector('[data-limit-save]'), cancel = editor.querySelector('[data-limit-cancel]');
       input.value = state.rawValue !== undefined ? state.rawValue : (state.value == null ? '' : String(state.value));
-      input.disabled = save.disabled = cancel.disabled = state.pending;
+      costInput.value = state.costRawValue !== undefined ? state.costRawValue : (state.maxCostUsd == null ? '' : String(state.maxCostUsd));
+      input.disabled = costInput.disabled = save.disabled = cancel.disabled = state.pending;
       if (state.pending) save.textContent = '… saving';
       input.addEventListener('input', () => { state.rawValue = input.value; });
+      costInput.addEventListener('input', () => { state.costRawValue = costInput.value; });
       btn.classList.add('on');
       editor.addEventListener('click', async ev2 => {
         const action = ev2.target.closest('button'); if (!action) return;
@@ -244,13 +252,15 @@
         if (!action.hasAttribute('data-limit-save') || state.pending) return;
         const raw = input.value.trim(), n = raw === '' ? null : Number(raw);
         if (input.validity.badInput || (n !== null && (!Number.isSafeInteger(n) || n < 1))) { notify('tool-turn limit must be a positive whole number or blank', 'warn'); return; }
-        state.value = n; state.rawValue = raw; state.pending = true; input.disabled = save.disabled = cancel.disabled = true; save.textContent = '… saving';
+        const costRaw = costInput.value.trim(), cost = costRaw === '' ? null : Number(costRaw);
+        if (costInput.validity.badInput || (cost !== null && (!Number.isFinite(cost) || cost <= 0))) { notify('run cost limit must be a positive finite USD amount or blank', 'warn'); return; }
+        state.value = n; state.rawValue = raw; state.maxCostUsd = cost; state.costRawValue = costRaw; state.pending = true; input.disabled = costInput.disabled = save.disabled = cancel.disabled = true; save.textContent = '… saving';
         try {
-          const response = await post('/api/cron/update', { id: state.id, patch: { maxIters: n } });
+          const response = await post('/api/cron/update', { id: state.id, patch: { maxIters: n, maxCostUsd: cost } });
           const result = await response.json();
           if (!response.ok || !result || result.ok !== true) throw new Error((result && result.error) || 'the limit was not saved');
-          if (limitEditor === state) limitEditor = null; notify('routine turn limit saved', 'good'); sfx('click'); refresh();
-        } catch (e) { state.pending = false; notify('could not save run limit — ' + ((e && e.message) || 'the routine was not changed'), 'warn'); restoreLimitEditor(); }
+          if (limitEditor === state) limitEditor = null; notify('routine run limits saved', 'good'); sfx('click'); refresh();
+        } catch (e) { state.pending = false; notify('could not save run limits — ' + ((e && e.message) || 'the routine was not changed'), 'warn'); restoreLimitEditor(); }
       });
     }
     function restoreLimitEditor() {
@@ -398,7 +408,7 @@
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + repeatLine + '</div>' +
         (recurring ? '<div class="mc-url dim" title="A stale occurrence is one later than its grace window; catch-up never replays a backlog.">missed run: ' + esc(misfireLabel) + '</div>' : '') +
-        '<div class="mc-url dim">tool-turn limit: ' + (Number.isSafeInteger(j.maxIters) && j.maxIters > 0 ? esc(j.maxIters) : 'station default') + '</div>' +
+        '<div class="mc-url dim">run limits: ' + (Number.isSafeInteger(j.maxIters) && j.maxIters > 0 ? esc(j.maxIters) + ' turns' : 'station turns') + ' · ' + (Number.isFinite(j.maxCostUsd) && j.maxCostUsd > 0 ? '$' + esc(j.maxCostUsd) : 'station cost') + '</div>' +
         (j.lastError ? '<div class="mc-detail">' + esc(j.lastError === 'schedule-unfireable' ? 'schedule can never fire — reschedule this routine' : j.lastError) + '</div>' : '') +
         failureStreakLine(j) +
         deliveryLine(j) +
@@ -668,7 +678,7 @@
         if (limitEditor && limitEditor.pending) return;
         if (limitEditor && limitEditor.id === id) { limitEditor = null; listEl.querySelectorAll('.rt-limit-editor').forEach(el => el.remove()); btn.classList.remove('on'); return; }
         const job = routineJobs.find(j => j && j.id === id);
-        limitEditor = { id, value: job && Number.isSafeInteger(job.maxIters) ? job.maxIters : null, pending: false };
+        limitEditor = { id, value: job && Number.isSafeInteger(job.maxIters) ? job.maxIters : null, maxCostUsd: job && Number.isFinite(job.maxCostUsd) ? job.maxCostUsd : null, pending: false };
         mountLimitEditor(rowEl, btn, limitEditor); return;
       }
       if (act === 'misfire') {
@@ -777,6 +787,11 @@
       if ((iterEl.validity && iterEl.validity.badInput) || (maxIters !== null && (!Number.isSafeInteger(maxIters) || maxIters < 1))) {
         sfx('bad'); msgEl.textContent = 'maximum tool turns must be a positive whole number, or blank'; return;
       }
+      const costEl = body.querySelector('#rt-max-cost');
+      const maxCostText = (costEl.value || '').trim(), maxCostUsd = maxCostText === '' ? null : Number(maxCostText);
+      if ((costEl.validity && costEl.validity.badInput) || (maxCostUsd !== null && (!Number.isFinite(maxCostUsd) || maxCostUsd <= 0))) {
+        sfx('bad'); msgEl.textContent = 'maximum run cost must be a positive finite USD amount, or blank'; return;
+      }
       const provider = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : undefined;
       if (!prompt || !schedule) { sfx('bad'); msgEl.textContent = 'a prompt and a schedule are required'; return; }
       addBtn.disabled = true;
@@ -797,7 +812,7 @@
         const deliveryMode = body.querySelector('#rt-deliver').value;
         const activeSession = (typeof Workstreams !== 'undefined' && Workstreams.active) ? Workstreams.active() : null;
         const r = await (await post('/api/cron', {
-          name, prompt, schedule, repeat: { times }, maxIters: maxIters || undefined, agentId: agentId || undefined, provider, tz,
+          name, prompt, schedule, repeat: { times }, maxIters: maxIters || undefined, maxCostUsd: maxCostUsd || undefined, agentId: agentId || undefined, provider, tz,
           misfire: (body.querySelector('#rt-misfire') || {}).value || undefined,
           meta: body.querySelector('#rt-prompt').dataset.widgetId
             ? { widgetId: body.querySelector('#rt-prompt').dataset.widgetId }
