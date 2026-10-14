@@ -38,6 +38,36 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.eq(s.default, false, 'no default -> false (off until enabled)');
 }
 
+// ---- B2. catalog text is line-ending neutral, including budget-based selection ----
+{
+  const lf = [
+    '---', 'name: First', 'slug: first', 'description: First recipe.', 'default: true', '---', '', 'A'.repeat(420), 'tail.'
+  ].join('\n');
+  const variants = [
+    ['LF', lf],
+    ['CRLF', lf.replace(/\n/g, '\r\n')],
+    ['mixed LF/CRLF', lf.split('\n').map((line, i) => line + (i < lf.split('\n').length - 1 ? (i % 2 ? '\r\n' : '\n') : '')).join('')]
+  ];
+  const second = C.parse('---\nname: Second\nslug: second\ndescription: Second recipe.\ndefault: true\n---\n\n' + 'B'.repeat(420), 'second');
+  let expected = null;
+  for (const [label, source] of variants) {
+    const first = C.parse(source, 'first');
+    const parsedSkills = [first, second];
+    const composed = C.compose(parsedSkills, { overrides: {}, placedTypes: [], budget: 600 });
+    const result = {
+      body: first.body,
+      selected: parsedSkills.filter(skill => C.isEnabled(skill, {}) && C.isAvailable(skill, [])).map(skill => skill.slug),
+      composed,
+      length: composed.length,
+      omitted: /omitted here to keep the prompt lean/.test(composed)
+    };
+    A.eq(first.body, 'A'.repeat(420) + '\ntail.', label + ' parsing canonicalizes body newlines');
+    A.ok(result.omitted, label + ' compose still reports recipes omitted by the existing body budget');
+    if (!expected) expected = result;
+    else A.eq(result, expected, label + ' parsing, selection, omissions, and composed length match LF');
+  }
+}
+
 // ---- C. loadDir: the REAL bundled library on disk parses correctly ----
 {
   const dir = path.join(__dirname, '..', 'sidecar', 'skills', 'library');
