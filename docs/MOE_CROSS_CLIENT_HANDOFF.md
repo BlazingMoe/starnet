@@ -8,9 +8,9 @@ ChatGPT Web und Codex dürfen innerhalb ihrer jeweils verfügbaren Funktionen un
 
 ## Bearbeitungsübergabe
 
-- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Gezielte Decision-Learning-Skill-Integration wurde auf Implementierungs-/Fixture-Ebene akzeptiert; der Folgecommit und seine CI stehen noch aus. Tatsächliches Leitmodell nicht separat verifiziert. Keine parallele Web-Bearbeitung.
-- Ausgangscommit der Übergabe: `c68cb32dcf5847a611fb9dfc5d6ad1e68af451dc` (historische Referenz, HEAD immer neu lesen).
-- Nächster Schritt: Änderungen auf dem autorisierten Entwicklungsbranch veröffentlichen und die Pflicht-CI für den neuen Commit abwarten; danach den Roadmap-Checkpoint aktualisieren.
+- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Der Recovery browser-import symlink guard ist auf Implementierungs-/Fixture-Ebene durch Codex akzeptiert; der Folgecommit und seine CI stehen noch aus. Tatsächliches Leitmodell nicht separat verifiziert. Keine parallele Web-Bearbeitung.
+- Ausgangscommit der Übergabe: `a25cf462fe1c4327843a97cdfa0cd1f883dde368` (Ausgangsstand dieses Blocks; HEAD immer neu lesen).
+- Nächster Schritt: korrigierte Testregression prüfen, Änderungen auf dem autorisierten Entwicklungsbranch veröffentlichen und die Pflicht-CI für den neuen Commit abwarten; danach den Roadmap-Checkpoint aktualisieren.
 - Quellen: https://starnetos.com/docs/ und https://starnetos.com/market wurden abgeglichen. Der Market listet „LLM Wiki“ (MIT); die Wissensgraph-/Markdown-Dateien wurden wegen des bestehenden Speicherverbots nicht übernommen. Der passende bounded workflow ist als Anpassung an die vorhandenen Entscheidung-/Review-Funktionen protokolliert.
 - Nach jeder Web-Umsetzung: **REVIEW_PENDING**; Codex prüft den tatsächlichen Diff und die Evidenz. Keine Behauptung einer bereits erfolgten Codex-Abnahme.
 
@@ -73,6 +73,17 @@ Git belegt Änderungen, aber **keine Lesezugriffe und keine Modellidentität**. 
 - Geänderte Dateien: `sidecar/skills/library/decision-learning.md`, `test/skills.library.test.js`, `docs/MOE_AI_STATION_ROADMAP.md`, `docs/MOE_CROSS_CLIENT_HANDOFF.md`.
 - Kosten: keine Token-/Dollartelemetrie verfügbar; keine Ersparnis behauptet.
 - Nächster Schritt: autorisierten Entwicklungsbranch aktualisieren, Pflicht-CI des neuen Commits abwarten und anschließend den Roadmap-Checkpoint aktualisieren.
+
+### Recovery browser-import symlink guard – 2026-10-15
+
+- Status: **ACCEPTED** at implementation/fixture level by lead; CI for the eventual commit remains pending. No commit created.
+- Client/Agent: Codex Desktop / bounded builder; active lead model not independently verified.
+- Ausgangscommit: `a25cf462fe1c4327843a97cdfa0cd1f883dde368` on `dev/mo-ai-station`; clean at start. The five required CI checks were reported green on this exact baseline before this local change; no CI is claimed for the resulting working diff.
+- Gap: production recovery restore followed symlinks when checking an existing browser-import output and could replace the link itself. Backup output already refused symlinks, but the restore-side import path lacked the matching guard.
+- Änderung: `scripts/station-recovery.mjs` now uses `lstat` to reject a symlink browser-import destination before staging or workspace activation. `test/station-recovery-cli.test.js` verifies the link and target bytes remain intact and no restored workspace is activated. `docs/MOE_PRIVATE_OPERATOR_RUNBOOK.md` records the constraint.
+- Prüfung: Windows, configured Node executable; `test/station-recovery-cli.test.js` — OK (42 assertions); both file-symlink and dangling-symlink cases actually ran (no skip). Symlink-creation skips are scoped only around `symlinkSync`; restore execution and assertions are outside those catches. `git diff --check` — OK. Fixture-backed CLI test only; no real operator restore, no app/browser import, and no fresh CI for this diff.
+- Kosten: exact token/dollar telemetry unavailable.
+- Offene Risiken / nächster Schritt: Codex review the diff; then publish through the authorized branch workflow and wait for all required CI checks on the resulting commit. A real isolated restore rehearsal with operator data remains separate private acceptance and was not run.
 
 ## Kopierauftrag für ChatGPT Web
 

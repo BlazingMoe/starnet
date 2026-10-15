@@ -113,5 +113,45 @@ for (const [label, outputFor] of [
   A.eq(fs.existsSync(collisionTarget), false, 'browser output ' + label + ' rejection creates no workspace target');
 }
 
+// Restore browser imports must reject symlink destinations before activating workspace data.
+const linkedBrowserTarget = path.join(root, 'linked-browser-target.json');
+fs.writeFileSync(linkedBrowserTarget, 'keep this file');
+const linkedBrowserOutput = path.join(root, 'linked-browser-output.json');
+let fileSymlinkCreated = false;
+try {
+  fs.symlinkSync(linkedBrowserTarget, linkedBrowserOutput, 'file');
+  fileSymlinkCreated = true;
+} catch (e) {
+  if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(e && e.code)) throw e;
+  console.log('SKIP: restore browser-output file symlink test unavailable on this host (' + e.code + ')');
+}
+if (fileSymlinkCreated) {
+  const symlinkRestoreTarget = path.join(root, 'symlink-restore', 'workspaces');
+  const linkedBrowserRestore = run(['restore', '--bundle', bundle, '--target', symlinkRestoreTarget, '--browser-output', linkedBrowserOutput]);
+  A.ok(linkedBrowserRestore.status !== 0 && /browser output must not be a symbolic link/i.test(linkedBrowserRestore.stderr), 'restore refuses a symlink browser-output destination');
+  A.eq(fs.lstatSync(linkedBrowserOutput).isSymbolicLink(), true, 'refused restore preserves the browser-output symlink');
+  A.eq(fs.readFileSync(linkedBrowserTarget, 'utf8'), 'keep this file', 'refused restore leaves the symlink target bytes unchanged');
+  A.eq(fs.existsSync(symlinkRestoreTarget), false, 'symlink browser-output rejection cannot activate the workspace restore');
+}
+
+const danglingTarget = path.join(root, 'missing-browser-target.json');
+const danglingOutput = path.join(root, 'dangling-browser-output.json');
+let danglingSymlinkCreated = false;
+try {
+  fs.symlinkSync(danglingTarget, danglingOutput, 'file');
+  danglingSymlinkCreated = true;
+} catch (e) {
+  if (!['EPERM', 'EACCES', 'ENOTSUP'].includes(e && e.code)) throw e;
+  console.log('SKIP: restore browser-output dangling symlink test unavailable on this host (' + e.code + ')');
+}
+if (danglingSymlinkCreated) {
+  const danglingRestoreTarget = path.join(root, 'dangling-symlink-restore', 'workspaces');
+  const danglingRestore = run(['restore', '--bundle', bundle, '--target', danglingRestoreTarget, '--browser-output', danglingOutput]);
+  A.ok(danglingRestore.status !== 0 && /browser output must not be a symbolic link/i.test(danglingRestore.stderr), 'restore refuses a dangling browser-output symlink');
+  A.eq(fs.lstatSync(danglingOutput).isSymbolicLink(), true, 'refused restore preserves the dangling browser-output symlink');
+  A.eq(fs.existsSync(danglingTarget), false, 'dangling symlink target remains absent');
+  A.eq(fs.existsSync(danglingRestoreTarget), false, 'dangling symlink rejection cannot activate the workspace restore');
+}
+
 fs.rmSync(root, { recursive: true, force: true });
 A.report('station-recovery-cli.test');

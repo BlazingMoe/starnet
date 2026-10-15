@@ -131,7 +131,9 @@ try {
     let browserActivated = false;
     let browserMoved = false;
     fs.mkdirSync(path.dirname(browserOutput), { recursive: true });
-    if (fs.existsSync(browserOutput) && !fs.statSync(browserOutput).isFile()) throw new Error('browser output is not a file: ' + browserOutput);
+    const existingBrowserOutput = lstatOptional(browserOutput);
+    if (existingBrowserOutput && existingBrowserOutput.isSymbolicLink()) throw new Error('browser output must not be a symbolic link: ' + browserOutput);
+    if (existingBrowserOutput && !existingBrowserOutput.isFile()) throw new Error('browser output is not a file: ' + browserOutput);
     try {
       fs.writeFileSync(browserStage, browserPayload, { flag: 'wx' });
       if (fs.readFileSync(browserStage, 'utf8') !== browserPayload) throw new Error('browser output staging read-back mismatch');
