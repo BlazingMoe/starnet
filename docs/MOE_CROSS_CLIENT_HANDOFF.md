@@ -8,7 +8,7 @@ ChatGPT Web und Codex dürfen innerhalb ihrer jeweils verfügbaren Funktionen un
 
 ## Bearbeitungsübergabe
 
-- Aktiver Bearbeiter: **keiner – Übergabe bereit**.
+- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Auftrag: gezielte Wissenspflege-/Lern-Skill-Integration; Ausgangscommit `9bbf8c7f0d50e2cfe7c5d233b0b457c2b4e8d215`. Zunächst Übernahmecommit und dessen CI; anschließend begrenzte Umsetzung über vorhandene Skills/Notebook/Decision-Schnittstellen, zugehörige Tests und Mirrors. Kein paralleler Web-Auftrag. Tatsächliches Leitmodell: nicht separat verifiziert.
 - Ausgangscommit der Übergabe: `c68cb32dcf5847a611fb9dfc5d6ad1e68af451dc` (historische Referenz, HEAD immer neu lesen).
 - Nächster sinnvoller Block: bestehende Wissenspflege-/Lern-/Protokollierungs-Skills mit StarNet Market/Docs abgleichen; genau eine nützliche Lücke über vorhandene Notebook-/Decision-/Skill-Funktionen schließen. Keine neuen Dauerläufe oder parallelen Wissensstores. Umfang vor Umsetzung begrenzen.
 - Quellen: https://starnetos.com/docs/ und https://starnetos.com/market . Ein konkreter LLM-Wiki-Kandidat ist noch nicht geprüft oder integriert.
