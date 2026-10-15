@@ -103,6 +103,10 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.eq(by['spike'].default, false, 'Spike is off by default');
   A.ok(by['decision-1-3-1'], 'new port: 1-3-1 Decision loaded');
   A.eq(by['decision-1-3-1'].requires.length, 0, '1-3-1 is pure reasoning (no object required)');
+  A.ok(by['decision-learning'], 'targeted decision-learning skill is explicitly selectable from the bundled library');
+  A.eq(by['decision-learning'].default, false, 'decision-learning stays off until the Commander enables it');
+  A.ok(by['decision-learning'].requires.includes('notebook') && by['decision-learning'].requires.includes('dish'), 'decision-learning is gated on its memory and source tools');
+  A.ok(/decision\.lesson_propose/.test(by['decision-learning'].body) && /untrusted data/.test(by['decision-learning'].body) && /discarded\/kept/.test(by['decision-learning'].body) && /reference-only Memory Core record/.test(by['decision-learning'].body), 'decision-learning uses the review queue, treats sources as untrusted, preserves terminal receipts, and explains retained lesson authority');
   A.ok(by['meme-generation'] && by['meme-generation'].requires.indexOf('studio') >= 0, 'Meme Generation is image-gated (STUDIO)');
 
   // budget invariant: with the FULL expanded catalog default-on AND every object placed, compose HONORS the 12k

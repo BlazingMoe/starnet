@@ -8,10 +8,10 @@ ChatGPT Web und Codex dürfen innerhalb ihrer jeweils verfügbaren Funktionen un
 
 ## Bearbeitungsübergabe
 
-- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Auftrag: gezielte Wissenspflege-/Lern-Skill-Integration; Ausgangscommit `9bbf8c7f0d50e2cfe7c5d233b0b457c2b4e8d215`. Zunächst Übernahmecommit und dessen CI; anschließend begrenzte Umsetzung über vorhandene Skills/Notebook/Decision-Schnittstellen, zugehörige Tests und Mirrors. Kein paralleler Web-Auftrag. Tatsächliches Leitmodell: nicht separat verifiziert.
+- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Gezielte Decision-Learning-Skill-Integration wurde auf Implementierungs-/Fixture-Ebene akzeptiert; der Folgecommit und seine CI stehen noch aus. Tatsächliches Leitmodell nicht separat verifiziert. Keine parallele Web-Bearbeitung.
 - Ausgangscommit der Übergabe: `c68cb32dcf5847a611fb9dfc5d6ad1e68af451dc` (historische Referenz, HEAD immer neu lesen).
-- Nächster sinnvoller Block: bestehende Wissenspflege-/Lern-/Protokollierungs-Skills mit StarNet Market/Docs abgleichen; genau eine nützliche Lücke über vorhandene Notebook-/Decision-/Skill-Funktionen schließen. Keine neuen Dauerläufe oder parallelen Wissensstores. Umfang vor Umsetzung begrenzen.
-- Quellen: https://starnetos.com/docs/ und https://starnetos.com/market . Ein konkreter LLM-Wiki-Kandidat ist noch nicht geprüft oder integriert.
+- Nächster Schritt: Änderungen auf dem autorisierten Entwicklungsbranch veröffentlichen und die Pflicht-CI für den neuen Commit abwarten; danach den Roadmap-Checkpoint aktualisieren.
+- Quellen: https://starnetos.com/docs/ und https://starnetos.com/market wurden abgeglichen. Der Market listet „LLM Wiki“ (MIT); die Wissensgraph-/Markdown-Dateien wurden wegen des bestehenden Speicherverbots nicht übernommen. Der passende bounded workflow ist als Anpassung an die vorhandenen Entscheidung-/Review-Funktionen protokolliert.
 - Nach jeder Web-Umsetzung: **REVIEW_PENDING**; Codex prüft den tatsächlichen Diff und die Evidenz. Keine Behauptung einer bereits erfolgten Codex-Abnahme.
 
 Vor Änderungen den tatsächlichen Remote-HEAD, CI und diesen Bearbeiterstatus lesen. Eine einzelne Instanz trägt Client, selbst gemeldetes Modell (oder „unbekannt“), Zeit, Basiskommit, Aufgabe und betroffene Pfade ein und sichert die Übernahme auf dem Entwicklungsbranch. Direkt davor Remote erneut prüfen; bei konkurrierender Übernahme stoppen, nichts überschreiben. Dieser Eintrag ist ein kooperatives Protokoll, keine atomare technische Sperre. Solange ein anderer Client arbeitet oder REVIEW_PENDING offen ist, keine konkurrierende Entwicklung starten. Ein abgebrochener Auftrag wird erst nach Nutzerübergabe oder belegter Freigabe übernommen, nicht allein wegen verstrichener Zeit. Der Übernahmecommit unterliegt ebenfalls den CI-Gates.
@@ -26,7 +26,7 @@ Wenn der Client nicht schreiben kann, liefert er einen Patch samt Übergabe an d
 - Letzte Blöcke: Routinen-Durchlaufgrenzen (`maxIters`, `maxCostUsd`); CSV-Profil, Zeilenzugriff und geprüfter CSV-Export; begrenzte XLSX-Blatt-/Bereichsleser; sichere PR-Sweep-Connector-Projektion; Entscheidungslernen und Recovery-/Kostenansichten; Windows-Zeilenendenkorrekturen. Einzelheiten und Grenzen stehen in Roadmap und Commit-Diffs.
 - XLSX ist lesend: keine Formelneuberechnung, Bearbeitung oder Layout-/Diagrammtreue. Gespeicherte Formelwerte können veraltet sein.
 - Echte Browser-/Anbieter-/Account-/Gesamtabnahme, installierte Wiederherstellung mit echten Nutzerdaten und unbeaufsichtigter Betrieb sind nicht pauschal abgenommen. Nicht durch Fixtures ersetzen.
-- Market-Skill-Integration ist noch offen. Der neue `crack_helper` ist konfiguriert; sein erster Auftrag scheiterte am Nutzungslimit, also kein erfolgreicher Laufzeitnachweis.
+- Historischer Snapshot bei Anlage dieses Handoffs: Market-Skill-Integration war noch offen. Seitdem wurde eine gezielte Decision-Learning-Integration ergänzt; breitere Market-Katalogarbeit bleibt offen. Der neue `crack_helper` ist konfiguriert; sein erster Auftrag scheiterte am Nutzungslimit, also kein erfolgreicher Laufzeitnachweis.
 
 ## Arbeitsnachweis pro zusammenhängendem Block
 
@@ -60,6 +60,19 @@ Git belegt Änderungen, aber **keine Lesezugriffe und keine Modellidentität**. 
 - Kosten: keine genauen Token-/Dollarwerte für diesen Dokumentblock verfügbar.
 - Ergebniscommit: der Commit, der diesen Abschnitt einführt (über Git-Historie auffindbar). CI dieses Commits beim Übernehmen prüfen.
 - Nächster Schritt: Bearbeitung übernehmen, vorhandene Skill-Funktionen gezielt abgleichen, begrenzten Block implementieren und als REVIEW_PENDING übergeben.
+
+### Decision-Learning-Skill – 2026-10-15
+
+- Status: **ACCEPTED** auf Implementierungs-/Fixture-Ebene; neuer Commit und dessen CI ausstehend. Echte Anbieter-/Account-/Gesamtabnahme bleibt offen.
+- Client/Agent: Codex Desktop / begrenzter Builder; aktives Leitmodell nicht separat verifiziert.
+- Ausgangscommit: `4eade678bdded543b1cdf96774b11667fd27cb73` auf `dev/mo-ai-station`; lokaler Arbeitsbaum war sauber. Die fünf erforderlichen Remote-Checks waren laut Übergabeauftrag für diesen Ausgangsstand grün.
+- Aufgabe/Pfade: eine ausdrücklich auswählbare, deaktivierte Decision-Learning-Prozedur in `sidecar/skills/library/decision-learning.md`; Katalogregression in `test/skills.library.test.js`; dieser Handoff-Eintrag. Kein zusätzlicher Speicher, Tool, Zeitplaner oder Mirror nötig: die Bibliothek wird aus `sidecar/skills/library/*.md` geladen.
+- Quellen: Roadmap, Life/Business Automation, Notebook- und Decision-Tool-Verträge; https://starnetos.com/docs/, https://starnetos.com/market und deren öffentlicher Registry-Eintrag für „LLM Wiki“ (Nous Research, MIT, Upstream-Commit `e85706cba780382ef91ba7a38a20ebe95207a795`). Diese Beschreibung lieferte einen nützlichen Workflow-Hinweis. Es wurde kein Upstream-Skilltext oder Code kopiert; keine MIT-Attribution-Datei erforderlich. Die persistenten Wiki-Dateien wurden wegen des Verbots paralleler Wissensspeicher nicht übernommen.
+- Ergebnis: Skill ist `default:false`, benötigt NOTEBOOK und DISH, nutzt `decision.list`/`decision.lesson_propose` sowie den bestehenden Memory-Core-Prüfpfad. Er verlangt beobachtetes Outcome, quellengebundene Unsicherheit, behandelt Web-/Quelldaten als nicht vertrauenswürdig, erhält idempotente Retry- und terminale Review-Zustände und behauptet keine automatische Verifikation. Ein behaltenes Lesson wird korrekt als reference-only beschrieben und kann unter dem existierenden Recall-Fence nach Relevanz erscheinen. Kein zusätzlicher Mirror, da kein weiterer Skill-Katalog-Spiegel existiert.
+- Tests (Node `C:\Users\Moe\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe`): `test/skills.library.test.js` — OK (351 assertions); `test/decision-history.test.js` — OK (71); `test/decision-history-http.test.js` — OK (28); `test/memory-decisions-ui.test.js` — OK (28); `test/skill-goldens.test.js` — OK (19); `git diff --check` — OK. Decision tests cover exact retry/recovery, duplicate conflicts, untrusted model records, corrupt/unavailable history and review-state rendering. Fixture-backed only; no real provider/account or live browser acceptance claimed.
+- Geänderte Dateien: `sidecar/skills/library/decision-learning.md`, `test/skills.library.test.js`, `docs/MOE_AI_STATION_ROADMAP.md`, `docs/MOE_CROSS_CLIENT_HANDOFF.md`.
+- Kosten: keine Token-/Dollartelemetrie verfügbar; keine Ersparnis behauptet.
+- Nächster Schritt: autorisierten Entwicklungsbranch aktualisieren, Pflicht-CI des neuen Commits abwarten und anschließend den Roadmap-Checkpoint aktualisieren.
 
 ## Kopierauftrag für ChatGPT Web
 
