@@ -6,6 +6,10 @@ Keep StarNet/Moe as the foundation. Its existing dossier recipe and execution in
 
 The comparison is qualitative. No comparative latency, cost or quality measurements have been obtained. Licensing labels require inspection of the exact files and notices before any code port. No third-party implementation has been installed or imported by this research.
 
+## Upstream reuse checkpoint (2026-10-16)
+
+Compared Moe's reviewed base with the GitHub-verified current upstream head `54899e5ff3f2b002b457757916b3977818db6fc1` (340 commits ahead). Reuse decision: keep the existing implementation and do not merge or copy a broad upstream feature batch. Provider discovery and the remaining launch/consent acceptance still need the separately scoped attended session documented below. Scheduler safeguards already cover the bounded acceptance seam. Upstream's one clearly useful scheduler refinement is strict/lenient normalization of routine toolset names: Moe's free-text field accepts values that runtime enforcement may silently drop. This is a UX reliability issue, and a future fix should normalize all create/update ingress and legacy persisted jobs while preserving restriction-only semantics and connector families. No patch was made in this comparison because it cannot safely be solved at one ingress. Evidence and exact local/upstream paths are in [sources.md](sources.md), S6. Local `git fetch --dry-run` was network-blocked; the current upstream SHA and branch were confirmed through the GitHub connector. No tests were run because this checkpoint changed documentation only.
+
 ## Acceptance sequence
 
 1. Plumbing: run the existing `test/harness.integration.test.js`. The added dossier scenario must search/fetch, write four files, read them back and reconstruct their evidence with a fresh journal instance. This deterministic fixture is now passing.
