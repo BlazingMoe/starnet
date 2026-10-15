@@ -23,7 +23,9 @@ const A = require('./_assert.js');
 const fs = require('fs');
 const path = require('path');
 const P = (...p) => path.join(__dirname, '..', ...p);
-const read = (...p) => fs.readFileSync(P(...p), 'utf8');
+// Source excerpts below use LF delimiters; normalize checked-out CRLF files so this behavioral
+// harness produces the same extraction on Windows and Unix worktrees.
+const read = (...p) => fs.readFileSync(P(...p), 'utf8').replace(/\r\n/g, '\n');
 /* the few checks here that are genuinely ASYNC (a promise racing an invalidation cannot be driven any other
    way) park their tail here; the report waits on all of them, so an async assertion can never be skipped. */
 const PENDING = [];
