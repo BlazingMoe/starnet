@@ -5,6 +5,8 @@ const os = require('os');
 const path = require('path');
 const cp = require('child_process');
 const A = require('./_assert.js');
+const Recovery = require('../sidecar/station-recovery.js');
+const Save = require('../frontend/app/save.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-recovery-cli-'));
 const ws = path.join(root, 'old-machine', 'workspaces');
@@ -29,7 +31,8 @@ write('agent.deliverables.json', { records: [{ id: 'd' }] });
 write('agent/report.md', 'deliverable');
 write('permissions.allow.json', { allow: ['fs.write:workspace'] });
 write('connectors/state.json', { version: 2, configs: [{ id: 'notion', oauth: true }], oauth: { byId: { notion: { accessToken: 'SECRET' } }, clients: {} } });
-fs.writeFileSync(browserIn, JSON.stringify({ schema: 'starnet.backup', version: 1, store: { 'starnet.save': JSON.stringify({ agent: { id: 'agent' }, station: { rooms: ['r'], props: ['p'] } }), 'starnet.station.v1': '{"room":"r"}' } }));
+const validAgentSave = JSON.stringify({ schema: 'starnet.save', version: 6, agent: { id: 'agent' }, station: { rooms: ['r'], props: ['p'] } });
+fs.writeFileSync(browserIn, JSON.stringify({ schema: 'starnet.backup', version: 1, store: { 'starnet.save': validAgentSave, 'starnet.station.v1': '{"room":"r"}' } }));
 
 const backup = run(['backup', '--workspace', ws, '--output', bundle, '--browser-state', browserIn, '--app-version', 'test', '--mutation', '7']);
 A.eq(backup.status, 0, 'backup CLI exits green: ' + backup.stderr);
@@ -38,6 +41,17 @@ A.ok(fs.readFileSync(bundle, 'utf8').indexOf('SECRET') < 0, 'backup CLI excludes
 const backupReceipt = JSON.parse(backup.stdout);
 A.eq(backupReceipt.ok, true, 'backup CLI prints a machine-readable receipt');
 A.eq(backupReceipt.recoveryPoint.lastCompletedMutation, '7', 'backup receipt binds the requested mutation');
+
+const missingBrowserBundle = path.join(root, 'backup', 'missing-browser.starnet-recovery.json');
+const missingBrowser = run(['backup', '--workspace', ws, '--output', missingBrowserBundle]);
+A.ok(missingBrowser.status !== 0 && /--browser-state is required/.test(missingBrowser.stderr), 'complete backup CLI requires the browser-owned state export');
+A.eq(fs.existsSync(missingBrowserBundle), false, 'missing browser export cannot produce a falsely complete recovery point');
+const missingAgentState = path.join(root, 'browser-no-agent.json');
+fs.writeFileSync(missingAgentState, JSON.stringify({ schema: 'starnet.backup', version: 1, store: { 'starnet.station.v1': '{}' } }));
+const invalidBrowserBundle = path.join(root, 'backup', 'invalid-browser.starnet-recovery.json');
+const invalidBrowser = run(['backup', '--workspace', ws, '--output', invalidBrowserBundle, '--browser-state', missingAgentState]);
+A.ok(invalidBrowser.status !== 0 && /browser export is invalid: backup has no agent/.test(invalidBrowser.stderr), 'backup CLI rejects browser export without the agent save');
+A.eq(fs.existsSync(invalidBrowserBundle), false, 'invalid browser export cannot create a recovery point');
 
 // An output path must not be captured as an ordinary workspace file or silently replace the only old recovery point.
 const nestedBundle = path.join(ws, 'nested.starnet-recovery.json');
@@ -64,6 +78,30 @@ fs.writeFileSync(badBrowserState, '{broken');
 const failedReplacement = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', badBrowserState]);
 A.ok(failedReplacement.status !== 0, 'failed replacement export is reported');
 A.eq(fs.readFileSync(bundle, 'utf8'), originalBundleBytes, 'failed replacement export preserves the previous verified backup');
+for (const [label, raw] of [['empty', ''], ['not-json', '{broken']]) {
+  const statePath = path.join(root, 'browser-save-' + label + '.json');
+  fs.writeFileSync(statePath, JSON.stringify({ schema: 'starnet.backup', version: 1, store: { 'starnet.save': raw } }));
+  const failedSaveReplacement = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', statePath]);
+  A.ok(failedSaveReplacement.status !== 0 && /browser agent save is not valid JSON/.test(failedSaveReplacement.stderr), 'backup rejects ' + label + ' agent save content');
+  A.eq(fs.readFileSync(bundle, 'utf8'), originalBundleBytes, 'rejected ' + label + ' agent save preserves the existing recovery point');
+}
+const futureState = path.join(root, 'browser-save-future.json');
+fs.writeFileSync(futureState, JSON.stringify({ schema: 'starnet.backup', version: 1, store: {
+  'starnet.save': JSON.stringify({ schema: 'starnet.save', version: Save.CURRENT + 1, agent: { id: 'future-agent' } })
+} }));
+const futureSave = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', futureState]);
+A.ok(futureSave.status !== 0 && /newer StarNet version/.test(futureSave.stderr), 'backup rejects a future-version agent save');
+A.eq(fs.readFileSync(bundle, 'utf8'), originalBundleBytes, 'future-version save rejection preserves the existing recovery point');
+const legacyBrowserIn = path.join(root, 'legacy-browser-in.json');
+fs.writeFileSync(legacyBrowserIn, JSON.stringify({ schema: 'skynet.backup', version: 1, store: {
+  'skynet.save': JSON.stringify({ schema: 'skynet.save', version: 5, agent: { id: 'legacy-agent' } }),
+  'skynet.station.v1': '{"legacy":true}'
+} }));
+const legacyBundle = path.join(root, 'backup', 'legacy.starnet-recovery.json');
+const legacyBackup = run(['backup', '--workspace', ws, '--output', legacyBundle, '--browser-state', legacyBrowserIn]);
+A.eq(legacyBackup.status, 0, 'backup CLI accepts a valid legacy StarNet browser export');
+const legacyInspection = run(['inspect', '--bundle', legacyBundle]);
+A.eq(JSON.parse(legacyInspection.stdout).scope, 'station', 'legacy browser state remains a full station recovery scope');
 const replace = run(['backup', '--workspace', ws, '--output', bundle, '--replace-backup', '--browser-state', browserIn, '--app-version', 'replacement']);
 A.eq(replace.status, 0, 'explicit replacement of an existing regular backup succeeds');
 const fileLink = path.join(root, 'linked-backup.json');
@@ -85,6 +123,12 @@ A.eq(inspection.appVersion, 'replacement', 'explicit replacement commits the new
 A.eq(inspection.requirements.filter(x => x.status === 'present').length, 11, 'inspect reports all required categories');
 A.ok(inspection.reauthentication.some(x => x.id === 'notion'), 'inspect reports connector reauthentication');
 
+const workspaceOnlyBundle = path.join(root, 'backup', 'workspace-only.starnet-recovery.json');
+const workspaceOnlyBackup = run(['backup', '--workspace', ws, '--output', workspaceOnlyBundle, '--workspace-only']);
+A.eq(JSON.parse(workspaceOnlyBackup.stdout).scope, 'workspace-only', 'explicit backend-only backup reports its narrower scope');
+const workspaceOnlyInspection = run(['inspect', '--bundle', workspaceOnlyBundle]);
+A.eq(JSON.parse(workspaceOnlyInspection.stdout).scope, 'workspace-only', 'inspection preserves workspace-only scope');
+
 const restore = run(['restore', '--bundle', bundle, '--target', target, '--browser-output', browserOut]);
 A.eq(restore.status, 0, 'restore CLI exits green: ' + restore.stderr);
 A.eq(fs.readFileSync(path.join(target, 'agent', 'report.md'), 'utf8'), 'deliverable', 'restore CLI recovers deliverable bytes');
@@ -92,6 +136,26 @@ A.ok(fs.existsSync(browserOut), 'restore CLI emits browser-state import file');
 const restoredBrowser = JSON.parse(fs.readFileSync(browserOut, 'utf8'));
 A.eq(restoredBrowser.schema, 'starnet.backup', 'browser restore artifact uses the existing UI import schema');
 A.eq(restoredBrowser.store['starnet.station.v1'], '{"room":"r"}', 'browser-owned layout survives the CLI round-trip');
+
+const workspaceOnlyTarget = path.join(root, 'workspace-only-machine', 'workspaces');
+const workspaceOnlyBrowserOut = path.join(root, 'workspace-only-browser.json');
+const workspaceOnlyRestore = run(['restore', '--bundle', workspaceOnlyBundle, '--target', workspaceOnlyTarget, '--browser-output', workspaceOnlyBrowserOut]);
+A.eq(workspaceOnlyRestore.status, 0, 'workspace-only bundle restores its durable profile');
+A.eq(JSON.parse(workspaceOnlyRestore.stdout).browserImport.available, false, 'workspace-only restore clearly reports browser state is absent');
+A.eq(fs.existsSync(workspaceOnlyBrowserOut), false, 'workspace-only restore does not emit an invalid browser-import file');
+
+const invalidLegacyBundleFile = path.join(root, 'backup', 'legacy-incomplete-browser.starnet-recovery.json');
+const invalidLegacyBundle = Recovery.capture({ workspaceRoot: ws, browserStore: { 'starnet.station.v1': '{}' }, now: Date.now(), appVersion: 'legacy-cli', lastCompletedMutation: null });
+Recovery.writeBundleAtomic({ bundle: invalidLegacyBundle, file: invalidLegacyBundleFile });
+A.eq(Recovery.readBundle(invalidLegacyBundleFile).browser.length, 1, 'legacy incomplete-browser fixture has valid bundle integrity');
+const invalidLegacyInspect = run(['inspect', '--bundle', invalidLegacyBundleFile]);
+A.ok(invalidLegacyInspect.status !== 0 && /bundle browser state is invalid/.test(invalidLegacyInspect.stderr), 'inspect rejects an integrity-valid bundle with incomplete browser state');
+const invalidLegacyTarget = path.join(root, 'invalid-legacy-target', 'workspaces');
+const invalidLegacyBrowserOutput = path.join(root, 'invalid-legacy-browser-output.json');
+const invalidLegacyRestore = run(['restore', '--bundle', invalidLegacyBundleFile, '--target', invalidLegacyTarget, '--browser-output', invalidLegacyBrowserOutput]);
+A.ok(invalidLegacyRestore.status !== 0 && /bundle browser state is invalid/.test(invalidLegacyRestore.stderr), 'restore rejects the incomplete browser state before activation');
+A.eq(fs.existsSync(invalidLegacyTarget), false, 'invalid legacy browser state rejection leaves restore target untouched');
+A.eq(fs.existsSync(invalidLegacyBrowserOutput), false, 'invalid legacy browser state rejection creates no import file');
 
 const second = run(['restore', '--bundle', bundle, '--target', target]);
 A.ok(second.status !== 0 && /not clean/.test(second.stderr), 'restore refuses an existing profile without explicit rollback authority');

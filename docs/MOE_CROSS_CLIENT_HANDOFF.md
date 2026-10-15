@@ -8,9 +8,9 @@ ChatGPT Web und Codex dürfen innerhalb ihrer jeweils verfügbaren Funktionen un
 
 ## Bearbeitungsübergabe
 
-- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-15**. Der Recovery browser-import symlink guard ist auf Implementierungs-/Fixture-Ebene durch Codex akzeptiert; der Folgecommit und seine CI stehen noch aus. Tatsächliches Leitmodell nicht separat verifiziert. Keine parallele Web-Bearbeitung.
-- Ausgangscommit der Übergabe: `a25cf462fe1c4327843a97cdfa0cd1f883dde368` (Ausgangsstand dieses Blocks; HEAD immer neu lesen).
-- Nächster Schritt: korrigierte Testregression prüfen, Änderungen auf dem autorisierten Entwicklungsbranch veröffentlichen und die Pflicht-CI für den neuen Commit abwarten; danach den Roadmap-Checkpoint aktualisieren.
+- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer zurückübernommen am 2026-10-16**. Der Recovery browser-import symlink guard wurde veröffentlicht und die fünf Pflichtprüfungen auf `57892f9` waren grün. Aktueller Block: vollständige/Sidecar-only Recovery-Scope-Prüfung wurde auf Implementierungs-/Fixture-Ebene durch Lead akzeptiert; CI für Folgecommit steht aus. Tatsächliches Leitmodell nicht separat verifiziert. Keine parallele Web-Bearbeitung.
+- Ausgangscommit der Übergabe: `57892f966c847ad1e391cb95430338f2f8d10da0` (Ausgangsstand dieses Blocks; HEAD immer neu lesen).
+- Nächster Schritt: autorisierten Entwicklungsworkflow fortsetzen und Pflicht-CI des Folgecommits abwarten; danach Roadmap-Checkpoint aktualisieren.
 - Quellen: https://starnetos.com/docs/ und https://starnetos.com/market wurden abgeglichen. Der Market listet „LLM Wiki“ (MIT); die Wissensgraph-/Markdown-Dateien wurden wegen des bestehenden Speicherverbots nicht übernommen. Der passende bounded workflow ist als Anpassung an die vorhandenen Entscheidung-/Review-Funktionen protokolliert.
 - Nach jeder Web-Umsetzung: **REVIEW_PENDING**; Codex prüft den tatsächlichen Diff und die Evidenz. Keine Behauptung einer bereits erfolgten Codex-Abnahme.
 
@@ -74,16 +74,28 @@ Git belegt Änderungen, aber **keine Lesezugriffe und keine Modellidentität**. 
 - Kosten: keine Token-/Dollartelemetrie verfügbar; keine Ersparnis behauptet.
 - Nächster Schritt: autorisierten Entwicklungsbranch aktualisieren, Pflicht-CI des neuen Commits abwarten und anschließend den Roadmap-Checkpoint aktualisieren.
 
-### Recovery browser-import symlink guard – 2026-10-15
+### Recovery browser-import symlink guard – 2026-10-15 (published)
 
-- Status: **ACCEPTED** at implementation/fixture level by lead; CI for the eventual commit remains pending. No commit created.
+- Status: **ACCEPTED** at implementation/fixture level by lead; published at `57892f9`, whose five required CI checks were green per lead verification.
 - Client/Agent: Codex Desktop / bounded builder; active lead model not independently verified.
-- Ausgangscommit: `a25cf462fe1c4327843a97cdfa0cd1f883dde368` on `dev/mo-ai-station`; clean at start. The five required CI checks were reported green on this exact baseline before this local change; no CI is claimed for the resulting working diff.
+- Ausgangscommit: `a25cf462fe1c4327843a97cdfa0cd1f883dde368` on `dev/mo-ai-station`; clean at start. Published result `57892f966c847ad1e391cb95430338f2f8d10da0`; five required checks green per lead verification.
 - Gap: production recovery restore followed symlinks when checking an existing browser-import output and could replace the link itself. Backup output already refused symlinks, but the restore-side import path lacked the matching guard.
 - Änderung: `scripts/station-recovery.mjs` now uses `lstat` to reject a symlink browser-import destination before staging or workspace activation. `test/station-recovery-cli.test.js` verifies the link and target bytes remain intact and no restored workspace is activated. `docs/MOE_PRIVATE_OPERATOR_RUNBOOK.md` records the constraint.
 - Prüfung: Windows, configured Node executable; `test/station-recovery-cli.test.js` — OK (42 assertions); both file-symlink and dangling-symlink cases actually ran (no skip). Symlink-creation skips are scoped only around `symlinkSync`; restore execution and assertions are outside those catches. `git diff --check` — OK. Fixture-backed CLI test only; no real operator restore, no app/browser import, and no fresh CI for this diff.
 - Kosten: exact token/dollar telemetry unavailable.
 - Offene Risiken / nächster Schritt: Codex review the diff; then publish through the authorized branch workflow and wait for all required CI checks on the resulting commit. A real isolated restore rehearsal with operator data remains separate private acceptance and was not run.
+
+### Complete recovery backup input – 2026-10-16
+
+- Status: **ACCEPTED** at implementation/fixture level by lead; required CI for the eventual commit remains pending.
+- Client/Agent: Codex Desktop / bounded builder; active lead model not independently verified.
+- Ausgangscommit: `57892f966c847ad1e391cb95430338f2f8d10da0`; clean on `dev/mo-ai-station`. Five required CI checks on this commit were reported green by the lead before this block.
+- Gap: the production backup CLI accepted arbitrary JSON with an empty or malformed `starnet.save`, and there was no explicit receipt scope to distinguish browser-inclusive station recovery from sidecar-only capture. The existing in-app export produces a `starnet.backup` envelope containing origin `starnet.*` records and a best-effort notebook snapshot; the durable workspace capture carries station files for all agents.
+- Changed paths: `scripts/station-recovery.mjs`, `test/station-recovery-cli.test.js`, `docs/MOE_PRIVATE_OPERATOR_RUNBOOK.md`, `docs/DISASTER_RECOVERY.md`, this handoff.
+- Result: default full-station backup requires the existing `starnet.backup`/`skynet.backup` contract (or a raw key map), parses the embedded agent save using the current/legacy save tags and rejects malformed/empty/future saves. A shared validator also rejects nonempty invalid browser data from older integrity-valid bundles during inspect/restore, before restore filesystem changes. Explicit `--workspace-only` preserves sidecar-only capture; backup and inspect label scope, and restore does not emit an invalid empty browser-import file. Runbooks describe origin-key vs durable-workspace coverage.
+- Code evidence: `frontend/index.html` exposes the sole **EXPORT AGENT** action; `frontend/app/app.js` calls `Backup.exportAll`; `frontend/app/backup.js` builds `{schema,version,store,notebook}` from all nonsecret origin `starnet.*` keys and validates current/legacy envelopes; `frontend/app/save.js` accepts current/legacy save tags and rejects future versions. Repository search found no additional recovery CLI callers beyond `package.json`, this runbook and `docs/DISASTER_RECOVERY.md`; both docs now identify complete-station and workspace-only modes explicitly.
+- Tests: Windows, configured Node executable; `test/station-recovery-cli.test.js` — OK (64 assertions). Covers current/legacy export envelopes and save tags, malformed/empty/future save refusal with previous-bundle preservation, workspace-only backup/inspect/restore, and an older integrity-valid bundle with incomplete browser state rejected by both inspect and restore before target mutation. `git diff --check` — OK.
+- Open limit: fixture-backed CLI only; no operator data, installed-app export, off-disk copy or restore rehearsal.
 
 ## Kopierauftrag für ChatGPT Web
 

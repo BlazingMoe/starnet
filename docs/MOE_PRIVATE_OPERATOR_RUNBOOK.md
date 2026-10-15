@@ -254,8 +254,14 @@ interruption inside a mutating script or unattended use of the operator's actual
 The full station recovery path is already integrity-checked and secret-aware. It requires a
 quiescent/stopped sidecar; do not copy a live workspace and call it a backup.
 
-Export browser-owned state from the app, stop Moe AI Station completely, identify the exact
-active WORKSPACES path, then run:
+In the running app, choose **EXPORT AGENT** in the data-portability footer and save the
+downloaded `starnet-<agent>-<date>.json` file. Confirm that it is the agent export, then stop
+Moe AI Station completely and identify the exact active WORKSPACES path. The recovery CLI
+requires this export and checks that it contains the agent save before it creates a bundle.
+The app export covers its nonsecret `starnet.*` origin keys and a best-effort notebook snapshot;
+the stopped `WORKSPACES` capture covers durable station files across agents. A deliberate
+sidecar-only snapshot remains available through `--workspace-only`, and its receipt is labeled
+`workspace-only`; it does not meet the complete-station recovery checklist. Run:
 
 ```bash
 npm run recovery:backup -- --workspace "<WORKSPACES>" --output "<backup>.starnet-recovery.json" --browser-state "<browser-export>.json" --app-version "<current-version>" --mutation "<operator-note>"
@@ -268,9 +274,10 @@ replace an existing bundle unless `--replace-backup` is explicit; that option ap
 existing regular file. A failed capture or write leaves the previous valid bundle intact.
 The restore CLI also rejects a symbolic-link browser-import destination before activating any
 workspace files; choose a regular file path outside the target workspace.
-Only an `ok: true` inspected bundle is a recovery point. Store at least one copy off the
-station disk. OAuth grants, provider keys and other credentials are deliberately excluded and
-must be reauthorized after a machine/profile restore.
+Only an `ok: true` inspected bundle with `scope: "station"` is a complete-station recovery
+point. Its browser section should report captured keys; a missing or invalid browser export fails before creating a bundle. Store at least
+one copy off the station disk. OAuth grants, provider keys and other credentials are deliberately
+excluded and must be reauthorized after a machine/profile restore.
 
 ### Verify a restore before relying on the backup
 
