@@ -92,6 +92,7 @@ const { makeCredPool } = require('./credpool.js');
 const { resolveTools } = require('./capability/resolve.js');
 const { CAP_REGISTRY } = require('./capability/registry.js');
 const { toolsetRows, toggleableCaps } = require('./capability/toolsets.js');   // TOOLSETS console: capId families derived from CAP_REGISTRY
+const routineToolsets = require('./routine-toolsets.js');
 const { makeCapCtx } = require('./capability/capGate.js');
 const { composeOffice, stationWithObject, stationWithConnectors } = require('./capability/office.js');   // THE MOAT: interactive office = compute freebie + placed caps
 const { summarizeCapabilities } = require('./capability/capsummary.js');   // truthful "what you can/can't do" so the agent stops over-promising
@@ -11919,7 +11920,8 @@ async function createCronJobFromSpec(body) {
     for (const ref of body.skills) if (!skillStore.view(agentId, ref, { bump: false })) throw new Error('unknown runtime skill "' + ref + '" for ' + agentId);
     body.contextFrom = cronStringList(body.contextFrom, 8, /^[A-Za-z0-9_-]{1,40}$/);
     for (const ref of body.contextFrom) if (!cronStore.getJob(cronJobs, ref)) throw new Error('unknown upstream routine ' + ref);
-    body.enabledToolsets = body.enabledToolsets == null ? null : cronStringList(body.enabledToolsets, 16, /^[A-Za-z0-9:_-]{1,80}$/);
+    const connectorAliases = connectorConfigs.flatMap(c => [c.id, c.name, c.label].filter(Boolean));
+    body.enabledToolsets = routineToolsets.normalize(body.enabledToolsets, { strict: true, connectorAliases });
     body.workdir = cronCanonicalWorkdir(body.workdir);
     body.noAgent = body.noAgent === true;
     body.attachToSession = body.attachToSession === true;
@@ -12026,7 +12028,10 @@ function handleCronUpdate(req, res) {
       const current = cronStore.getJob(cronJobs, id), aid = patch.agentId || current.agentId;
       if (Object.prototype.hasOwnProperty.call(patch, 'skills')) { patch.skills = cronStringList(patch.skills, 8, /^[A-Za-z0-9_. -]{1,120}$/); for (const ref of patch.skills) if (!skillStore.view(aid, ref, { bump: false })) throw new Error('unknown runtime skill "' + ref + '"'); }
       if (Object.prototype.hasOwnProperty.call(patch, 'contextFrom')) { patch.contextFrom = cronStringList(patch.contextFrom, 8, /^[A-Za-z0-9_-]{1,40}$/); for (const ref of patch.contextFrom) { if (ref === id) throw new Error('a routine cannot depend on itself'); if (!cronStore.getJob(cronJobs, ref)) throw new Error('unknown upstream routine ' + ref); } if (cronContextCycle(id, patch.contextFrom)) throw new Error('routine context dependencies cannot form a cycle'); }
-      if (Object.prototype.hasOwnProperty.call(patch, 'enabledToolsets')) patch.enabledToolsets = patch.enabledToolsets == null ? null : cronStringList(patch.enabledToolsets, 16, /^[A-Za-z0-9:_-]{1,80}$/);
+      if (Object.prototype.hasOwnProperty.call(patch, 'enabledToolsets')) {
+        const connectorAliases = connectorConfigs.flatMap(c => [c.id, c.name, c.label].filter(Boolean));
+        patch.enabledToolsets = routineToolsets.normalize(patch.enabledToolsets, { strict: true, connectorAliases });
+      }
       if (Object.prototype.hasOwnProperty.call(patch, 'deliver')) {
         const mode = String(patch.deliver || 'local');
         if (mode === 'all') { const map = channelStore.loadChatMap(); patch.deliver = 'targets:' + Object.keys((map && map.chats) || {}).slice(0, 16).join(','); }

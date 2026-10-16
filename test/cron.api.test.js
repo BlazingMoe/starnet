@@ -77,7 +77,7 @@ function boot(port, workspaces, attemptsLeft) {
   try {
     // ---- create: a valid interval routine ----
     const create = await j('POST', '/api/cron', { name: 'Morning brief', prompt: 'summarize AI news', schedule: 'every 30m', agentId: 'cron_brief', misfire: 'fire_once', maxIters: 8, maxCostUsd: 0.2 });
-    A.eq(create.status, 200, 'POST /api/cron (valid) -> 200');
+    A.eq(create.status, 200, 'POST /api/cron (valid) -> 200: ' + JSON.stringify(create.body));
     A.ok(create.body.ok && create.body.job && create.body.job.id, 'create returns the new job with an id');
     const id = create.body.job.id;
     A.eq(create.body.job.schedule.kind, 'interval', 'schedule parsed to an interval');
@@ -85,6 +85,21 @@ function boot(port, workspaces, attemptsLeft) {
     A.eq(create.body.job.misfire, 'fire_once', 'create persists the chosen one-catch-up policy');
     A.eq(create.body.job.maxIters, 8, 'create persists the explicit per-routine iteration cap');
     A.eq(create.body.job.maxCostUsd, 0.2, 'create persists the explicit per-routine cost cap');
+    const normalizedUpdate = await j('POST', '/api/cron/update', { id: create.body.job.id, patch: { enabledToolsets: ['FILE CABINET', 'fs.read', 'cabinet'] } });
+    A.eq(normalizedUpdate.status, 200, 'update accepts known display labels and tool names');
+    A.eq(normalizedUpdate.body.job.enabledToolsets, ['cabinet'], 'update stores canonical family ids and deduplicates aliases');
+    const rejectedUpdate = await j('POST', '/api/cron/update', { id: create.body.job.id, patch: { enabledToolsets: ['unknown-family'] } });
+    A.eq(rejectedUpdate.status, 400, 'update rejects unknown routine families');
+    const restoredDefaults = await j('POST', '/api/cron/update', { id: create.body.job.id, patch: { enabledToolsets: null } });
+    A.eq(restoredDefaults.body.job.enabledToolsets, null, 'explicit null restores station defaults');
+    const denyAll = await j('POST', '/api/cron/update', { id: create.body.job.id, patch: { enabledToolsets: [] } });
+    A.eq(denyAll.body.job.enabledToolsets, [], 'explicit empty list remains deny-all instead of restoring station defaults');
+    const unknownToolset = await j('POST', '/api/cron', { name: 'Unknown family', prompt: 'brief', schedule: 'every 30m', enabledToolsets: ['unknown-family'] });
+    A.eq(unknownToolset.status, 400, 'create rejects unknown routine families');
+    const labelCreate = await j('POST', '/api/cron', { name: 'Label family', prompt: 'brief', schedule: 'every 30m', enabledToolsets: ['WEB & BROWSER', 'web_search'] });
+    A.eq(labelCreate.status, 200, 'create accepts known display labels and tool names');
+    A.eq(labelCreate.body.job.enabledToolsets, ['web'], 'create stores only canonical family ids');
+    await j('POST', '/api/cron/remove', { id: labelCreate.body.job.id });
     const badCostCreate = await j('POST', '/api/cron', { name: 'Bad cost', prompt: 'summarize AI news', schedule: 'every 30m', maxCostUsd: 0 });
     A.eq(badCostCreate.status, 400, 'create rejects a zero cost cap');
     const badCostTypeCreate = await j('POST', '/api/cron', { name: 'Bad cost type', prompt: 'summarize AI news', schedule: 'every 30m', maxCostUsd: '0.2' });

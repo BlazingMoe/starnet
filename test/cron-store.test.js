@@ -241,6 +241,8 @@ const iso = cron._internals.iso;
   A.eq(store.loadEnvelope(null), { version: 1, jobs: [] }, 'null -> empty store (fail-closed)');
   A.eq(store.loadEnvelope('not json'), { version: 1, jobs: [] }, 'garbage string -> empty store');
   A.eq(store.loadEnvelope({ jobs: 'nope' }), { version: 1, jobs: [] }, 'jobs not an array -> empty store');
+  const legacyRestricted = store.loadEnvelope({ version: 1, jobs: [{ id: 'legacy-restricted', enabledToolsets: ['future-family'] }] }).jobs[0];
+  A.eq(legacyRestricted.enabledToolsets, ['future-family'], 'unknown persisted toolset stays nonempty and inert instead of becoming station defaults');
   const env = store.loadEnvelope({ version: 1, jobs: [{ id: 'good' }, { id: 'bad id!' }, null, { noId: true }] });
   A.eq(env.jobs.length, 1, 'malformed job records dropped');
   A.eq(env.jobs[0].id, 'good', 'the valid record survives');

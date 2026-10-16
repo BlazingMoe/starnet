@@ -32,6 +32,8 @@ A.ok(/placeCronWorkitem\s*\(\s*job\.agentId\s*,\s*job\.prompt\s*,\s*runId\s*\)/.
 A.ok(/broadcast:\s*true/.test(runNowBlock), 'manual Run Now opts into SSE lifecycle broadcast');
 A.ok(/requestLimits:\s*\(Number\.isSafeInteger\(job\.maxIters\)[\s\S]{0,300}job\.maxCostUsd/.test(runNowBlock), 'Run Now forwards valid routine cost and iteration caps to the entry run');
 A.ok(/requestLimits:\s*\(Number\.isSafeInteger\(job\.maxIters\)[\s\S]{0,300}job\.maxCostUsd/.test(cronDriverSrc), 'scheduled fires forward valid routine cost and iteration caps to the entry run');
+A.ok(/enabledToolsets:\s*Array\.isArray\(job\.enabledToolsets\)[\s\S]{0,80}job\.enabledToolsets\.slice\(\)/.test(runNowBlock), 'Run Now forwards the routine toolset restriction to the shared run host');
+A.ok(/enabledToolsets:\s*Array\.isArray\(job\.enabledToolsets\)[\s\S]{0,80}job\.enabledToolsets\.slice\(\)/.test(cronDriverSrc), 'scheduled fires forward the same routine toolset restriction to the shared run host');
 A.ok(/manual[\s/]+Run Now[\s/]+opts into broadcast/i.test(runOnceBlock), 'runOnce comment documents manual cron broadcast reason');
 
 /* GRANTS NEVER FLOW DOWN A LINE (2026-08-04). The routine's unattended grant was approved for ONE agent —
