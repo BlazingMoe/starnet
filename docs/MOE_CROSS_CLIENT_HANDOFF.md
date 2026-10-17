@@ -149,3 +149,9 @@ Arbeite an BlazingMoe/starnet auf dev/mo-ai-station weiter. Lies zuerst docs/MOE
 - Live follow-up this block: the reused acceptance worker produced no result or new top-level acceptance log during roughly 30 minutes and was interrupted. No successful new provider run is claimed. Retain the prior partial dossier and run a fresh bounded acceptance on continuation; do not treat the prompt change as a proven completion fix.
 
 - 2026-10-17 evidence reconciliation: all five checks on c6dadf564 are green. Found historical run 1f3557aa (00:34 Berlin, before that recipe change) in the synthetic profile runs.jsonl: all four files persisted/read back; completion verdict not_assessed and progress note stale. See research/2026-10-04-reuse/decision.md. No new provider call; updated-prompt effectiveness remains unproven. Next: bounded updated-recipe acceptance using these existing artifacts, without repeating source retrieval.
+
+### Updated-recipe acceptance blocked — 2026-10-17
+
+- HEAD 1dd2b62409d143c315b0891123724444df4a036b: all five checks green before this attempt. Fresh bounded acceptance failed to establish reliable authenticated control: saved sidecar token rejected. Reported request 8ea2346e-0fa0-42a1-b948-09ea8cb5579c has no completed entry in the inspected synthetic runs.jsonl; do not claim a successful updated-recipe run or retry blindly.
+- Lead verified isolated test PID 42580 (node sidecar/index.js, created 11:28 Berlin, matching acceptance-updated-recipe logs), stopped it with host permission, and confirmed process/8991 listener absent. No runtime code changed. Existing historical artifacts remain evidence only for their original run.
+- Next: reconcile actual persisted request/recovery state and obtain the current synthetic session authentication through the normal entry, without printing secrets. Only then consider one bounded continuation; do not repeat provider login, source retrieval or a fresh run while prior state is uncertain.
