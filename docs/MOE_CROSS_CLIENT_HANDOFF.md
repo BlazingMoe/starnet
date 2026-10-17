@@ -8,7 +8,7 @@ ChatGPT Web und Codex dürfen innerhalb ihrer jeweils verfügbaren Funktionen un
 
 ## Bearbeitungsübergabe
 
-- Aktiver Bearbeiter: **ChatGPT Web – vom Nutzer am 2026-10-17 ausdrücklich zurückübernommen**. Ausgangsstand ist `218642d8727d02d463e99e4cbb275ffa6f95aec9`; der Remote-HEAD wurde unmittelbar vor der Übernahme erneut verifiziert. Die erforderlichen CI-Läufe dieses Ausgangsstands waren grün. Aktueller Block: den realen, begrenzten Decision-Dossier-Ablauf so verdichten, dass die geforderten Dateien `decision.md` und `progress.md` innerhalb des bestehenden Iterationsbudgets entstehen, ohne Berechtigungen, Budgetgrenzen oder Consent zu erweitern und ohne den Fehler nur durch ein höheres Turn-Limit zu verdecken. Keine parallele Codex-/Work-Bearbeitung.
+- Aktiver Bearbeiter: **Codex Desktop – vom Nutzer am 2026-10-17 nach bestätigtem Web-Stopp zurückübernommen**. Ausgangsstand ist `218642d8727d02d463e99e4cbb275ffa6f95aec9`; der Remote-HEAD wurde unmittelbar vor der Übernahme erneut verifiziert. Die erforderlichen CI-Läufe dieses Ausgangsstands waren grün. Aktueller Block: den realen, begrenzten Decision-Dossier-Ablauf so verdichten, dass die geforderten Dateien `decision.md` und `progress.md` innerhalb des bestehenden Iterationsbudgets entstehen, ohne Berechtigungen, Budgetgrenzen oder Consent zu erweitern und ohne den Fehler nur durch ein höheres Turn-Limit zu verdecken. Keine parallele Web-Bearbeitung.
 - Ausgangscommit der Übergabe: `218642d8727d02d463e99e4cbb275ffa6f95aec9` (HEAD vor jedem Schreibschritt erneut prüfen).
 - Nächster Schritt: vorhandenen Decision-/Deliverable-/Postcondition-Pfad und die dossierbezogenen Probes lesen, den konkreten Turn-Verbrauch eingrenzen, den kleinsten architekturkonformen Fix mit Regressionstest umsetzen und anschließend Pflicht-CI auf dem exakten neuen HEAD abwarten.
 - Quellen für diesen Block: Repository-Code und Tests, dieses Handoff, Roadmap, Remote-Branch/CI sowie die bereits protokollierte private Acceptance-Evidenz. Neue externe Quellen sind für die aktuelle Laufzeitdiagnose bislang nicht erforderlich.
@@ -130,3 +130,9 @@ Arbeite an BlazingMoe/starnet auf dev/mo-ai-station weiter. Lies zuerst docs/MOE
 - Kosten: keine verlässliche Token-/Dollartelemetrie über diesen Chat-/Connector-Block verfügbar; keine Kosteneinsparung behauptet.
 - Offene Risiken / nächster konkreter Schritt: `sidecar/tools/builtin/decisions.js`, `sidecar/task-postconditions.js`, `sidecar/completion-evidence.js` sowie `dev/dossier-check.mjs`/verwandte Probes lesen; danach tatsächliche Turn-Ursache und kleinsten regressionsfähigen Fix bestimmen. Abschluss erst nach gezieltem Test und Pflicht-CI auf dem neuen HEAD.
 - Prüfung durch Codex/Astra: **offen**; nach Web-Umsetzung als REVIEW_PENDING übergeben.
+
+### Codex continuation after Web stop — 2026-10-17
+
+- User explicitly confirmed Web is stopped. Codex resumes the same bounded dossier-completion block.
+- Reviewed Web commit 39b3f5e0fa0bf3e0f94e413c2f4ab8ea0b470c69: handoff only, no runtime changes or new test results. Its five CI checks are green. Local checkout fast-forwarded cleanly; existing source findings are retained above.
+- Next: after ownership-commit CI, trace actual dossier tool/model turns and implement a bounded completion improvement using existing workflow paths; preserve iteration ceiling, consent, budgets and honest evidence. Existing subscription GPT model choice is authorized. No need to repeat provider-login or successful read-only recovery acceptance.
