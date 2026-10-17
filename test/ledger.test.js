@@ -18,10 +18,22 @@ const clock = { now: () => t };
   A.eq(e.ts, t, 'record stamps the injected clock time');
   A.eq(e.usd, 0.5, 'usd preserved');
   A.eq(e.model, '(unknown)', 'missing model records explicit unknown');
+  A.eq(e.recipeId, '', 'missing recipe provenance remains explicitly unassigned');
   A.eq(e.unmetered, false, 'metered by default');
   A.eq(io.rows.length, 1, 'entry persisted through io.append');
   A.eq(L.count(), 1, 'count reflects the recorded run');
   A.eq(io.rows[0].runId, 'r1', 'persisted entry carries the runId');
+}
+
+// ---- bounded recipe provenance is additive to the existing ledger schema ----
+{
+  const io = fakeIo();
+  const L = makeLedger({ io, clock });
+  const e = L.record({ runId:'recipe-run', agentId:'a', recipeId:'  explain-this-data\n', usd:.25, tokens:42 });
+  A.eq(e.recipeId, 'explain-this-data', 'recipe provenance is trimmed and control characters are removed');
+  A.eq(io.rows[0].recipeId, 'explain-this-data', 'recipe provenance persists with the spend entry');
+  const long = L.record({ recipeId:'x'.repeat(140) });
+  A.eq(long.recipeId.length, 120, 'recipe attribution label is bounded');
 }
 
 // ---- an explicit ts wins over the clock; missing/garbage fields coerce to safe zeros/strings ----

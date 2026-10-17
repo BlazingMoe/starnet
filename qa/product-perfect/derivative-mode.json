@@ -1,0 +1,12 @@
+{
+  "schema": "moe-ai-station.derivative-claims-mode.v1",
+  "enabled": true,
+  "upstreamClaimsAuthority": "non-authoritative",
+  "reason": "Moe AI Station intentionally changes StarNet release-surface bytes, branding, updater infrastructure, and product claims. The upstream exact-byte marketing ledger therefore cannot be used as terminal authority for the derivative.",
+  "replacementAuthority": "qa/product-perfect/moe-claims.json",
+  "rules": {
+    "neverTreatUpstreamSurfaceDriftAsGreen": true,
+    "neverReuseUpstreamReleaseInfrastructure": true,
+    "requireDerivativeClaimsLedgerBeforePublicRelease": true
+  }
+}

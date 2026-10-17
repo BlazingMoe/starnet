@@ -29,15 +29,29 @@ jobs:
     steps:
       # fetch-depth: 0 — the claims-authority test resolves the release-surface manifest's
       # sourceCommit against the object store; a shallow checkout reads BLOCKED on a green trunk.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - run: npm ci
+      - name: Install dependencies with bounded network retry
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::npm ci failed after 3 attempts; treating this as a real dependency/install failure."
+              exit 1
+            fi
+            delay=$((attempt * 10))
+            echo "::warning::npm ci attempt $attempt failed; retrying in ${delay}s to tolerate transient native-package/CDN timeouts."
+            sleep "$delay"
+          done
 
       - name: Resolve Chrome binary for e2e gate tests
         run: |

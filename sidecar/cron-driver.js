@@ -446,6 +446,11 @@
         p = runOnce({
           key: key, model: model, system: system, messages: messages,
           agentId: job.agentId, isTask: true, emit: sink, signal: ac.signal,
+          // A routine's optional tool-turn cap narrows the normal station limit in runOnce; bad legacy
+          // values are ignored so normal station run-limit behavior applies.
+          requestLimits: (Number.isSafeInteger(job.maxIters) && job.maxIters > 0) || (Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0)
+            ? Object.assign({}, Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : {}, Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0 ? { maxCostUsd: job.maxCostUsd } : {})
+            : undefined,
           // streamId 'cron-'+runId makes this run's transcript durable under a per-RUN named stream (runId is a
           // fresh newId() already in scope — determinism-clean). Without it the reply is buffered into `state.buf`
           // and only an outcome enum escapes, so the actual work is invisible: it persists under the 'global'

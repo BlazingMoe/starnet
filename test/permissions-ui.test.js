@@ -4,7 +4,7 @@
 // guard (mirrors autonomy-ui / autojobs-ui) so the panel can't silently regress out of the build.
 const assert = require('assert');
 const fs = require('fs'); const path = require('path');
-const src = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'stationui.js'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'stationui.js'), 'utf8').replace(/\r\n/g, '\n');
 const appSrc = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'app.js'), 'utf8');
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
@@ -105,7 +105,12 @@ ok(/OVERRIDDEN BY WHOLE-STATION FULL POWER/.test(src) && /The whole-station Full
   'an overridden row says so in plain words instead of contradicting the glance');
 ok(/Turn that switch off and it goes back to stopping for your yes/.test(src),
   'the stored setting stays visible as what it returns to (never hidden)');
-ok(/paintBypass\(snap\);[\s\S]{0,220}paintCrew\(\);/.test(src),
+const repaintStart = src.indexOf('const repaintPerm = () => {');
+const repaintEnd = src.indexOf('\n      };', repaintStart);
+const repaintPerm = src.slice(repaintStart, repaintEnd);
+ok(repaintStart >= 0 && repaintEnd > repaintStart &&
+    repaintPerm.indexOf('paintBypass(snap);') >= 0 &&
+    repaintPerm.indexOf('paintBypass(snap);') < repaintPerm.indexOf('paintCrew();'),
   'flipping the master switch repaints every crew row, not just the card');
 // the advanced Docker housekeeping is no longer the first thing under the crew header
 ok(/id="perm-advanced"/.test(src) && /idle Safe Cell cleanup/.test(src),

@@ -69,6 +69,17 @@ A.ok(fb.indexOf('{error}') < 0, 'fillTask leaves no unresolved token for a fille
 const fb2 = R.fillTask(R.get('fix-bug'), { error: 'X' });
 A.ok(fb2.indexOf('X') >= 0, 'fillTask accepts a recipe object, not just an id');
 
+// PR Sweep uses the real, dynamically discovered GitHub MCP connector and writes local evidence only.
+const prSweep = R.fillTask('pr-sweep', { scope: 'acme/app', workspace: 'github-pr-review' });
+A.ok(prSweep.includes('list_pull_requests') && prSweep.includes('pull_request_read') && prSweep.includes('get_diff'), 'PR Sweep directs discovery through the advertised GitHub MCP read tools');
+A.ok(prSweep.includes('Require the catalog connector named GitHub (read-only)') && prSweep.includes('Connectors catalog') && prSweep.includes('Never substitute the full-access GitHub connector'), 'PR Sweep requires the read-only connector and explains setup instead of falling back to full access');
+A.ok(prSweep.includes('Use only list_pull_requests and pull_request_read'), 'PR Sweep limits remote calls to the required read tools');
+A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && prSweep.includes('read both back'), 'PR Sweep saves and verifies local review artifacts');
+A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
+A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
+A.ok(prSweep.includes('PARTIAL/UNVERIFIED') && prSweep.includes('never comment, approve') && prSweep.includes('modify GitHub'), 'PR Sweep preserves evidence limits and forbids remote mutations');
+A.ok(prSweep.includes('acme/app') && prSweep.includes('github-pr-review') && !/[{}](?:scope|workspace)/.test(prSweep), 'PR Sweep launch resolves repository and output-workspace inputs');
+
 // an optional param left blank falls back to its DEFAULT (morning-brief.window default = "the last 24 hours")
 const mb = R.fillTask('morning-brief', { topic: 'AI agents' });
 A.ok(mb.indexOf('the last 24 hours') >= 0, 'a blank optional param uses its default');
@@ -95,6 +106,17 @@ const dfill = R.fillTask(dangling.id, { thing: 'it' });
 A.ok(dfill.indexOf('Do it with {undeclared}.') >= 0, 'an undeclared token is left as-is');
 R.removeCustom(dangling.id);
 
+/* CSV data explanation composes the registered bounded read tools into a safe saved deliverable. */
+const dataExplain = R.get('data-explain');
+A.ok(dataExplain, 'Explain This Data remains a built-in recipe');
+A.eq(dataExplain.params.map(p => p.key), ['file', 'question', 'workspace'], 'dataset workflow accepts source, analysis question and output folder');
+A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task), 'dataset workflow uses the real streaming profile and paged row tools');
+A.ok(/partial/.test(dataExplain.task) && /100000/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
+A.ok(/credential-pattern redactor/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
+A.ok(/numericSemantics caveat/.test(dataExplain.task) && /approximate finite numeric summaries/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
+A.ok(/fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task) && /zero-based sheetIndex/.test(dataExplain.task), 'dataset workflow discovers worksheets and reads selected cell pages');
+A.ok(/present cached value may be stale/.test(dataExplain.task) && /never claim recalculation/.test(dataExplain.task), 'dataset workflow explains formula-cache limitations');
+A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
 /* every built-in, filled with sample values, must READ AS A REAL TASK DIRECTIVE (so it launches work, not
    chatter) AND carry a ranking lane consistent with what the app's own classifier tags the filled task as. */
 for (const b of builtins) {

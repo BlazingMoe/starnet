@@ -31,6 +31,10 @@ async function thrown(promise, msg) {
     A.eq(w.receipt.state, 'read-back-verified', 'fs.write is verified only after read-back');
     A.ok(w.receipt.phases.includes('written') && w.receipt.phases.includes('read-back-verified'), 'write receipt carries its verified phases');
     A.ok(/read-back-verified/.test(w.content), 'the model-visible success names the proof');
+    const csv = await tools.writeCsvTool.run({ path: 'ok.csv', columns: ['value'], rows: [['alpha']] }, ctx);
+    A.eq(csv.receipt.operation, 'write', 'structured CSV returns the delegated fs.write mutation receipt');
+    A.eq(csv.receipt.state, 'read-back-verified', 'structured CSV reports success only after exact read-back');
+    A.eq(fs.readFileSync(path.join(ROOT, 'ag', 'ok.csv'), 'utf8'), 'value\r\nalpha\r\n', 'structured CSV is persisted as expected');
 
     const a = await tools.appendTool.run({ path: 'ok.txt', content: '+beta' }, ctx);
     const e = await tools.editTool.run({ path: 'ok.txt', find: 'beta', replace: 'gamma' }, ctx);
@@ -44,6 +48,28 @@ async function thrown(promise, msg) {
     const reg = makeRegistry(); reg.register(tools.writeTool);
     const dispatched = await reg.dispatch({ id: 'ok', name: 'fs.write', args: { path: 'via-reg.txt', content: 'registry' } }, ctx);
     A.eq(dispatched.receipt.state, 'read-back-verified', 'registry preserves a successful machine receipt');
+  }
+
+  // Structured CSV uses the same verified mutation failure reporting as fs.write.
+  {
+    const root = path.join(ROOT, 'csv-failure');
+    const seed = makeFsTools({ fsp, pathMod: path, root });
+    await seed.writeCsvTool.run({ path: 'existing.csv', columns: ['value'], rows: [['original']] }, ctx);
+    const failBeforeWrite = cloneFsp({ writeFile: async () => { const e = new Error('injected write fault'); e.code = 'EIO'; throw e; } });
+    const failedTools = makeFsTools({ fsp: failBeforeWrite, pathMod: path, root });
+    const e = await thrown(failedTools.writeCsvTool.run({ path: 'existing.csv', columns: ['value'], rows: [['replacement']] }, ctx), 'injected CSV write failure rejects');
+    A.eq(e.receipt.state, 'failed', 'write failure with original bytes intact is reported as failed');
+    A.eq(fs.readFileSync(path.join(root, 'ag', 'existing.csv'), 'utf8'), 'value\r\noriginal\r\n', 'pre-write failure preserves the original CSV bytes');
+
+    let poison = '';
+    const mismatch = cloneFsp({
+      writeFile: async (target, data) => { await fsp.writeFile(target, data); poison = String(target); },
+      readFile: async (target, opts) => poison && String(target) === poison ? (opts ? 'different' : Buffer.from('different')) : fsp.readFile(target, opts)
+    });
+    const mismatchTools = makeFsTools({ fsp: mismatch, pathMod: path, root: path.join(ROOT, 'csv-mismatch') });
+    const mismatchError = await thrown(mismatchTools.writeCsvTool.run({ path: 'bad.csv', columns: ['value'], rows: [['intended']] }, ctx), 'CSV read-back mismatch rejects');
+    A.eq(mismatchError.receipt.state, 'partially-applied', 'CSV mismatch is reported honestly as partially applied');
+    A.ok(!/Wrote CSV bad\.csv/.test(mismatchError.message), 'CSV read-back failure never claims successful delivery');
   }
 
   // The filesystem acknowledges writeFile, but the same filesystem seam re-reads different bytes.

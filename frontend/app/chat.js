@@ -416,25 +416,33 @@ const Chat = (() => {
     try { rows = await Harness.runRecoveries(); } catch (_) { return 'unavailable'; }
     const owned = rows.filter(r => r && r.streamId === ws.id && r.agentId === (ws.agentId || 'agent'))
       .sort((a, b) => (+b.startedAt || 0) - (+a.startedAt || 0));
-    const safe = owned.find(r => r.canAutoContinue && !recoveryClaims.has(r.runId));
+    // Unresolved evidence in this stream takes precedence over any automatic candidate.
+    const forensic = owned.find(r => r.forensicOnly || r.corrupt || r.repairError);
+    const review = forensic ? null : owned.find(r => r.operationalState === 'needs_review');
+    const safe = !forensic && !review ? owned.find(r => r.canAutoContinue) : null;
+    if (safe && recoveryClaims.has(safe.runId)) return 'deferred';
     if (!safe) {
-      const review = owned.find(r => r.operationalState === 'needs_review');
       if (review && announce && isActiveWs(ws) && !recoveryNotices.has(review.runId)) {
         recoveryNotices.add(review.runId);
         const names = (review.uncertain || []).map(x => x.name || 'action').join(', ');
         toolLine('recovery paused — ' + (names || 'an action') + ' may already have happened. StarNet will not repeat it; verify the outcome before continuing.', true);
         offerRecoveryReview(review, ws);
       }
-      return review ? 'review' : 'none';
+      if (review) return 'review';
+      if (forensic && announce && isActiveWs(ws) && !recoveryNotices.has(forensic.runId)) {
+        recoveryNotices.add(forensic.runId);
+        toolLine('recovery evidence is incomplete or damaged. Automatic continuation is blocked; inspect the saved journal before starting this task again.', true);
+      }
+      return forensic ? 'forensic' : 'none';
     }
     recoveryClaims.add(safe.runId);
-    if (announce && isActiveWs(ws)) toolLine('connection restored — safely continuing from the last durable step.');
     let recovery;
     try { recovery = await Harness.prepareAutomaticRecovery(safe); }
     catch (_) { recoveryClaims.delete(safe.runId); return 'unavailable'; }
     // Preparation is durable and idempotent. If focus changed while it was in flight, leave it ready for the
     // next load instead of crossing conversations.
     if (!isActiveWs(ws) || Channels.isBusy(ws.id)) { recoveryClaims.delete(safe.runId); return 'deferred'; }
+    if (announce) toolLine('connection restored — safely continuing from the last durable step.');
     await send(String(safe.userTitle || 'Continue the interrupted task.'), {
       retry: true, recoveryResume: true, recovery
     });
@@ -454,7 +462,10 @@ const Chat = (() => {
       reconnectTimer = 0;
       if (active) {
         const outcome = await recoverSafeRun(active, true);
-        if (outcome === 'none' || outcome === 'unavailable') toolLine('connection restored — no safe automatic continuation was available; use Try again.', true);
+        if (isActiveWs(active)) {
+          if (outcome === 'none') toolLine('connection restored — no safe automatic continuation was available; use Try again.', true);
+          if (outcome === 'unavailable') toolLine('connection restored, but recovery could not be checked or prepared. Reopen this session to retry recovery before starting the task again.', true);
+        }
       }
     } else {
       reconnectTimer = setTimeout(probeReconnect, 3000);   // still down — keep watching
@@ -483,7 +494,7 @@ const Chat = (() => {
     setTimeout(finish, 460);   // fallback: a dropped transitionend (engine quirk / not displayed) still clears the card
   }
 
-  const KIND_TAG = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE' };
+  const KIND_TAG = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE', lesson:'LESSON' };
 
   // COMMS GLYPHS — small currentColor SVGs that replace color emoji (📁/📄/🖼/📋) so they inherit the phosphor
   // theme instead of puncturing the CRT look with an OS-coloured emoji. Static developer markup (no model/user
@@ -774,6 +785,20 @@ const Chat = (() => {
   // THE ONE SEND PATH — shared by Enter and the SEND chip. Handles: attachment-only sends, session history recall,
   // typo'd/unknown slash commands (a LOCAL system line, never a paid model turn), type-ahead queueing while busy,
   // and settling in-flight uploads so a staged file is never silently dropped.
+  function composerRunLimits() {
+    const limits = {};
+    for (const [id, key] of [['chat-limit-iters', 'maxIters'], ['chat-limit-usd', 'maxCostUsd']]) {
+      const field = el(id);
+      if (!field) continue;
+      const raw = String(field.value || '').trim();
+      const n = Number(raw);
+      if ((field.validity && (field.validity.badInput || field.validity.rangeUnderflow)) || (raw && (!Number.isFinite(n) || n <= 0 || (key === 'maxIters' && !Number.isSafeInteger(n))))) {
+        return { error: 'Message kept — run limits must be positive numbers; iterations must be a whole number. Leave a field blank to use station limits.' };
+      }
+      if (raw) limits[key] = n;
+    }
+    return { limits: Object.keys(limits).length ? limits : undefined };
+  }
   async function submitComposer() {
     const t = input.value.trim();
     const hasStaged = pendingAtts.length > 0;   // ANY staged file (uploading or ready) makes this a valid send
@@ -805,6 +830,12 @@ const Chat = (() => {
       if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify('paste kept — selected model context is too small', 'warn');
       return;
     }
+    const requested = composerRunLimits();
+    if (requested.error) { localLine(requested.error); return; }
+    if (requested.limits && (isBusy() || activeWs?.conversationMode === 'group')) {
+      localLine('Message kept — limited sends require an idle single-agent conversation. They cannot be queued or sent to a group.');
+      return;
+    }
     if (t) recordSent(t);
     if (activeWs?.conversationMode === 'group' && typeof GroupChat !== 'undefined') {
       const ws = activeWs;
@@ -823,7 +854,7 @@ const Chat = (() => {
     const atts = takeAttachments();   // snapshot the READY refs + clear the composer strip
     if (!t && !atts.length) return;   // everything failed to upload and there's no text → nothing to send
     input.value = ''; closeSlash(); autoGrowInput();   // COMPOSER: collapse back to one line after a send
-    send(t, { attachments: atts });
+    send(t, { attachments: atts, limits: requested.limits });
   }
 
   /* ── ATTACHMENTS ────────────────────────────────────────────────────────────────────────────────────
@@ -3861,6 +3892,11 @@ const Chat = (() => {
       const item = document.createElement('div'); item.className = 'turnin-item';
       const kind = document.createElement('span'); kind.className = 'turnin-kind'; kind.textContent = KIND_TAG[prop.kind] || 'NOTE';
       const text = document.createElement('span'); text.className = 'turnin-text'; text.textContent = prop.content;
+      if (prop.proposalType === 'decision-lesson') {
+        const source = document.createElement('div'); source.className = 'turnin-source';
+        source.textContent = 'UNVERIFIED OUTCOME SOURCE · decision ' + prop.sourceDecisionId + ' · outcome ' + prop.sourceOutcomeEventId + '\nDecision: ' + prop.sourceDecision + '\nOutcome (model-reported): ' + prop.sourceOutcome + '\nEvidence refs: ' + (prop.evidenceRefs || []).join(', ') + '\nUncertainty: ' + prop.uncertainty;
+        item.appendChild(source);
+      }
       const btns = document.createElement('span'); btns.className = 'consent-btns';
       item.appendChild(kind); item.appendChild(text); item.appendChild(btns);
       slot.appendChild(item);
@@ -8220,6 +8256,7 @@ const Chat = (() => {
       const { text: reply, error, endReason, finishReason, completionVerdict, effectVerdict, budgetScope, budgetCapUsd } = await Harness.chat({
         system: sys, messages: historyWindow(ws), agentId: ws.agentId || 'agent', isTask, recurring, signal: ac.signal, streamId: ws.id,
         taskAction: taskAction || undefined,
+        limits: opts && opts.limits,
         postconditions: opts && opts.postconditions != null ? opts.postconditions : undefined,
         recovery: recoveryResume ? opts.recovery : undefined,
         connectorContinuationOf: opts && opts.connectorContinuationOf,

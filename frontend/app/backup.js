@@ -158,12 +158,24 @@ const Backup = (() => {
 
   // push the bundle's memory snapshot back to the sidecar so a restored/moved agent isn't amnesiac. The route
   // merges additively (existing notes win), so this is safe to call even over an agent that already has memory.
-  // Best-effort: a UI-only preview or unreachable sidecar just yields 0 restored.
-  function restoreNotebook(notes) {
-    return fetch('/api/notebook/restore', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent: 'agent', notes: notes })
-    }).then(r => r.ok ? r.json() : null).then(j => (j && j.ok) ? (j.added || 0) : 0).catch(() => 0);
+  // Unknown outcomes remain unknown; zero added is a confirmed, idempotent merge.
+  async function restoreNotebook(notes) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const r = await fetch('/api/notebook/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: 'agent', notes }), signal: controller.signal
+      });
+      if (!r.ok) return { status: 'unconfirmed' };
+      const j = await r.json();
+      if (!j || j.ok !== true || !Number.isInteger(j.added) || j.added < 0 ||
+          !Number.isInteger(j.total) || j.total < j.added || j.added > notes.length) {
+        return { status: 'unconfirmed' };
+      }
+      return { status: 'confirmed', added: j.added, total: j.total };
+    } catch (_) { return { status: 'unconfirmed' }; }
+    finally { clearTimeout(timeout); }
   }
 
   async function importFile(file) {
@@ -172,6 +184,7 @@ const Backup = (() => {
     catch (_) { return { ok: false, error: 'file is not valid JSON' }; }
     const res = applyBundle(doc);
     if (res.ok) {
+      res.durableSave = 'unconfirmed';
       // re-stamp the imported save to NOW and write it through to the durable sidecar mirror. The bundle carries
       // the export-time updatedAt; without this, a boot-reconcile on a machine whose sidecar holds a NEWER save
       // would silently revert the just-imported agent. Stamping now() makes the import win the anti-clobber guard.
@@ -180,12 +193,20 @@ const Backup = (() => {
         if (raw) {
           const d = JSON.parse(raw); d.updatedAt = Date.now();
           localStorage.setItem(SAVE_KEY, JSON.stringify(d));
-          if (typeof CloudSave !== 'undefined' && CloudSave.push) CloudSave.push(d);
+          if (typeof CloudSave !== 'undefined' && CloudSave.push && CloudSave.flush) {
+            CloudSave.push(d);
+            if (await CloudSave.flush({ force: true }) === true) res.durableSave = 'confirmed';
+          }
         }
       } catch (_) {}
     }
     if (res.ok && Array.isArray(doc.notebook) && doc.notebook.length) {
-      res.memoriesRestored = await restoreNotebook(doc.notebook);   // fold memory back into the sidecar
+      res.notebookRestore = await restoreNotebook(doc.notebook);
+      if (res.notebookRestore.status === 'confirmed') res.memoriesRestored = res.notebookRestore.added;
+    }
+    if (res.ok) {
+      if (!res.notebookRestore) res.notebookRestore = { status: 'not-requested' };
+      res.partial = res.durableSave !== 'confirmed' || res.notebookRestore.status === 'unconfirmed';
     }
     return res;
   }

@@ -53,7 +53,9 @@ A.eq(ToolProps.toolPropType('image_analyze'), 'studio', 'toolPropType(image_anal
    WorldModel. bayObjects() returns [] both when an agent has no bay and when its assigned room is genuinely
    empty. Only the first case may use the legacy station-wide fallback. */
 {
-  const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8');
+  // The extraction anchors below use LF; normalize checked-out CRLF source to keep the
+  // browser-method slice stable on Windows and Unix worktrees.
+  const world = fs.readFileSync(path.join(__dirname, '../frontend/app/world.js'), 'utf8').replace(/\r\n/g, '\n');
   const begin = world.indexOf('heroCaps: (agentId) => {');
   const end = world.indexOf('\n    },\n    // STATION-WIDE gear', begin);
   A.ok(begin >= 0 && end > begin, 'the shipped World.heroCaps method is extractable');
