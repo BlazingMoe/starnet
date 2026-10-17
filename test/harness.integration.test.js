@@ -226,6 +226,8 @@ const fixture = {
   {
     const recipe = require('../frontend/app/recipe-catalog/research.js').find(r => r.id === 'decision-dossier');
     const task = require('../frontend/app/recipes.js').fillTask(recipe, { question: 'Compare the fixture options', constraints: 'Use only observed evidence', workspace: 'dossier' });
+    A.ok(/save the four deliverables in this order: sources\.md, comparison\.csv, decision\.md, progress\.md/i.test(task), 'dossier recipe prioritizes the complete artifact set in a fixed order');
+    A.ok(/instead of reopening research merely to make a file look complete/i.test(task), 'remaining gaps are recorded without repeating research for cosmetic completeness');
     const outputs = {
       'sources.md': '# Sources\nhttps://example.com/article\nClaim: the fixture answer is 42. Checked: 2026-10-04. Publication date: unknown.\n',
       'comparison.csv': 'option,criterion,evidence,source,uncertainty,fit\nA,answer,42,https://example.com/article,fixture only,meets\nB,answer,unknown,,no evidence,unknown\n',

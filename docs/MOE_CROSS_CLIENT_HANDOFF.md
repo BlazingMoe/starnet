@@ -136,3 +136,14 @@ Arbeite an BlazingMoe/starnet auf dev/mo-ai-station weiter. Lies zuerst docs/MOE
 - User explicitly confirmed Web is stopped. Codex resumes the same bounded dossier-completion block.
 - Reviewed Web commit 39b3f5e0fa0bf3e0f94e413c2f4ab8ea0b470c69: handoff only, no runtime changes or new test results. Its five CI checks are green. Local checkout fast-forwarded cleanly; existing source findings are retained above.
 - Next: after ownership-commit CI, trace actual dossier tool/model turns and implement a bounded completion improvement using existing workflow paths; preserve iteration ceiling, consent, budgets and honest evidence. Existing subscription GPT model choice is authorized. No need to repeat provider-login or successful read-only recovery acceptance.
+
+### Decision Dossier completion-efficiency recipe — 2026-10-17
+
+- Status: **ACCEPTED** as a bounded recipe-guidance change after lead diff review; live completion effectiveness remains unproven and required CI on the resulting commit remains open.
+- Ausgangs-HEAD: `547c70c8947754913d20403b4c23d237ad5909db` on `dev/mo-ai-station`; clean at assignment start. The lead reported all five required checks green on that HEAD.
+- Änderung: `frontend/app/recipe-catalog/research.js` now asks the workflow to persist all four required files in a fixed order, put unresolved evidence/review work into `progress.md`, avoid repeating research solely for cosmetic completeness, and read/review the saved set once before correcting material gaps. `website/app/app/recipe-catalog/research.js` regenerated using the required mirror tool. `test/harness.integration.test.js` pins the added sequence and anti-repeat instruction.
+- Prüfungen: configured Node `test/harness.integration.test.js` — OK (241 assertions); `scripts/sync-website-app.mjs --check` — OK (3914 mirrored files); `git diff --check` — OK. No provider call, spend, iteration-ceiling change, safety relaxation, or new execution grant.
+- Geänderte Dateien: frontend recipe, generated website mirror, harness integration test, this handoff.
+- Grenze / nächster Schritt: this is prompt-level workflow guidance tested through the existing scripted plumbing fixture, not evidence that the real Luna run will now finish within its eight-iteration cap. Repeat the isolated live dossier acceptance on the authorized subscription route, preserving the current cap and capturing event trace plus final file/readback results; report quota/budget as observed and stop if the provider limit is hit.
+
+- Live follow-up this block: the reused acceptance worker produced no result or new top-level acceptance log during roughly 30 minutes and was interrupted. No successful new provider run is claimed. Retain the prior partial dossier and run a fresh bounded acceptance on continuation; do not treat the prompt change as a proven completion fix.
