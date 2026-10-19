@@ -117,6 +117,8 @@ A.ok(/numericSemantics caveat/.test(dataExplain.task) && /approximate finite num
 A.ok(/fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task) && /zero-based sheetIndex/.test(dataExplain.task), 'dataset workflow discovers worksheets and reads selected cell pages');
 A.ok(/present cached value may be stale/.test(dataExplain.task) && /never claim recalculation/.test(dataExplain.task), 'dataset workflow explains formula-cache limitations');
 A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
+A.ok(/do not spend tool turns creating or updating a todo list/.test(dataExplain.task) && /fs_list once on \{workspace\}/.test(dataExplain.task), 'bounded data workflow avoids planning churn and checks the output folder once');
+A.ok(/Prefer one bounded page/.test(dataExplain.task) && /immediately after writing/.test(dataExplain.task), 'bounded data workflow prioritizes useful inspection and immediate read-back');
 /* every built-in, filled with sample values, must READ AS A REAL TASK DIRECTIVE (so it launches work, not
    chatter) AND carry a ranking lane consistent with what the app's own classifier tags the filled task as. */
 for (const b of builtins) {
