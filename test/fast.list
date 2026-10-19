@@ -270,6 +270,7 @@ test/run-journal.loop.test.js
 test/longhaul-retention.test.js
 test/autonomy-ledger.test.js
 test/artifacts.test.js
+test/deliverables-csv-artifact.e2e.test.js
 test/deliverable-store.test.js
 test/idempotency-ledger.test.js
 test/deliverable-provenance.test.js
