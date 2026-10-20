@@ -5,14 +5,14 @@
    (dossier docs + persona), workstreams (chat history) and the station layout all live in
    localStorage under the `starnet.*` keys. This module is the safety net: one click bundles the
    nonsecret starnet.* records plus a read-only snapshot of the agent's backend memory (notebook) into a
-   downloadable file, and import restores the local half on any browser. Back-compat: a backup
-   exported BEFORE the Skynet→StarNet rename holds `skynet.*` keys + a `skynet.backup` schema; both
-   import fine and are mapped forward to `starnet.*` on restore.
+   downloadable file. The live browser import entry point fails closed because it cannot own all writers; the
+   low-level apply primitive remains for a future safe path. Back-compat: a backup exported BEFORE the
+   Skynet→StarNet rename holds `skynet.*` keys + a `skynet.backup` schema; validation accepts that legacy
+   shape and the low-level apply primitive maps allowed records forward to `starnet.*`.
 
-   v1 restores the browser-side state (which is what a wipe destroys). The notebook lives on the
-   sidecar's own disk and is preserved IN the file for portability + a future restore route, but is
-   not pushed back here — see docs note. Pure-ish: side effects are download + localStorage writes
-   only; everything else returns plain summaries and never throws. */
+   v1 exports browser-side state plus a notebook snapshot. The notebook lives on the sidecar's own disk and is
+   preserved in the file for portability. Online import is unavailable until browser and sidecar writers can be
+   exclusively quiesced and browser replacement can be staged. */
 'use strict';
 
 const Backup = (() => {
@@ -28,6 +28,11 @@ const Backup = (() => {
   const LEGACY_PREFIX = 'skynet.';
   const SAVE_KEY = 'starnet.save';
   const SECRET_POLICY = 'credentials-excluded';
+  // Browser-origin localStorage has multiple writers (tabs, live app state and debounced/unload saves), and the
+  // sidecar has no exclusive restore lease shared with every run/save admission. An idle snapshot or E-STOP is
+  // not a lock. Keep validation/export available, but refuse online application until a real ownership boundary
+  // and staged browser-state replacement exist. Durable workspace recovery remains the offline CLI's job.
+  const ONLINE_RESTORE_UNAVAILABLE = 'Online restore is unavailable; preserve your backup. Offline recovery restores durable workspace; browser-local settings require a future safe import.';
   // BYOK is default-deny: only these known, nonsecret selections are portable. This keeps a future credential
   // field from silently entering a plaintext backup just because its storage key was added after this code.
   const SAFE_BYOK_KEYS = new Set([
@@ -127,8 +132,8 @@ const Backup = (() => {
     return null;   // ok
   }
 
-  // restore the local (browser) half: write every captured skynet.* key back verbatim. Returns a
-  // summary; never throws. The notebook is preserved in the file but not pushed to the sidecar in v1.
+  // Low-level scoped apply primitive: write captured skynet.* keys back verbatim, skipping credential authority.
+  // This mutates localStorage and is not used by the live online import entry point until exclusive ownership exists.
   function applyBundle(doc) {
     const err = validate(doc);
     if (err) return { ok: false, error: err };
@@ -156,59 +161,16 @@ const Backup = (() => {
     });
   }
 
-  // push the bundle's memory snapshot back to the sidecar so a restored/moved agent isn't amnesiac. The route
-  // merges additively (existing notes win), so this is safe to call even over an agent that already has memory.
-  // Unknown outcomes remain unknown; zero added is a confirmed, idempotent merge.
-  async function restoreNotebook(notes) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const r = await fetch('/api/notebook/restore', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent: 'agent', notes }), signal: controller.signal
-      });
-      if (!r.ok) return { status: 'unconfirmed' };
-      const j = await r.json();
-      if (!j || j.ok !== true || !Number.isInteger(j.added) || j.added < 0 ||
-          !Number.isInteger(j.total) || j.total < j.added || j.added > notes.length) {
-        return { status: 'unconfirmed' };
-      }
-      return { status: 'confirmed', added: j.added, total: j.total };
-    } catch (_) { return { status: 'unconfirmed' }; }
-    finally { clearTimeout(timeout); }
-  }
-
   async function importFile(file) {
     let doc;
     try { doc = JSON.parse(await readFileText(file)); }
     catch (_) { return { ok: false, error: 'file is not valid JSON' }; }
-    const res = applyBundle(doc);
-    if (res.ok) {
-      res.durableSave = 'unconfirmed';
-      // re-stamp the imported save to NOW and write it through to the durable sidecar mirror. The bundle carries
-      // the export-time updatedAt; without this, a boot-reconcile on a machine whose sidecar holds a NEWER save
-      // would silently revert the just-imported agent. Stamping now() makes the import win the anti-clobber guard.
-      try {
-        const raw = localStorage.getItem(SAVE_KEY);
-        if (raw) {
-          const d = JSON.parse(raw); d.updatedAt = Date.now();
-          localStorage.setItem(SAVE_KEY, JSON.stringify(d));
-          if (typeof CloudSave !== 'undefined' && CloudSave.push && CloudSave.flush) {
-            CloudSave.push(d);
-            if (await CloudSave.flush({ force: true }) === true) res.durableSave = 'confirmed';
-          }
-        }
-      } catch (_) {}
-    }
-    if (res.ok && Array.isArray(doc.notebook) && doc.notebook.length) {
-      res.notebookRestore = await restoreNotebook(doc.notebook);
-      if (res.notebookRestore.status === 'confirmed') res.memoriesRestored = res.notebookRestore.added;
-    }
-    if (res.ok) {
-      if (!res.notebookRestore) res.notebookRestore = { status: 'not-requested' };
-      res.partial = res.durableSave !== 'confirmed' || res.notebookRestore.status === 'unconfirmed';
-    }
-    return res;
+    const err = validate(doc);
+    if (err) return { ok: false, error: err };
+    // Do not call applyBundle, CloudSave or notebook restore here. A client-side idle check cannot establish
+    // exclusive ownership across tabs, live run surfaces, and autosave. Keep applyBundle as a pure, directly
+    // testable primitive for a future safe-import implementation; the online file entry point stays fail-closed.
+    return { ok: false, error: ONLINE_RESTORE_UNAVAILABLE };
   }
 
   return { exportAll, importFile, applyBundle, validate, collectStore, build, isCredentialKey, SCHEMA, VERSION, SECRET_POLICY };

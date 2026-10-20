@@ -287,14 +287,18 @@ Restore into a new, empty test profile, never over the active station for a rehe
 npm run recovery:restore -- --bundle "<backup>.starnet-recovery.json" --target "<new-test-WORKSPACES>" --browser-output "<browser-restore>.json"
 ```
 
-Keep browser output outside the target workspace. Start the existing sidecar against that
-isolated profile with cron/loop execution disabled, import the emitted browser backup,
-and inspect identity, conversation history, memories, tasks and saved deliverables.
-Compare representative file contents with the source. Inspect routines without executing
-them. Review the receipt's reauthentication list: reconnect providers/connectors and grant
-machine-specific project access only when appropriate. Browser import now keeps partial
-results visible if the durable agent save or notebook merge is unconfirmed; retain the
-original backup and reconnect before retrying. A successful export alone is not a restore test.
+Keep browser output outside the target workspace. The CLI restores and verifies durable
+workspace files and emits a browser backup artifact, but the running app deliberately refuses
+to import that artifact: it cannot establish exclusive ownership of browser-local state across
+tabs, live runs and autosave. Do not use an online idle check or E-STOP as a substitute. The
+CLI artifact is not currently a complete browser-local restore procedure; browser-local
+settings and conversation state remain an explicit recovery gap until a staged import can
+share a server-owned maintenance boundary with every run and save writer. Inspect the restored
+durable workspace, compare representative file contents with the source, inspect routines
+without executing them, and review the receipt's reauthentication list. Reconnect
+providers/connectors and grant machine-specific project access only when appropriate. Keep
+the original backup. A successful export alone is not a restore test, and current recovery
+readiness is not complete while browser-local import remains unsupported.
 
 On 2026-10-04, source commit fcdb95356 was exercised on Windows with disposable profiles:
 station-recovery.test.js (72 assertions), station-recovery-cli.test.js (20), and

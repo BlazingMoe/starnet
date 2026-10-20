@@ -5016,8 +5016,8 @@ const App = (() => {
     // (the title screen — RESUME / NEW STATION / the destructive NEW AGENT wipe — is gone; boot auto-resumes,
     //  see the three-way at the foot of init(). Re-entry is handled by reentry()/startCreation().)
 
-    // data portability — the safety net for the localStorage-fragile agent. Export bundles nonsecret
-    // starnet.* records + a memory snapshot into one file; import restores them on any browser.
+    // data portability — export bundles nonsecret starnet.* records + a memory snapshot. Online import is
+    // intentionally refused until the app can establish exclusive ownership across runs, tabs and autosave.
     const dataStatus = m => { const n = el('data-status'); if (n) n.textContent = m || ''; };
     el('btn-export').onclick = async () => {
       SFX.click(); dataStatus('exporting…');
@@ -5032,25 +5032,10 @@ const App = (() => {
       const f = fileImport.files && fileImport.files[0];
       if (!f) return;
       const r = await Backup.importFile(f);
-      // bad(), not a bespoke error() — that cue never existed, so the `&&` guard silently swallowed
-      // the only audible signal a restore had failed. bad() is the station's negative-outcome voice.
-      if (!r.ok) { dataStatus('import failed — ' + r.error); SFX.bad(); return; }
-      if (r.partial) {
-        const missing = [];
-        if (r.durableSave !== 'confirmed') missing.push('durable agent save');
-        if (r.notebookRestore && r.notebookRestore.status === 'unconfirmed') missing.push('memories');
-        dataStatus('Browser records restored; not confirmed: ' + missing.join(' + ')
-          + '. Keep your backup. Reconnect the station and import it again to retry.');
-        SFX.bad();
-        return; // keep the partial result visible
-      }
-      SFX.boot();
-      const mem = (typeof r.memoriesRestored === 'number') ? r.memoriesRestored
-        : (r.memories ? r.memories + ' in file' : 0);
-      dataStatus('restored ' + (r.agentName || 'agent') + ' — ' + (r.records == null ? r.keys : r.records) + ' records'
-        + (mem ? ' + ' + mem + ' memories' : ''));
-      gateActive = false;
-      reentry();   // resume straight into the restored agent (or its RESUME screen if creds are still missing)
+      // Online restore fails closed before changing localStorage or sending durable writes. Put the actionable
+      // boundary explanation beside the control; never describe this refusal as a partial restore.
+      dataStatus(r.error || 'online restore unavailable; preserve your backup');
+      SFX.bad();
     };
 
     // FORWARD-VERSION GATE (P0.3), step 1 — the LOCAL cache. Save.load() returns null for a future save (so no
