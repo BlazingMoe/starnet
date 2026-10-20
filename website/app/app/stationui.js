@@ -5602,6 +5602,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const exportBtn = body.querySelector('#bk-export');
     const importBtn = body.querySelector('#bk-import');
     const fileIn = body.querySelector('#bk-file');
+    const agentExportBtn = body.querySelector('#bk-agent-export');
+    const agentMsgEl = body.querySelector('#bk-agent-msg');
+    const setAgentMsg = (text, ok) => {
+      if (agentMsgEl) { agentMsgEl.textContent = text || ''; agentMsgEl.className = 'msg' + (ok ? ' ok' : ''); }
+    };
+    if (agentExportBtn) agentExportBtn.addEventListener('click', async () => {
+      setAgentMsg('building agent and session export…');
+      try {
+        const result = await Backup.exportAll();
+        if (!result || !result.ok) throw new Error('export failed');
+        setAgentMsg('✓ exported ' + result.file + ' — secrets excluded; ' + result.records + ' records'
+          + (result.notes ? ' + ' + result.notes + ' memories' : ''), true);
+        sfx('sale');
+      } catch (_) { setAgentMsg('agent and session export failed'); sfx('bad'); }
+    });
     // gather the browser-owned slices the sidecar can't see (localStorage).
     const browserSections = () => {
       const out = { settings: {
@@ -6045,6 +6060,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '<input type="file" id="bk-file" accept="application/json,.json" style="display:none">' +
       '</div>' +
       '<div id="bk-msg" class="msg"></div>' +
+      '<h4 class="ms-h">AGENT + SESSION BACKUP <span class="dim">— portable browser state</span></h4>' +
+      '<p class="set-about">Export your agent identity, sessions, local StarNet records and notebook snapshot. This browser backup does not contain durable workspace files; include a station recovery bundle for those. <b>Provider credentials are excluded</b> and must be reconnected after restore.</p>' +
+      '<div class="set-save">' +
+        '<button class="bb sm" id="bk-agent-export">EXPORT AGENT</button>' +
+      '</div>' +
+      '<div id="bk-agent-msg" class="msg" role="status" aria-live="polite"></div>' +
       ((typeof Updates !== 'undefined' && Updates.settingsHtml) ? Updates.settingsHtml() : '') +
       // DIAGNOSTICS (T3.9) — one click copies a paste-ready, SECRET-FREE report to email in a bug report. The sidecar
       // assembles + sanitizes it (GET /api/diagnostics); this button just fetches + copies. Destination is ONE constant
