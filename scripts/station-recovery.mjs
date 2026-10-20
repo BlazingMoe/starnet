@@ -191,7 +191,7 @@ try {
       });
       if (browserMoved && fs.existsSync(browserRollback)) fs.unlinkSync(browserRollback);
       printReport({ ok: true, action: 'restore', receipt, browserImport: hasBrowserState
-        ? { file: browserOutput, instruction: 'Open StarNet and choose RESTORE BACKUP to import this browser-owned state.' }
+        ? { file: browserOutput, instruction: 'Use the offline recovery command with this file and a new dedicated Chromium --profile directory; after its recovery window closes, start StarNet on port 8787 and reuse that same Chromium profile and origin.' }
         : { available: false, reason: 'This workspace-only bundle contains no browser-owned state.' } });
     } catch (e) {
       if (browserActivated && fs.existsSync(browserOutput)) fs.unlinkSync(browserOutput);

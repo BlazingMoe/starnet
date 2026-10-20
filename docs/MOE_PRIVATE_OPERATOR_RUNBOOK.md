@@ -275,7 +275,7 @@ existing regular file. A failed capture or write leaves the previous valid bundl
 The restore CLI also rejects a symbolic-link browser-import destination before activating any
 workspace files; choose a regular file path outside the target workspace.
 Only an `ok: true` inspected bundle with `scope: "station"` is a complete-station recovery
-point. Its browser section should report captured keys; a missing or invalid browser export fails before creating a bundle. Store at least
+point. Its browser section should report captured keys; a missing or invalid browser export fails before creating a bundle. The CLI validates the supported schema and bundle integrity; it does not cryptographically prove who created the bundle. Store at least
 one copy off the station disk. OAuth grants, provider keys and other credentials are deliberately
 excluded and must be reauthorized after a machine/profile restore.
 
@@ -285,20 +285,45 @@ Restore into a new, empty test profile, never over the active station for a rehe
 
 ```bash
 npm run recovery:restore -- --bundle "<backup>.starnet-recovery.json" --target "<new-test-WORKSPACES>" --browser-output "<browser-restore>.json"
+npm run recovery:browser -- --browser-import "<browser-restore>.json" --profile "<new-browser-profile-directory>" --chrome "<installed-Chrome-or-Chromium-executable>"
 ```
 
-Keep browser output outside the target workspace. The CLI restores and verifies durable
-workspace files and emits a browser backup artifact, but the running app deliberately refuses
-to import that artifact: it cannot establish exclusive ownership of browser-local state across
-tabs, live runs and autosave. Do not use an online idle check or E-STOP as a substitute. The
-CLI artifact is not currently a complete browser-local restore procedure; browser-local
-settings and conversation state remain an explicit recovery gap until a staged import can
-share a server-owned maintenance boundary with every run and save writer. Inspect the restored
+Keep browser output outside the target workspace. The restore CLI verifies durable workspace
+files and emits a browser artifact compatible with the offline import path; schema and bundle
+integrity are checked, but cryptographic provenance is not established. To restore browser-owned
+state, use the dedicated offline recovery command below. Stop Moe AI Station first. Pick a new
+profile directory that does not exist; the command refuses an existing directory and binds
+`127.0.0.1:8787` exclusively while Chromium imports only the CLI-projected nonsecret `starnet.*`
+records. It serves one random-path recovery document and no application, run, save or upload
+routes. Keep the recovery window open until its authenticated completion report appears, then
+close Chromium so the command releases port 8787.
+
+Before booting the restored workspace, close **all** old StarNet tabs and browser windows: tabs
+from an earlier session can reconnect to the same origin. Use two terminals so starting the
+sidecar does not block the command that launches the browser. In Terminal 1, select the restored
+workspace and pin the normal app to the recovery origin's port:
+
+```powershell
+$env:STARNET_WORKSPACES = "<new-test-WORKSPACES>"
+$env:STARNET_PORT = "8787"
+npm run start
+```
+
+In Terminal 2, launch the same Chromium executable with the same new profile directory and the
+normal app's same origin:
+
+```powershell
+& "<installed-Chrome-or-Chromium-executable>" --user-data-dir="<new-browser-profile-directory>" http://127.0.0.1:8787/
+```
+
+Do not use an existing browser profile, an online idle check, or E-STOP as a substitute for the
+dedicated offline boundary. The normal app importer remains disabled. Inspect the restored
 durable workspace, compare representative file contents with the source, inspect routines
 without executing them, and review the receipt's reauthentication list. Reconnect
 providers/connectors and grant machine-specific project access only when appropriate. Keep
 the original backup. A successful export alone is not a restore test, and current recovery
-readiness is not complete while browser-local import remains unsupported.
+readiness is not complete until the normal app has booted from the restored browser profile and
+the owner has verified the expected local state.
 
 On 2026-10-04, source commit fcdb95356 was exercised on Windows with disposable profiles:
 station-recovery.test.js (72 assertions), station-recovery-cli.test.js (20), and

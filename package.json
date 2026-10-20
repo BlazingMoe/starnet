@@ -85,6 +85,7 @@
     "recovery:backup": "node scripts/station-recovery.mjs backup",
     "recovery:inspect": "node scripts/station-recovery.mjs inspect",
     "recovery:restore": "node scripts/station-recovery.mjs restore",
+    "recovery:browser": "node scripts/station-browser-recovery.mjs",
     "t3:release-smoke": "node scripts/t3-release-smoke.mjs",
     "t3:release-smoke:loop": "node scripts/t3-release-smoke.mjs --loop=3",
     "t3:release-smoke:live": "node scripts/t3-release-smoke.mjs --require-live",
