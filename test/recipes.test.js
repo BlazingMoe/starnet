@@ -10,6 +10,9 @@
 const A = require('./_assert.js');
 const R = require('../frontend/app/recipes.js');
 const C = require('../frontend/app/classify.js');   // the same task/tag classifier the live app uses
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 
 /* ---------- catalog integrity ---------- */
 const builtins = R.builtins();
@@ -79,6 +82,38 @@ A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfol
 A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
 A.ok(prSweep.includes('PARTIAL/UNVERIFIED') && prSweep.includes('never comment, approve') && prSweep.includes('modify GitHub'), 'PR Sweep preserves evidence limits and forbids remote mutations');
 A.ok(prSweep.includes('acme/app') && prSweep.includes('github-pr-review') && !/[{}](?:scope|workspace)/.test(prSweep), 'PR Sweep launch resolves repository and output-workspace inputs');
+
+// Exercise the actual dossier click handler with the actual connector-window deep-link registration.
+// No app server, connector API, credentials, or remote calls are involved.
+{
+  const marketplace = fs.readFileSync(path.join(__dirname, '../frontend/app/marketplace.js'), 'utf8');
+  const connectors = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/connectors.js'), 'utf8');
+  const handlerBody = A.fnBody(marketplace, 'function openPrSweepSetup()');
+  const events = [], connectorCalls = [];
+  const stationUI = {
+    h: {}, registerWindow() {},
+    openTerm: (...args) => events.push(['openTerm', ...args]),
+    closeTerm: (...args) => events.push(['closeTerm', ...args])
+  };
+  vm.runInNewContext(connectors, { StationUI: stationUI, setTimeout, clearTimeout, Map, Set });
+  const realConnectorJump = stationUI.connectorJump;
+  stationUI.connectorJump = id => { connectorCalls.push(id); return realConnectorJump(id); };
+  const context = { StationUI: stationUI, sfx: x => events.push(['sfx', x]), close: () => events.push(['closeDossier']), note: (...x) => events.push(['note', ...x]) };
+  vm.runInNewContext(`${handlerBody}; openPrSweepSetup()`, context);
+  A.eq(connectorCalls, ['github-readonly'], 'recipe click routes through the registered exact read-only catalog identity');
+  A.eq(events.filter(e => e[0] === 'openTerm'), [['openTerm', 'connectors', 'catalog']], 'registered connector route opens the catalog section');
+  A.ok(events.findIndex(e => e[0] === 'closeDossier') < events.findIndex(e => e[0] === 'openTerm'), 'recipe dossier closes before destination opens');
+  A.eq(events.filter(e => e[0] === 'note').length, 0, 'normal route does not show a misleading fallback');
+
+  const fallbackEvents = [];
+  const fallbackContext = {
+    StationUI: { openTerm: (...args) => fallbackEvents.push(['openTerm', ...args]) },
+    sfx() {}, close: () => fallbackEvents.push(['closeDossier']), note: (...args) => fallbackEvents.push(['note', ...args])
+  };
+  vm.runInNewContext(`${handlerBody}; openPrSweepSetup()`, fallbackContext);
+  A.eq(fallbackEvents.filter(e => e[0] === 'openTerm'), [['openTerm', 'connectors', 'catalog']], 'missing deep-link helper falls back to the real catalog navigation API');
+  A.ok(fallbackEvents.some(e => e[0] === 'note' && /GitHub \(read-only\)/.test(e[1])), 'fallback names the exact setup target');
+}
 
 // an optional param left blank falls back to its DEFAULT (morning-brief.window default = "the last 24 hours")
 const mb = R.fillTask('morning-brief', { topic: 'AI agents' });
