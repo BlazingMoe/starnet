@@ -151,6 +151,8 @@ A.ok(/credential-pattern redactor/.test(dataExplain.task) && /not general PII de
 A.ok(/numericSemantics caveat/.test(dataExplain.task) && /approximate finite numeric summaries/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
 A.ok(/fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task) && /zero-based sheetIndex/.test(dataExplain.task), 'dataset workflow discovers worksheets and reads selected cell pages');
 A.ok(/present cached value may be stale/.test(dataExplain.task) && /never claim recalculation/.test(dataExplain.task), 'dataset workflow explains formula-cache limitations');
+A.ok(/Keep CSV as the default/.test(dataExplain.task) && /unless the user explicitly asks for Excel\/XLSX/.test(dataExplain.task) && /fs\.write_xlsx/.test(dataExplain.task), 'dataset findings remain CSV by default and use XLSX only on explicit request');
+A.ok(/read-back-verified fs\.write_xlsx receipt/.test(dataExplain.task) && /fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task), 'requested XLSX findings require a verified receipt and bounded workbook read-back');
 A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
 A.ok(/do not spend tool turns creating or updating a todo list/.test(dataExplain.task) && /fs_list once on \{workspace\}/.test(dataExplain.task), 'bounded data workflow avoids planning churn and checks the output folder once');
 A.ok(/Prefer one bounded page/.test(dataExplain.task) && /immediately after writing/.test(dataExplain.task), 'bounded data workflow prioritizes useful inspection and immediate read-back');
