@@ -21,14 +21,16 @@
   /* an authoritative ISO instant -> the viewer's own wall clock ("Thu, Aug 13, 5:30 PM EDT"). Pure
      display: the instant comes from the server's schedule math, this only decides which clock face it is
      read off. '' when the runtime has no Intl/zone, so callers fall back to the server's own rendering. */
-  function wallClock(iso) {
-    const t = Date.parse(String(iso || ''));
+  function wallClock(iso, timeZone) {
+    const t = typeof iso === 'number' ? iso : Date.parse(String(iso || ''));
     if (isNaN(t)) return '';
     try {
-      return new Intl.DateTimeFormat('en-US', {
+      const options = {
         weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
         hour12: true, timeZoneName: 'short'
-      }).format(t);
+      };
+      if (timeZone) options.timeZone = timeZone;
+      return new Intl.DateTimeFormat('en-US', options).format(t);
     } catch (_) { return ''; }
   }
   /* cron.js's display string -> the sentence we actually show ("cron 0 9 * * 2" -> "every Tuesday at
@@ -157,7 +159,7 @@
     // schedulerArmed mirrors GET /api/cron `.enabled` (set in refresh) so the create-confirm can tell the honest
     // armed/disarmed story via AutoJobs.armStateLine. #rt-out lives in the ACTIVE pane (sibling of #rt-list); when a
     // run fires we splice it in right AFTER its row, and after every list re-render positionOut() re-slots it there.
-    let lastRunId = null, schedulerArmed = false, misfireEditor = null, limitEditor = null, routineJobs = [];
+    let lastRunId = null, schedulerArmed = false, misfireEditor = null, limitEditor = null, routineJobs = [], recentCronDecisions = null;
     function showRunOut(rowEl, id) {
       lastRunId = id;
       const nmEl = rowEl && rowEl.querySelector('.mc-top b');
@@ -298,6 +300,20 @@
       const ok = j.lastStatus === 'ok';
       return '<span class="' + (ok ? 'pos' : '') + '"' + (ok ? '' : ' style="color:var(--bad)"') + '>' + (ok ? '✓ ok' : '✕ ' + esc(j.lastReason || 'error')) + '</span> <span class="dim">' + esc(fmtRel(j.lastRunAt)) + '</span>';
     }
+    function decisionTrail(j) {
+      if (recentCronDecisions === null) return '<div class="mc-detail dim">recent scheduling decisions unavailable</div>';
+      const entries = recentCronDecisions.filter(e => e && e.jobId === j.id).slice(0, 3);
+      if (!entries.length) return '<div class="mc-detail dim">no recent scheduling decisions in the retained ledger window</div>';
+      return '<div class="mc-detail dim">recent scheduling decisions: ' + entries.map(e => {
+        const scheduledFor = e.detail && e.detail.scheduledFor;
+        const scheduled = scheduledFor != null ? wallClock(scheduledFor) : '';
+        const recorded = wallClock(e.ts);
+        const label = e.kind === 'fire' ? 'triggered' : e.kind === 'defer' ? 'deferred' : 'skipped';
+        const reason = e.kind === 'fire' ? 'scheduled fire' : (e.reason || 'reason unavailable');
+        const time = scheduled ? 'scheduled for ' + scheduled : recorded ? 'decision recorded ' + recorded : 'time unavailable';
+        return esc(label + ' · ' + reason + ' · ' + time);
+      }).join(' ; ') + '</div>';
+    }
     // TICKER HEALTH (scheduler-audit GA-9): armed alone can't prove ticks are completing. GET /api/cron carries a
     // real observed `health` block; render it beside the armed banner. Only meaningful when armed (a disarmed
     // scheduler is honestly idle — the OFF banner already owns that story), so return '' otherwise.
@@ -365,7 +381,7 @@
         : '<span class="dim">○ paused</span>';
       // A routine can remain scheduled while E-STOP has durably stood down the global scheduler. Keep the saved
       // scheduled badge, but never run a moving countdown for work the host has proven will not fire.
-      const next = on && schedulerArmed && j.nextRunAt ? esc(fmtRel(j.nextRunAt)) : '—';
+      const next = on && schedulerArmed && j.nextRunAt ? esc(wallClock(j.nextRunAt) || fmtRel(j.nextRunAt)) : '—';
       // R3 provenance: a routine minted from a recipe (meta.recipeId) shows "from recipe: <name>". Resolve the live
       // recipe name when we can; fall back to the id (never lies — a deleted recipe still shows its id). Tolerates
       // an absent meta (every pre-R3 job) — no badge then.
@@ -408,6 +424,7 @@
           (schedHuman !== sched ? ' title="' + esc(sched) + '"' : '') + '>' + esc(schedHuman) + '</span> ' + stateBadge + termBadge + runtimeBadge + fromRecipe + '</div>' +
         '<div class="mc-url dim">' + runsLine(j) + ' · next ' + next + ' · last ' + lastResult(j) + spendLine(j) + repeatLine + '</div>' +
         (recurring ? '<div class="mc-url dim" title="A stale occurrence is one later than its grace window; catch-up never replays a backlog.">missed run: ' + esc(misfireLabel) + '</div>' : '') +
+        decisionTrail(j) +
         '<div class="mc-url dim">run limits: ' + (Number.isSafeInteger(j.maxIters) && j.maxIters > 0 ? esc(j.maxIters) + ' turns' : 'station turns') + ' · ' + (Number.isFinite(j.maxCostUsd) && j.maxCostUsd > 0 ? '$' + esc(j.maxCostUsd) : 'station cost') + '</div>' +
         (j.lastError ? '<div class="mc-detail">' + esc(j.lastError === 'schedule-unfireable' ? 'schedule can never fire — reschedule this routine' : j.lastError) + '</div>' : '') +
         failureStreakLine(j) +
@@ -435,6 +452,10 @@
           ? (await QuerySpine.refresh('cron')).data : await Harness.api.get('/api/cron');
         const jobs = (j && j.jobs) || [];
         routineJobs = jobs;
+        try {
+          const ledger = await Harness.api.get('/api/autonomy/ledger?source=cron&limit=500');
+          recentCronDecisions = ledger && Array.isArray(ledger.entries) ? ledger.entries.filter(e => e && (e.kind === 'skip' || e.kind === 'defer' || (e.kind === 'fire' && e.binding === 'schedule'))) : null;
+        } catch (_) { recentCronDecisions = null; }
         // the live cronArmed — feeds the create-confirm's honest arm-state line. A HALTED scheduler is not armed no
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.
         schedulerArmed = !!(j && j.enabled && !j.halted);

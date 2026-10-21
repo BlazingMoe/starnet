@@ -251,6 +251,7 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     const summary = s.driver.applyTick(s.clock.now());
     A.eq(summary.fired, 0, 'beyond grace: nothing fires (no backlog burst)');
     A.eq(firstOf(s.events, 'cron.skipped').reason, 'caught-up', 'fast-forward emits caught-up');
+    A.eq(firstOf(s.events, 'cron.skipped').scheduledFor, T0, 'stale skip preserves the missed scheduled occurrence instant');
     A.ok(Date.parse(s.getJob('j1').nextRunAt) > s.clock.now(), 'nextRunAt fast-forwarded to a FUTURE occurrence');
   }
 

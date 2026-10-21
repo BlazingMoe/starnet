@@ -10,6 +10,10 @@ const cron = require('../sidecar/cron.js');
 const src = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/routines.js'), 'utf8').replace(/\r\n/g, '\n');
 const start = src.indexOf("body.querySelector('#rt-add').addEventListener('click', async () => {");
 const handler = src.slice(start, src.indexOf('\n    refresh();\n    }', start));
+const wallStart = src.indexOf('  function wallClock(iso, timeZone) {');
+const wallSrc = src.slice(wallStart, src.indexOf('\n  /* cron.js', wallStart));
+const decisionStart = src.indexOf('    function decisionTrail(j) {');
+const decisionSrc = src.slice(decisionStart, src.indexOf('\n    // TICKER HEALTH', decisionStart));
 const rowSrc = src.slice(src.indexOf('    function row(j) {'), src.indexOf('    async function refresh()'));
 const T = Date.UTC(2026, 9, 6, 12);
 async function create(value, badInput, misfire, maxItersText, badIters, maxCostText, badCost) {
@@ -36,10 +40,11 @@ async function create(value, badInput, misfire, maxItersText, badIters, maxCostT
   await callback();
   return { payload, message: msgEl.textContent };
 }
-function row(job) {
-  return vm.runInNewContext(rowSrc + '\nrow(job)', {
+function row(job, recentCronDecisions) {
+  return vm.runInNewContext(wallSrc + '\n' + decisionSrc + '\n' + rowSrc + '\nrow(job)', {
     job, esc: String, fmtRel: String, human: String, schedulerArmed: true,
     runsLine: () => 'agent', lastResult: () => '', spendLine: () => '',
+    recentCronDecisions: recentCronDecisions === undefined ? [] : recentCronDecisions,
     failureStreakLine: () => '', deliveryLine: () => '',
   });
 }
@@ -263,6 +268,20 @@ async function previewRace() {
   A.ok(row({ id: 'auto-daily', enabled: true, schedule: { kind: 'cron' }, scheduleDisplay: 'cron 0 9 * * *' }).includes('missed run: automatic: catch up once'), 'automatic cron policy shows its effective behavior');
   A.ok(row({ id: 'auto-fast', enabled: true, schedule: { kind: 'interval', minutes: 30 }, scheduleDisplay: 'every 30m' }).includes('missed run: automatic: skip stale runs'), 'automatic faster-interval policy shows its effective behavior');
   A.ok(row({ id: 'auto-hour', enabled: true, schedule: { kind: 'interval', minutes: 60 }, scheduleDisplay: 'every 1h' }).includes('missed run: automatic: catch up once'), 'automatic hourly policy catches up once at the boundary');
+  const scheduledSkipHtml = row({ id: 'trail' }, [
+    { jobId: 'trail', kind: 'skip', reason: 'caught-up', detail: { scheduledFor: '2026-10-06T11:00:00.000Z' } }
+  ]);
+  const localSkipTime = vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T11:00:00.000Z")');
+  A.ok(scheduledSkipHtml.includes('skipped · caught-up · scheduled for ' + localSkipTime), 'recent trail labels the scheduled occurrence separately from decision-record time');
+  const timestampOnlyHtml = row({ id: 'trail' }, [{ jobId: 'trail', kind: 'skip', reason: 'legacy', ts: T }]);
+  A.ok(timestampOnlyHtml.includes('decision recorded ' + vm.runInNewContext(wallSrc + '\nwallClock(' + T + ')')), 'missing scheduledFor is disclosed as the decision-record timestamp');
+  A.ok(row({ id: 'trail' }, [{ jobId: 'trail', kind: 'fire', binding: 'schedule', ts: T }]).includes('triggered · scheduled fire'), 'recent trail calls a scheduled fire triggered rather than claiming the run completed');
+  A.ok(row({ id: 'trail', enabled: true, nextRunAt: '2026-10-06T13:00:00.000Z' }).includes('next ' + vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z")')), 'next-run label uses the authoritative scheduled instant through the local clock formatter');
+  A.ok(row({ id: 'trail' }, null).includes('recent scheduling decisions unavailable'), 'a failed ledger read is disclosed as unavailable');
+  const utcLabel = vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z", "UTC")');
+  const berlinLabel = vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z", "Europe/Berlin")');
+  A.ok(utcLabel.includes('1:00 PM') && berlinLabel.includes('3:00 PM'), 'wall-clock projection resolves the same scheduled instant in both UTC and Europe/Berlin');
+  A.ok(/(?:UTC|GMT)/.test(utcLabel) && /(?:GMT|CEST|CET)/.test(berlinLabel), 'timezone labels accompany both explicit-zone projections');
   A.ok(row({ id: 'bounded', enabled: true, maxIters: 4, maxCostUsd: 0.25 }).includes('run limits: 4 turns · $0.25'), 'routine row shows its effective per-run iteration and cost caps');
   A.ok(row({ id: 'unbounded', enabled: true }).includes('run limits: station turns · station cost'), 'legacy routine truthfully inherits station limits');
   A.ok(!row({ id: 'once', enabled: true, schedule: { kind: 'once' }, scheduleDisplay: 'in 2h' }).includes('MISSED-RUN POLICY'), 'one-time routines do not offer an unused missed-run control');

@@ -4769,11 +4769,12 @@ const AUTONOMY_SKIP_BINDING = { 'at-capacity': 'concurrency-cap', 'no-capability
 function ledgerFromCron(name, payload) {
   const p = payload || {};
   const agentOf = (jobId) => { const j = (cronJobs || []).find(x => x && x.id === jobId); return (j && j.agentId) || null; };
+  const scheduledFor = p.scheduledFor != null ? p.scheduledFor : null;
   if (name === 'cron.fire') {
-    recordAutonomy({ source: 'cron', kind: 'fire', jobId: p.jobId, agentId: agentOf(p.jobId), runId: p.runId, binding: 'schedule', reason: 'due' });
+    recordAutonomy({ source: 'cron', kind: 'fire', jobId: p.jobId, agentId: agentOf(p.jobId), runId: p.runId, binding: 'schedule', reason: 'due', detail: scheduledFor != null ? { scheduledFor } : undefined });
   } else if (name === 'cron.skipped') {
     const isDefer = p.reason === 'at-capacity';
-    recordAutonomy({ source: 'cron', kind: isDefer ? 'defer' : 'skip', jobId: p.jobId, agentId: agentOf(p.jobId), reason: p.reason, binding: AUTONOMY_SKIP_BINDING[p.reason] || 'schedule' });
+    recordAutonomy({ source: 'cron', kind: isDefer ? 'defer' : 'skip', jobId: p.jobId, agentId: agentOf(p.jobId), reason: p.reason, binding: AUTONOMY_SKIP_BINDING[p.reason] || 'schedule', detail: scheduledFor != null ? { scheduledFor } : undefined });
   }
 }
 // feed every cron event to the notifier alongside the validated SSE/console emit; it never throws into the cron pass.
