@@ -96,6 +96,19 @@ const DOCX = (body) => zip({ '[Content_Types].xml': '<x/>', 'word/document.xml':
     A.ok(/^### Notes$/m.test(text), 'the second sheet is present, under its own name');
   }
 
+  // ST_Xstring escapes in shared-string payloads decode once: escaped controls become chars,
+  // while an escaped leading underscore keeps an escape-looking user value literal.
+  {
+    const buf = zip({
+      'xl/workbook.xml':'<workbook><sheets><sheet name="Data" sheetId="1" r:id="r1"/></sheets></workbook>',
+      'xl/_rels/workbook.xml.rels':'<Relationships><Relationship Id="r1" Target="worksheets/sheet1.xml"/></Relationships>',
+      'xl/sharedStrings.xml':'<sst><si><t>_x005F_x0041_</t></si><si><t>_x000A_</t></si><si><t>_x005F_x000A_</t></si><si><t>_x000D_</t></si></sst>',
+      'xl/worksheets/sheet1.xml':'<worksheet><sheetData><row r="1">' + [0,1,2,3].map((i) => '<c r="' + String.fromCharCode(65+i) + '1" t="s"><v>' + i + '</v></c>').join('') + '</row></sheetData></worksheet>'
+    });
+    const page = doc.xlsxRange(buf, { sheetIndex:0, startRow:1, rowCount:1, startCol:1, colCount:4 });
+    A.eq(page.rows[0].cells.map(c => c.value), ['_x0041_', '\n', '_x000A_', '\r'], 'shared-string ST_Xstring escapes decode once and preserve literal escape-like text');
+  }
+
   // Sparse Excel rows must retain their column positions, including explicit empty cells.
   {
     const buf = zip({

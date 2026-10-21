@@ -22,6 +22,7 @@
   const crypto = require('node:crypto');
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
+  const { createXlsxTable } = require('./xlsx-table.js');
   const { note: failNote } = require('../../failopen.js');
 
   function safeAgentId(id) {
@@ -283,6 +284,7 @@
       throw error;
     }
 
+    const WRITE_BUFFER = Symbol('internal verified binary write');
     const writeTool = {
       name: 'fs.write', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
       description: 'Write a UTF-8 text file into the current project folder when this session is project-scoped, otherwise into your private workspace. This is where your deliverables (reports, notes, code) are saved.',
@@ -290,7 +292,7 @@
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
         const { abs, base } = await resolveInside(aid, args.path, { scope: 'write', ctx });
-        const data = Buffer.from(String(args.content), 'utf8');
+        const data = Buffer.isBuffer(args && args[WRITE_BUFFER]) ? args[WRITE_BUFFER] : Buffer.from(String(args.content), 'utf8');
         if (data.length > WRITE_BYTES) throw new Error('file too large (' + data.length + ' > ' + WRITE_BYTES + ' bytes)');
         await assertFresh(aid, abs, args.path);   // refuse to overwrite a file that moved under us
         let beforeBytes = null;
@@ -350,6 +352,29 @@
         return Object.assign({}, written, {
           content: 'Structured CSV: ' + columns.length + ' columns, ' + rows.length + ' data rows. Formula-like strings were prefixed with an apostrophe; the writer did not evaluate formulas. CSV consumers may interpret the escape convention differently.\n' + written.content,
           summary: 'wrote CSV ' + args.path + ' (' + kb(data.length) + ')'
+        });
+      }
+    };
+
+    // Simple typed XLSX table export. The generated ZIP contains only OOXML workbook/worksheet
+    // parts, and serializes every string as inlineStr so formula-looking text remains inert.
+    const writeXlsxTool = {
+      name: 'fs.write_xlsx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded simple XLSX table to the current project or private workspace. Supply column names and rows of cells (string, finite number, boolean, or null). Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows, 64 columns, 64000 total cells, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
+      schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
+        path: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
+        rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+      } },
+      run: async (args, ctx) => {
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (!/\.xlsx$/i.test(args.path)) throw new Error('path must end in .xlsx');
+        const data = createXlsxTable(args.columns, args.rows, WRITE_BYTES);
+        const writeArgs = { path: args.path };
+        writeArgs[WRITE_BUFFER] = data;
+        const written = await writeTool.run(writeArgs, ctx);
+        return Object.assign({}, written, {
+          content: 'Structured XLSX: ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. Strings are inert inline text; no formulas were written.\n' + written.content,
+          summary: 'wrote XLSX ' + args.path + ' (' + kb(data.length) + ')'
         });
       }
     };
@@ -1131,9 +1156,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

@@ -134,6 +134,11 @@
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")
       .replace(/&amp;/g, '&');   // LAST: an escaped &amp;lt; must not become '<'
   }
+  // Spreadsheet strings use the OOXML ST_Xstring `_xHHHH_` escapes. Decode one pass only:
+  // `_x005F_x0041_` is the literal text `_x0041_`, not `A`.
+  function unescapeXstring(s) {
+    return String(s).replace(/_x([0-9a-fA-F]{4})_/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  }
   const stripTags = (s) => unescapeXml(String(s).replace(/<[^>]*>/g, ''));
 
   function docxText(buf, entries, inflateRaw) {
@@ -153,7 +158,7 @@
     // Each <si> is one string, possibly split across several <t> runs by formatting — join the runs.
     return (xml.match(/<si\b[\s\S]*?<\/si>|<si\b[^>]*\/>/g) || []).map(si => {
       const runs = si.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
-      return runs.map(t => unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''))).join('');
+      return runs.map(t => unescapeXstring(unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, '')))).join('');
     });
   }
   function sheetNames(buf, entries, inflateRaw) {
@@ -235,7 +240,7 @@
         const vm = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(c);
         let value = null, valueType=type==='s'?'sharedString':type==='inlineStr'?'string':type==='str'?'string':type==='b'?'boolean':type==='e'?'error':type==='d'?'dateRaw':'number';
         if(!['s','inlineStr','str','b','e','d','n'].includes(type)) throw new Error('worksheet cell type is unsupported');
-        if (type === 'inlineStr') { const runs = c.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []; value = runs.map(t => unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''))).join(''); }
+        if (type === 'inlineStr') { const runs = c.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []; value = runs.map(t => unescapeXstring(unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, '')))).join(''); }
         else if (vm) { const raw = unescapeXml(vm[1]); if(type==='s'){const index=Number(raw);if(!Number.isSafeInteger(index)||index<0||index>=shared.length)throw new Error('worksheet shared-string index is invalid');value=shared[index];} else if(type==='b'){if(raw!=='0'&&raw!=='1')throw new Error('worksheet boolean value is invalid');value=raw==='1';}else value=raw; }
         if(type==='inlineStr'&&fm) throw new Error('formula with inline-string cell is unsupported');
         const formula= fm && !/^<f\b[^>]*\/>$/.test(fm[0]) ? unescapeXml(fm[1]) : (fm ? '' : null);
@@ -281,7 +286,7 @@
           const type = (/\bt="([^"]*)"/.exec(c) || [])[1] || 'n';
           if (type === 'inlineStr') {
             const runs = c.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
-            return runs.map(t => unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''))).join('');
+            return runs.map(t => unescapeXstring(unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, '')))).join('');
           }
           const v = /<v>([\s\S]*?)<\/v>/.exec(c);
           if (!v) return '';
@@ -346,7 +351,7 @@
       return text;
     }
 
-    return { sniff, extract, xlsxSheets:buf => xlsxSheets(buf, inflateRaw), xlsxRange:(buf, opts) => xlsxRange(buf, inflateRaw, opts), _internals: { readEntries, entryBytes, unescapeXml, stripTags, docxText, xlsxText, ipynbText, findEocd, workbookSheets, xlsxSheets, xlsxRange } };
+    return { sniff, extract, xlsxSheets:buf => xlsxSheets(buf, inflateRaw), xlsxRange:(buf, opts) => xlsxRange(buf, inflateRaw, opts), _internals: { readEntries, entryBytes, unescapeXml, unescapeXstring, stripTags, docxText, xlsxText, ipynbText, findEocd, workbookSheets, xlsxSheets, xlsxRange } };
   }
 
   return { makeDocExtract, sniff, _internals: { unescapeXml, stripTags, findEocd } };

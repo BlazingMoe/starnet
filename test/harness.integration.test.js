@@ -155,10 +155,11 @@ const fixture = {
   const consent = makeConsentBroker({ sessionKey: 'itest', surface: 'autonomous' });
   consent.grant('session', { name: 'fs.write' }, registry.get('fs.write'));
   consent.grant('session', { name: 'fs.write_csv' }, registry.get('fs.write_csv'));
+  consent.grant('session', { name: 'fs.write_xlsx' }, registry.get('fs.write_xlsx'));
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.write', 'fs.write_csv', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.write', 'fs.write_csv', 'fs.write_xlsx', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -388,8 +389,17 @@ const fixture = {
   A.eq(denied.isError, true, 'un-granted mutation default-denies');
   const deniedCsv = await dispatch({ name: 'fs_write_csv', args: { path: 'unsanctioned.csv', columns: ['x'], rows: [['=1+1']] } }, denyCtx);
   A.eq(deniedCsv.isError, true, 'un-granted structured CSV mutation default-denies');
+  const deniedXlsx = await dispatch({ name: 'fs_write_xlsx', args: { path: 'unsanctioned.xlsx', columns: ['x'], rows: [['value']] } }, denyCtx);
+  A.eq(deniedXlsx.isError, true, 'un-granted structured XLSX mutation default-denies');
   let csvWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.csv')); } catch (e) { csvWrote = false; }
   A.ok(!csvWrote, 'the denied CSV mutation never touched disk');
+  let xlsxWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.xlsx')); } catch (e) { xlsxWrote = false; }
+  A.ok(!xlsxWrote, 'the denied XLSX mutation never touched disk');
+  const grantedXlsx = await dispatch({ name: 'fs_write_xlsx', args: { path: 'analysis/approved.xlsx', columns: ['x'], rows: [['consented']] } }, capCtx);
+  A.eq(grantedXlsx.isError, false, 'session-granted XLSX mutation succeeds through the real capability/consent boundary');
+  A.eq(grantedXlsx.receipt.state, 'read-back-verified', 'granted XLSX write retains the verified mutation receipt');
+  A.ok((await fsp.stat(path.join(ROOT, 'agent', 'analysis', 'approved.xlsx'))).size === grantedXlsx.receipt.verifiedBytes,
+    'granted XLSX lands inside the agent workspace with the receipted byte count');
   A.eq(denied.summary, 'denied', 'denial surfaced as a consent denial, not a crash');
   A.ok(/silence is not consent/.test(denied.content), 'denial carries the silence-is-not-consent reason');
   let wrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.md')); } catch (e) { wrote = false; }
