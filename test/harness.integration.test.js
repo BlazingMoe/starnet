@@ -156,10 +156,11 @@ const fixture = {
   consent.grant('session', { name: 'fs.write' }, registry.get('fs.write'));
   consent.grant('session', { name: 'fs.write_csv' }, registry.get('fs.write_csv'));
   consent.grant('session', { name: 'fs.write_xlsx' }, registry.get('fs.write_xlsx'));
+  consent.grant('session', { name: 'fs.write_docx' }, registry.get('fs.write_docx'));
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.write', 'fs.write_csv', 'fs.write_xlsx', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_xlsx', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -391,6 +392,33 @@ const fixture = {
     A.eq(overwrite.isError,false,'read-only XLSX access does not refresh overwrite freshness stamps');
   }
 
+  // Explicit Word request: replay the recipe through real registry/capability/consent dispatch,
+  // including source read/profile, DOCX write and text read-back; default markdown is not also written.
+  {
+    const csv=Buffer.from('region,amount\nNorth,10\nSouth,20\n','utf8'), source=path.join(ROOT,'agent','survey-docx.csv');
+    await fsp.writeFile(source,csv);
+    const recipe=require('../frontend/app/recipe-catalog/data.js').find(r=>r.id==='data-explain');
+    const request='Which region has the higher amount? Save the report as a Word DOCX document.';
+    const task=require('../frontend/app/recipes.js').fillTask(recipe,{file:'survey-docx.csv',question:request,workspace:'analysis'});
+    const turns=[],tool=(id,name,args)=>turns.push([{type:'tool_start',index:0,id,name},{type:'tool_args',index:0,chunk:JSON.stringify(args)},{type:'done',finishReason:'tool_calls'}]);
+    tool('docx-profile','fs_profile_csv',{path:'survey-docx.csv',delimiter:',',hasHeader:true});
+    tool('docx-rows','fs_read_csv_rows',{path:'survey-docx.csv',delimiter:',',hasHeader:true,offset:0,limit:20});
+    tool('docx-output-folder','fs_list',{path:'analysis'});
+    const blocks=[{type:'heading',text:'Finding'},{type:'paragraph',text:'South has the higher observed amount: 20 versus North at 10.'},{type:'paragraph',text:'The source contains two data rows.'}];
+    tool('docx-report','fs_write_docx',{path:'analysis/docx-fixture/report.docx',title:'Regional amount findings',blocks});
+    tool('docx-read-report','fs_read',{path:'analysis/docx-fixture/report.docx'});
+    turns.push([{type:'text',delta:'The requested Word report was saved and its extracted text verified.'},{type:'done',finishReason:'stop'}]);
+    const eb=A.makeBus(),es=A.collectBus(eb,events.names()),ee=makeEmitter(eb,()=>{}),ep=makeReplayProvider({models:fixture.models,turns}),results=[];
+    const er=await runAgentLoop({messages:[{role:'user',content:task}],provider:ep,emit:ee,cost:makeCostEngine({priceOf:ep.priceOf}),tools:toolDefs,dispatch:async(c,ctx)=>{const r=await dispatch(c,ctx);results.push({call:c,result:r});return r;},capCtx,model:'replay/model',agentId:'agent',runId:'docx-explain-fixture',limits:{maxIters:8,maxCostUsd:1},clock:{now:()=>0}});
+    A.eq(er.reason,'done','explicit DOCX data workflow completes through the shared agent loop');
+    A.eq(es.filter(e=>e.name==='agent.tool_call').map(e=>e.payload.name),['fs_profile_csv','fs_read_csv_rows','fs_list','fs_write_docx','fs_read'],'DOCX recipe profiles source, writes exactly the requested report format, and reads it back');
+    A.ok(results.every(x=>!x.result.isError),'all explicit DOCX recipe tool calls succeed');
+    A.eq(await fsp.readFile(source),csv,'DOCX recipe leaves source bytes unchanged');
+    A.ok(!fs.existsSync(path.join(ROOT,'agent','analysis','docx-fixture','report.md')),'explicit DOCX request does not also create the default markdown report');
+    A.eq(results[3].result.receipt.state,'read-back-verified','DOCX recipe write carries an exact verified receipt');
+    A.ok(results[4].result.content.includes('South has the higher observed amount'),'recipe fs.read returns DOCX report text after write');
+  }
+
   // ---- P1.5 default-deny: an UN-granted mutation under an autonomous surface is denied, body never runs ----
   // (a fresh broker with no grant — the same fs.write the model is fully capable of calling otherwise.)
   const denyCtx = makeCapCtx(resolved, { emit, consent: makeConsentBroker({ sessionKey: 'deny', surface: 'autonomous' }), timeoutMs: 5000 });
@@ -400,10 +428,14 @@ const fixture = {
   A.eq(deniedCsv.isError, true, 'un-granted structured CSV mutation default-denies');
   const deniedXlsx = await dispatch({ name: 'fs_write_xlsx', args: { path: 'unsanctioned.xlsx', columns: ['x'], rows: [['value']] } }, denyCtx);
   A.eq(deniedXlsx.isError, true, 'un-granted structured XLSX mutation default-denies');
+  const deniedDocx = await dispatch({ name: 'fs_write_docx', args: { path: 'unsanctioned.docx', title:'Denied', blocks:[{type:'paragraph',text:'never write'}] } }, denyCtx);
+  A.eq(deniedDocx.isError, true, 'un-granted structured DOCX mutation default-denies');
   let csvWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.csv')); } catch (e) { csvWrote = false; }
   A.ok(!csvWrote, 'the denied CSV mutation never touched disk');
   let xlsxWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.xlsx')); } catch (e) { xlsxWrote = false; }
   A.ok(!xlsxWrote, 'the denied XLSX mutation never touched disk');
+  let docxWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.docx')); } catch (e) { docxWrote = false; }
+  A.ok(!docxWrote, 'the denied DOCX mutation never touched disk');
   const grantedXlsx = await dispatch({ name: 'fs_write_xlsx', args: { path: 'analysis/approved.xlsx', columns: ['x'], rows: [['consented']] } }, capCtx);
   A.eq(grantedXlsx.isError, false, 'session-granted XLSX mutation succeeds through the real capability/consent boundary');
   A.eq(grantedXlsx.receipt.state, 'read-back-verified', 'granted XLSX write retains the verified mutation receipt');

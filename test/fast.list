@@ -272,6 +272,7 @@ test/autonomy-ledger.test.js
 test/artifacts.test.js
 test/deliverables-csv-artifact.e2e.test.js
 test/deliverables-xlsx-artifact.e2e.test.js
+test/deliverables-docx-artifact.e2e.test.js
 test/deliverable-store.test.js
 test/idempotency-ledger.test.js
 test/deliverable-provenance.test.js
@@ -307,6 +308,7 @@ test/transcript-history-v2.test.js
 test/recall.test.js
 test/fs.jail.test.js
 test/fs.write-xlsx.test.js
+test/fs.write-docx.test.js
 test/fs-mutation-receipts.test.js
 test/fs.patch.test.js
 test/fs.stale-write.test.js

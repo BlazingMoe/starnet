@@ -23,6 +23,7 @@
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
   const { createXlsxTable } = require('./xlsx-table.js');
+  const { createDocxReport } = require('./docx-report.js');
   const { note: failNote } = require('../../failopen.js');
 
   function safeAgentId(id) {
@@ -376,6 +377,22 @@
           content: 'Structured XLSX: ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. Strings are inert inline text; no formulas were written.\n' + written.content,
           summary: 'wrote XLSX ' + args.path + ' (' + kb(data.length) + ')'
         });
+      }
+    };
+
+    const writeDocxTool = {
+      name: 'fs.write_docx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded editable plain Word report. Supply a title and up to 300 blocks of type heading, paragraph, or bullet, each with text. The document uses simple black Calibri title, heading and body styles with explicit page dimensions; line breaks and tabs are preserved. It does not preserve existing Word layouts or support tables, images, macros, external links, formulas, or embedded objects. Text is inert and XML-escaped. Uses the consent-gated verified filesystem write and returns a read-back byte receipt.',
+      schema: { type: 'object', required: ['path','title','blocks'], properties: {
+        path: { type:'string' }, title:{type:'string'}, blocks:{type:'array',maxItems:300,items:{type:'object',required:['type','text'],properties:{type:{enum:['heading','paragraph','bullet']},text:{type:'string'}}}}
+      } },
+      run: async (args,ctx) => {
+        if(!args||typeof args.path!=='string'||!args.path.trim())throw new Error('path must be a non-empty string');
+        if(!/\.docx$/i.test(args.path))throw new Error('path must end in .docx');
+        const data=createDocxReport({title:args.title,blocks:args.blocks},WRITE_BYTES);
+        const writeArgs={path:args.path}; writeArgs[WRITE_BUFFER]=data;
+        const written=await writeTool.run(writeArgs,ctx);
+        return Object.assign({},written,{content:'Structured DOCX report: '+args.blocks.length+' blocks. Text is editable plain Word content with basic paragraph styles only.\n'+written.content,summary:'wrote DOCX '+args.path+' ('+kb(data.length)+')'});
       }
     };
 
@@ -1156,9 +1173,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

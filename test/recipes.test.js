@@ -17,6 +17,10 @@ const vm = require('vm');
 /* ---------- catalog integrity ---------- */
 const builtins = R.builtins();
 A.ok(builtins.length >= 8, 'catalog ships a real library (>= 8 recipes), got ' + builtins.length);
+const explainData = builtins.find(r => r.id === 'data-explain');
+A.ok(explainData && /explicitly asks for a Word\/DOCX report[\s\S]*fs\.write_docx/.test(explainData.task), 'Explain This Data selects DOCX only for an explicit Word request');
+A.ok(explainData && /Save exactly one report format[\s\S]*Do not create both report files/.test(explainData.task), 'Explain This Data makes Markdown and DOCX reports mutually exclusive');
+A.ok(explainData && /matching read-back-verified fs\.write_docx receipt[\s\S]*read report\.docx with fs\.read/.test(explainData.task), 'DOCX recipe path requires verified write receipt and text read-back');
 
 const seen = {};
 for (const b of builtins) {
