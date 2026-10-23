@@ -129,8 +129,33 @@ function runTableOperation(headers, rows, operation, coverage) {
     if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('group result exceeds finite numeric range');
     return [key, String(value)];
   }).sort((a, b) => lexicalCompare(a[0], b[0]));
-  const outputHeaders = [headers[groupIndex], aggregate + (valueIndex === null ? '' : '_' + headers[valueIndex])];
+  const groupHeader = headers[groupIndex];
+  const aggregateBase = aggregate + (valueIndex === null ? '' : '_' + headers[valueIndex]);
+  const aggregateHeader = aggregateBase === groupHeader ? aggregateBase + ' [2]' : aggregateBase;
+  const outputHeaders = [groupHeader, aggregateHeader];
   return { headers: outputHeaders, rows: resultRows, sourceRows: rows.length };
 }
 
-module.exports = { runTableOperation, finiteNumeric, lexicalCompare };
+function runTablePipeline(headers, rows, operations) {
+  if (!Array.isArray(operations) || operations.length < 1 || operations.length > 8) {
+    throw new Error('operations must contain 1 to 8 steps');
+  }
+  const originalRows = rows.length;
+  let currentHeaders = headers.slice(), currentRows = rows.map(row => row.slice()), filtered = false;
+  const steps = [];
+  for (const operation of operations) {
+    const inputRows = currentRows.length;
+    const result = runTableOperation(currentHeaders, currentRows, operation, { complete: true, totalRows: inputRows });
+    if (operation.type === 'filter' && result.rows.length < inputRows) filtered = true;
+    steps.push({ type: operation.type, inputRows, outputRows: result.rows.length });
+    currentHeaders = result.headers;
+    currentRows = result.rows;
+  }
+  return {
+    headers: currentHeaders, rows: currentRows, sourceRows: originalRows,
+    resultRows: currentRows.length, filtered,
+    resultScope: filtered ? 'filtered_source_subset' : 'whole_source', steps
+  };
+}
+
+module.exports = { runTableOperation, runTablePipeline, finiteNumeric, lexicalCompare };

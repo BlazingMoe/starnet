@@ -150,6 +150,7 @@ const dataExplain = R.get('data-explain');
 A.ok(dataExplain, 'Explain This Data remains a built-in recipe');
 A.eq(dataExplain.params.map(p => p.key), ['file', 'question', 'workspace'], 'dataset workflow accepts source, analysis question and output folder');
 A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task) && /fs\.table_operation/.test(dataExplain.task), 'dataset workflow uses streaming profile, paged rows, and bounded typed table operations');
+A.ok(/ordered pipeline of 1-8/.test(dataExplain.task) && /resultScope/.test(dataExplain.task) && /filtered rows/.test(dataExplain.task), 'dataset workflow documents ordered table pipelines and filtered aggregation scope');
 A.ok(/partial/.test(dataExplain.task) && /1000 data rows/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
 A.ok(/credential-pattern-redacted/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
 A.ok(/IEEE-754 binary64/.test(dataExplain.task) && /decimal results are approximate/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');

@@ -32,6 +32,36 @@ async function main() {
   const exported = await tools.readTool.run({ path: 'computed.csv' }, ctx);
   A.eq(exported.content, 'group,sum_amount\r\na,5\r\nb,4\r\n', 'written CSV contains the actual computed headers and grouped rows');
 
+  await write('pipeline.csv', 'region,amount\nA,3\nA,6\nB,5\nB,1\n');
+  const pipelineSource = await fsp.readFile(path.join(agentRoot, 'pipeline.csv'));
+  const pipeline = JSON.parse((await tools.tableOperationTool.run({ path: 'pipeline.csv', operations: [
+    { type: 'filter', column: 'amount', operator: 'gte', value: '3' },
+    { type: 'group', by: 'region', column: 'amount', aggregate: 'sum' },
+    { type: 'sort', column: 'sum_amount', mode: 'numeric', direction: 'desc' }
+  ] }, ctx)).content);
+  A.eq(pipeline.rows, [['A', '9'], ['B', '5']], 'filter-group-sort pipeline applies each step to the prior output');
+  A.eq(pipeline.sourceRows, 4, 'sourceRows always reports the original source count');
+  A.eq(pipeline.resultRows, 2, 'resultRows reports the final output count');
+  A.eq(pipeline.steps, [{ type: 'filter', inputRows: 4, outputRows: 3 }, { type: 'group', inputRows: 3, outputRows: 2 }, { type: 'sort', inputRows: 2, outputRows: 2 }], 'trace records each step input and output counts');
+  A.eq(pipeline.filtered, true, 'pipeline retains filtered provenance');
+  A.eq(pipeline.resultScope, 'filtered_source_subset', 'group after filter is explicitly limited to the filtered subset');
+  const pipelineWrite = await tools.writeCsvTool.run({ path: 'pipeline-result.csv', columns: pipeline.headers, rows: pipeline.rows }, ctx);
+  A.eq(pipelineWrite.mutationReceipt.state, 'read-back-verified', 'pipeline uses the verified CSV writer');
+  A.eq((await tools.readTool.run({ path: 'pipeline-result.csv' }, ctx)).content, 'region,sum_amount\r\nA,9\r\nB,5\r\n', 'pipeline CSV reads back the computed result');
+  A.eq(await fsp.readFile(path.join(agentRoot, 'pipeline.csv')), pipelineSource, 'pipeline leaves its source unchanged');
+
+  await write('collision.csv', 'sum_amount,amount\nkey,2\n');
+  const collision = JSON.parse((await tools.tableOperationTool.run({ path: 'collision.csv', operation: { type: 'group', by: 'sum_amount', column: 'amount', aggregate: 'sum' } }, ctx)).content);
+  A.eq(collision.headers, ['sum_amount', 'sum_amount [2]'], 'group-generated headers remain unique when a source key collides');
+  await fails(tools.tableOperationTool.run({ path: 'pipeline.csv', operations: [] }, ctx), /1 to 8/, 'empty pipeline');
+  await fails(tools.tableOperationTool.run({ path: 'pipeline.csv', operations: Array(9).fill({ type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }) }, ctx), /1 to 8/, 'pipeline above step limit');
+  await fails(tools.tableOperationTool.run({ path: 'pipeline.csv', operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }, operations: [{ type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }] }, ctx), /exactly one/, 'both operation forms');
+  await fails(tools.tableOperationTool.run({ path: 'pipeline.csv' }, ctx), /exactly one/, 'missing operation form');
+  await fails(tools.tableOperationTool.run({ path: 'pipeline.csv', operations: [
+    { type: 'group', by: 'region', aggregate: 'count' },
+    { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }
+  ] }, ctx), /unknown or ambiguous column/, 'missing column after grouping');
+
   for (const count of [999, 1000]) {
     const rows = Array.from({ length: count }, (_, i) => 'a,' + (i + 1)).join('\n');
     await write('rows.csv', 'group,amount\n' + rows + '\n');

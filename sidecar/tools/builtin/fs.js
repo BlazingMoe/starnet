@@ -22,7 +22,7 @@
   const crypto = require('node:crypto');
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
-  const { runTableOperation } = require('./table-operation.js');
+  const { runTablePipeline } = require('./table-operation.js');
   const { createXlsxTable } = require('./xlsx-table.js');
   const { createDocxReport } = require('./docx-report.js');
   const { note: failNote } = require('../../failopen.js');
@@ -559,20 +559,31 @@
     };
     const tableOperationTool = {
       name:'fs.table_operation', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false,
-      description:'Apply one explicit deterministic operation directly to a jailed workspace CSV. Filter: eq/neq/contains/gt/gte/lt/lte with column and string value; comparisons trim cell whitespace. Sort: column, mode text/numeric, direction asc/desc; comparisons trim cell whitespace and empty values always sort last. Group: by column, aggregate count/sum/mean/min/max; grouping keys use exact cell contents, count omits column, other aggregates require column. Numeric parsing uses finite IEEE-754 binary64 and can round decimal arithmetic. Missing aggregate cells are ignored. Any credential-pattern-redacted cell refuses the operation. The source is never modified. Complete-source bounds: 16 MiB, 1000 data rows, 256 columns, 65536 characters per cell and per row, 256 KiB result; exceeding any bound fails closed.',
-      schema:{type:'object',required:['path','operation'],properties:{
+      description:'Apply either one backward-compatible operation or an ordered pipeline of 1-8 operations directly to a jailed CSV, read once. Each step consumes the prior output. Filter: eq/neq/contains/gt/gte/lt/lte; sort: text/numeric asc/desc; group: count/sum/mean/min/max. A group after a reducing filter summarizes only that filtered subset; output reports original sourceRows, final resultRows, resultScope, and per-step input/output counts. Filter/sort trim cell whitespace; grouping keys use exact cell contents. Numeric parsing uses finite IEEE-754 binary64 and can round. Missing aggregates are ignored; redacted cells refuse the call. Complete-source bounds: 16 MiB, 1000 rows, 256 columns, 65536 characters per cell/row, and 256 KiB output. Source is not modified.',
+      schema:{type:'object',required:['path'],anyOf:[{required:['operation']},{required:['operations']}],properties:{
         path:{type:'string',maxLength:512},delimiter:{type:'string',enum:[',',';','\t','|']},hasHeader:{type:'boolean'},
-        operation:{type:'object',description:'Provide exactly one operation shape.',anyOf:[
+        operation:{type:'object',description:'One operation; mutually exclusive with operations.',anyOf:[
           {type:'object',required:['type','column','operator','value'],properties:{type:{type:'string',enum:['filter']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},operator:{type:'string',enum:['eq','neq','contains','gt','gte','lt','lte']},value:{type:'string',maxLength:65536}}},
           {type:'object',required:['type','column','mode','direction'],properties:{type:{type:'string',enum:['sort']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},mode:{type:'string',enum:['text','numeric']},direction:{type:'string',enum:['asc','desc']}}},
           {type:'object',required:['type','by','aggregate'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['count'],description:'Count rows in each group. Omit column.'}}},
           {type:'object',required:['type','by','aggregate','column'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['sum','mean','min','max']},column:{type:'string',maxLength:160,description:'Numeric source header; missing cells are ignored.'}}}
-        ]}
+        ]},
+        operations:{type:'array',minItems:1,maxItems:8,description:'Ordered pipeline. Each step sees the prior step output; a group after filtering summarizes only that filtered subset.',items:{type:'object',anyOf:[
+          {type:'object',required:['type','column','operator','value'],properties:{type:{type:'string',enum:['filter']},column:{type:'string',maxLength:160},operator:{type:'string',enum:['eq','neq','contains','gt','gte','lt','lte']},value:{type:'string',maxLength:65536}}},
+          {type:'object',required:['type','column','mode','direction'],properties:{type:{type:'string',enum:['sort']},column:{type:'string',maxLength:160},mode:{type:'string',enum:['text','numeric']},direction:{type:'string',enum:['asc','desc']}}},
+          {type:'object',required:['type','by','aggregate'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160},aggregate:{type:'string',enum:['count']}}},
+          {type:'object',required:['type','by','aggregate','column'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160},aggregate:{type:'string',enum:['sum','mean','min','max']},column:{type:'string',maxLength:160}}}
+        ]}}
       }},
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
         const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
         const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        const hasSingle = Object.prototype.hasOwnProperty.call(args, 'operation');
+        const hasPipeline = Object.prototype.hasOwnProperty.call(args, 'operations');
+        if (hasSingle === hasPipeline) throw new Error('supply exactly one of operation or operations');
+        const operations = hasSingle ? [args.operation] : args.operations;
+        if (!Array.isArray(operations) || operations.length < 1 || operations.length > 8) throw new Error('operations must contain 1 to 8 steps');
         if (![',', ';', '\t', '|'].includes(delimiter) || typeof hasHeader !== 'boolean') throw new Error('invalid CSV delimiter or header setting');
         if (typeof args.path !== 'string' || !args.path.trim() || args.path.length > 512) throw new Error('path must be 1-512 characters');
         const { abs } = await resolveInside(aid, args.path, { scope: 'read', ctx });
@@ -619,12 +630,12 @@
           if (bytesRead !== Number(stat.size)) throw new Error('CSV source changed during table operation; retry against a stable file');
           const headers = hasHeader ? rawHeaders.map((value, index) => value.trim() || 'column_' + (index + 1)) : profile.columns.map(column => column.name);
           if (headers.some(header => header.length > 160)) throw new Error('CSV table operation refused headers longer than 160 characters');
-          const result = runTableOperation(headers, tableRows, args.operation, { complete: true, totalRows: tableRows.length });
+          const result = runTablePipeline(headers, tableRows, operations);
           result.numericSemantics = 'Finite IEEE-754 binary64; decimal aggregate results are approximate and integers outside the safe range may be rounded.';
           result.source = { path: String(redact(args.path)).slice(0, 512), bytes: stat.size, lastModified: stat.mtime.toISOString(), rows: tableRows.length, sha256: hash.digest('hex') };
           const content = JSON.stringify(result);
           if (Buffer.byteLength(content, 'utf8') > 256 * 1024) throw new Error('CSV table result exceeds the 256 KiB response limit');
-          return { content, summary: 'Table operation ' + args.operation.type + ': ' + result.rows.length + ' row(s) from complete CSV' };
+          return { content, summary: 'Table operation pipeline (' + result.steps.map(step => step.type).join(' → ') + '): ' + result.rows.length + ' row(s)' };
         } catch (e) {
           if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0, 512)));
           throw e;

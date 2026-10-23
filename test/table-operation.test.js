@@ -1,6 +1,6 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {runTableOperation}=require('../sidecar/tools/builtin/table-operation.js');
+const {runTableOperation,runTablePipeline}=require('../sidecar/tools/builtin/table-operation.js');
 const h=['region','amount'], r=[['North','10'],['South','20'],['North','30'],['North','']];
 assert.deepEqual(runTableOperation(h,r,{type:'filter',column:'amount',operator:'gte',value:'20'}).rows,[['South','20'],['North','30']]);
 assert.deepEqual(runTableOperation(h,r,{type:'sort',column:'amount',mode:'numeric',direction:'desc'}).rows,[['North','30'],['South','20'],['North','10'],['North','']]);
@@ -12,6 +12,10 @@ assert.deepEqual(runTableOperation(h,r,{type:'group',by:'region',aggregate:'coun
 assert.deepEqual(runTableOperation(h,r,{type:'group',by:'region',column:'amount',aggregate:'mean'},{complete:true,totalRows:4}).rows,[['North','20'],['South','20']]);
 assert.deepEqual(runTableOperation(h,r,{type:'group',by:'region',column:'amount',aggregate:'min'},{complete:true,totalRows:4}).rows,[['North','10'],['South','20']]);
 assert.deepEqual(runTableOperation(h,r,{type:'group',by:'region',column:'amount',aggregate:'max'},{complete:true,totalRows:4}).rows,[['North','30'],['South','20']]);
+assert.deepEqual(runTableOperation(['sum_amount','amount'],[['key','2']],{type:'group',by:'sum_amount',column:'amount',aggregate:'sum'},{complete:true,totalRows:1}).headers,['sum_amount','sum_amount [2]']);
+const wholeGroup=runTablePipeline(h,r,[{type:'group',by:'region',column:'amount',aggregate:'sum'}]);
+assert.equal(wholeGroup.resultScope,'whole_source');
+assert.equal(runTablePipeline(h,r,Array(8).fill({type:'sort',column:'region',mode:'text',direction:'asc'})).steps.length,8);
 assert.throws(()=>runTableOperation(h,[...r.slice(0,3),['East','oops']],{type:'group',by:'region',column:'amount',aggregate:'sum'},{complete:true,totalRows:4}),/nonnumeric/);
 assert.throws(()=>runTableOperation(h,r,{type:'filter',column:'constructor',operator:'eq',value:'x'}),/unknown or ambiguous/);
 assert.throws(()=>runTableOperation(['x','x'],[],{type:'sort',column:'x',direction:'asc'}),/unique/);
@@ -19,4 +23,4 @@ assert.throws(()=>runTableOperation(h,r,{type:'group',by:'region',aggregate:'cou
 assert.throws(()=>runTableOperation(h,[['N','1e308'],['N','1e308']],{type:'group',by:'region',column:'amount',aggregate:'sum'},{complete:true,totalRows:2}),/finite numeric range/);
 assert.throws(()=>runTableOperation(h,Array(1001).fill(['a','1']),{type:'filter',column:'region',operator:'eq',value:'a'}),/1000 rows/);
 assert.throws(()=>runTableOperation(h,[['a']],{type:'sort',column:'region',direction:'asc'}),/match the header width/);
-console.log('table-operation.test.js: 17 assertions passed');
+console.log('table-operation.test.js: 19 assertions passed');

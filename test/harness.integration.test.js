@@ -288,7 +288,11 @@ const fixture = {
     tool('profile-csv', 'fs_profile_csv', { path: 'sales.csv', delimiter: ',', hasHeader: true, maxRows: 2 });
     tool('rows-1', 'fs_read_csv_rows', { path: 'sales.csv', delimiter: ',', hasHeader: true, offset: 0, limit: 2 });
     tool('rows-2', 'fs_read_csv_rows', { path: 'sales.csv', delimiter: ',', hasHeader: true, offset: 2, limit: 2 });
-    tool('group-sales', 'fs_table_operation', { path:'table-sales.csv', delimiter:',', hasHeader:true, operation:{type:'group',by:'region',column:'amount',aggregate:'sum'} });
+    tool('group-sales', 'fs_table_operation', { path:'table-sales.csv', delimiter:',', hasHeader:true, operations:[
+      {type:'filter',column:'amount',operator:'gte',value:'0'},
+      {type:'group',by:'region',column:'amount',aggregate:'sum'},
+      {type:'sort',column:'sum_amount',mode:'numeric',direction:'desc'}
+    ] });
     tool('choose-output-folder', 'fs_list', { path: 'analysis' });
     const report = '# Dataset brief\n\nSource: sales.csv; bytes: ' + csvStat.size + '; last modified: ' + csvStat.mtime.toISOString() + '. Profile is PARTIAL: exactly the first 2 data rows were profiled, so these are not whole-file totals. Finite IEEE-754 binary64 values; decimal summaries are approximate and integers outside the safe range may be rounded. The row review covered source rows 1-3 in pages 1-2. Credential-shaped content was scrubbed by StarNet’s configured key-pattern redactor; this is not general PII detection. The quoted multiline field stayed on one logical row and the formula-looking value remained inert. North has $40 and South $20 in this three-row fixture. This describes the fixture data only, not a causal or population claim.\n';
     const findings = 'region,sum_amount\r\nNorth,40\r\nSouth,20\r\n';
@@ -318,7 +322,10 @@ const fixture = {
       'workflow profiles, pages rows, checks output folder, saves both files and reads both back');
     const results = dispatched.map(entry => entry.result);
     const csvProfile = JSON.parse(dispatched[0].result.content);
-    A.eq(JSON.stringify(JSON.parse(dispatched[3].result.content).rows),JSON.stringify([['North','40'],['South','20']]),'recipe dispatcher performs an actual grouped table operation on rows already read');
+    const tableResult = JSON.parse(dispatched[3].result.content);
+    A.eq(JSON.stringify(tableResult.rows),JSON.stringify([['North','40'],['South','20']]),'recipe dispatcher dispatches an actual filter-group-sort pipeline');
+    A.eq(tableResult.steps,[{type:'filter',inputRows:3,outputRows:3},{type:'group',inputRows:3,outputRows:2},{type:'sort',inputRows:2,outputRows:2}],'dispatcher returns exact row counts for all pipeline steps');
+    A.eq(tableResult.resultScope,'whole_source','nonreducing filter preserves whole-source group scope');
     A.eq(csvProfile.source.bytes, csvStat.size, 'report fixture captures the exact source byte count');
     A.eq(csvProfile.source.lastModified, csvStat.mtime.toISOString(), 'report fixture captures the source timestamp returned by the tool');
     A.ok(report.includes(csvProfile.numericSemantics), 'saved report preserves the exact numeric approximation caveat from the profiler');
