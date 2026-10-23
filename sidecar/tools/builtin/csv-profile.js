@@ -12,6 +12,7 @@ function createCsvProfiler(options) {
   const maxRows = Number(options.maxRows) || 100000;
   const maxRowChars = Number.isFinite(Number(options.maxRowChars)) && Number(options.maxRowChars) > 0 ? Number(options.maxRowChars) : Infinity;
   const onRow = typeof options.onRow === 'function' ? options.onRow : null;
+  const onHeader = typeof options.onHeader === 'function' ? options.onHeader : null;
   const redact = typeof options.redact === 'function' ? options.redact : (s => s);
   let state = 'start', cell = '', row = [], swallowLF = false, firstChar = true;
   let stopped = false, stopReason = null, header = null, width = null, dataRows = 0, rowWidthMismatches = 0;
@@ -36,6 +37,7 @@ function createCsvProfiler(options) {
     if (hasHeader && header === null) {
       header = current;
       width = current.length;
+      if (onHeader) onHeader(current.slice());
       ensureColumns(width);
       return;
     }

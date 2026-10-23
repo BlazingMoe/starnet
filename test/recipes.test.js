@@ -149,17 +149,17 @@ R.removeCustom(dangling.id);
 const dataExplain = R.get('data-explain');
 A.ok(dataExplain, 'Explain This Data remains a built-in recipe');
 A.eq(dataExplain.params.map(p => p.key), ['file', 'question', 'workspace'], 'dataset workflow accepts source, analysis question and output folder');
-A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task), 'dataset workflow uses the real streaming profile and paged row tools');
-A.ok(/partial/.test(dataExplain.task) && /100000/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
-A.ok(/credential-pattern redactor/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
-A.ok(/numericSemantics caveat/.test(dataExplain.task) && /approximate finite numeric summaries/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
+A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task) && /fs\.table_operation/.test(dataExplain.task), 'dataset workflow uses streaming profile, paged rows, and bounded typed table operations');
+A.ok(/partial/.test(dataExplain.task) && /1000 data rows/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
+A.ok(/credential-pattern-redacted/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
+A.ok(/IEEE-754 binary64/.test(dataExplain.task) && /decimal results are approximate/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
 A.ok(/fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task) && /zero-based sheetIndex/.test(dataExplain.task), 'dataset workflow discovers worksheets and reads selected cell pages');
 A.ok(/present cached value may be stale/.test(dataExplain.task) && /never claim recalculation/.test(dataExplain.task), 'dataset workflow explains formula-cache limitations');
 A.ok(/Keep CSV as the default/.test(dataExplain.task) && /unless the user explicitly asks for Excel\/XLSX/.test(dataExplain.task) && /fs\.write_xlsx/.test(dataExplain.task), 'dataset findings remain CSV by default and use XLSX only on explicit request');
 A.ok(/read-back-verified fs\.write_xlsx receipt/.test(dataExplain.task) && /fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task), 'requested XLSX findings require a verified receipt and bounded workbook read-back');
 A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
 A.ok(/do not spend tool turns creating or updating a todo list/.test(dataExplain.task) && /fs_list once on \{workspace\}/.test(dataExplain.task), 'bounded data workflow avoids planning churn and checks the output folder once');
-A.ok(/Prefer one bounded page/.test(dataExplain.task) && /immediately after writing/.test(dataExplain.task), 'bounded data workflow prioritizes useful inspection and immediate read-back');
+A.ok(/do not page the source just to establish that operation coverage/.test(dataExplain.task) && /immediately after writing/.test(dataExplain.task), 'bounded data workflow avoids redundant pages and verifies outputs immediately');
 /* every built-in, filled with sample values, must READ AS A REAL TASK DIRECTIVE (so it launches work, not
    chatter) AND carry a ranking lane consistent with what the app's own classifier tags the filled task as. */
 for (const b of builtins) {

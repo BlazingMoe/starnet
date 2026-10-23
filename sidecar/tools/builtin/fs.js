@@ -22,6 +22,7 @@
   const crypto = require('node:crypto');
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
+  const { runTableOperation } = require('./table-operation.js');
   const { createXlsxTable } = require('./xlsx-table.js');
   const { createDocxReport } = require('./docx-report.js');
   const { note: failNote } = require('../../failopen.js');
@@ -554,6 +555,82 @@
           if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0,512)));
           throw e;
         } finally { if (handle) { try { await handle.close(); } catch (e) { failNote('fs.read_csv_rows.close', e); } } }
+      }
+    };
+    const tableOperationTool = {
+      name:'fs.table_operation', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false,
+      description:'Apply one explicit deterministic operation directly to a jailed workspace CSV. Filter: eq/neq/contains/gt/gte/lt/lte with column and string value; comparisons trim cell whitespace. Sort: column, mode text/numeric, direction asc/desc; comparisons trim cell whitespace and empty values always sort last. Group: by column, aggregate count/sum/mean/min/max; grouping keys use exact cell contents, count omits column, other aggregates require column. Numeric parsing uses finite IEEE-754 binary64 and can round decimal arithmetic. Missing aggregate cells are ignored. Any credential-pattern-redacted cell refuses the operation. The source is never modified. Complete-source bounds: 16 MiB, 1000 data rows, 256 columns, 65536 characters per cell and per row, 256 KiB result; exceeding any bound fails closed.',
+      schema:{type:'object',required:['path','operation'],properties:{
+        path:{type:'string',maxLength:512},delimiter:{type:'string',enum:[',',';','\t','|']},hasHeader:{type:'boolean'},
+        operation:{type:'object',description:'Provide exactly one operation shape.',anyOf:[
+          {type:'object',required:['type','column','operator','value'],properties:{type:{type:'string',enum:['filter']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},operator:{type:'string',enum:['eq','neq','contains','gt','gte','lt','lte']},value:{type:'string',maxLength:65536}}},
+          {type:'object',required:['type','column','mode','direction'],properties:{type:{type:'string',enum:['sort']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},mode:{type:'string',enum:['text','numeric']},direction:{type:'string',enum:['asc','desc']}}},
+          {type:'object',required:['type','by','aggregate'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['count'],description:'Count rows in each group. Omit column.'}}},
+          {type:'object',required:['type','by','aggregate','column'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['sum','mean','min','max']},column:{type:'string',maxLength:160,description:'Numeric source header; missing cells are ignored.'}}}
+        ]}
+      }},
+      run: async (args, ctx) => {
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
+        const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        if (![',', ';', '\t', '|'].includes(delimiter) || typeof hasHeader !== 'boolean') throw new Error('invalid CSV delimiter or header setting');
+        if (typeof args.path !== 'string' || !args.path.trim() || args.path.length > 512) throw new Error('path must be 1-512 characters');
+        const { abs } = await resolveInside(aid, args.path, { scope: 'read', ctx });
+        let handle;
+        try {
+          handle = await fsp.open(abs, 'r');
+          const stat = await handle.stat();
+          if (!stat.isFile()) throw new Error('source must be a regular file');
+          if (stat.size > 16 * 1024 * 1024) throw new Error('CSV table operation refused source above 16 MiB');
+          const tableRows = [], rawHeaders = [];
+          const hash = crypto.createHash('sha256');
+          const redactCell = value => {
+            const safe = String(redact(String(value)));
+            if (safe !== String(value)) throw new Error('CSV table operation refused credential-pattern-redacted input');
+            return safe;
+          };
+          const profiler = createCsvProfiler({
+            delimiter, hasHeader, maxRows: 1001, maxRowChars: 65536, redact,
+            onHeader: row => rawHeaders.push(...row.map(redactCell)),
+            onRow: row => { tableRows.push(row.map(redactCell)); return true; }
+          });
+          const decoder = new StringDecoder('utf8'), chunk = Buffer.alloc(64 * 1024);
+          let bytesRead = 0, eof = false;
+          while (bytesRead < 16 * 1024 * 1024 && !profiler.stopped && !profiler.malformed) {
+            if (ctx && ctx.signal && ctx.signal.aborted) { const e = new Error('CSV table operation cancelled'); e.name = 'AbortError'; throw e; }
+            const read = await handle.read(chunk, 0, Math.min(chunk.length, 16 * 1024 * 1024 - bytesRead), bytesRead);
+            if (!read.bytesRead) { eof = true; break; }
+            bytesRead += read.bytesRead;
+            const bytes = chunk.subarray(0, read.bytesRead);
+            hash.update(bytes);
+            profiler.push(decoder.write(bytes));
+          }
+          if (profiler.stopped) throw new Error('CSV table operation refused input above 1000 data rows or parser bounds');
+          if (bytesRead === 16 * 1024 * 1024) {
+            const probe = Buffer.alloc(1);
+            if ((await handle.read(probe, 0, 1, bytesRead)).bytesRead) throw new Error('CSV table operation refused source above 16 MiB');
+            eof = true;
+          }
+          if (eof || bytesRead < 16 * 1024 * 1024) profiler.push(decoder.end());
+          const finalStat = await handle.stat();
+          if (Number(finalStat.size) !== Number(stat.size) || Number(finalStat.mtimeMs) !== Number(stat.mtimeMs)) throw new Error('CSV source changed during table operation; retry against a stable file');
+          const profile = profiler.finish(false);
+          if (profile.partial || profile.rows.rowWidthMismatches) throw new Error('CSV table operation requires complete, well-formed rows');
+          if (bytesRead !== Number(stat.size)) throw new Error('CSV source changed during table operation; retry against a stable file');
+          const headers = hasHeader ? rawHeaders.map((value, index) => value.trim() || 'column_' + (index + 1)) : profile.columns.map(column => column.name);
+          if (headers.some(header => header.length > 160)) throw new Error('CSV table operation refused headers longer than 160 characters');
+          const result = runTableOperation(headers, tableRows, args.operation, { complete: true, totalRows: tableRows.length });
+          result.numericSemantics = 'Finite IEEE-754 binary64; decimal aggregate results are approximate and integers outside the safe range may be rounded.';
+          result.source = { path: String(redact(args.path)).slice(0, 512), bytes: stat.size, lastModified: stat.mtime.toISOString(), rows: tableRows.length, sha256: hash.digest('hex') };
+          const content = JSON.stringify(result);
+          if (Buffer.byteLength(content, 'utf8') > 256 * 1024) throw new Error('CSV table result exceeds the 256 KiB response limit');
+          return { content, summary: 'Table operation ' + args.operation.type + ': ' + result.rows.length + ' row(s) from complete CSV' };
+        } catch (e) {
+          if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0, 512)));
+          throw e;
+        } finally {
+          if (handle) { try { await handle.close(); } catch (e) { failNote('fs.table_operation.close', e); } }
+        }
       }
     };
     const XLSX_MAX_BYTES = 16 * 1024 * 1024, XLSX_MAX_OUTPUT = 60000;
@@ -1173,9 +1250,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 
