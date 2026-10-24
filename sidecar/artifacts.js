@@ -152,6 +152,12 @@
               || !Number.isFinite(receipt.verifiedBytes) || receipt.verifiedBytes < 0) return;
           return addFile('file', args.path, receipt.verifiedBytes);
         }
+        if (name === 'fs.write_dossier_sources') {
+          const receipt = r.receipt || r.mutationReceipt;
+          if (!receipt || receipt.state !== 'read-back-verified' || receipt.path !== args.path
+              || !Number.isFinite(receipt.verifiedBytes) || receipt.verifiedBytes < 0) return;
+          return addFile('file', args.path, receipt.verifiedBytes);
+        }
         if (name === 'fs.append') {
           const m = /now (\d+)\)/.exec(String(r.content || ''));   // "Appended to p (+N bytes, now M)." -> M = the file's real size
           return addFile('file', args.path, m ? Number(m[1]) : undefined);

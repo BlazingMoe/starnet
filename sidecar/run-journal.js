@@ -37,7 +37,13 @@ function isSecretKey(key) {
   return /^(?:password|passwd|passphrase|token|secret|api_key|authorization|cookie|credentials?|private_key)$/.test(norm)
     || /(?:^|_)(?:password|passwd|passphrase|token|secret|api_key|authorization|cookie|credentials?|private_key)(?:_|$)/.test(norm);
 }
-function cloneSafe(value, redact, depth, key) {
+function hasHostReceiptIdentity(receipt) {
+  return !!receipt && typeof receipt === 'object'
+    && /^[a-f0-9]{32}$/.test(String(receipt.id || ''))
+    && ((receipt.state === 'fetched' && /^[a-f0-9]{64}$/.test(String(receipt.textSha256 || '')))
+      || receipt.state === 'blocked');
+}
+function cloneSafe(value, redact, depth, key, hostReceiptFieldsDepth) {
   if (depth > 20) return '[depth limit]';
   // Credential containers are as sensitive as credential scalars. Check the key before branching on value type.
   if (key && isSecretKey(key)) return '[redacted]';
@@ -51,14 +57,21 @@ function cloneSafe(value, redact, depth, key) {
       } catch (_) {}
     }
     let out = value.slice(0, MAX_STRING);
-    try { out = String(redact(out)); } catch (_) {}
+    // Only exact typed identity fields on the trusted top-level tool_result receipt seam
+    // retain their canonical hex. Every other receipt property still receives normal redaction.
+    const opaqueId = depth === hostReceiptFieldsDepth && key === 'id' && /^[a-f0-9]{32}$/.test(out);
+    const excerptDigest = depth === hostReceiptFieldsDepth && key === 'textSha256' && /^[a-f0-9]{64}$/.test(out);
+    if (!opaqueId && !excerptDigest) { try { out = String(redact(out)); } catch (_) {} }
     return out.slice(0, MAX_STRING);
   }
   if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY).map(v => cloneSafe(v, redact, depth + 1, key));
+  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY).map(v => cloneSafe(v, redact, depth + 1, key, hostReceiptFieldsDepth));
   if (typeof value === 'object') {
     const out = {};
-    for (const k of Object.keys(value).slice(0, 200)) out[k] = cloneSafe(value[k], redact, depth + 1, k);
+    for (const k of Object.keys(value).slice(0, 200)) out[k] = cloneSafe(value[k], redact, depth + 1, k,
+      k === 'sourceReceipt' && depth === 0 && hostReceiptFieldsDepth === 2 && hasHostReceiptIdentity(value.sourceReceipt)
+        ? hostReceiptFieldsDepth
+        : (depth === 1 && hostReceiptFieldsDepth === 2 ? hostReceiptFieldsDepth : null));
     return out;
   }
   return String(value);
@@ -300,6 +313,44 @@ function resolutionError(message) {
   const e = new Error(message); e.code = 'RUN_RESOLUTION_CONFLICT'; return e;
 }
 
+// Select only complete, dispatched web_fetch results whose host receipt is bound to
+// the journal's run, agent and exact call. Shared by runtime and tests so the
+// manifest writer never has a weaker parallel interpretation of journal state.
+function selectSourceReceipts(state, runId, agentId) {
+  runId = String(runId || ''); agentId = String(agentId || '');
+  if (!state || state.corrupt || state.runId !== runId || !runId
+      || !state.meta || String(state.meta.agentId || '') !== agentId || !agentId
+      || !Array.isArray(state.completed)) throw new Error('source receipt journal is corrupt, incomplete or mismatched');
+  const receipts = [], ids = new Set();
+  for (const row of state.completed) {
+    if (!row || !row.intent || row.intent.name !== 'web_fetch') continue;
+    const result = row.result || {};
+    if (!result.sourceReceipt) continue;
+    const receipt = result.sourceReceipt;
+    let safeDisplayUrl = false;
+    try {
+      const url = new URL(receipt.requestedUrlDisplay);
+      safeDisplayUrl = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    } catch (_) {}
+    if (!row.dispatch || result.ok !== true || result.isError !== false
+        || receipt.runId !== runId || receipt.agentId !== agentId
+        || receipt.callId !== String(row.intent.callId || '')
+        || !/^[a-f0-9]{32}$/.test(String(receipt.id || '')) || ids.has(receipt.id)
+        || !safeDisplayUrl || !Number.isFinite(Date.parse(receipt.fetchedAt || ''))) {
+      throw new Error('source receipt journal contains an invalid or incomplete fetch receipt');
+    }
+    if ((receipt.state === 'fetched' && (!/^[a-f0-9]{64}$/.test(String(receipt.textSha256 || ''))
+          || !['jina', 'direct', 'browser'].includes(receipt.method) || typeof receipt.truncated !== 'boolean'))
+        || (receipt.state === 'blocked' && (receipt.method !== 'transport'
+          || typeof receipt.blockedReason !== 'string' || receipt.blockedReason.length > 120))
+        || !['fetched', 'blocked'].includes(receipt.state)) {
+      throw new Error('source receipt journal contains an invalid or incomplete fetch receipt');
+    }
+    ids.add(receipt.id); receipts.push(receipt);
+  }
+  return receipts;
+}
+
 function makeRunJournal(opts) {
   opts = opts || {};
   const io = opts.io || makeFsIo(opts);
@@ -308,6 +359,7 @@ function makeRunJournal(opts) {
   const redact = typeof opts.redact === 'function' ? opts.redact : s => s;
   const live = new Map();
   const trackers = new Map();
+  const dispatchedWebFetches = new Set();
 
   // Adapted from upstream 3ae8e4405: cold writers must adopt the durable chain before appending.
   // Keep damaged history untouched here; only the existing explicit recovery path may repair it.
@@ -325,12 +377,14 @@ function makeRunJournal(opts) {
     live.set(runId, { seq: last.seq, hash: last.hash });
   }
 
-  function record(runId, type, payload, fresh) {
+  function record(runId, type, payload, fresh, trustTopLevelSourceReceipt) {
     runId = String(runId || '');
     if (!runId) throw new Error('run journal runId is required');
     if (!fresh && !live.has(runId)) adopt(runId);
     const prior = live.get(runId) || { seq: 0, hash: '' };
-    const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0), prev: prior.hash };
+    const receiptEligible = type === 'tool_result' && trustTopLevelSourceReceipt === true
+      && payload && hasHostReceiptIdentity(payload.sourceReceipt);
+    const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0, undefined, receiptEligible ? 2 : null), prev: prior.hash };
     r.hash = hashRecord(r);
     const line = JSON.stringify(r);
     try { if (fresh) io.create(runId, line); else io.append(runId, line); }
@@ -407,8 +461,21 @@ function makeRunJournal(opts) {
     checkpointMessages,
     recoveryAttempt(runId, payload) { return record(runId, 'recovery_attempt', payload); },
     toolIntent(runId, payload) { return record(runId, 'tool_intent', payload); },
-    toolDispatch(runId, payload) { return record(runId, 'tool_dispatch', payload); },
-    toolResult(runId, payload) { return record(runId, 'tool_result', payload); },
+    toolDispatch(runId, payload) {
+      const r = record(runId, 'tool_dispatch', payload);
+      if (payload && payload.name === 'web_fetch' && payload.callId) dispatchedWebFetches.add(String(runId) + '\n' + String(payload.callId));
+      return r;
+    },
+    toolResult(runId, payload) {
+      let trustedFetchReceipt = false;
+      const receipt = payload && payload.sourceReceipt;
+      const key = String(runId || '') + '\n' + String((payload && payload.callId) || '');
+      trustedFetchReceipt = dispatchedWebFetches.has(key) && hasHostReceiptIdentity(receipt)
+        && receipt.callId === String(payload.callId || '') && receipt.runId === String(runId || '')
+        && !!receipt.agentId && payload.ok === true && payload.isError === false;
+      try { return record(runId, 'tool_result', payload, false, trustedFetchReceipt); }
+      finally { dispatchedWebFetches.delete(key); }
+    },
     finish(runId, payload) { trackers.delete(String(runId || '')); return record(runId, 'finish', payload); },
     resolve(runId, payload) {
       payload = payload || {};
@@ -531,4 +598,4 @@ function makeRunJournal(opts) {
   };
 }
 
-module.exports = { makeRunJournal, makeFsIo, DISPATCH_BOUNDARY_MODEL, _internals: { parseRecords, analyze, hashRecord, runFileName, cloneSafe, writeAll } };
+module.exports = { makeRunJournal, makeFsIo, selectSourceReceipts, DISPATCH_BOUNDARY_MODEL, _internals: { parseRecords, analyze, hashRecord, runFileName, cloneSafe, writeAll } };

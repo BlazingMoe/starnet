@@ -309,6 +309,79 @@
       }
     };
 
+    const dossierSourcesTool = {
+      name: 'fs.write_dossier_sources', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Validate a bounded Decision Dossier claim/source manifest against host-recorded web_fetch transport outcomes from this exact run, then save sources.md through the normal jailed, consent-gated verified writer. A blocked entry records an observed transport block, not a fetched source. Supply claims with claim, receiptId (or null), publicationDate (YYYY-MM-DD or null), and state: reference_checked, unverifiable, blocked, or truncated. Validation proves only structure and reference consistency, never semantic support or truth. Host receipt JSON is never accepted from tool arguments.',
+      schema: {
+        type: 'object', required: ['path', 'claims'], properties: {
+          path: { type: 'string' }, claims: {
+            type: 'array', minItems: 1, maxItems: 100, items: {
+              type: 'object', required: ['claim', 'receiptId', 'publicationDate', 'state'], properties: {
+                claim: { type: 'string' }, receiptId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                publicationDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                state: { enum: ['reference_checked', 'unverifiable', 'blocked', 'truncated'] }
+              }
+            }
+          }
+        }
+      },
+      run: async (args, ctx) => {
+        if (!deps.getRunSources || typeof deps.getRunSources !== 'function') throw new Error('host source receipt validation is unavailable');
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (args.path.length > 512) throw new Error('path must not exceed 512 characters');
+        if (!/(?:^|[\\/])sources\.md$/i.test(args.path)) throw new Error('path must name sources.md');
+        if (!Array.isArray(args.claims) || args.claims.length < 1 || args.claims.length > 100) throw new Error('claims must contain 1-100 entries');
+        const runId = String((ctx && ctx.runId) || ''), agentId = String((ctx && ctx.agentId) || '');
+        if (!runId || !agentId) throw new Error('current run and agent identity are required');
+        const receipts = deps.getRunSources(runId, agentId);
+        if (!Array.isArray(receipts)) throw new Error('host source receipt lookup failed');
+        const byId = new Map();
+        for (const receipt of receipts) {
+          if (!receipt || !/^[a-f0-9]{32}$/.test(String(receipt.id || '')) || byId.has(receipt.id)) throw new Error('host source receipt set is invalid or duplicated');
+          byId.set(receipt.id, receipt);
+        }
+        const claims = args.claims.map((entry, i) => {
+          if (!entry || typeof entry !== 'object' || typeof entry.claim !== 'string' || !entry.claim.trim() || entry.claim.length > 1000) throw new Error('claim ' + (i + 1) + ' must be 1-1000 characters');
+          const state = entry.state;
+          if (!['reference_checked', 'unverifiable', 'blocked', 'truncated'].includes(state)) throw new Error('claim ' + (i + 1) + ' has an unsupported state');
+          let publicationDate = entry.publicationDate;
+          if (publicationDate !== null && (typeof publicationDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(publicationDate) || new Date(publicationDate + 'T00:00:00Z').toISOString().slice(0, 10) !== publicationDate)) throw new Error('claim ' + (i + 1) + ' publicationDate must be YYYY-MM-DD or null');
+          const receiptId = entry.receiptId;
+          if (state === 'unverifiable') {
+            if (receiptId !== null) throw new Error('unverifiable claim ' + (i + 1) + ' must not cite a fetch receipt');
+            return { claim: entry.claim.trim(), receiptId: null, publicationDate, state };
+          }
+          if (typeof receiptId !== 'string' || !/^[a-f0-9]{32}$/.test(receiptId) || !byId.has(receiptId)) throw new Error('claim ' + (i + 1) + ' references no observed host receipt in this run');
+          const receipt = byId.get(receiptId);
+          if (state === 'reference_checked' && (receipt.state !== 'fetched' || receipt.truncated !== false)) throw new Error('reference_checked claim ' + (i + 1) + ' requires a complete fetched result');
+          if (state === 'truncated' && (receipt.state !== 'fetched' || receipt.truncated !== true)) throw new Error('truncated claim ' + (i + 1) + ' requires a truncated fetched result');
+          if (state === 'blocked' && receipt.state !== 'blocked') throw new Error('blocked claim ' + (i + 1) + ' requires an observed blocked transport result');
+          return { claim: entry.claim.trim(), receiptId, publicationDate, state };
+        });
+        const claimKeys = new Set();
+        for (const claim of claims) {
+          const key = JSON.stringify([claim.claim, claim.receiptId, claim.publicationDate, claim.state]);
+          if (claimKeys.has(key)) throw new Error('duplicate claim manifest entry');
+          claimKeys.add(key);
+        }
+        const used = Array.from(new Set(claims.map(x => x.receiptId).filter(Boolean)));
+        const sources = used.map(id => {
+          const r = byId.get(id);
+          return r.state === 'fetched'
+            ? { receiptId: id, requestedUrlDisplayOnly: r.requestedUrlDisplay, checkedAt: r.fetchedAt, method: r.method, transportState: r.state, truncated: r.truncated, fetchedExcerptSha256: r.textSha256 }
+            : { receiptId: id, requestedUrlDisplayOnly: r.requestedUrlDisplay, checkedAt: r.fetchedAt, method: r.method, transportState: r.state, blockedReason: r.blockedReason };
+        });
+        const json = JSON.stringify({ claims, sources }, null, 2).replace(/`/g, '\\u0060');
+        const content = '# Source manifest\n\n'
+          + 'Structural validation: passed. Receipt references resolve to host-recorded `web_fetch` transport outcomes in this run; blocked entries are transport blocks, not fetched sources. '
+          + 'This does not validate whether a source supports a claim or whether the claim is true. The fetchedExcerptSha256 hashes the redacted web_fetch excerpt before the central host output cap; a post-fetch cap is separately reflected by truncated. Display URLs omit query strings and fragments and are not exact resource identities. Publication dates are model-reported and are not host-verified.\n\n'
+          + '```json\n' + json + '\n```\n';
+        if (Buffer.byteLength(content, 'utf8') > 64 * 1024) throw new Error('serialized source manifest exceeds 64 KiB');
+        const written = await writeTool.run({ path: args.path, content }, ctx);
+        return Object.assign({}, written, { content: 'Validated source manifest structure and run-local receipt references; semantic claim support remains unverified.\n' + written.content, summary: 'validated and wrote source manifest ' + args.path });
+      }
+    };
+
     // Structured CSV export. Serialization happens before delegation so every write uses exactly the
     // fs.write consent, path, freshness, verified mutation and recovery behavior. The writer never evaluates formulas.
     const writeCsvTool = {
@@ -1261,9 +1334,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

@@ -33,6 +33,7 @@
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).web = api; }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (fence) {
   'use strict';
+  const crypto = require('node:crypto');
 
   const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
                      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -767,26 +768,59 @@
             const r = await reader.fetchText(args.url, { signal: ctx && ctx.signal });
             if (r && r.ok) {
               const text = clamp(r.text, FETCH_MAX_CHARS);
+              const safeText = typeof deps.redact === 'function' ? String(deps.redact(text)) : text;
+              const safeFullText = text === r.text ? null : (typeof deps.redact === 'function' ? String(deps.redact(r.text)) : r.text);
+              const sourceReceipt = makeSourceReceipt(args.url, { text: safeText, fullText: safeFullText, source: 'browser' }, ctx);
               return {
-                content: fenceExternal(text, 'page text from ' + (r.url || args.url) + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
-                fullContent: text === r.text ? undefined : fenceExternal(r.text, 'page text from ' + (r.url || args.url) + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
-                summary: text.length + ' chars via browser'
+                content: fenceExternal(safeText + '\n[source receipt: ' + sourceReceipt.id + '; fetched excerpt only; see saved manifest for details]', 'page text from ' + sourceReceipt.requestedUrlDisplay + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
+                fullContent: safeFullText ? fenceExternal(safeFullText, 'page text from ' + sourceReceipt.requestedUrlDisplay + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')') : undefined,
+                summary: safeText.length + ' chars via browser', sourceReceipt
               };
             }
             const soft2 = softFetchAnswer(e, args.url);
-            if (soft2) return {
+            if (soft2) {
+              const receipt = makeSourceReceipt(args.url, null, ctx, soft2.summary);
+              return {
               content: soft2.content + ' (The station\'s own browser also tried and was refused'
-                + (r && r.reason === 'challenge' ? ' — the site is holding a verification wall' : '') + '.)',
-              summary: soft2.summary
-            };
+                + (r && r.reason === 'challenge' ? ' — the site is holding a verification wall' : '') + '.)\n[source receipt: ' + receipt.id + '; blocked transport result]',
+              summary: soft2.summary, sourceReceipt: receipt
+              };
+            }
           }
           const soft = softFetchAnswer(e, args.url);   // the web ANSWERED (403/404/throttle/…) → ok result
-          if (soft) return soft;
+          if (soft) {
+            const receipt = makeSourceReceipt(args.url, null, ctx, soft.summary);
+            return Object.assign({}, soft, { content: soft.content + '\n[source receipt: ' + receipt.id + '; blocked transport result]', sourceReceipt: receipt });
+          }
           throw e;                                     // genuine fault (timeout/abort/SSRF/bad URL) → isError
         }
-        return { content: fenceExternal(out.text, 'page text from ' + out.url), fullContent: out.fullText ? fenceExternal(out.fullText, 'page text from ' + out.url) : undefined, summary: out.text.length + ' chars via ' + out.source };
+        const safeText = typeof deps.redact === 'function' ? String(deps.redact(out.text)) : out.text;
+        const safeFullText = out.fullText && (typeof deps.redact === 'function' ? String(deps.redact(out.fullText)) : out.fullText);
+        const sourceReceipt = makeSourceReceipt(args.url, Object.assign({}, out, { text: safeText, fullText: safeFullText }), ctx);
+        return { content: fenceExternal(safeText + '\n[source receipt: ' + sourceReceipt.id + '; fetched excerpt only; see saved manifest for details]', 'page text from ' + sourceReceipt.requestedUrlDisplay), fullContent: safeFullText ? fenceExternal(safeFullText, 'page text from ' + sourceReceipt.requestedUrlDisplay) : undefined, summary: safeText.length + ' chars via ' + out.source, sourceReceipt };
       }
     };
+
+    function makeSourceReceipt(requestedUrl, fetched, ctx, blockedReason) {
+      const id = typeof deps.sourceReceiptId === 'function' ? String(deps.sourceReceiptId()) : crypto.randomBytes(16).toString('hex');
+      let displayUrl = '';
+      try {
+        const safe = new URL(requestedUrl); safe.username = ''; safe.password = ''; safe.search = ''; safe.hash = '';
+        const redactedUrl = typeof deps.redact === 'function' ? String(deps.redact(safe.href)) : safe.href;
+        const finalSafe = new URL(redactedUrl); finalSafe.username = ''; finalSafe.password = ''; finalSafe.search = ''; finalSafe.hash = ''; displayUrl = finalSafe.href.slice(0, 2048);
+      } catch (_) {}
+      if (blockedReason) return {
+        id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
+        callId: String((ctx && ctx.callId) || ''), state: 'blocked', requestedUrlDisplay: displayUrl,
+        method: 'transport', fetchedAt: new Date().toISOString(), blockedReason: String(blockedReason).slice(0, 120)
+      };
+      return {
+        id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
+        callId: String((ctx && ctx.callId) || ''), state: 'fetched', requestedUrlDisplay: displayUrl,
+        method: fetched.source, fetchedAt: new Date().toISOString(), truncated: !!fetched.fullText,
+        textSha256: crypto.createHash('sha256').update(String(fetched.text)).digest('hex')
+      };
+    }
 
     /* ---------- web_request: call a third-party REST API with the Commander's key ----------
        WHY THIS EXISTS: before it, nothing in StarNet could send a custom header. web_fetch's whole schema

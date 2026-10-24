@@ -752,3 +752,4 @@ test/github-pr-review.integration.test.js
 
 test/fs.table-operation.test.js
 test/table-operation.test.js
+test/dossier-source-manifest.test.js

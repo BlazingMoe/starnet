@@ -19,6 +19,7 @@ const { makeReplayProvider } = require('../sidecar/providers/replay.js');
 const { makeCostEngine } = require('../sidecar/cost.js');
 const { runAgentLoop } = require('../sidecar/loop.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
+const { makeRunJournal, selectSourceReceipts } = require('../sidecar/run-journal.js');
 const { makeWebTools } = require('../sidecar/tools/builtin/web.js');
 const { makeConnectorTools } = require('../sidecar/tools/builtin/connectors.js');
 const { makeBrowserTools } = require('../sidecar/tools/builtin/browser.js');
@@ -109,11 +110,17 @@ const fixture = {
   const emit = makeEmitter(bus, () => {});
 
   // ---- build the graph EXACTLY as sidecar/index.js does ----
+  let activeDossierJournal = null;
   const registry = makeRegistry();
-  makeWebTools({ fetchImpl: cannedFetch, lookup: null }).register(registry);
+  makeWebTools({ fetchImpl: cannedFetch, lookup: null, sourceReceiptId: () => '0123456789abcdef0123456789abcdef' }).register(registry);
   makeBrowserTools({ driver: { navigate: async u => u, snapshot: async () => [], click: async () => '', type: async () => '', press: async k => k, scroll: async () => '', back: async () => '', getText: async () => '', consoleLog: () => [], handleDialog: async () => ({}), screenshot: async () => '' } }).register(registry);
   makeDesktopTools({ opener: async () => 'launched' }).register(registry);
-  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, docExtract }).register(registry);
+  makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, docExtract,
+    getRunSources: (rid, aid) => {
+      if (!activeDossierJournal || rid !== 'dossier-fixture' || aid !== 'agent') throw new Error('source receipts are limited to the dossier run');
+      return selectSourceReceipts(activeDossierJournal.inspect(rid), rid, aid);
+    }
+  }).register(registry);
   makeNotebookTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);
   makeWidgetTools({ store: new Map(), clock: { now: () => 0 } }).register(registry);   // WIDGET RAILS Phase 2: widget.set rides the notebook (memory) grant
   makeTodoTool({ store: new Map() }).register(registry);
@@ -157,10 +164,11 @@ const fixture = {
   consent.grant('session', { name: 'fs.write_csv' }, registry.get('fs.write_csv'));
   consent.grant('session', { name: 'fs.write_xlsx' }, registry.get('fs.write_xlsx'));
   consent.grant('session', { name: 'fs.write_docx' }, registry.get('fs.write_docx'));
+  consent.grant('session', { name: 'fs.write_dossier_sources' }, registry.get('fs.write_dossier_sources'));
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_xlsx', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
@@ -228,10 +236,9 @@ const fixture = {
   {
     const recipe = require('../frontend/app/recipe-catalog/research.js').find(r => r.id === 'decision-dossier');
     const task = require('../frontend/app/recipes.js').fillTask(recipe, { question: 'Compare the fixture options', constraints: 'Use only observed evidence', workspace: 'dossier' });
-    A.ok(/save the four deliverables in this order: sources\.md, comparison\.csv, decision\.md, progress\.md/i.test(task), 'dossier recipe prioritizes the complete artifact set in a fixed order');
+    A.ok(/save sources\.md first with fs\.write_dossier_sources/i.test(task) && /other three deliverables in this order: comparison\.csv, decision\.md, progress\.md/i.test(task), 'dossier recipe prioritizes the validated source manifest before the other artifacts');
     A.ok(/instead of reopening research merely to make a file look complete/i.test(task), 'remaining gaps are recorded without repeating research for cosmetic completeness');
     const outputs = {
-      'sources.md': '# Sources\nhttps://example.com/article\nClaim: the fixture answer is 42. Checked: 2026-10-04. Publication date: unknown.\n',
       'comparison.csv': 'option,criterion,evidence,source,uncertainty,fit\nA,answer,42,https://example.com/article,fixture only,meets\nB,answer,unknown,,no evidence,unknown\n',
       'decision.md': '# Decision\nPrefer A in this fixture because the source reports 42. B is unknown.\nConfidence is limited to the fixture. Next reversible step: verify with a real primary source.\n',
       'progress.md': '# Progress\nSource recorded; comparison and decision saved. Real-world verification remains open.\n'
@@ -239,29 +246,46 @@ const fixture = {
     const turn = (id, name, args) => [
       { type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: JSON.stringify(args) }, { type: 'done', finishReason: 'tool_calls' }
     ];
-    const turns = [turn('ds', 'web_search', { query: 'the answer' }), turn('df', 'web_fetch', { url: 'https://example.com/article' })];
+    const receiptId = '0123456789abcdef0123456789abcdef';
+    const turns = [turn('ds', 'web_search', { query: 'the answer' }), turn('df', 'web_fetch', { url: 'https://example.com/article' }),
+      turn('write-sources', 'fs_write_dossier_sources', { path: 'dossier/sources.md', claims: [{ claim: 'The fetched fixture excerpt reports 42.', receiptId, publicationDate: null, state: 'reference_checked' }] })];
     for (const [name, content] of Object.entries(outputs)) turns.push(turn('write-' + name, 'fs_write', { path: 'dossier/' + name, content }));
+    turns.push(turn('read-sources', 'fs_read', { path: 'dossier/sources.md' }));
     for (const name of Object.keys(outputs)) turns.push(turn('read-' + name, 'fs_read', { path: 'dossier/' + name }));
     turns.push([{ type: 'text', delta: 'Fixture dossier saved and read back; live acceptance remains unverified.' }, { type: 'done', finishReason: 'stop' }]);
     const db = A.makeBus(), ds = A.collectBus(db, events.names()), de = makeEmitter(db, () => {});
     const dp = makeReplayProvider({ models: fixture.models, turns });
     const journalDir = path.join(ROOT, 'dossier-journal');
-    const journal = require('../sidecar/run-journal.js').makeRunJournal({ dir: journalDir });
+    const journal = makeRunJournal({ dir: journalDir });
+    activeDossierJournal = journal;
     journal.begin({ runId: 'dossier-fixture', agentId: 'agent' });
+    const dossierDispatch = async (call, ctx) => {
+      const name = fromWire.get(call.name) || call.name;
+      const tool = registry.get(name);
+      journal.toolIntent('dossier-fixture', { callId: call.id, name, argsRaw: JSON.stringify(call.args || {}), mutating: tool.scope === 'write', boundaryModel: 'prepared-dispatch-v1' });
+      journal.toolDispatch('dossier-fixture', { callId: call.id, name, mutating: tool.scope === 'write' });
+      const result = await dispatch(call, Object.assign({}, ctx, { agentId: 'agent', runId: 'dossier-fixture' }));
+      journal.toolResult('dossier-fixture', { callId: call.id, ok: result.ok, isError: result.isError, content: result.content, summary: result.summary, sourceReceipt: result.sourceReceipt || null });
+      return result;
+    };
     const result = await runAgentLoop({ messages: [{ role: 'user', content: task }], provider: dp, emit: de,
-      cost: makeCostEngine({ priceOf: dp.priceOf }), tools: toolDefs, dispatch, capCtx,
+      cost: makeCostEngine({ priceOf: dp.priceOf }), tools: toolDefs, dispatch: dossierDispatch, capCtx,
       model: 'replay/model', agentId: 'agent', runId: 'dossier-fixture',
       onCheckpoint({ phase, messages, turn }) { journal.checkpointMessages('dossier-fixture', { phase, messages, turn }); },
       limits: { maxIters: 15, maxCostUsd: 1 }, clock: { now: () => 0 }
     });
     A.eq(result.reason, 'done', 'decision dossier completes through the shared execution path');
     const results = ds.filter(e => e.name === 'agent.tool_result').map(e => e.payload);
-    A.eq(results.length, 10, 'search, fetch, four writes and four read-backs have paired results');
-    A.ok(results.every(r => r.isError === false), 'all dossier tool operations succeed');
+    A.eq(results.length, 10, 'search, fetch, validated manifest, three other writes and four read-backs have paired results');
+    A.ok(results.every(r => r.isError === false), 'all dossier tool operations succeed: ' + JSON.stringify(journal.inspect('dossier-fixture').completed.filter(x => x.result.isError).map(x => ({ name:x.intent.name, content:x.result.content }))));
+    const sourcesOnDisk = await fsp.readFile(path.join(ROOT, 'agent', 'dossier', 'sources.md'), 'utf8');
+    A.ok(sourcesOnDisk.includes(receiptId) && sourcesOnDisk.includes('Structural validation: passed'), 'sources.md is generated and validated from the observed fetch receipt');
+    A.ok(sourcesOnDisk.includes('does not validate whether a source supports a claim or whether the claim is true'), 'sources.md disclaims semantic validation');
     for (const [name, content] of Object.entries(outputs)) A.eq(await fsp.readFile(path.join(ROOT, 'agent', 'dossier', name), 'utf8'), content, 'dossier file is really persisted: ' + name);
     const restored = require('../sidecar/run-journal.js').makeRunJournal({ dir: journalDir }).inspect('dossier-fixture');
     A.eq(restored.corrupt, false, 'cold journal inspection reconstructs dossier checkpoints');
-    for (const content of Object.values(outputs)) A.ok(restored.checkpoint.messages.some(m => m.role === 'tool' && String(m.content).includes(content.trim())), 'read-back evidence survives a fresh journal instance');
+    for (const content of [sourcesOnDisk, ...Object.values(outputs)]) A.ok(restored.checkpoint.messages.some(m => m.role === 'tool' && String(m.content).includes(content.trim())), 'read-back evidence survives a fresh journal instance');
+    A.eq(restored.completed.find(x => x.intent.name === 'web_fetch').result.sourceReceipt.id, receiptId, 'host receipt survives cold journal reconstruction beside the paired fetch result');
   }
 
   // CSV data-explanation acceptance fixture: real tool registry/capability/consent, bounded input,

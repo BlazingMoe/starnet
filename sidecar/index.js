@@ -83,7 +83,7 @@ const { recoverToolResult } = require('./tool-recovery.js'); // bounded retry fo
 const transcriptStoreModule = require('./transcriptstore.js');
 const { makeTranscriptStore } = transcriptStoreModule;
 const TRANSCRIPT_PERSISTED = transcriptStoreModule._internals && transcriptStoreModule._internals.PERSISTED;
-const { makeRunJournal, DISPATCH_BOUNDARY_MODEL } = require('./run-journal.js');
+const { makeRunJournal, selectSourceReceipts, DISPATCH_BOUNDARY_MODEL } = require('./run-journal.js');
 const { makeAffinityIndex } = require('./agent-affinity.js');   // idle-life social graph: which agents the run log proves work together
 const RunRecovery = require('./run-recovery.js');
 const { makeSegmentedTranscriptIo } = require('./transcript-history.js');
@@ -15491,7 +15491,12 @@ async function runOnce(o) {
     fullAccess: unrestrictedHostNow() || executionProfile.filesystemScope === 'host-paths-except-hard-floor',
     unrestrictedHost: unrestrictedHostNow()
   });
-  makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback
+  makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager,
+    getRunSources: (sourceRunId, sourceAgentId) => {
+      if (String(sourceRunId || '') !== String(runId || '') || String(sourceAgentId || '') !== String(agentId || '')) throw new Error('source receipts are limited to this run and agent');
+      return selectSourceReceipts(runJournal.inspect(String(runId)), runId, agentId);
+    }
+  }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
@@ -16616,7 +16621,8 @@ async function runOnce(o) {
       // durable, any exception before this result boundary means the side effect is unknown and must end the run.
       if (execution.journalStarted() && !execution.journalFailed()) runJournal.toolResult(runId, {
         callId: c.id, ok: !!(r && r.ok), isError: !!(r && r.isError),
-        content: r && r.content != null ? r.content : '', summary: r && r.summary ? r.summary : ''
+        content: r && r.content != null ? r.content : '', summary: r && r.summary ? r.summary : '',
+        sourceReceipt: r && c.name === 'web_fetch' && !r.isError ? r.sourceReceipt || null : null
       });
       if (execution.journalStarted() && !execution.journalFailed()) execution.markToolSettled(c.id);
       // record the SUCCESSFUL write (only successes protect anything); a ledger write failure never fails the run.
