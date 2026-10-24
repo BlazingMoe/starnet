@@ -331,7 +331,7 @@ function selectSourceReceipts(state, runId, agentId) {
     try {
       const url = new URL(receipt.requestedUrlDisplay);
       safeDisplayUrl = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
-    } catch (_) {}
+    } catch (_) { safeDisplayUrl = false; }
     if (!row.dispatch || result.ok !== true || result.isError !== false
         || receipt.runId !== runId || receipt.agentId !== agentId
         || receipt.callId !== String(row.intent.callId || '')

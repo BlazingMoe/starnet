@@ -810,7 +810,7 @@
         const safe = new URL(requestedUrl); safe.username = ''; safe.password = ''; safe.search = ''; safe.hash = '';
         const redactedUrl = typeof deps.redact === 'function' ? String(deps.redact(safe.href)) : safe.href;
         const finalSafe = new URL(redactedUrl); finalSafe.username = ''; finalSafe.password = ''; finalSafe.search = ''; finalSafe.hash = ''; displayUrl = finalSafe.href.slice(0, 2048);
-      } catch (_) {}
+      } catch (_) { displayUrl = ''; }
       if (blockedReason) return {
         id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
         callId: String((ctx && ctx.callId) || ''), state: 'blocked', requestedUrlDisplay: displayUrl,
