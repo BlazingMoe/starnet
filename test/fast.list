@@ -11,6 +11,7 @@ test/clock-rng.test.js
 test/context.test.js
 test/runtimeinfo.test.js
 test/harness-snapshot.test.js
+test/chat-run-limits-ui.test.js
 test/station-inspect.test.js
 test/diagnostics.test.js
 test/diagnostics-support-email.test.js
@@ -53,6 +54,9 @@ test/task-postconditions-ui.test.js
 test/recovery-policy.test.js
 test/tool-recovery.test.js
 test/run-journal-disk-boundary.test.js
+test/decision-history.test.js
+test/decision-history-http.test.js
+test/memory-decisions-ui.test.js
 test/todo.durability.test.js
 test/halt.test.js
 test/readbody.test.js
@@ -122,6 +126,7 @@ test/loop.tool-images.test.js
 test/loop.turn-budget.test.js
 test/loop.provider-recovery.test.js
 test/loop.failure-recovery.test.js
+test/loop.stall-giveup.test.js
 test/loop.stop-means-stop.test.js
 test/output-continuation.test.js
 test/compaction.test.js
@@ -265,6 +270,9 @@ test/run-journal.loop.test.js
 test/longhaul-retention.test.js
 test/autonomy-ledger.test.js
 test/artifacts.test.js
+test/deliverables-csv-artifact.e2e.test.js
+test/deliverables-xlsx-artifact.e2e.test.js
+test/deliverables-docx-artifact.e2e.test.js
 test/deliverable-store.test.js
 test/idempotency-ledger.test.js
 test/deliverable-provenance.test.js
@@ -299,6 +307,8 @@ test/transcript.test.js
 test/transcript-history-v2.test.js
 test/recall.test.js
 test/fs.jail.test.js
+test/fs.write-xlsx.test.js
+test/fs.write-docx.test.js
 test/fs-mutation-receipts.test.js
 test/fs.patch.test.js
 test/fs.stale-write.test.js
@@ -312,6 +322,7 @@ test/web.fetch-jina.test.js
 test/web.calm.test.js
 test/web.reach.test.js
 test/browser.test.js
+test/browser-proxy.test.js
 test/browser.desktop-login-journey.test.js
 test/browser.login-seed.test.js
 test/browser.reach-measure.test.js
@@ -360,6 +371,7 @@ test/onboard-fresh-launcher.test.js
 test/codex-configured.test.js
 test/crt-glprobe.test.js
 test/crt-context-loss.e2e.test.mjs
+test/pr-sweep-setup-navigation.e2e.test.mjs
 test/dialogue.test.js
 test/wakemind.test.js
 test/curiosity.test.js
@@ -376,6 +388,9 @@ test/launchmemory.test.js
 test/starters.test.js
 test/starterstore.test.js
 test/routinenudgestore.test.js
+test/control-nightshift-evidence.test.js
+test/control-recovery-evidence.test.js
+test/control-recovery-detail.test.js
 test/bottlestore.test.js
 test/bottle-wiring.test.js
 test/resummonstore.test.js
@@ -495,6 +510,7 @@ test/confbeats.test.js
 test/cron.test.js
 test/cron-human.test.js
 test/cron-store.test.js
+test/routine-toolsets.test.js
 test/mint-ledger.test.js
 test/cron.dispatch.test.js
 test/cron.chain.test.js
@@ -703,6 +719,7 @@ test/code-mode.test.js
 test/output-artifacts.test.js
 test/station-recovery.test.js
 test/station-recovery-cli.test.js
+test/station-browser-recovery.test.mjs
 test/execution-profiles.test.js
 test/execution-settings.test.js
 test/execution-router.test.js
@@ -728,3 +745,11 @@ test/workflow-takeover.test.js
 test/workflow-takeover-ui.test.js
 test/task-conversation.test.js
 test/task-conversation-ui.test.js
+
+test/journal-delta.test.js
+test/run-request-limits.test.js
+test/github-pr-review.integration.test.js
+
+test/fs.table-operation.test.js
+test/table-operation.test.js
+test/dossier-source-manifest.test.js

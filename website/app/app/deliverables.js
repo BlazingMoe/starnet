@@ -17,6 +17,9 @@
     const rows = []; let row = [], cell = '', quoted = false;
     raw = String(raw || '').slice(0, 512 * 1024); maxRows = Math.max(1, maxRows || 50); maxCols = Math.max(1, maxCols || 20);
     for (let i = 0; i <= raw.length && rows.length < maxRows; i++) {
+      // The structured CSV writer ends every RFC-style record with CRLF. That delimiter already flushed the
+      // final row; do not treat the parser's sentinel as an additional empty record.
+      if (i === raw.length && !cell && !row.length && /(?:\r|\n)$/.test(raw)) break;
       const c = i < raw.length ? raw[i] : '\n';
       if (quoted && c === '"' && raw[i + 1] === '"') { cell += '"'; i++; }
       else if (c === '"') quoted = !quoted;

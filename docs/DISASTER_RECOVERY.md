@@ -1,6 +1,6 @@
 # Complete station disaster recovery
 
-StarNet's complete-station recovery bundle is an offline, verified recovery point. It is different from the in-app station-configuration export: it captures every non-ephemeral file under `WORKSPACES`, plus an optional browser-state export, and verifies every payload before it changes a destination.
+StarNet's complete-station recovery bundle is an offline, verified recovery point. It is different from the in-app station-configuration export: it captures every non-ephemeral file under `WORKSPACES` and the browser-owned `starnet.*` state from **EXPORT AGENT**, then verifies every payload before it changes a destination. The browser export must contain the recognized current or legacy agent save; missing or malformed saves are refused before backup writing. Use `--workspace-only` only when intentionally capturing durable sidecar files without browser state; this narrower scope is identified in backup and inspect receipts and does not generate a browser import on restore.
 
 ## What it preserves
 
@@ -10,7 +10,7 @@ Credentials and machine authority are deliberately not portable. The bundle pres
 
 ## Create a recovery point
 
-1. On StarNet's RESUME/reconnect screen, choose **EXPORT AGENT** to download the browser-owned `starnet.*` state. Keep this file beside the station recovery bundle. This step is optional only when browser-local state is not needed; the durable sidecar save is still captured from `WORKSPACES`.
+1. On StarNet's RESUME/reconnect screen, choose **EXPORT AGENT** to download browser-owned nonsecret `starnet.*` keys and its best-effort notebook snapshot. It covers the app's origin storage, not unrelated browser profiles or other origins. The durable `WORKSPACES` capture contains all station files; the browser export contains the active app save and browser-side state. Keep this file beside the recovery bundle.
 2. Quit StarNet completely. On the desktop build, confirm the tray process has exited. Do not capture while the sidecar is accepting mutations.
 3. Locate the active `WORKSPACES` directory. A source/dev launch defaults to `%LOCALAPPDATA%\StarNet\workspaces` on Windows and `$XDG_DATA_HOME/StarNet/workspaces` (or `~/.local/share/StarNet/workspaces`) on other sidecar platforms. A packaged desktop launch prints the exact path on its `startup ... workspaces=...` diagnostic line. A legacy install may still use its existing `Skynet/workspaces` directory in place.
 4. From a StarNet source checkout, create and inspect the bundle:
@@ -20,7 +20,7 @@ npm run recovery:backup -- --workspace "C:\path\to\workspaces" --output "D:\Back
 npm run recovery:inspect -- --bundle "D:\Backups\station.starnet-recovery.json"
 ```
 
-Only an `ok: true` result is a recovery point. Copy the bundle to storage that is not on the station's disk.
+Only an `ok: true` result with `scope: "station"` is a complete station recovery point. To intentionally make a narrower sidecar-only copy, omit `--browser-state` and pass `--workspace-only`; its receipt will say `workspace-only`. Copy a verified bundle to storage that is not on the station's disk.
 
 ## Restore onto a clean machine or profile
 

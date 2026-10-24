@@ -36,6 +36,8 @@
   const providerRecovery = recoveryPolicy && typeof recoveryPolicy.providerFailure === 'function'
     ? recoveryPolicy.providerFailure
     : (() => ({ action: 'fail', reason: 'recovery-policy-unavailable', retryable: false, delayMs: 0 }));
+  const isIdleStall = recoveryPolicy && typeof recoveryPolicy.isIdleStall === 'function'
+    ? recoveryPolicy.isIdleStall : (() => false);
 
   function summarize(s, n) { s = String(s == null ? '' : s); n = n || 80; return s.length > n ? s.slice(0, n) : s; }
   function clip(s, n) { s = String(s == null ? '' : s); n = n || 80; return s.length > n ? s.slice(0, n) + '…' : s; }
@@ -730,6 +732,10 @@
     // OPTIONAL injected sleep for bounded mid-stream retry backoff (o.sleep(ms) -> Promise). Absent = retry with
     // NO wait (keeps the loop deterministic + test-fast); when present it honors the classifier's retryAfterMs.
     const sleep = (typeof o.sleep === 'function') ? o.sleep : null;
+    const jitterSample = () => {
+      try { return typeof o.random === 'function' ? o.random() : undefined; }
+      catch (e) { failNote('loop.retryRandom', e); return undefined; }
+    };
     const onRecovery = (typeof o.onRecovery === 'function') ? o.onRecovery : null;
     let recoveryAttemptSequence = 0;
     function noteRecovery(row) {
@@ -1055,11 +1061,13 @@
       let recoveries = 0;
       const maxRecoveries = 1 + fallbacks.length;
       let retriesUsed = 0;
+      let ladderWaitMs = 0;
       const MAX_STREAM_RETRIES = STREAM_RETRY_DELAYS.length;   // one per rung; deriving it prevents policy drift
       // A truncation is its own (cheap, transient) retry class — kept separate from MAX_STREAM_RETRIES and
       // deliberately tighter, because a truncation costs a FULL generation to re-run.
       let truncRetries = 0;
       const MAX_TRUNC_RETRIES = 1;
+      let idleStalls = 0; // consecutive watchdog stalls on this provider/model, reset after a switch
       while (true) {
         bookUsage(usage, usageModel);   // a re-entry after retry/compress/fallback: book the partial attempt BEFORE the reset
         acc.text = ''; acc.toolCalls = {}; acc.reasoning = []; streamedTextChunks = []; usage = null; lastFinishReason = null;
@@ -1085,6 +1093,7 @@
           }
         } catch (e) { streamErr = e; }
         if (!streamErr) {
+          idleStalls = 0; // a truncated response is not an idle-watchdog failure either
           // TRUNCATED STREAM (truthful-telemetry law). The response body ended CLEANLY mid-generation: the
           // adapter observed neither its protocol's end-of-stream sentinel nor a finish_reason. There is no
           // exception to classify, so this used to fall straight through the `break` below — a half-written
@@ -1095,7 +1104,7 @@
             truncRetries++;                          // a truncation is transient — re-run the turn once
             armRetryDedupe(acc);                     // half an answer already streamed; don't print it twice
             noteRecovery({ stage: 'provider_stream', action: 'retry', reason: 'truncated', attempt: truncRetries, model, delayMs: STREAM_RETRY_DELAYS[0] });
-            if (sleep) { try { await sleep(STREAM_RETRY_DELAYS[0]); } catch (_) {} }
+            if (sleep) { try { await sleep(STREAM_RETRY_DELAYS[0], signal); } catch (_) {} }
             if (signal.aborted) break;
             continue;
           }
@@ -1108,7 +1117,11 @@
         // classify so `transient` is honest, and so the shouldCompress / shouldFallback / shouldRotateCredential
         // hints drive recovery instead of being discarded.
         const cls = classifyApiError(streamErr, { model: model, approxTokens: approxTokens, contextLimit: contextLimit });
+        idleStalls = isIdleStall(streamErr) ? idleStalls + 1 : 0;
+        const sample = jitterSample();
         let decision = providerRecovery({
+          jitterSample: sample, waitedMs: ladderWaitMs,
+          idleStalls,
           classification: cls, canCompress: !!(context && summarize), hasFallback: fbIndex < fallbacks.length,
           recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
           preStreamRetriesExhausted: !!streamErr.preStreamRetriesExhausted, cancelled: !!signal.aborted
@@ -1122,6 +1135,8 @@
             continue;
           }
           decision = providerRecovery({
+            jitterSample: sample, waitedMs: ladderWaitMs,
+            idleStalls,
             classification: cls, canCompress: false, hasFallback: fbIndex < fallbacks.length,
             recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
             preStreamRetriesExhausted: !!streamErr.preStreamRetriesExhausted, cancelled: !!signal.aborted
@@ -1145,7 +1160,7 @@
                 if (m && m.role === 'assistant' && m.reasoning != null) { delete m.reasoning; reasoningDropped++; }
               }
             }
-            const fbPayload = { agentId, runId, fromModel: model, toModel: (fb.model || model), reason: cls.reason, rotate: !!cls.shouldRotateCredential };
+            const fbPayload = { agentId, runId, fromModel: model, toModel: (fb.model || model), reason: decision.reason, rotate: !!decision.rotate };
             if (reasoningDropped) fbPayload.reasoningDropped = reasoningDropped;   // additive; schema declares no additionalProperties
             emit('provider.fallback', fbPayload);
             if (fb.credKey != null) activeCredKey = fb.credKey;   // the entry we switch TO becomes the live credential
@@ -1169,9 +1184,12 @@
             armRetryDedupe(acc);
             recoveries++;
             noteRecovery({ stage: 'provider_stream', action: 'fallback', reason: decision.reason, attempt: recoveries, model, delayMs: 0, rotate: decision.rotate });
+            idleStalls = 0;
             continue;
           }
           decision = providerRecovery({
+            jitterSample: sample, waitedMs: ladderWaitMs,
+            idleStalls,
             classification: cls, canCompress: false, hasFallback: false,
             recoveriesUsed: recoveries, maxRecoveries, retriesUsed, maxRetries: MAX_STREAM_RETRIES,
             preStreamRetriesExhausted: !!streamErr.preStreamRetriesExhausted, cancelled: !!signal.aborted
@@ -1189,17 +1207,23 @@
         // into 15 requests; only errors from a stream that actually started belong to this recovery budget.
         if (decision.action === 'retry') {
           retriesUsed++;
+          ladderWaitMs += decision.ladderMs || 0;
           armRetryDedupe(acc);
           // NOTE: no provider.fallback emit here — a same-provider retry is NOT a failover; emitting it would
           // inflate the floor's failover counter and lie about a model/credential switch that didn't happen
           // (truthful-telemetry law). The retry is bounded and its outcome (success or the final error) is what
           // surfaces observably.
           noteRecovery({ stage: 'provider_stream', action: 'retry', reason: decision.reason, attempt: retriesUsed, model, delayMs: decision.delayMs });
-          if (sleep) { try { await sleep(decision.delayMs); } catch (_) {} }
+          if (sleep) { try { await sleep(decision.delayMs, signal); } catch (_) {} }
           if (signal.aborted) break;   // a cancel during the backoff ends cleanly below
           continue;
         }
-        fatal = cls;                                 // unrecoverable / chain exhausted / retries spent
+        fatal = decision.reason === 'provider_stalled' ? Object.assign({}, cls, {
+          reason: 'provider_stalled', retryable: true,
+          message: 'model stalled: ' + idleStalls + ' consecutive attempts on ' + model
+            + ' hit the idle watchdog (' + String(streamErr.message || 'idle timeout')
+            + ') — stopped instead of waiting out the rest of the retry ladder. Try again later or switch models.'
+        }) : cls;
         break;
       }
       if (fatal) {

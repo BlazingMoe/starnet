@@ -292,7 +292,7 @@
       // (the cron.skipped enum is owned/closed; a gone agent has no capability to run as).
       if (agentExists && !agentExists(job.agentId)) {
         try { setJobs(cronStore.removeJob(getJobs(), job.id)); } catch (e) { failNote('cron.removeJob', e); }
-        try { emit('cron.skipped', { jobId: job.id, reason: 'no-capability' }); } catch (_) {}
+        try { emit('cron.skipped', { jobId: job.id, reason: 'no-capability', scheduledFor: scheduledFor }); } catch (_) {}
         return false;
       }
       /* INJECTION TRIPWIRE at FIRE time. Runs BEFORE the capability/credential gate so a payload never reaches
@@ -446,6 +446,11 @@
         p = runOnce({
           key: key, model: model, system: system, messages: messages,
           agentId: job.agentId, isTask: true, emit: sink, signal: ac.signal,
+          // A routine's optional tool-turn cap narrows the normal station limit in runOnce; bad legacy
+          // values are ignored so normal station run-limit behavior applies.
+          requestLimits: (Number.isSafeInteger(job.maxIters) && job.maxIters > 0) || (Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0)
+            ? Object.assign({}, Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : {}, Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0 ? { maxCostUsd: job.maxCostUsd } : {})
+            : undefined,
           // streamId 'cron-'+runId makes this run's transcript durable under a per-RUN named stream (runId is a
           // fresh newId() already in scope — determinism-clean). Without it the reply is buffered into `state.buf`
           // and only an outcome enum escapes, so the actual work is invisible: it persists under the 'global'
@@ -611,7 +616,7 @@
               const key = String(dueMs);
               if (disabledNotified.get(job.id) !== key) {
                 disabledNotified.set(job.id, key);
-                try { emit('cron.skipped', { jobId: job.id, reason: 'disabled' }); } catch (_) {}
+                try { emit('cron.skipped', { jobId: job.id, reason: 'disabled', scheduledFor: job.nextRunAt }); } catch (_) {}
                 skips++;
               }
               continue;
@@ -668,7 +673,7 @@
         if (slotsLeft > 0) { slotsLeft--; }                // reserve a concurrency slot for this attempt
         else {                                             // over the cap -> defer (stays due, not advanced)
           deferred.push(job.id); deferredSet.add(job.id);
-          try { emit('cron.skipped', { jobId: job.id, reason: 'at-capacity' }); } catch (_) {}
+          try { emit('cron.skipped', { jobId: job.id, reason: 'at-capacity', scheduledFor: job.nextRunAt }); } catch (_) {}
           skips++;
         }
       }
@@ -721,13 +726,13 @@
       }
 
       // 4. stale recurring runs that were fast-forwarded (no backlog burst) -> a structured skip per job.
-      for (const sk of plan.skipped) { try { emit('cron.skipped', { jobId: sk.jobId, reason: sk.reason }); } catch (_) {} skips++; }
+      for (const sk of plan.skipped) { try { emit('cron.skipped', { jobId: sk.jobId, reason: sk.reason, scheduledFor: sk.scheduledFor }); } catch (_) {} skips++; }
 
       // 5. fire each due job — lease-guarded (one in-flight per job), CAP-guarded, and capability-guarded.
       for (const f of plan.fire) {
         const job = cronStore.getJob(getJobs(), f.jobId);
         if (!job) continue;
-        if (leases.has(job.id)) { try { emit('cron.skipped', { jobId: job.id, reason: 'already-running' }); } catch (_) {} skips++; continue; }
+        if (leases.has(job.id)) { try { emit('cron.skipped', { jobId: job.id, reason: 'already-running', scheduledFor: f.scheduledFor }); } catch (_) {} skips++; continue; }
         if (deferredSet.has(job.id)) continue;             // over the cap: held back (counted in `deferred`), skip already emitted in step 2b
         try {
           if (fireJob(job, f.scheduledFor, nowMs)) fires++; else skips++;   // false = no-capability (already emitted)

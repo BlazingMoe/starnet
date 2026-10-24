@@ -101,7 +101,19 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     const run = await fetch(B + '/api/cron/run', { method: 'POST', headers, body: JSON.stringify({ id: job.id }) });
     A.eq(run.status, 200, 'Run Now returns a stream');
     await drainNdjson(run);
-    await sleep(150);   // let the fsync'd ledger append land
+
+    // Force one isolated scheduled fire through the real scheduler. Its overdue one-shot is deterministic,
+    // and the fixture's OpenRouter endpoint above is a local mock, so no real provider call can occur.
+    const scheduledCreate = await fetch(B + '/api/cron', {
+      method: 'POST', headers,
+      body: JSON.stringify({ name: 'Scheduled evidence probe', prompt: 'fixture only', schedule: '2000-01-01T00:00:00.000Z', agentId: 'radar-agent', model: 'test/model', provider: 'openrouter' })
+    });
+    A.eq(scheduledCreate.status, 200, 'created deterministic overdue one-shot fixture');
+    const scheduledJob = (await scheduledCreate.json()).job;
+    A.ok(scheduledJob && scheduledJob.id && scheduledJob.nextRunAt, 'scheduled probe carries an authoritative due instant');
+    const arm = await fetch(B + '/api/cron/arm', { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
+    A.eq(arm.status, 200, 'arming runs an immediate scheduler reconcile in the isolated fixture');
+    await sleep(150);   // let both fsync'd ledger appends land
 
     // (1) the route now serves the fire decision with real identity.
     const after = await fetch(B + '/api/autonomy/ledger', { headers });
@@ -113,12 +125,16 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     A.eq(fire.source, 'cron', 'source is cron');
     A.eq(fire.agentId, 'radar-agent', 'the fire entry carries the real agentId');
     A.ok(fire.runId && fire.runId.length > 0, 'the fire entry carries the launched runId');
+    const scheduledFire = entries.find(e => e.kind === 'fire' && e.jobId === scheduledJob.id && e.binding === 'schedule');
+    A.ok(scheduledFire, 'the real scheduler fire reached the durable ledger');
+    A.eq(scheduledFire.detail && scheduledFire.detail.scheduledFor, Date.parse(scheduledJob.nextRunAt), 'scheduled fire preserves its exact due instant through the ledger integration');
 
     // (2) the durable JSONL exists on disk and carries the same real entry (persistence round-trip).
     const ledgerFile = path.join(ws, 'autonomy.ledger.jsonl');
     A.ok(fs.existsSync(ledgerFile), 'autonomy.ledger.jsonl was written to the workspaces dir');
     const diskLines = fs.readFileSync(ledgerFile, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
     A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === job.id && l.agentId === 'radar-agent'), 'the durable log carries the fire decision');
+    A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === scheduledJob.id && l.detail && l.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the durable log preserves the scheduled occurrence instant');
 
     // (3) RESTART over the SAME workspaces dir -> the decision survives a process restart.
     try { child.kill(); } catch (_) {}
@@ -130,6 +146,7 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     A.eq(restarted.status, 200, 'ledger route responds after restart');
     const survived = (await restarted.json()).entries;
     A.ok(survived.some(e => e.kind === 'fire' && e.jobId === job.id), 'the fire decision SURVIVED a sidecar restart (durable)');
+    A.ok(survived.some(e => e.kind === 'fire' && e.jobId === scheduledJob.id && e.detail && e.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the scheduled instant survived a sidecar restart');
   } finally {
     try { child && child.kill(); } catch (_) {}
     try { mock.server.close(); } catch (_) {}

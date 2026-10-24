@@ -17,6 +17,11 @@ const releaseCi = read('.github/workflows/release-train.yml');
 const canary = read('scripts/update-canary.mjs');
 const phase5Surface = read('scripts/phase5-surface-proof.mjs');
 
+assert.equal(pkg.dependencies.undici, '6.28.1', 'DNS-pinned fetch ships as a production dependency');
+assert.equal(lock.packages[''].dependencies.undici, pkg.dependencies.undici, 'root lock matches the runtime dependency');
+assert.equal(lock.packages['node_modules/undici'].version, pkg.dependencies.undici, 'the fetch implementation is pinned in the lockfile');
+assert.equal(pkg.engines.node, '>=18.17', 'the declared Node minimum supports the pinned transport');
+
 assert.equal(
   pkg.dependencies['ogg-opus-decoder'],
   '^1.7.3',

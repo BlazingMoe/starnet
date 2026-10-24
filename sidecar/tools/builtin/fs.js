@@ -20,6 +20,12 @@
   const { parsePatch, hunkOldText, hunkNewText, addText } = require('./patchparse.js');
   const { fuzzyFindAndReplace } = require('./fuzzymatch.js');
   const crypto = require('node:crypto');
+  const { StringDecoder } = require('node:string_decoder');
+  const { createCsvProfiler } = require('./csv-profile.js');
+  const { runTablePipeline } = require('./table-operation.js');
+  const { createXlsxTable } = require('./xlsx-table.js');
+  const { createDocxReport } = require('./docx-report.js');
+  const { note: failNote } = require('../../failopen.js');
 
   function safeAgentId(id) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id || '')) throw new Error('bad agentId');
@@ -280,6 +286,7 @@
       throw error;
     }
 
+    const WRITE_BUFFER = Symbol('internal verified binary write');
     const writeTool = {
       name: 'fs.write', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
       description: 'Write a UTF-8 text file into the current project folder when this session is project-scoped, otherwise into your private workspace. This is where your deliverables (reports, notes, code) are saved.',
@@ -287,7 +294,7 @@
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
         const { abs, base } = await resolveInside(aid, args.path, { scope: 'write', ctx });
-        const data = Buffer.from(String(args.content), 'utf8');
+        const data = Buffer.isBuffer(args && args[WRITE_BUFFER]) ? args[WRITE_BUFFER] : Buffer.from(String(args.content), 'utf8');
         if (data.length > WRITE_BYTES) throw new Error('file too large (' + data.length + ' > ' + WRITE_BYTES + ' bytes)');
         await assertFresh(aid, abs, args.path);   // refuse to overwrite a file that moved under us
         let beforeBytes = null;
@@ -302,6 +309,477 @@
       }
     };
 
+    const dossierSourcesTool = {
+      name: 'fs.write_dossier_sources', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Validate a bounded Decision Dossier claim/source manifest against host-recorded web_fetch transport outcomes from this exact run, then save sources.md through the normal jailed, consent-gated verified writer. A blocked entry records an observed transport block, not a fetched source. Supply claims with claim, receiptId (or null), publicationDate (YYYY-MM-DD or null), and state: reference_checked, unverifiable, blocked, or truncated. Validation proves only structure and reference consistency, never semantic support or truth. Host receipt JSON is never accepted from tool arguments.',
+      schema: {
+        type: 'object', required: ['path', 'claims'], properties: {
+          path: { type: 'string' }, claims: {
+            type: 'array', minItems: 1, maxItems: 100, items: {
+              type: 'object', required: ['claim', 'receiptId', 'publicationDate', 'state'], properties: {
+                claim: { type: 'string' }, receiptId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                publicationDate: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                state: { enum: ['reference_checked', 'unverifiable', 'blocked', 'truncated'] }
+              }
+            }
+          }
+        }
+      },
+      run: async (args, ctx) => {
+        if (!deps.getRunSources || typeof deps.getRunSources !== 'function') throw new Error('host source receipt validation is unavailable');
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (args.path.length > 512) throw new Error('path must not exceed 512 characters');
+        if (!/(?:^|[\\/])sources\.md$/i.test(args.path)) throw new Error('path must name sources.md');
+        if (!Array.isArray(args.claims) || args.claims.length < 1 || args.claims.length > 100) throw new Error('claims must contain 1-100 entries');
+        const runId = String((ctx && ctx.runId) || ''), agentId = String((ctx && ctx.agentId) || '');
+        if (!runId || !agentId) throw new Error('current run and agent identity are required');
+        const receipts = deps.getRunSources(runId, agentId);
+        if (!Array.isArray(receipts)) throw new Error('host source receipt lookup failed');
+        const byId = new Map();
+        for (const receipt of receipts) {
+          if (!receipt || !/^[a-f0-9]{32}$/.test(String(receipt.id || '')) || byId.has(receipt.id)) throw new Error('host source receipt set is invalid or duplicated');
+          byId.set(receipt.id, receipt);
+        }
+        const claims = args.claims.map((entry, i) => {
+          if (!entry || typeof entry !== 'object' || typeof entry.claim !== 'string' || !entry.claim.trim() || entry.claim.length > 1000) throw new Error('claim ' + (i + 1) + ' must be 1-1000 characters');
+          const state = entry.state;
+          if (!['reference_checked', 'unverifiable', 'blocked', 'truncated'].includes(state)) throw new Error('claim ' + (i + 1) + ' has an unsupported state');
+          let publicationDate = entry.publicationDate;
+          if (publicationDate !== null && (typeof publicationDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(publicationDate) || new Date(publicationDate + 'T00:00:00Z').toISOString().slice(0, 10) !== publicationDate)) throw new Error('claim ' + (i + 1) + ' publicationDate must be YYYY-MM-DD or null');
+          const receiptId = entry.receiptId;
+          if (state === 'unverifiable') {
+            if (receiptId !== null) throw new Error('unverifiable claim ' + (i + 1) + ' must not cite a fetch receipt');
+            return { claim: entry.claim.trim(), receiptId: null, publicationDate, state };
+          }
+          if (typeof receiptId !== 'string' || !/^[a-f0-9]{32}$/.test(receiptId) || !byId.has(receiptId)) throw new Error('claim ' + (i + 1) + ' references no observed host receipt in this run');
+          const receipt = byId.get(receiptId);
+          if (state === 'reference_checked' && (receipt.state !== 'fetched' || receipt.truncated !== false)) throw new Error('reference_checked claim ' + (i + 1) + ' requires a complete fetched result');
+          if (state === 'truncated' && (receipt.state !== 'fetched' || receipt.truncated !== true)) throw new Error('truncated claim ' + (i + 1) + ' requires a truncated fetched result');
+          if (state === 'blocked' && receipt.state !== 'blocked') throw new Error('blocked claim ' + (i + 1) + ' requires an observed blocked transport result');
+          return { claim: entry.claim.trim(), receiptId, publicationDate, state };
+        });
+        const claimKeys = new Set();
+        for (const claim of claims) {
+          const key = JSON.stringify([claim.claim, claim.receiptId, claim.publicationDate, claim.state]);
+          if (claimKeys.has(key)) throw new Error('duplicate claim manifest entry');
+          claimKeys.add(key);
+        }
+        const used = Array.from(new Set(claims.map(x => x.receiptId).filter(Boolean)));
+        const sources = used.map(id => {
+          const r = byId.get(id);
+          return r.state === 'fetched'
+            ? { receiptId: id, requestedUrlDisplayOnly: r.requestedUrlDisplay, checkedAt: r.fetchedAt, method: r.method, transportState: r.state, truncated: r.truncated, fetchedExcerptSha256: r.textSha256 }
+            : { receiptId: id, requestedUrlDisplayOnly: r.requestedUrlDisplay, checkedAt: r.fetchedAt, method: r.method, transportState: r.state, blockedReason: r.blockedReason };
+        });
+        const json = JSON.stringify({ claims, sources }, null, 2).replace(/`/g, '\\u0060');
+        const content = '# Source manifest\n\n'
+          + 'Structural validation: passed. Receipt references resolve to host-recorded `web_fetch` transport outcomes in this run; blocked entries are transport blocks, not fetched sources. '
+          + 'This does not validate whether a source supports a claim or whether the claim is true. The fetchedExcerptSha256 hashes the redacted web_fetch excerpt before the central host output cap; a post-fetch cap is separately reflected by truncated. Display URLs omit query strings and fragments and are not exact resource identities. Publication dates are model-reported and are not host-verified.\n\n'
+          + '```json\n' + json + '\n```\n';
+        if (Buffer.byteLength(content, 'utf8') > 64 * 1024) throw new Error('serialized source manifest exceeds 64 KiB');
+        const written = await writeTool.run({ path: args.path, content }, ctx);
+        return Object.assign({}, written, { content: 'Validated source manifest structure and run-local receipt references; semantic claim support remains unverified.\n' + written.content, summary: 'validated and wrote source manifest ' + args.path });
+      }
+    };
+
+    // Structured CSV export. Serialization happens before delegation so every write uses exactly the
+    // fs.write consent, path, freshness, verified mutation and recovery behavior. The writer never evaluates formulas.
+    const writeCsvTool = {
+      name: 'fs.write_csv', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded structured CSV table to the current project or private workspace. Supply column names and rows of cells (string, finite number, boolean, or null). Strings whose first non-whitespace character is =, +, -, or @ receive a leading apostrophe as a formula-injection mitigation; CSV consumers may interpret this convention differently. The writer does not evaluate formulas. Uses UTF-8 and RFC-style CRLF records; returns a verified byte receipt.',
+      schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
+        path: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 256 },
+        rows: { type: 'array', maxItems: 10000, items: { type: 'array', minItems: 1, maxItems: 256, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+      } },
+      run: async (args, ctx) => {
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (!Array.isArray(args.columns) || args.columns.length < 1 || args.columns.length > 256) throw new Error('columns must contain 1-256 names');
+        if (!Array.isArray(args.rows) || args.rows.length > 10000) throw new Error('rows must contain at most 10000 records');
+        const columns = args.columns;
+        const rows = args.rows;
+        const MAX_CELL = 16384;
+        function csvCell(value, rowIndex, colIndex) {
+          if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') throw new Error('invalid cell at row ' + rowIndex + ', column ' + colIndex + ': use string, finite number, boolean, or null');
+          if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('non-finite number at row ' + rowIndex + ', column ' + colIndex);
+          let text = value == null ? '' : String(value);
+          text = text.replace(/\r\n|\r|\n/g, '\r\n');
+          if (text.length > MAX_CELL) throw new Error('cell exceeds ' + MAX_CELL + ' characters at row ' + rowIndex + ', column ' + colIndex);
+          if (typeof value === 'string' && /^\s*[=+\-@\t\r]/.test(text)) text = "'" + text;
+          return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+        }
+        for (let i = 0; i < columns.length; i++) if (typeof columns[i] !== 'string' || columns[i].length > MAX_CELL) throw new Error('column ' + (i + 1) + ' must be a string of at most ' + MAX_CELL + ' characters');
+        const records = [];
+        let outputBytes = 0;
+        function addRecord(cells) {
+          const record = cells.join(',');
+          const bytes = Buffer.byteLength(record, 'utf8') + 2;
+          if (outputBytes + bytes > WRITE_BYTES) throw new Error('CSV file too large (' + (outputBytes + bytes) + ' > ' + WRITE_BYTES + ' bytes)');
+          records.push(record);
+          outputBytes += bytes;
+        }
+        addRecord(columns.map((v, i) => csvCell(v, 0, i + 1)));
+        for (let r = 0; r < rows.length; r++) {
+          if (!Array.isArray(rows[r]) || rows[r].length !== columns.length) throw new Error('row ' + (r + 1) + ' must contain exactly ' + columns.length + ' cells');
+          addRecord(rows[r].map((v, c) => csvCell(v, r + 1, c + 1)));
+        }
+        const data = Buffer.from(records.join('\r\n') + '\r\n', 'utf8');
+        const written = await writeTool.run({ path: args.path, content: data.toString('utf8') }, ctx);
+        return Object.assign({}, written, {
+          content: 'Structured CSV: ' + columns.length + ' columns, ' + rows.length + ' data rows. Formula-like strings were prefixed with an apostrophe; the writer did not evaluate formulas. CSV consumers may interpret the escape convention differently.\n' + written.content,
+          summary: 'wrote CSV ' + args.path + ' (' + kb(data.length) + ')'
+        });
+      }
+    };
+
+    // Simple typed XLSX table export. The generated ZIP contains only OOXML workbook/worksheet
+    // parts, and serializes every string as inlineStr so formula-looking text remains inert.
+    const writeXlsxTool = {
+      name: 'fs.write_xlsx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded simple XLSX table to the current project or private workspace. Supply column names and rows of cells (string, finite number, boolean, or null). Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows, 64 columns, 64000 total cells, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
+      schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
+        path: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
+        rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+      } },
+      run: async (args, ctx) => {
+        if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
+        if (!/\.xlsx$/i.test(args.path)) throw new Error('path must end in .xlsx');
+        const data = createXlsxTable(args.columns, args.rows, WRITE_BYTES);
+        const writeArgs = { path: args.path };
+        writeArgs[WRITE_BUFFER] = data;
+        const written = await writeTool.run(writeArgs, ctx);
+        return Object.assign({}, written, {
+          content: 'Structured XLSX: ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. Strings are inert inline text; no formulas were written.\n' + written.content,
+          summary: 'wrote XLSX ' + args.path + ' (' + kb(data.length) + ')'
+        });
+      }
+    };
+
+    const writeDocxTool = {
+      name: 'fs.write_docx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write a bounded editable plain Word report. Supply a title and up to 300 blocks of type heading, paragraph, or bullet, each with text. The document uses simple black Calibri title, heading and body styles with explicit page dimensions; line breaks and tabs are preserved. It does not preserve existing Word layouts or support tables, images, macros, external links, formulas, or embedded objects. Text is inert and XML-escaped. Uses the consent-gated verified filesystem write and returns a read-back byte receipt.',
+      schema: { type: 'object', required: ['path','title','blocks'], properties: {
+        path: { type:'string' }, title:{type:'string'}, blocks:{type:'array',maxItems:300,items:{type:'object',required:['type','text'],properties:{type:{enum:['heading','paragraph','bullet']},text:{type:'string'}}}}
+      } },
+      run: async (args,ctx) => {
+        if(!args||typeof args.path!=='string'||!args.path.trim())throw new Error('path must be a non-empty string');
+        if(!/\.docx$/i.test(args.path))throw new Error('path must end in .docx');
+        const data=createDocxReport({title:args.title,blocks:args.blocks},WRITE_BYTES);
+        const writeArgs={path:args.path}; writeArgs[WRITE_BUFFER]=data;
+        const written=await writeTool.run(writeArgs,ctx);
+        return Object.assign({},written,{content:'Structured DOCX report: '+args.blocks.length+' blocks. Text is editable plain Word content with basic paragraph styles only.\n'+written.content,summary:'wrote DOCX '+args.path+' ('+kb(data.length)+')'});
+      }
+    };
+
+    const profileCsvTool = {
+      name: 'fs.profile_csv', capability: 'cabinet', scope: 'read', readOnly: true, requiresConsent: false, timeoutMs: 30000,
+      description: 'Profile a workspace/project CSV without returning data rows. Streams at most maxBytes and maxRows, understands UTF-8 BOM, RFC-style doubled quotes and quoted newlines, and never evaluates formulas. Defaults are delimiter comma and hasHeader true; supply delimiter or hasHeader explicitly when the source uses different conventions. Result reports complete/partial/malformed status, source identity, per-column missing/type counts and finite numeric summaries.',
+      schema: { type:'object', required:['path'], properties: {
+        path:{type:'string'}, delimiter:{type:'string', enum:[',',';','\t','|']}, hasHeader:{type:'boolean'},
+        maxBytes:{type:'number', minimum:1024, maximum:16777216}, maxRows:{type:'number', minimum:1, maximum:100000}
+      } },
+      run: async (args, ctx) => {
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
+        const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        const maxBytes = args.maxBytes == null ? 8388608 : Math.floor(Number(args.maxBytes));
+        const maxRows = args.maxRows == null ? 100000 : Math.floor(Number(args.maxRows));
+        if (![',',';','\t','|'].includes(delimiter)) throw new Error('delimiter must be comma, semicolon, tab, or pipe');
+        if (typeof hasHeader !== 'boolean') throw new Error('hasHeader must be true or false');
+        if (!Number.isFinite(maxBytes) || maxBytes < 1024 || maxBytes > 16777216) throw new Error('maxBytes must be between 1024 and 16777216');
+        if (!Number.isFinite(maxRows) || maxRows < 1 || maxRows > 100000) throw new Error('maxRows must be between 1 and 100000');
+        const { abs } = await resolveInside(aid, args.path, { scope:'read', ctx });
+        let handle;
+        try {
+          handle = await fsp.open(abs, 'r');
+          const stat = await handle.stat();
+          const profiler = createCsvProfiler({ delimiter, hasHeader, maxRows, redact });
+          const decoder = new StringDecoder('utf8');
+          const hash = crypto.createHash('sha256');
+          const chunk = Buffer.alloc(64 * 1024);
+          let bytesRead = 0, eof = false, partial = false;
+          while (bytesRead < maxBytes && !profiler.stopped && !profiler.malformed) {
+            if (ctx && ctx.signal && ctx.signal.aborted) { const e = new Error('CSV profile cancelled'); e.name = 'AbortError'; throw e; }
+            const size = Math.min(chunk.length, maxBytes - bytesRead);
+            const r = await handle.read(chunk, 0, size, bytesRead);
+            if (!r.bytesRead) { eof = true; break; }
+            bytesRead += r.bytesRead;
+            const bytes = chunk.subarray(0, r.bytesRead);
+            hash.update(bytes);
+            profiler.push(decoder.write(bytes));
+          }
+          if (profiler.stopped) partial = true;
+          if (!partial && bytesRead === maxBytes) {
+            const probe = Buffer.alloc(1);
+            const look = await handle.read(probe, 0, 1, bytesRead);
+            partial = look.bytesRead > 0;
+            eof = !partial;
+          }
+          if (!partial && (eof || bytesRead < maxBytes)) profiler.push(decoder.end());
+          const finalStat = await handle.stat();
+          if (Number(finalStat.size) !== Number(stat.size) || Number(finalStat.mtimeMs) !== Number(stat.mtimeMs)) throw new Error('CSV source changed during profiling; retry against a stable file');
+          const result = profiler.finish(partial);
+          result.source = {
+            path: String(redact(String(args.path))), bytes: stat.size,
+            lastModified: stat.mtime.toISOString(), bytesRead,
+            sha256ReadPrefix: hash.digest('hex')
+          };
+          result.limits = { maxBytes, maxRows, maxColumns:256, maxCellChars:65536, byteLimitReached:bytesRead >= maxBytes, rowLimitReached:profiler.stopReason === 'row_limit' };
+          const content = JSON.stringify(result);
+          return { content, summary:'CSV profile ' + result.status + ': ' + result.rows.data + ' data row(s), ' + result.columns.length + ' column(s)' };
+        } catch (e) {
+          if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path))));
+          throw e;
+        } finally { if (handle) { try { await handle.close(); } catch (e) { failNote('fs.profile_csv.close', e); } } }
+      }
+    };
+    const readCsvRowsTool = {
+      name: 'fs.read_csv_rows', capability: 'cabinet', scope: 'read', readOnly: true, requiresConsent: false, timeoutMs: 30000,
+      description: 'Read a bounded page of CSV data rows for table analysis. Returns redacted string cells (formulas stay inert), explicit header/delimiter assumptions, and one-based source row numbers. Defaults to comma-delimited with a header. Offset is zero-based among data rows; scans at most offset + limit (100000 rows), reads at most 16 MiB, limits each parsed row to 65536 characters, and caps output at 256 KiB.',
+      schema: { type:'object', required:['path'], properties: {
+        path:{type:'string'}, delimiter:{type:'string', enum:[',',';','\t','|']}, hasHeader:{type:'boolean'},
+        offset:{type:'number', minimum:0, maximum:99900}, limit:{type:'number', minimum:1, maximum:100},
+        maxBytes:{type:'number', minimum:1024, maximum:16777216}
+      } },
+      run: async (args, ctx) => {
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
+        const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        const offset = args.offset == null ? 0 : Number(args.offset);
+        const limit = args.limit == null ? 20 : Number(args.limit);
+        const maxBytes = args.maxBytes == null ? 8388608 : Math.floor(Number(args.maxBytes));
+        const maxOutputBytes = 256 * 1024, maxOutputChars = 60000, metadataReserve = 4096;
+        if (![',',';','\t','|'].includes(delimiter)) throw new Error('delimiter must be comma, semicolon, tab, or pipe');
+        if (typeof hasHeader !== 'boolean') throw new Error('hasHeader must be true or false');
+        if (!Number.isSafeInteger(offset) || offset < 0 || offset > 99900) throw new Error('offset must be between 0 and 99900');
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('limit must be between 1 and 100');
+        if (offset + limit > 100000) throw new Error('offset plus limit must not exceed 100000 rows');
+        if (!Number.isFinite(maxBytes) || maxBytes < 1024 || maxBytes > 16777216) throw new Error('maxBytes must be between 1024 and 16777216');
+        if (String(args.path == null ? '' : args.path).length > 512) throw new Error('path must not exceed 512 characters');
+        const { abs } = await resolveInside(aid, args.path, { scope:'read', ctx });
+        const rows = [], rowOutputChars = [];
+        let retainedRowChars = 0, outputLimitReached = false;
+        function jsonStringChars(value, remaining) {
+          let n = 2;
+          for (let i = 0; i < value.length; i++) {
+            const c = value.charCodeAt(i);
+            if (c === 0x22 || c === 0x5c || c === 0x08 || c === 0x0c || c === 0x0a || c === 0x0d || c === 0x09) n += 2;
+            else if (c < 0x20 || (c >= 0xd800 && c <= 0xdfff && !(c <= 0xdbff && i + 1 < value.length && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff))) n += 6;
+            else if (c >= 0xd800 && c <= 0xdbff) { n += 2; i++; }
+            else n++;
+            if (n > remaining) return n;
+          }
+          return n;
+        }
+        const profiler = createCsvProfiler({ delimiter, hasHeader, maxRows:offset + limit, maxRowChars:65536, redact,
+          onRow: (rawRow, index) => {
+            if (index <= offset) return true;
+            const safeRow = rawRow.map(cell => String(redact(String(cell))));
+            let size = 2 + Math.max(0, safeRow.length - 1);
+            for (const cell of safeRow) {
+              size += jsonStringChars(cell, maxOutputChars - metadataReserve - retainedRowChars - size);
+              if (size + retainedRowChars + metadataReserve > maxOutputChars) { outputLimitReached = true; return false; }
+            }
+            rows.push(safeRow); rowOutputChars.push(size); retainedRowChars += size;
+            return true;
+          }
+        });
+        let handle;
+        try {
+          handle = await fsp.open(abs, 'r');
+          const stat = await handle.stat(), decoder = new StringDecoder('utf8'), hash = crypto.createHash('sha256');
+          const chunk = Buffer.alloc(64 * 1024);
+          let bytesRead = 0, eof = false, partial = false;
+          while (bytesRead < maxBytes && !profiler.stopped && !profiler.malformed) {
+            if (ctx && ctx.signal && ctx.signal.aborted) { const e = new Error('CSV row read cancelled'); e.name = 'AbortError'; throw e; }
+            const size = Math.min(chunk.length, maxBytes - bytesRead), read = await handle.read(chunk, 0, size, bytesRead);
+            if (!read.bytesRead) { eof = true; break; }
+            bytesRead += read.bytesRead;
+            const bytes = chunk.subarray(0, read.bytesRead);
+            hash.update(bytes); profiler.push(decoder.write(bytes));
+          }
+          if (profiler.stopped) partial = true;
+          if (!partial && bytesRead === maxBytes) {
+            const probe = Buffer.alloc(1), look = await handle.read(probe, 0, 1, bytesRead);
+            partial = look.bytesRead > 0; eof = !partial;
+          }
+          if (!partial && (eof || bytesRead < maxBytes)) profiler.push(decoder.end());
+          const finalStat = await handle.stat();
+          if (Number(finalStat.size) !== Number(stat.size) || Number(finalStat.mtimeMs) !== Number(stat.mtimeMs)) throw new Error('CSV source changed during row read; retry against a stable file');
+          const profile = profiler.finish(partial), headers = profile.header || profile.columns.map(c => c.name);
+          let headerChars = 2 + Math.max(0, headers.length - 1);
+          for (const h of headers) headerChars += jsonStringChars(String(h), maxOutputChars);
+          if (headerChars + metadataReserve > maxOutputChars) throw new Error('CSV headers are too large to return safely; use fs.profile_csv for a bounded summary');
+          let estimated = headerChars + metadataReserve + retainedRowChars;
+          while (rows.length && estimated > maxOutputChars) { estimated -= rowOutputChars.pop(); rows.pop(); outputLimitReached = true; }
+          const result = {
+            status:profile.partial || outputLimitReached ? 'partial' : 'complete',
+            partial:profile.partial || outputLimitReached,
+            partialReason:outputLimitReached ? 'output_limit' : profile.partialReason,
+            assumptions:profile.assumptions, headers, offset, limit, rows,
+            rowsScanned:profile.rows.data,
+            returnedRange:rows.length ? { start:offset + 1, end:offset + rows.length } : null,
+            source:{ path:String(redact(String(args.path))).slice(0,512), bytes:stat.size, lastModified:stat.mtime.toISOString(), bytesRead, sha256ReadPrefix:hash.digest('hex') },
+            limits:{ maxBytes, maxRows:100000, maxRowChars:65536, maxColumns:256, maxCellChars:65536, maxOutputBytes, outputCharsEstimate:estimated, byteLimitReached:bytesRead >= maxBytes, rowLimitReached:profiler.stopReason === 'row_limit', outputLimitReached, rowSizeLimitReached:profiler.stopReason === 'row_size_limit' }
+          };
+          const content = JSON.stringify(result);
+          if (content.length > maxOutputChars || Buffer.byteLength(content, 'utf8') > maxOutputBytes) throw new Error('CSV response exceeds the safe output limit');
+          return { content, summary:'CSV rows ' + result.status + ': returned ' + rows.length + ' row(s) from offset ' + offset + ' (redacted)' };
+        } catch (e) {
+          if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0,512)));
+          throw e;
+        } finally { if (handle) { try { await handle.close(); } catch (e) { failNote('fs.read_csv_rows.close', e); } } }
+      }
+    };
+    const tableOperationTool = {
+      name:'fs.table_operation', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false,
+      description:'Apply either one backward-compatible operation or an ordered pipeline of 1-8 operations directly to a jailed CSV, read once. Each step consumes the prior output. Filter: eq/neq/contains/gt/gte/lt/lte; sort: text/numeric asc/desc; group: count/sum/mean/min/max. A group after a reducing filter summarizes only that filtered subset; output reports original sourceRows, final resultRows, resultScope, and per-step input/output counts. Filter/sort trim cell whitespace; grouping keys use exact cell contents. Numeric parsing uses finite IEEE-754 binary64 and can round. Missing aggregates are ignored; redacted cells refuse the call. Complete-source bounds: 16 MiB, 1000 rows, 256 columns, 65536 characters per cell/row, and 256 KiB output. Source is not modified.',
+      schema:{type:'object',required:['path'],anyOf:[{required:['operation']},{required:['operations']}],properties:{
+        path:{type:'string',maxLength:512},delimiter:{type:'string',enum:[',',';','\t','|']},hasHeader:{type:'boolean'},
+        operation:{type:'object',description:'One operation; mutually exclusive with operations.',anyOf:[
+          {type:'object',required:['type','column','operator','value'],properties:{type:{type:'string',enum:['filter']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},operator:{type:'string',enum:['eq','neq','contains','gt','gte','lt','lte']},value:{type:'string',maxLength:65536}}},
+          {type:'object',required:['type','column','mode','direction'],properties:{type:{type:'string',enum:['sort']},column:{type:'string',maxLength:160,description:'Exact unique CSV header.'},mode:{type:'string',enum:['text','numeric']},direction:{type:'string',enum:['asc','desc']}}},
+          {type:'object',required:['type','by','aggregate'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['count'],description:'Count rows in each group. Omit column.'}}},
+          {type:'object',required:['type','by','aggregate','column'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160,description:'Exact unique grouping header.'},aggregate:{type:'string',enum:['sum','mean','min','max']},column:{type:'string',maxLength:160,description:'Numeric source header; missing cells are ignored.'}}}
+        ]},
+        operations:{type:'array',minItems:1,maxItems:8,description:'Ordered pipeline. Each step sees the prior step output; a group after filtering summarizes only that filtered subset.',items:{type:'object',anyOf:[
+          {type:'object',required:['type','column','operator','value'],properties:{type:{type:'string',enum:['filter']},column:{type:'string',maxLength:160},operator:{type:'string',enum:['eq','neq','contains','gt','gte','lt','lte']},value:{type:'string',maxLength:65536}}},
+          {type:'object',required:['type','column','mode','direction'],properties:{type:{type:'string',enum:['sort']},column:{type:'string',maxLength:160},mode:{type:'string',enum:['text','numeric']},direction:{type:'string',enum:['asc','desc']}}},
+          {type:'object',required:['type','by','aggregate'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160},aggregate:{type:'string',enum:['count']}}},
+          {type:'object',required:['type','by','aggregate','column'],properties:{type:{type:'string',enum:['group']},by:{type:'string',maxLength:160},aggregate:{type:'string',enum:['sum','mean','min','max']},column:{type:'string',maxLength:160}}}
+        ]}}
+      }},
+      run: async (args, ctx) => {
+        const aid = (ctx && ctx.agentId) || 'agent';
+        const delimiter = args.delimiter == null ? ',' : String(args.delimiter);
+        const hasHeader = args.hasHeader == null ? true : args.hasHeader;
+        const hasSingle = Object.prototype.hasOwnProperty.call(args, 'operation');
+        const hasPipeline = Object.prototype.hasOwnProperty.call(args, 'operations');
+        if (hasSingle === hasPipeline) throw new Error('supply exactly one of operation or operations');
+        const operations = hasSingle ? [args.operation] : args.operations;
+        if (!Array.isArray(operations) || operations.length < 1 || operations.length > 8) throw new Error('operations must contain 1 to 8 steps');
+        if (![',', ';', '\t', '|'].includes(delimiter) || typeof hasHeader !== 'boolean') throw new Error('invalid CSV delimiter or header setting');
+        if (typeof args.path !== 'string' || !args.path.trim() || args.path.length > 512) throw new Error('path must be 1-512 characters');
+        const { abs } = await resolveInside(aid, args.path, { scope: 'read', ctx });
+        let handle;
+        try {
+          handle = await fsp.open(abs, 'r');
+          const stat = await handle.stat();
+          if (!stat.isFile()) throw new Error('source must be a regular file');
+          if (stat.size > 16 * 1024 * 1024) throw new Error('CSV table operation refused source above 16 MiB');
+          const tableRows = [], rawHeaders = [];
+          const hash = crypto.createHash('sha256');
+          const redactCell = value => {
+            const safe = String(redact(String(value)));
+            if (safe !== String(value)) throw new Error('CSV table operation refused credential-pattern-redacted input');
+            return safe;
+          };
+          const profiler = createCsvProfiler({
+            delimiter, hasHeader, maxRows: 1001, maxRowChars: 65536, redact,
+            onHeader: row => rawHeaders.push(...row.map(redactCell)),
+            onRow: row => { tableRows.push(row.map(redactCell)); return true; }
+          });
+          const decoder = new StringDecoder('utf8'), chunk = Buffer.alloc(64 * 1024);
+          let bytesRead = 0, eof = false;
+          while (bytesRead < 16 * 1024 * 1024 && !profiler.stopped && !profiler.malformed) {
+            if (ctx && ctx.signal && ctx.signal.aborted) { const e = new Error('CSV table operation cancelled'); e.name = 'AbortError'; throw e; }
+            const read = await handle.read(chunk, 0, Math.min(chunk.length, 16 * 1024 * 1024 - bytesRead), bytesRead);
+            if (!read.bytesRead) { eof = true; break; }
+            bytesRead += read.bytesRead;
+            const bytes = chunk.subarray(0, read.bytesRead);
+            hash.update(bytes);
+            profiler.push(decoder.write(bytes));
+          }
+          if (profiler.stopped) throw new Error('CSV table operation refused input above 1000 data rows or parser bounds');
+          if (bytesRead === 16 * 1024 * 1024) {
+            const probe = Buffer.alloc(1);
+            if ((await handle.read(probe, 0, 1, bytesRead)).bytesRead) throw new Error('CSV table operation refused source above 16 MiB');
+            eof = true;
+          }
+          if (eof || bytesRead < 16 * 1024 * 1024) profiler.push(decoder.end());
+          const finalStat = await handle.stat();
+          if (Number(finalStat.size) !== Number(stat.size) || Number(finalStat.mtimeMs) !== Number(stat.mtimeMs)) throw new Error('CSV source changed during table operation; retry against a stable file');
+          const profile = profiler.finish(false);
+          if (profile.partial || profile.rows.rowWidthMismatches) throw new Error('CSV table operation requires complete, well-formed rows');
+          if (bytesRead !== Number(stat.size)) throw new Error('CSV source changed during table operation; retry against a stable file');
+          const headers = hasHeader ? rawHeaders.map((value, index) => value.trim() || 'column_' + (index + 1)) : profile.columns.map(column => column.name);
+          if (headers.some(header => header.length > 160)) throw new Error('CSV table operation refused headers longer than 160 characters');
+          const result = runTablePipeline(headers, tableRows, operations);
+          result.numericSemantics = 'Finite IEEE-754 binary64; decimal aggregate results are approximate and integers outside the safe range may be rounded.';
+          result.source = { path: String(redact(args.path)).slice(0, 512), bytes: stat.size, lastModified: stat.mtime.toISOString(), rows: tableRows.length, sha256: hash.digest('hex') };
+          const content = JSON.stringify(result);
+          if (Buffer.byteLength(content, 'utf8') > 256 * 1024) throw new Error('CSV table result exceeds the 256 KiB response limit');
+          return { content, summary: 'Table operation pipeline (' + result.steps.map(step => step.type).join(' → ') + '): ' + result.rows.length + ' row(s)' };
+        } catch (e) {
+          if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0, 512)));
+          throw e;
+        } finally {
+          if (handle) { try { await handle.close(); } catch (e) { failNote('fs.table_operation.close', e); } }
+        }
+      }
+    };
+    const XLSX_MAX_BYTES = 16 * 1024 * 1024, XLSX_MAX_OUTPUT = 60000;
+    async function loadXlsx(args, ctx) {
+      if (!docExtract || typeof docExtract.xlsxSheets !== 'function' || typeof docExtract.xlsxRange !== 'function') throw new Error('XLSX sheet tools are unavailable');
+      const aid = (ctx && ctx.agentId) || 'agent';
+      if (String(args.path || '').length > 512) throw new Error('path must not exceed 512 characters');
+      const { abs } = await resolveInside(aid, args.path, { scope:'read', ctx });
+      let handle;
+      try {
+        handle=await fsp.open(abs,'r');
+        const before=await handle.stat();
+        if (!before.isFile()) throw new Error('source must be a regular file');
+        if (before.size > XLSX_MAX_BYTES) throw new Error('XLSX source exceeds the 16777216-byte archive limit');
+        const buf=Buffer.alloc(XLSX_MAX_BYTES+1);
+        let bytesRead=0;
+        while(bytesRead<buf.length){const read=await handle.read(buf,bytesRead,buf.length-bytesRead,bytesRead);if(!read.bytesRead)break;bytesRead+=read.bytesRead;}
+        if (bytesRead > XLSX_MAX_BYTES) throw new Error('XLSX source exceeds the 16777216-byte archive limit');
+        const after=await handle.stat();
+        if (Number(after.size)!==Number(before.size)||Number(after.mtimeMs)!==Number(before.mtimeMs)||bytesRead!==Number(before.size)) throw new Error('XLSX source changed during read; retry against a stable file');
+        const raw=buf.subarray(0,bytesRead), kind=docExtract.sniff(args.path,raw);
+        if (kind !== 'xlsx') throw new Error('source is not a ZIP-based .xlsx workbook');
+        return { raw, source:{ path:String(redact(String(args.path))).slice(0,512), bytes:before.size, lastModified:before.mtime.toISOString(), sha256:sha256(raw) } };
+      } catch(e) {
+        if (e && e.code === 'ENOENT') throw new Error('no such file: ' + String(redact(String(args.path)).slice(0,512)));
+        throw e;
+      } finally { if(handle){try{await handle.close();}catch(e){failNote('fs.xlsx.close',e);}} }
+    }
+    const xlsxSheetsTool = {
+      name:'fs.xlsx_sheets', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
+      description:'List worksheet metadata in pages of up to 100 (offset 0..9900, total access cap 10000). Returned names, IDs and states are redacted and clipped; use the stable zero-based sheetIndex for fs.read_xlsx_range. Reads at most a 16 MiB archive and expands no single ZIP entry beyond 16 MiB. No values, recalc, edit or freshness refresh.',
+      schema:{type:'object',required:['path'],properties:{path:{type:'string'},offset:{type:'number',minimum:0,maximum:9900},limit:{type:'number',minimum:1,maximum:100}}},
+      run:async(args,ctx)=>{
+        const loaded=await loadXlsx(args,ctx), all=docExtract.xlsxSheets(loaded.raw), total=all.length;
+        const offset=args.offset==null?0:Number(args.offset),limit=args.limit==null?100:Number(args.limit);
+        if(!Number.isSafeInteger(offset)||offset<0||offset>9900||!Number.isSafeInteger(limit)||limit<1||limit>100) throw new Error('sheet metadata offset must be 0..9900 and limit 1..100');
+        const page=all.slice(offset,offset+limit);
+        const sheets=page.map(s=>{const name=String(redact(String(s.name))),sheetId=String(redact(String(s.sheetId))),state=String(redact(String(s.state)));return {sheetIndex:s.index,name:name.slice(0,256),nameTruncated:name.length>256,sheetId:sheetId.slice(0,128),sheetIdTruncated:sheetId.length>128,state:state.slice(0,128),stateTruncated:state.length>128,available:s.available};});
+        const status=offset>0||offset+sheets.length<total?'partial':'complete';
+        const result={source:loaded.source,sheets,totalSheets:total,offset,limit,status,...(status==='partial'?{omitted:{reason:'sheet_metadata_page',before:offset?{start:0,end:offset-1}:null,after:offset+sheets.length<total?{start:offset+sheets.length,end:total-1}:null}}:{}),limits:{maxArchiveBytes:XLSX_MAX_BYTES,maxExpandedEntryBytes:XLSX_MAX_BYTES,maxSheets:10000,maxReturnedSheets:100,maxMetadataChars:60000},coverage:'worksheet names and metadata only'};
+        result.source.path=String(redact(result.source.path)).slice(0,512); result.source.lastModified=String(redact(result.source.lastModified)).slice(0,128);
+        let content=JSON.stringify(result);
+        if(content.length>60000) throw new Error('redacted worksheet metadata exceeds the safe response limit');
+        return {content,summary:'XLSX workbook: '+total+' sheet(s), '+sheets.length+' metadata row(s)'};
+      }
+    };
+    const xlsxRangeTool = {
+      name:'fs.read_xlsx_range', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
+      description:'Read a bounded rectangular page by stable zero-based sheetIndex from fs.xlsx_sheets. Returns every requested coordinate, null for cells absent from XML, explicit cell types and formulas as inert text. Stored formula caches may be stale. Numeric/date values remain raw. Maximum 100 rows, 64 columns, 16 MiB archive, 16 MiB expanded per ZIP entry and 60000 response characters. No recalculation, editing, chart or layout interpretation.',
+      schema:{type:'object',required:['path','sheetIndex','startRow','rowCount','startCol','colCount'],properties:{path:{type:'string'},sheetIndex:{type:'number',minimum:0},startRow:{type:'number',minimum:1,maximum:1048576},rowCount:{type:'number',minimum:1,maximum:100},startCol:{type:'number',minimum:1,maximum:16384},colCount:{type:'number',minimum:1,maximum:64}}},
+      run:async(args,ctx)=>{
+        const loaded=await loadXlsx(args,ctx), result=docExtract.xlsxRange(loaded.raw,args);
+        for (const row of result.rows) for (const cell of row.cells) {
+          if (cell.value != null) { const raw=String(cell.value),safe=String(redact(raw)); if(cell.valueType==='boolean'&&safe===raw){} else {cell.value=safe;if(safe!==raw)cell.valueType='redacted';} }
+          if (cell.formula != null) cell.formula=String(redact(String(cell.formula)));
+        }
+        const safeSheet=String(redact(String(result.sheet))); result.sheet=safeSheet.slice(0,256); result.sheetNameTruncated=safeSheet.length>256; result.source=loaded.source;
+        result.source.path=String(redact(result.source.path)).slice(0,512); result.source.lastModified=String(redact(result.source.lastModified)).slice(0,128);
+        result.limits={maxArchiveBytes:XLSX_MAX_BYTES,maxExpandedEntryBytes:XLSX_MAX_BYTES,maxRows:100,maxColumns:64,maxOutputChars:XLSX_MAX_OUTPUT};
+        let content=JSON.stringify(result), outputTruncated=false;
+        if (content.length>XLSX_MAX_OUTPUT) { result.rows=[]; result.omitted={reason:'output_limit',range:result.range,message:'Requested range did not fit the safe response. No cell values are included; request fewer rows or columns.'}; result.status='partial'; content=JSON.stringify(result); outputTruncated=true; }
+        if (content.length>XLSX_MAX_OUTPUT) throw new Error('XLSX response metadata exceeds the safe output limit');
+        return {content:JSON.stringify(result),summary:'XLSX range '+result.sheet+'!'+result.range.startRow+':'+result.range.endRow+(outputTruncated?' (partial: output limit)':'')};
+      }
+    };
     const readTool = {
       name: 'fs.read', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 10000,
       description: 'Read a file from the current project folder when this session is project-scoped, otherwise from your private workspace. Text files come back as text; for large text use offset and limit to page character ranges without rerunning the command that produced the file. Word (.docx), Excel (.xlsx) and Jupyter (.ipynb) files are extracted to readable text automatically; PNG/JPEG/GIF/WEBP images are shown to you as actual pixels so you can look at them directly.',
@@ -856,9 +1334,9 @@
     };
 
     return {
-      writeTool, readTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, readTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

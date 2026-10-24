@@ -22,7 +22,7 @@
   // Real skill distillation is owned by the background skill review (skillreview.js): it gates on substantial
   // tool work and writes actual skill documents. KIND_LABEL keeps 'note'/'skill' for legacy KEPT records.
   const KIND = { FACT: 'fact', PREFERENCE: 'profile', PROFILE: 'profile' };
-  const KIND_LABEL = { fact: 'Fact', skill: 'Skill', profile: 'Preference', note: 'Note' };
+  const KIND_LABEL = { fact: 'Fact', skill: 'Skill', profile: 'Preference', note: 'Note', lesson:'Lesson' };
   const MAX_CONTENT = 280;        // a memory is a short durable belief, not a transcript
   const MIN_CONTENT = 8;          // below this it isn't a durable belief — a value floor against trivia
   const MIN_TOKENS = 2;           // a belief needs at least this many significant (non-stopword) words

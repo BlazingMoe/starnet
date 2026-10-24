@@ -88,9 +88,18 @@
     // M5: object = capability made real — placing these grants the agent real-world reach.
     cabinet: [
       { capId: 'cabinet', tool: 'fs.read', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.profile_csv', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.read_csv_rows', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.table_operation', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.xlsx_sheets', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.read_xlsx_range', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.write', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_csv', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_xlsx', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_docx', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_dossier_sources', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.append', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.edit', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.patch', scope: 'write', requiresConsent: true, network: false }

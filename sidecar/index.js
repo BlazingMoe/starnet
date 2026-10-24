@@ -56,6 +56,7 @@ const docExtract = require('./tools/builtin/docextract.js').makeDocExtract({ inf
 // image, so the `images` channel has more than a single caller (a channel with one caller is a special case).
 const imageWire = require('./tools/builtin/imagewire.js').makeImageWire({});
 const { makeNotebookTools } = require('./tools/builtin/notebook.js');
+const { makeDecisionTools, readDecisionRows, lessonSourceKey } = require('./tools/builtin/decisions.js');
 const { makeRecallTool } = require('./tools/builtin/recall.js');
 const { makeToolSearchTool } = require('./tools/builtin/toolsearch.js');   // tool.search: reach a granted-but-unadvertised (deferred) tool
 const CodeMode = require('./tools/builtin/code.js');                      // code.run: bounded JS composition over this run's read-only grants
@@ -72,6 +73,7 @@ const spotifyPkce = require('./spotify/pkce.js');                          // pu
 const { makeSaveStore } = require('./savestore.js');
 const { mergeNotes } = require('./notebookrestore.js');
 const { makeRunStore } = require('./runstore.js');
+const { parseRunRequestLimits, tightenRunLimits } = require('./run-request-limits.js');
 const { makeGrowthRatings, deriveRating: deriveGrowthRating } = require('./growthratings.js');
 const { makeAutonomyLedger } = require('./autonomy-ledger.js');   // NS-0: durable append-only ledger of autonomy decisions
 const { makeArtifactCollector } = require('./artifacts.js');   // work-visibility: per-run "what did it produce" ledger
@@ -81,7 +83,7 @@ const { recoverToolResult } = require('./tool-recovery.js'); // bounded retry fo
 const transcriptStoreModule = require('./transcriptstore.js');
 const { makeTranscriptStore } = transcriptStoreModule;
 const TRANSCRIPT_PERSISTED = transcriptStoreModule._internals && transcriptStoreModule._internals.PERSISTED;
-const { makeRunJournal, DISPATCH_BOUNDARY_MODEL } = require('./run-journal.js');
+const { makeRunJournal, selectSourceReceipts, DISPATCH_BOUNDARY_MODEL } = require('./run-journal.js');
 const { makeAffinityIndex } = require('./agent-affinity.js');   // idle-life social graph: which agents the run log proves work together
 const RunRecovery = require('./run-recovery.js');
 const { makeSegmentedTranscriptIo } = require('./transcript-history.js');
@@ -90,6 +92,7 @@ const { makeCredPool } = require('./credpool.js');
 const { resolveTools } = require('./capability/resolve.js');
 const { CAP_REGISTRY } = require('./capability/registry.js');
 const { toolsetRows, toggleableCaps } = require('./capability/toolsets.js');   // TOOLSETS console: capId families derived from CAP_REGISTRY
+const routineToolsets = require('./routine-toolsets.js');
 const { makeCapCtx } = require('./capability/capGate.js');
 const { composeOffice, stationWithObject, stationWithConnectors } = require('./capability/office.js');   // THE MOAT: interactive office = compute freebie + placed caps
 const { summarizeCapabilities } = require('./capability/capsummary.js');   // truthful "what you can/can't do" so the agent stops over-promising
@@ -178,6 +181,7 @@ const { makeRouter } = require('./routing/router.js');
 const { makeChainRunner, effectiveLimits: chainEffectiveLimits } = require('./routing/chain.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const { makeConnectorManager } = require('./mcp/manager.js');
+const PrSweepPolicy = require('./mcp/pr-sweep-policy.js');
 const { makeHttpTransport } = require('./mcp/transport.http.js');
 const googleApiTransport = require('./mcp/transport.google.js');
 const googleClientConfig = require('./mcp/google-client.js');
@@ -295,6 +299,15 @@ const { foldInsights } = require('./insights.js');                  // H3.3: usa
 const { makeVerifyTool } = require('./tools/builtin/verify.js');    // the workbench verify.run check-runner
 const { makeLspManager } = require('./lsp-manager.js');             // lazy installed-language-server edit diagnostics
 const { makeOrchestrationTools } = require('./tools/builtin/orchestration.js');   // Stage 2: team.dispatch (lead->worker delegation)
+const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');   // Moe AI Station: durable managed-delegation telemetry
+const { makeManagedRecoveryLifecycleHook } = require('./orchestration/managed-recovery-lifecycle.js');   // Moe AI Station: bounded restart-safe managed-task recovery
+const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
+const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
+const { makeDecisionHistoryHttp } = require('./control/decision-history-http.js');   // selected-agent Memory Core history reader
+const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
+const { makeProviderControlHttp } = require('./control/provider-http.js');   // Moe AI Station: read-only registry + observed quota evidence
+const { makeApprovalControlHttp } = require('./control/approval-http.js');   // Moe AI Station: read-only permission/approval overview
+const { makeActionControlHttp } = require('./control/action-http.js');   // Moe AI Station: read-only durable action trace
 const { makeStationTools } = require('./tools/builtin/station.js');               // session verbs (list/create/focus) over the station bridge
 const { makeRoutineTools } = require('./tools/builtin/routines.js'); // ROUTINES: agent-created StarNet cron jobs
 const { makeLoopTools } = require('./tools/builtin/loops.js');       // LOOPS: model-facing durable standing-objective controls
@@ -310,9 +323,14 @@ const { makeNativeStt } = require('./native-stt.js');                // keyless 
 const Classify = require('../frontend/app/classify.js');   // the SAME task-vs-talk classifier the browser uses
 const Pipeline = require('../frontend/app/pipeline.js');   // the ONE routing-plan compiler/resolver (router.js loads the same module) — used here for a side-effect-free dispatch peek
 const sharedSpecialties = require('../shared/specialties.js');   // Class Loadouts S1: the ONE class catalog — no hardcoded class prose here
-// the specialist classes as {id, tagline}, composed from the shared catalog so team.summon's class list +
-// the [ORCHESTRATION] teamNote never drift from the Recruitment Bay (single source of truth).
-const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({ id: s.id, tagline: s.tagline || '' }));
+const sharedOrgSpecialties = require('../shared/org-specialties.js');   // Moe AI Station: organizational metadata for those same real classes
+// the specialist classes as {id, tagline,orgRole}, composed from the shared catalogs so team.summon's class list +
+// the Recruitment Bay and Control Mode never drift. orgRole remains metadata/policy, never a capability grant.
+const SPECIALIST_CLASSES = (sharedSpecialties.BUILTINS || []).map(s => ({
+  id: s.id,
+  tagline: s.tagline || '',
+  orgRole: sharedOrgSpecialties.roleForSpecialty(s.id)
+}));
 
 // ---- Skynet→StarNet env back-compat ------------------------------------------------------------
 // The project was renamed Skynet → StarNet; its env vars moved SKYNET_* → STARNET_*. ENV() reads the
@@ -630,6 +648,13 @@ const MAX_TOOL_BYTES_PINNED = knobEnvLocked('MAX_TOOL_BYTES');
 // num() passes a parsed value through (including 0 -> UNGOVERNED via budget.js capOf, e.g. SKYNET_BUDGET_PER_DAY=0
 // disables the day pool); only an empty/missing/negative/non-numeric value falls back to the default.
 const num = (v, d) => { if (v == null || String(v).trim() === '') return d; const n = Number(v); return (typeof n === 'number' && !isNaN(n) && n >= 0) ? n : d; };
+// Bounded JSONL readers are used during store construction below, so the ceiling must be
+// initialized before any store calls readBoundedJsonl() at boot.
+const LOG_MAX_BYTES = Math.max(1 << 20, num(ENV('LOG_MAX_BYTES'), 16 * 1024 * 1024));
+const managedTaskHistoryHost = makeTaskHistoryHost({
+  path, fs, workspaces: WORKSPACES, readBoundedJsonl, appendJsonlDurable, failNote, respondJson,
+  clock: { now: () => Date.now() }
+});
 // Users may opt into any cap in SETTINGS → BUDGET (0/blank = no cap); environment variables
 // still override for locked-down deploys. Unmetered subscription runs remain ungoverned.
 const BUDGET_CAPS = {
@@ -644,6 +669,8 @@ const MAX_CONCURRENT_AGENTS = resolveKnob('MAX_CONCURRENT_AGENTS', 'maxConcurren
 const ORCH_PER_WORKER = num(ENV('BUDGET_PER_WORKER'), 0);
 // Optional per-worker tool-turn ceiling. 0 inherits the unlimited station policy.
 const ORCH_WORKER_MAX_ITERS = num(ENV('WORKER_MAX_ITERS'), 0);
+// Managed-task crash recovery is an explicit operator policy. Off by default until enabled for this station.
+const MANAGED_RECOVERY_ENABLED = /^(1|true|yes|on)$/i.test(String(ENV('MANAGED_RECOVERY') || '').trim());
 // ---- MANAGED CREDITS (opt-in, config-gated). The whole managed-credit path is INERT unless STARNET_CREDITS_URL
 // points at a credits backend: no payment client is built, admission stays pure BYOK, no STORE UI renders, and
 // /api/credits 404s (the honesty law — a control that does nothing is a bug). When wired, a managed account can
@@ -880,7 +907,6 @@ function reportDomainStoreIssue(tag) {
    insights bucket the last 24 h), so this is behavior-neutral in practice; the one residual — a global
    ledger total can under-count only past ~2×LOG_MAX_BYTES of lifetime spend, which is far beyond any
    default cap — is documented in docs/PERSISTENCE_HARDENING.md. Env-overridable. */
-const LOG_MAX_BYTES = Math.max(1 << 20, num(ENV('LOG_MAX_BYTES'), 16 * 1024 * 1024));
 function readBoundedJsonl(file) {
   return loadBounded({ fs: fs }, file, LOG_MAX_BYTES)
     .map(l => { try { return JSON.parse(l); } catch (_) { return null; } }).filter(Boolean);
@@ -1460,12 +1486,16 @@ function replaceAgentRoster(list) {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) continue;
     if (a && typeof a === 'object') agentRosterRaw.set(id, a);   // stash the raw record so unknown fields survive re-save
     const approvalMode = ((a && a.approvalMode) === 'full') ? 'full' : 'ask';
+    const orgRoleId = String((a && a.orgRole) || '').trim().toLowerCase();
+    const parentAgentId = String((a && a.parentAgentId) || '').trim();
     agentRoster.set(id, {
       system: String((a && a.system) || ''),
       name: String((a && a.name) || id).slice(0, 40),
       model: (a && a.model) ? String(a.model) : null,
       provider: normalizeProviderId((a && a.provider) || ''),
       role: String((a && a.role) || '').slice(0, 120),
+      orgRole: ['commander', 'manager', 'specialist', 'worker'].includes(orgRoleId) ? orgRoleId : null,
+      parentAgentId: /^[A-Za-z0-9_-]{1,40}$/.test(parentAgentId) ? parentAgentId : null,
       approvalMode: approvalMode,   // per-agent consent posture: 'full' bypasses the gate (see runOnce)
       executionProfile: executionProfiles.normalizeId(a && a.executionProfile, {
         approvalMode,
@@ -1497,7 +1527,7 @@ function loadAgentRoster() {
 // P1.1: the fields saveAgentRoster() rebuilds from the live Map — the KNOWN shape. Preserved unknown fields (any
 // key a newer frontend added that this sidecar doesn't model) are spread UNDER these on save, so they survive a
 // re-save by older code rather than being dropped. agentId is always rebuilt (identity), never preserved raw.
-const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
+const ROSTER_KNOWN_FIELDS = ['agentId', 'system', 'name', 'model', 'provider', 'role', 'orgRole', 'parentAgentId', 'approvalMode', 'executionProfile', 'skills', 'reasoningEffort', 'track'];
 // saveAgentRoster(updatedAt?) — persist the live roster. The optional updatedAt is the CLIENT's freshness stamp
 // (from POST /api/roster body.updatedAt); handleRoster passes it after its anti-clobber gate accepts a push, so the
 // stored envelope records the exact stamp we accepted (a later push older than it is refused). Server-internal
@@ -1507,7 +1537,7 @@ function saveAgentRoster(updatedAt) {
   try {
     fs.mkdirSync(WORKSPACES, { recursive: true });
     const agents = [...agentRoster].map(([agentId, a]) => {
-      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
+      const known = { agentId, system: a.system || '', name: a.name || agentId, model: a.model || null, provider: a.provider || null, role: a.role || '', orgRole: a.orgRole || null, parentAgentId: a.parentAgentId || null, approvalMode: (a.approvalMode === 'full') ? 'full' : 'ask', executionProfile: executionProfiles.normalizeId(a.executionProfile, { approvalMode: a.approvalMode, backendId: executionEnvironment && executionEnvironment.backendId }), skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null, track: a.track || '' };   // S3: track = the earned track-record line (see replaceAgentRoster)   // Class Loadouts S1: per-agent package + execution envelope persist beside approval posture.
       // P1.1: forward-compat field preservation — carry any UNKNOWN keys from the last-seen raw record under the
       // known ones, so a field a newer frontend added isn't silently eaten when older sidecar code re-saves.
       const rawRec = agentRosterRaw.get(agentId);
@@ -1539,7 +1569,7 @@ function persistAgentFullAccess(agentId) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return false;
   const had = agentRoster.has(id);
   const previous = agentRoster.get(id);
-  const base = previous || { system: '', name: id, model: null, provider: null, role: '', approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
+  const base = previous || { system: '', name: id, model: null, provider: null, role: '', orgRole: null, parentAgentId: null, approvalMode: 'ask', executionProfile: 'station-gear', skills: [], reasoningEffort: null, track: '' };
   agentRoster.set(id, Object.assign({}, base, { approvalMode: 'full' }));
   if (saveAgentRoster()) return true;
   if (had) agentRoster.set(id, previous); else agentRoster.delete(id);
@@ -2328,6 +2358,32 @@ function stashProposals(agentId, runId, proposals) {
   proposalsByRun.set(runId, { agentId, runId, createdAt: Date.now(), proposals });
   latestProposalRun.set(agentId, runId);
   while (proposalsByRun.size > PROPOSALS_CAP) { const k = proposalsByRun.keys().next().value; proposalsByRun.delete(k); }
+}
+// Decision-outcome lessons enter the existing durable Keep/Discard queue. A source-pair hash gives a stable
+// review key across retries; the content and source labels are copied only from the verified per-agent outcome.
+async function queueDecisionLessonCandidate(input) {
+  const sourceKey = lessonSourceKey(input.agentId, input.decisionId, input.outcomeEventId);
+  const digest = crypto.createHash('sha256').update(sourceKey).digest('hex').slice(0, 24);
+  const runId = 'decisionlesson_' + digest;
+  const id = 'lesson_' + digest;
+  const prop = {
+    id, kind:'lesson', proposalType:'decision-lesson', content:String(input.lesson), scope:'global', origin:'decision-outcome',
+    sourceDecisionId:String(input.decisionId), sourceOutcomeEventId:String(input.outcomeEventId),
+    sourceDecision:String(input.sourceDecision), sourceOutcome:String(input.sourceOutcome),
+    evidenceRefs:Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 24) : [], uncertainty:String(input.uncertainty || 'unknown')
+  };
+  const pending = MemoryStore.findPending(notebookStore, input.agentId, runId, id);
+  if (!pending) {
+    const added = await MemoryStore.appendPending(notebookStore, input.agentId, runId, [prop], Date.now());
+    if (!added && !MemoryStore.findPending(notebookStore, input.agentId, runId, id)) return { ok:false, error:'lesson candidate was not durably queued' };
+  }
+  let batch = proposalsByRun.get(runId);
+  if (batch && batch.agentId === input.agentId) {
+    if (!batch.proposals.some(p => p && p.id === id)) batch.proposals.push(prop);
+  } else stashProposals(input.agentId, runId, [prop]);
+  latestProposalRun.set(input.agentId, runId);
+  chanEmit('memory.proposed', { agentId:input.agentId, runId, id, kind:'lesson', scope:'global' });
+  return { ok:true, proposal:prop };
 }
 
 /* ---- the DURABLE pending queue (pending:<agent>) ----
@@ -4713,11 +4769,12 @@ const AUTONOMY_SKIP_BINDING = { 'at-capacity': 'concurrency-cap', 'no-capability
 function ledgerFromCron(name, payload) {
   const p = payload || {};
   const agentOf = (jobId) => { const j = (cronJobs || []).find(x => x && x.id === jobId); return (j && j.agentId) || null; };
+  const scheduledFor = p.scheduledFor != null ? p.scheduledFor : null;
   if (name === 'cron.fire') {
-    recordAutonomy({ source: 'cron', kind: 'fire', jobId: p.jobId, agentId: agentOf(p.jobId), runId: p.runId, binding: 'schedule', reason: 'due' });
+    recordAutonomy({ source: 'cron', kind: 'fire', jobId: p.jobId, agentId: agentOf(p.jobId), runId: p.runId, binding: 'schedule', reason: 'due', detail: scheduledFor != null ? { scheduledFor } : undefined });
   } else if (name === 'cron.skipped') {
     const isDefer = p.reason === 'at-capacity';
-    recordAutonomy({ source: 'cron', kind: isDefer ? 'defer' : 'skip', jobId: p.jobId, agentId: agentOf(p.jobId), reason: p.reason, binding: AUTONOMY_SKIP_BINDING[p.reason] || 'schedule' });
+    recordAutonomy({ source: 'cron', kind: isDefer ? 'defer' : 'skip', jobId: p.jobId, agentId: agentOf(p.jobId), reason: p.reason, binding: AUTONOMY_SKIP_BINDING[p.reason] || 'schedule', detail: scheduledFor != null ? { scheduledFor } : undefined });
   }
 }
 // feed every cron event to the notifier alongside the validated SSE/console emit; it never throws into the cron pass.
@@ -9008,6 +9065,55 @@ async function handleGroups(req, res) {
     respondJson(res, 200, { ok: true, result: out });
   } catch (e) { if (!res.headersSent) respondJson(res, e.status || 400, { ok: false, error: redact(String(e.message || e)) }); }
 }
+const agentControlHttp = makeAgentControlHttp({
+  roster: () => agentRoster,
+  statusByAgent: agentRuntimeStatus,
+  respondJson
+});
+// Snapshot-only broker: shares the authoritative permission grant stores but never evaluates or grants an action.
+// Reusing permissions.snapshot() here avoids a second session-grant projection in Control Mode.
+const approvalConsentSnapshot = makeConsentBroker({ grantsSession, grantsPermanent });
+const approvalControlHttp = makeApprovalControlHttp({
+  grantSnapshot: () => grantManager.snapshot(),
+  consentSnapshot: () => approvalConsentSnapshot.snapshot(),
+  pending: () => pendingByRun,
+  respondJson
+});
+// Durable run-journal remains the only action-history source; this adapter only pages and projects it.
+const actionControlHttp = makeActionControlHttp({
+  recoverPage: (options) => runJournal.recoverPage(options),
+  respondJson
+});
+const costControlHttp = makeCostControlHttp({
+  ledgerRows: () => ledger.all(),
+  roster: () => agentRoster,
+  budgetStatus: () => budget.status(Date.now()),
+  caps: () => Object.assign({}, effectiveCaps),
+  respondJson
+});
+// Registry metadata and providers/ratelimits remain the only provider-signal truth sources.
+const providerControlHttp = makeProviderControlHttp({
+  profiles: () => require('./providers/registry.js').listProviderProfiles(),
+  rateLimits: () => rateLimits.snapshot(),
+  respondJson
+});
+const memoryControlHttp = makeMemoryControlHttp({
+  roster: () => agentRoster,
+  recordsForAgent: (agentId) => {
+    const read = notebookStore.readKey('notebook:' + agentId);
+    const bad = storeFailure(read);
+    if (bad) throw new Error(String(bad.error || 'memory store unavailable'));
+    const raw = read.value;
+    const nowMs = Date.now();
+    return Array.isArray(raw) ? raw.map(r => memcore.projectRecord(r, nowMs)) : [];
+  },
+  respondJson
+});
+const decisionHistoryHttp = makeDecisionHistoryHttp({
+  readForAgent: (agentId) => readDecisionRows(notebookStore, agentId),
+  respondJson, redact, isAgentId
+});
+
 const ROUTES = [
   { m: 'GET', qsplit: '/api/groups', h: handleGroups },
   { m: 'POST', exact: '/api/groups', h: handleGroups },
@@ -9338,6 +9444,13 @@ const ROUTES = [
   { m: 'GET', qsplit: '/api/run-recoveries', h: serveRunRecoveries },
   { m: 'POST', exact: '/api/growth/ratings/correction', h: handleGrowthRatingCorrection },   // consistency loop: the Commander's words after a short-of-the-mark verdict
   { m: ['GET', 'POST'], qsplit: '/api/growth/ratings', h: handleGrowthRatings },
+  { m: 'GET', prefix: '/api/managed-tasks', h: managedTaskHistoryHost.serve },   // Control Mode: read-only managed delegation telemetry
+  { m: 'GET', exact: '/api/control/agents', h: agentControlHttp.serve },   // Control Mode: sanitized authoritative roster projection
+  { m: 'GET', exact: '/api/control/approvals', h: approvalControlHttp.serve },   // Control Mode: read-only authoritative permission/approval projection
+  { m: 'GET', exact: '/api/control/actions', h: actionControlHttp.serve },   // Control Mode: read-only durable run-journal action trace
+  { m: 'GET', exact: '/api/control/memory', h: memoryControlHttp.serve },   // Control Mode: content-free memory provenance/trust metadata
+  { m: 'GET', exact: '/api/control/costs', h: costControlHttp.serve },   // Control Mode: authoritative spend ledger + budget governor
+  { m: 'GET', exact: '/api/control/providers', h: providerControlHttp.serve },   // Control Mode: registry metadata + actually observed quota evidence
   { m: 'GET', prefix: '/api/runs', h: serveRuns },
   { m: 'GET', qsplit: '/api/recipes/drift', h: serveRecipeDrift },   // qsplit: ?recipeId= narrows
   { m: 'GET', prefix: '/api/autonomy/ledger', h: serveAutonomyLedger },   // NS-0: recent autonomy decisions
@@ -9356,6 +9469,8 @@ const ROUTES = [
   { m: 'POST', exact: '/api/memory/reset', h: handleMemoryReset },
   { m: 'POST', exact: '/api/memory/declined/restore', h: handleDeclinedRestore },
   { m: 'GET', prefix: '/api/memory/declined', h: serveDeclined },
+  // Include mutation verbs so the read-only handler can answer 405 instead of falling through to static 404.
+  { m: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], prefix: '/api/memory/decisions', h: decisionHistoryHttp.serve },
   { m: 'GET', prefix: '/api/memory/records', h: serveMemoryRecords },
   { m: 'POST', exact: '/api/memory/pin', h: handleMemoryPin },
   { m: 'POST', exact: '/api/memory/edit', h: handleMemoryEdit },
@@ -11608,51 +11723,51 @@ function handleLifecycleArmed(req, res) {
    NOT INCLUDED (honesty): inflight tool-call glyph per agent — there is no cheap central in-memory source for the
    agent's current tool name at snapshot time (it rides the per-run event stream), so it is omitted rather than
    guessed. If a cheap source appears later, add a `tools:[{agentId,tool}]` field. */
-function handleStateSnapshot(req, res) {
-  const out = { ts: Date.now(), runs: [], prompts: [], summons: [], queues: [] };
+function collectLiveRunRecords() {
+  const records = [];
   const seenRunIds = new Set();
   try {
     for (const [runId, meta] of runsMeta) {
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: (meta && meta.agentId) || null, startedAt: (meta && meta.startedAt) || null, source: (meta && meta.source) || null });
+      records.push({ runId: runId, agentId: (meta && meta.agentId) || null, startedAt: (meta && meta.startedAt) || null, source: (meta && meta.source) || null });
     }
   } catch (_) {}
-  // WATCHABLE BACKGROUND workers outlive the interactive response that launched them and therefore do not
-  // live in runsMeta. Their durable manager owns the real controller + run.start confirmation. Omitting that
-  // source made the CREW rail correct until the next reload/SSE reconnect, when reconciliation erased the
-  // still-running specialist and falsely painted it IDLE. Merge the manager's confirmed active view here so
-  // every reconnect restores the same run the live agent.run.start event originally lit.
+  // WATCHABLE BACKGROUND workers live outside runsMeta. Reuse the same confirmed active view that
+  // reconnect reconciliation already trusts, so Control Mode never keeps a parallel status registry.
   try {
     const backgroundRuns = subagents && typeof subagents.activeRuns === 'function' ? subagents.activeRuns() : [];
     for (const meta of backgroundRuns) {
       const runId = meta && meta.runId;
       if (!runId || seenRunIds.has(runId)) continue;
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: meta.agentId || null, startedAt: meta.startedAt || null, source: meta.source || 'subagent' });
+      records.push({ runId: runId, agentId: meta.agentId || null, startedAt: meta.startedAt || null, source: meta.source || 'subagent' });
     }
   } catch (_) {}
-  // CHANNEL runs (Telegram/Discord) live in the messaging hub's OWN inflight map, not runsMeta — include them so a
-  // reconnect keeps their agent's live floor/HUD state (reconcileFromSnapshot clears any agent absent here). Read
-  // the EXACT maps E-STOP kills (hub._internals.inflight) — one source of truth, no parallel bookkeeping. Each
-  // record carries { runId, agentId, startedAt } (see channels/hub.js). Tolerant of an absent hub (not connected).
   const addHubRuns = (hub, source) => {
     const inflight = (hub && hub._internals) ? hub._internals.inflight : null;
     if (!inflight || typeof inflight.values !== 'function') return;
     for (const rec of inflight.values()) {
       const runId = rec && rec.runId;
-      if (!runId || seenRunIds.has(runId)) continue;   // defensive: never double-list a run
+      if (!runId || seenRunIds.has(runId)) continue;
       seenRunIds.add(runId);
-      out.runs.push({ runId: runId, agentId: (rec && rec.agentId) || null, startedAt: (rec && rec.startedAt) || null, source: source });
+      records.push({ runId: runId, agentId: (rec && rec.agentId) || null, startedAt: (rec && rec.startedAt) || null, source: source });
     }
   };
   try { addHubRuns(telegram && telegram.hub, 'telegram'); } catch (_) {}
-  // multi-bot telegram: each agent-bound bot has its OWN hub/inflight — list their live runs too, or an SSE
-  // reconnect mid-run would clear that agent's floor/HUD state (same reason as the generic channels below).
   try { for (const w of telegramBots.values()) addHubRuns(w && w.hub, 'telegram'); } catch (_) {}
   try { addHubRuns(discord && discord.hub, 'discord'); } catch (_) {}
-  // generic channels (slack/matrix/signal) run through the SAME hub shape — list their live runs too, or a
-  // reconnect would wipe a live Slack/Matrix/Signal run's floor/HUD state that E-STOP can still see and kill.
   try { for (const gid of GENERIC_CHANNEL_IDS) addHubRuns(genericChannels[gid] && genericChannels[gid].hub, gid); } catch (_) {}
+  return records;
+}
+
+function agentRuntimeStatus(agentId) {
+  const id = String(agentId || '');
+  if (!id) return null;
+  return collectLiveRunRecords().some(run => run && run.agentId === id) ? 'running' : 'idle';
+}
+
+function handleStateSnapshot(req, res) {
+  const out = { ts: Date.now(), runs: collectLiveRunRecords(), prompts: [], summons: [], queues: [] };
   try {
     for (const [runId, pending] of pendingByRun) {
       const meta = runsMeta.get(runId);
@@ -11772,6 +11887,10 @@ function handleCronCreate(req, res) {
 async function createCronJobFromSpec(body) {
   body = body || {};
   const out = (status, obj) => ({ status: status, body: obj });
+  if (body.maxIters != null || body.maxCostUsd != null) {
+    const checked = parseRunRequestLimits({ ...(body.maxIters != null ? { maxIters: body.maxIters } : {}), ...(body.maxCostUsd != null ? { maxCostUsd: body.maxCostUsd } : {}) });
+    if (!checked.ok) return out(400, { error: checked.error });
+  }
   const takeoverId = body.meta && body.meta.workflowTakeoverId;
   const widgetId = body.meta && body.meta.widgetId;
   if (widgetId && (widgetsDeleting.has(widgetId) || !widgetTools.list().some(w => w.id === widgetId && w.config)))
@@ -11802,7 +11921,8 @@ async function createCronJobFromSpec(body) {
     for (const ref of body.skills) if (!skillStore.view(agentId, ref, { bump: false })) throw new Error('unknown runtime skill "' + ref + '" for ' + agentId);
     body.contextFrom = cronStringList(body.contextFrom, 8, /^[A-Za-z0-9_-]{1,40}$/);
     for (const ref of body.contextFrom) if (!cronStore.getJob(cronJobs, ref)) throw new Error('unknown upstream routine ' + ref);
-    body.enabledToolsets = body.enabledToolsets == null ? null : cronStringList(body.enabledToolsets, 16, /^[A-Za-z0-9:_-]{1,80}$/);
+    const connectorAliases = connectorConfigs.flatMap(c => [c.id, c.name, c.label].filter(Boolean));
+    body.enabledToolsets = routineToolsets.normalize(body.enabledToolsets, { strict: true, connectorAliases });
     body.workdir = cronCanonicalWorkdir(body.workdir);
     body.noAgent = body.noAgent === true;
     body.attachToSession = body.attachToSession === true;
@@ -11836,7 +11956,7 @@ async function createCronJobFromSpec(body) {
       return cronStore.createJob(jobs, {
       id: id, name: body.name, prompt: body.prompt, schedule: schedule,
       agentId: agentId, model: body.model, provider: provider, deliver: body.deliver,
-      enabled: body.enabled, repeat: body.repeat,
+      enabled: body.enabled, repeat: body.repeat, maxIters: body.maxIters, maxCostUsd: body.maxCostUsd,
       // MISFIRE POLICY (2026-07-15 audit): optional 'fire_once'|'skip'; the store normalizes anything
       // else to null (schedule-derived default: daily/cron -> fire_once, fast intervals -> skip).
       misfire: body.misfire,
@@ -11874,6 +11994,14 @@ function handleCronUpdate(req, res) {
     const id = String(body.id || '');
     if (!cronStore.getJob(cronJobs, id)) return json(404, { error: 'no such routine' });
     const patch = Object.assign({}, body.patch || {});
+    if (Object.prototype.hasOwnProperty.call(patch, 'maxIters') && patch.maxIters != null) {
+      const checked = parseRunRequestLimits({ maxIters: patch.maxIters });
+      if (!checked.ok) return json(400, { error: checked.error });
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'maxCostUsd') && patch.maxCostUsd != null) {
+      const checked = parseRunRequestLimits({ maxCostUsd: patch.maxCostUsd });
+      if (!checked.ok) return json(400, { error: checked.error });
+    }
     // INJECTION TRIPWIRE — an EDIT is the same surface as a create; without this, a routine could be created
     // clean and then patched into a payload.
     if (Object.prototype.hasOwnProperty.call(patch, 'prompt')) {
@@ -11901,7 +12029,10 @@ function handleCronUpdate(req, res) {
       const current = cronStore.getJob(cronJobs, id), aid = patch.agentId || current.agentId;
       if (Object.prototype.hasOwnProperty.call(patch, 'skills')) { patch.skills = cronStringList(patch.skills, 8, /^[A-Za-z0-9_. -]{1,120}$/); for (const ref of patch.skills) if (!skillStore.view(aid, ref, { bump: false })) throw new Error('unknown runtime skill "' + ref + '"'); }
       if (Object.prototype.hasOwnProperty.call(patch, 'contextFrom')) { patch.contextFrom = cronStringList(patch.contextFrom, 8, /^[A-Za-z0-9_-]{1,40}$/); for (const ref of patch.contextFrom) { if (ref === id) throw new Error('a routine cannot depend on itself'); if (!cronStore.getJob(cronJobs, ref)) throw new Error('unknown upstream routine ' + ref); } if (cronContextCycle(id, patch.contextFrom)) throw new Error('routine context dependencies cannot form a cycle'); }
-      if (Object.prototype.hasOwnProperty.call(patch, 'enabledToolsets')) patch.enabledToolsets = patch.enabledToolsets == null ? null : cronStringList(patch.enabledToolsets, 16, /^[A-Za-z0-9:_-]{1,80}$/);
+      if (Object.prototype.hasOwnProperty.call(patch, 'enabledToolsets')) {
+        const connectorAliases = connectorConfigs.flatMap(c => [c.id, c.name, c.label].filter(Boolean));
+        patch.enabledToolsets = routineToolsets.normalize(patch.enabledToolsets, { strict: true, connectorAliases });
+      }
       if (Object.prototype.hasOwnProperty.call(patch, 'deliver')) {
         const mode = String(patch.deliver || 'local');
         if (mode === 'all') { const map = channelStore.loadChatMap(); patch.deliver = 'targets:' + Object.keys((map && map.chats) || {}).slice(0, 16).join(','); }
@@ -12111,6 +12242,9 @@ async function handleCronRun(req, res) {
         + (runNowBrief ? '\n\nYOUR STANDING BRIEF FOR THIS STATION:\n' + String(runNowBrief).slice(0, 2000) : ''),
       messages: [{ role: 'user', content: assembledPrompt }],
       agentId: job.agentId, isTask: true, emit: teeEmit, signal: ac.signal,
+      requestLimits: (Number.isSafeInteger(job.maxIters) && job.maxIters > 0) || (Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0)
+        ? Object.assign({}, Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : {}, Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0 ? { maxCostUsd: job.maxCostUsd } : {})
+        : undefined,
       // streamId 'cron-'+runId matches the SCHEDULED fire (cron-driver.js): Run Now must persist its transcript
       // under the SAME per-run stream so the frontend cron-session (autosessions.js), which forms off the
       // identical cron.fire/cron.result events, can fetch the real output via /api/transcript?stream=cron-<runId>.
@@ -14565,6 +14699,11 @@ async function handleRun(req, res) {
   let body;
   try { body = JSON.parse(await readBody(req, 2 << 20, res)); }
   catch (e) { if (res.headersSent) return; res.writeHead(400); return res.end('bad json'); }   // over-limit already answered 413
+  const requestLimits = parseRunRequestLimits(body && body.limits);
+  if (!requestLimits.ok) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: requestLimits.error }));
+  }
   const { model, system, messages = [], agentId = 'agent', isTask = false, provider, fallbackModels, fallbackProviders } = body || {};
   const recurring = !!(body && body.recurring);   // the browser's mint detector saw this task SHAPE before → salience boost for reflection
   // REASON-ONLY SELF-TALK (retitle / goal-judge / pitch / autopilot): the caller composed a complete strict-format
@@ -14781,6 +14920,7 @@ async function handleRun(req, res) {
     const continuedResult = await runOnce({
       key, keyPool: body && body.keyPool, model, system: (projectLine || projectRules) ? (String(system || '') + projectLine + projectRules) : system, messages: runMessages, agentId, isTask, provider: runProvider, baseUrl, reasoningEffort, fallbackModels, fallbackProviders,
       emit, signal: ac.signal, runId, trigger: 'directive', internal, evidence,
+      requestLimits: requestLimits.limits,
       initialTaint: hasUserAttachments ? 'user attachment' : null,
       surface: 'interactive', prompt: promptConsent, pathPrompt: promptPathTrust, summon: summonRequest,   // team.summon → live summonAgent() round-trip; pathPrompt → NS-5 "work in <root>?" bless
       loginPrompt: askHuman,   // attended browser login: browser.login's two consent asks ride the same fail-closed permission.prompt channel
@@ -15135,9 +15275,14 @@ async function runOnce(o) {
   // worker's ORCH_WORKER_MAX_ITERS) is honored, but may only LOWER the ceiling. Without this the value
   // orchestration.js has always passed was silently dropped and every worker ran the lead's full budget.
   const stationMaxIters = (CAPS.maxIters > 0 && isFinite(CAPS.maxIters)) ? CAPS.maxIters : Infinity;
-  const runMaxIters = (o.maxIters > 0 && isFinite(o.maxIters))
+  const callerMaxIters = (o.maxIters > 0 && isFinite(o.maxIters))
     ? Math.max(1, Math.min(Math.floor(o.maxIters), stationMaxIters))
     : stationMaxIters;
+  // HTTP callers may opt into smaller bounds without changing station settings.
+  // Apply before credit reservation and orchestration inherit the effective cap.
+  const narrowedLimits = tightenRunLimits({ maxIters: callerMaxIters, maxCostUsd: runCapUsd }, o.requestLimits);
+  const runMaxIters = narrowedLimits.maxIters;
+  runCapUsd = narrowedLimits.maxCostUsd;
   // WHO IS MANAGED (issue #6, 2026-08-30): only a run whose spend actually lands on the managed account.
   // On a device-LINKED station that is solely the 'starnet' relay provider — a BYOK run (own Gemini/OpenAI/…
   // key) pays its own vendor directly, so gating it on StarNet balance stranded linked-but-unfunded users at
@@ -15240,6 +15385,7 @@ async function runOnce(o) {
     // (webreader.js — headless, cookie-less, shared across runs, SKYNET_WEB_READER=0 disables)
     reader: stationWebReader,
     politeness: stationWebPoliteness,
+    sourceReceiptNow: () => Date.now(),
     resolveServiceKey: (name, sfc) => serviceKeysMod.resolveForRequest(serviceKeys, name, sfc),
     // workspace files in outbound requests (${file:...} body refs / multipart parts): resolved through the
     // SAME resolveInside jail as fs.* and browser.upload, so a request can only carry this agent's own files.
@@ -15346,8 +15492,14 @@ async function runOnce(o) {
     fullAccess: unrestrictedHostNow() || executionProfile.filesystemScope === 'host-paths-except-hard-floor',
     unrestrictedHost: unrestrictedHostNow()
   });
-  makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager }).register(registry);   // redact: scrub secrets out of surfaced fs.search lines (§5.6); baseline-before-edit LSP feedback
+  makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager,
+    getRunSources: (sourceRunId, sourceAgentId) => {
+      if (String(sourceRunId || '') !== String(runId || '') || String(sourceAgentId || '') !== String(agentId || '')) throw new Error('source receipts are limited to this run and agent');
+      return selectSourceReceipts(runJournal.inspect(String(runId)), runId, agentId);
+    }
+  }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
@@ -15373,7 +15525,7 @@ async function runOnce(o) {
   // STUDIO, third skill: voice_generate — the agent MAKES a clip (voiceover, narration, audio message) into its
   // workspace. It drives the SAME media-service ladder /api/tts does (keyed neural chain, then the
   // free keyless Edge floor), so it needs no voice-specific credential and a zero-key station can still record.
-  makeVoiceTools({ synth: media.synthesizeForAgent, fsp, pathMod: path, root: WORKSPACES }).register(registry);
+  makeVoiceTools({ synth: media.synthesizeForAgent, routeAvailable: media.voiceRouteAvailable, fsp, pathMod: path, root: WORKSPACES }).register(registry);
   // JUKEBOX (Spotify): registered every run, EXPOSED via a 'jukebox' object; no-op (clear error) until the user
   // connects Spotify in TOOLSETS. The OAuth session + auto-refresh live in the station-wide spotifyStore above.
   makeSpotifyTools({ store: spotifyStore }).register(registry);
@@ -15394,6 +15546,8 @@ async function runOnce(o) {
   // THIS SAME runOnce per worker; the roster supplies each worker's composed identity (system prompt + model).
   makeOrchestrationTools({
     runOnce, roster: () => agentRoster, key: runKey, model, provider: providerId, baseUrl, reasoningEffort, subagents,
+    managedTaskHistory: managedTaskHistoryHost.store,   // shared durable history for team.delegate_managed
+    clock: { now: () => Date.now() },   // ambient host clock injected into deterministic derivative orchestration
     classes: SPECIALIST_CLASSES,   // Class Loadouts S1: the summon-tool class list, composed from the shared catalog (no hardcoded prose)
     selfSystem: system,   // team.spawn clones the LEAD's OWN base identity into each ephemeral subagent (Meeseeks)
     taskContext: taskContextBlock,   // workers inherit settled task decisions without re-questioning the Commander
@@ -15746,15 +15900,38 @@ async function runOnce(o) {
   // MCP CONNECTORS (per-agent): a connector object placed in THIS agent's room grants its server's live tools.
   // Register them into this run's fresh registry and union their names into the resolved set so the capability
   // gate, network classification, and the wire tool-list treat them exactly like a built-in. Never breaks a run.
+  const room = station.rooms && station.agents && station.agents[agentId] && station.rooms[station.agents[agentId].room];
+  const roomObjects = (room && room.objects) || [];
+  const prSweep = o.recipeId === 'pr-sweep';
+  const failPrSweepReadiness = message => {
+    emit('agent.run.start', { agentId, runId, trigger, model });
+    emit('agent.run.error', { agentId, runId, transient: true, message });
+    emit('agent.run.end', { agentId, runId, reason: 'error', turns: 0, usd: 0 });
+  };
+  let connectorDefs = [];
+  try { connectorDefs = connectors.toolDefsForObjects(roomObjects); }
+  catch (e) {
+    if (prSweep) { failPrSweepReadiness('Remote PR review is unavailable: the GitHub (read-only) connector could not be inspected. Open Connectors, check its status, and retry.'); return; }
+    console.warn('[mcp] connector tool projection failed:', (e && e.message) || e);
+  }
+  if (prSweep) {
+    let selected;
+    try { selected = PrSweepPolicy.selectTools(connectors, roomObjects, connectorDefs); }
+    catch (_) { selected = { ok: false, error: 'Remote PR review is unavailable: GitHub (read-only) readiness could not be verified. Open Connectors, check its status, and retry.' }; }
+    if (!selected || !selected.ok) { failPrSweepReadiness((selected && selected.error) || 'Remote PR review is unavailable: the required read-only connector is not ready. Open Connectors and retry.'); return; }
+    connectorDefs = selected.tools;
+  }
   try {
-    const room = station.rooms && station.agents && station.agents[agentId] && station.rooms[station.agents[agentId].room];
-    for (const def of connectors.toolDefsForObjects((room && room.objects) || [])) {
+    for (const def of connectorDefs) {
       registry.register(def, { provenance: 'connector' });
       if (resolved.tools.indexOf(def.name) < 0) resolved.tools.push(def.name);
       resolved.networkCaps[def.name] = true;
       resolved.approvalRules[def.name] = { requiresConsent: !!def.requiresConsent, scope: def.scope, network: true };
     }
-  } catch (e) { console.warn('[mcp] connector tool projection failed:', (e && e.message) || e); }
+  } catch (e) {
+    if (prSweep) { failPrSweepReadiness('Remote PR review is unavailable: the approved read-only tools could not be installed for this run. Open Connectors, check its status, and retry.'); return; }
+    console.warn('[mcp] connector tool projection failed:', (e && e.message) || e);
+  }
   // Connector projection happens after the base office is resolved. Re-apply the host floor so
   // no dynamic server or future registration order can restore a real-screen tool by name.
   resolved = enforceSyntheticOnly(resolved, realDesktopAuthority);
@@ -15930,6 +16107,28 @@ async function runOnce(o) {
     // The context carries the host-minted remote-owner lease only for a locally paired Telegram owner.
     // All other run flows remain synthetic-only at the tool boundary.
   }, runInputContext(accessSurface, isTask, remoteDesktopAuthorized, unrestrictedHostNow())));
+
+  // Moe AI Station: restart only provably pre-dispatch managed tasks through this run's SAME
+  // authoritative task-history store, Registry, capability projection and consent context. Recovery
+  // is deliberately lead-only: delegated workers must never recursively start recovery. A fresh
+  // host-minted claim id prevents the scheduler from inventing durable identity.
+  if (o.lead === true && MANAGED_RECOVERY_ENABLED) {
+    const recoverManagedTasks = makeManagedRecoveryLifecycleHook({
+      enabled: true,
+      store: managedTaskHistoryHost.store,
+      registry,
+      leadAgentId: agentId,
+      claimIdFor: () => crypto.randomUUID(),
+      limit: 1
+    });
+    const managedRecovery = await recoverManagedTasks(capCtx);
+    // Recovery is auxiliary to the requested lead run. A pure preflight refusal/failure leaves
+    // durable state untouched; surface it through the existing fail-open diagnostics rather than
+    // aborting the Commander's foreground task. Post-claim uncertainty remains fenced in task history.
+    if (managedRecovery && managedRecovery.ok === false) {
+      failNote('managed-recovery.lifecycle', new Error(String(managedRecovery.reason || managedRecovery.phase || 'managed recovery incomplete')));
+    }
+  }
 
   // ---- provider + cost ----
   // Codex (personal ChatGPT subscription) authenticates with a freshly-refreshed OAuth access_token instead of
@@ -16423,7 +16622,8 @@ async function runOnce(o) {
       // durable, any exception before this result boundary means the side effect is unknown and must end the run.
       if (execution.journalStarted() && !execution.journalFailed()) runJournal.toolResult(runId, {
         callId: c.id, ok: !!(r && r.ok), isError: !!(r && r.isError),
-        content: r && r.content != null ? r.content : '', summary: r && r.summary ? r.summary : ''
+        content: r && r.content != null ? r.content : '', summary: r && r.summary ? r.summary : '',
+        sourceReceipt: r && c.name === 'web_fetch' && !r.isError ? r.sourceReceipt || null : null
       });
       if (execution.journalStarted() && !execution.journalFailed()) execution.markToolSettled(c.id);
       // record the SUCCESSFUL write (only successes protect anything); a ledger write failure never fails the run.
@@ -17035,8 +17235,9 @@ async function runOnce(o) {
       hooks: hookSpine,
       // Real backoff for the loop's bounded mid-stream retry: without an injected sleep the loop retries a
       // dropped/half-streamed generation with ZERO delay (a tight hammer against an upstream that just hiccupped).
-      // A plain (non-unref) setTimeout so the backoff actually elapses before the retry fires.
-      sleep: (ms) => new Promise(r => setTimeout(r, ms)),
+      // Reuse the provider runtime's timer cleanup so E-STOP/cancel also interrupts a retry wait.
+      sleep: (ms, signal) => require('./providers/provider.js').runtime.abortableDelay(ms, signal),
+      random: Math.random, // desynchronize provider retries across agents sharing one key
       onRecovery: recordRunRecoveryAttempt,
       // per-RUN hard ceiling = the Balanced perRun cap; the soft day/global pools ride on `budget`. A perRun of
       // 0/Infinity means UNGOVERNED per-run (Infinity), NOT "block every run" — the loop reads maxCostUsd that way.
@@ -17046,6 +17247,8 @@ async function runOnce(o) {
       // operator's narrowly authorized continuation and make the recovery non-idempotent.
       limits: {
         maxIters: runMaxIters, maxCostUsd: runCapUsd, failureRecovery: o.recovery ? false : undefined,
+        // An explicit request turn ceiling is strict: no extra paid grace turn.
+        grace: o.requestLimits && o.requestLimits.maxIters ? false : undefined,
         // unpriced-token seatbelt: metered API-key providers only — a subscription/OAuth/unmetered run bills nothing
         maxUnpricedTokens: (providerUnmetered || usingCodex || usingDeviceOAuth) ? Infinity : CAPS.maxUnpricedTokens
       },
@@ -17076,7 +17279,7 @@ async function runOnce(o) {
         const fresh = Array.isArray(checkpointMessages)
           ? checkpointMessages.filter(m => m && typeof m === 'object' && (!TRANSCRIPT_PERSISTED || !m[TRANSCRIPT_PERSISTED]))
           : [];
-        runJournal.checkpoint(runId, { phase, turn, messages: fresh });
+        runJournal.checkpointMessages(runId, { phase, turn, messages: fresh });
       } : null,
       agentId, runId, model, trigger: trigger,
       // rough initial estimate for the error classifier's context-overflow ratio; contextLimit is 0 until the
@@ -17175,7 +17378,9 @@ async function runOnce(o) {
     const finalUsd = effectiveUsd({ usd: (result && result.usd) || 0, unmetered: providerUnmetered, unpricedUsage: result && result.unpricedUsage, priceOf: provider && provider.priceOf });
     const finalTurns = (result && result.turns) || 0;
     const finalTokens = (result && result.tokens) || 0;
-    try { ledger.record({ runId, agentId, turns: finalTurns, usd: finalUsd, tokens: finalTokens, model: finalModel, unmetered: providerUnmetered }); } catch (_) {}
+    // The recipe launch provenance comes from the validated run envelope (not model tool output). Stamp it
+    // beside this run's spend so Control Mode can attribute it without guessing from titles or prompts.
+    try { ledger.record({ runId, agentId, turns: finalTurns, usd: finalUsd, tokens: finalTokens, model: finalModel, unmetered: providerUnmetered, recipeId: o.recipeId || '' }); } catch (_) {}
     // managed-credit SETTLE: reconcile the reservation to the real spend — refund the unused headroom to the
     // account (billing.js caps finalUsd at the reservation). Inert/no-op unless this run actually reserved credit.
     if (billed) { try { credits.finishRun({ runId, agentId, usd: finalUsd, tokens: finalTokens, turns: finalTurns, reason: (result && result.reason) || 'done' }); } catch (_) {} }
@@ -19874,14 +20079,20 @@ function serveRunRecoveries(req, res) {
   let page;
   try { page = runJournal.recoverPage({ offset, limit }); }
   catch (e) { return respondJson(res, 500, { error: 'could not read run recoveries' }); }
-  const rows = page.rows.filter(r => {
+  let retiredCount = 0;
+  const rows = page.rows.map(markRunRecoveryForensic).filter(r => {
     if (!r) return false;
     // A durable transcript acknowledgement is the commit record. If the process died between that record and
     // unlink, finish the idempotent retirement when its page is inspected; all other states remain visible.
-    if (r.status === 'finished') { try { runJournal.remove(r.runId); } catch (_) {} return false; }
+    if (r.status === 'finished' && !r.corrupt && !r.repairError && !r.forensicOnly) {
+      try { if (runJournal.remove(r.runId)) { retiredCount++; return false; } } catch (_) {}
+    }
     return true;
-  }).map(markRunRecoveryForensic).map(runRecoveryDto);
-  respondJson(res, 200, { recoveries: rows, total: page.total, offset: page.offset, limit: page.limit, nextOffset: page.offset + page.limit < page.total ? page.offset + page.limit : null });
+  }).map(runRecoveryDto);
+  // Successful retirements shrink the file list before the next offset is applied.
+  const total = page.total - retiredCount;
+  const nextOffset = page.offset + page.rows.length - retiredCount;
+  respondJson(res, 200, { recoveries: rows, total, offset: page.offset, limit: page.limit, nextOffset: nextOffset < total ? nextOffset : null });
 }
 
 // The local operator records what they verified; this never dispatches or replays a tool. Ownership, a current
@@ -20318,15 +20529,21 @@ async function writeMemoryRecord(agentId, prop, opts) {
   }
   // P1: write the notebook record under the per-agent lock, RE-READING the list so the id (positional) is minted
   // against the current notebook and a concurrent run's memory.write isn't clobbered by this whole-array set.
-  let writtenId = null, rec = null;
+  let writtenId = null, rec = null, duplicateLesson = false;
   await notebookStore.update('notebook:' + agentId, (stored) => {
-    const list = Array.isArray(stored) ? stored : [];
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    if (prop && prop.proposalType === 'decision-lesson') {
+      const prior = list.find(r => r && r.lessonSource && r.lessonSource.decisionId === prop.sourceDecisionId && r.lessonSource.outcomeEventId === prop.sourceOutcomeEventId);
+      if (prior) { rec = prior; writtenId = prior.id; duplicateLesson = true; return undefined; }
+    }
     writtenId = memcore.nextNoteId(list);   // collision-proof (positional length reuses a slot freed by forget)
     rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
+    if (prop && prop.proposalType === 'decision-lesson') rec.lessonSource = { decisionId:prop.sourceDecisionId, outcomeEventId:prop.sourceOutcomeEventId, decision:prop.sourceDecision, outcome:prop.sourceOutcome, evidenceRefs:Array.isArray(prop.evidenceRefs) ? prop.evidenceRefs.slice(0,24) : [], uncertainty:prop.uncertainty || 'unknown', trust:'unconfirmed' };
     list.push(rec);
     return list;
   });
+  if (duplicateLesson) return { ok:true, id:writtenId, kind:rec.kind, duplicate:true };
   chanEmit('memory.write', { agentId, runId: runId || rec.sourceRunId || writtenId, id: writtenId, kind: rec.kind, scope: rec.scope });
   // HOOKS — on_memory_write, at the OTHER path that commits a record (the silent auto-save + the Keep/Edit
   // turn-in both land here, not in notebook.write). Both sites fire it or the event would be true only half
@@ -20346,6 +20563,41 @@ async function writeMemoryRecord(agentId, prop, opts) {
   return { ok: true, id: writtenId, kind: rec.kind };
 }
 
+async function claimDecisionLessonKeep(agentId, prop) {
+  if (!prop || prop.proposalType !== 'decision-lesson') return;
+  await notebookStore.update('decisions:' + agentId, stored => {
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    const idx = list.findIndex(d => d && d.id === prop.sourceDecisionId);
+    if (idx < 0) throw new Error('source decision disappeared before lesson review');
+    const rec = Object.assign({}, list[idx]);
+    const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+    const pi = proposals.findIndex(p => p && p.outcomeEventId === prop.sourceOutcomeEventId);
+    if (pi < 0) throw new Error('source outcome has no pending lesson proposal');
+    const prior = proposals[pi];
+    if (prior.lesson !== prop.content) throw new Error('lesson candidate no longer matches its source receipt');
+    if (prior.status === 'kept') return undefined;
+    if (prior.status === 'discarded') throw new Error('lesson candidate was discarded and cannot be kept');
+    if (prior.status !== 'pending' && prior.status !== 'staging' && prior.status !== 'reviewing-kept') throw new Error('lesson candidate is not available for Keep');
+    if (prior.status !== 'reviewing-kept') proposals[pi] = Object.assign({}, prior, { status:'reviewing-kept', reviewStartedAt:Date.now() });
+    rec.lessonProposals = proposals; list[idx] = rec; return list;
+  });
+}async function markDecisionLessonReviewed(agentId, prop, status, memoryId) {
+  if (!prop || prop.proposalType !== 'decision-lesson') return;
+  await notebookStore.update('decisions:' + agentId, stored => {
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    const idx = list.findIndex(d => d && d.id === prop.sourceDecisionId);
+    if (idx < 0) throw new Error('source decision disappeared before lesson review was recorded');
+    const rec = Object.assign({}, list[idx]);
+    const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
+    const pi = proposals.findIndex(p => p && p.outcomeEventId === prop.sourceOutcomeEventId);
+    if (pi < 0) throw new Error('source outcome has no pending lesson proposal');
+    const prior = proposals[pi];
+    if (prior.status === status) return undefined;
+    if (prior.status !== 'pending' && prior.status !== 'staging' && !(status === 'kept' && prior.status === 'reviewing-kept')) throw new Error('lesson candidate was already reviewed as ' + prior.status);
+    proposals[pi] = Object.assign({}, prior, { status, reviewedAt:Date.now(), memoryId:memoryId || null });
+    rec.lessonProposals = proposals; list[idx] = rec; return list;
+  });
+}
 // §5.6 "discard/veto = never again": append the rejected belief text to the permanent per-agent declined list
 // (capped FIFO) so reflection's dedup suppresses it forever. Idempotent (no dup entries). A failed write never
 // fails the caller (the reject-list is best-effort observability; the negative feedback still calibrates trust).
@@ -20416,6 +20668,7 @@ async function handleMemoryTurnin(req, res) {
   };
 
   if (verdict === 'discard') {
+    try { await markDecisionLessonReviewed(agentId, prop, 'discarded', null); } catch (e) { return json(500, { error:'could not save lesson review: ' + ((e && e.message) || e) }); }
     await takePending(agentId, runId, id);
     dropLive();
     // §5.6 "discard = never again": no NOTEBOOK record is written, but the rejected text IS recorded to the
@@ -20426,12 +20679,14 @@ async function handleMemoryTurnin(req, res) {
   }
   // keep/edit -> commit a real §5.2 record via the ONE write path (shared with silent auto-save). The keep/edit
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
+  if (prop.proposalType === 'decision-lesson') { try { await claimDecisionLessonKeep(agentId, prop); } catch (e) { return json(409, { error:'lesson review is no longer available: ' + ((e && e.message) || e) }); } }
   const content = (verdict === 'edit' ? String(body.content != null ? body.content : prop.content) : prop.content).trim();
   const w = await writeMemoryRecord(agentId, prop, {
     content, runId, trustDelta: fb.delta, origin: prop.origin, userConfirmed: true,   // the surface that PROPOSED it, not the one approving it
     skillName: body.skillName || body.name, skillBody: body.skillBody || body.body, summary: body.summary
   });
   if (!w.ok) return json(400, { error: w.error || 'could not save that memory' });
+  try { await markDecisionLessonReviewed(agentId, prop, 'kept', w.id); } catch (e) { return json(500, { error:'memory saved but lesson review receipt failed: ' + ((e && e.message) || e) }); }
   await takePending(agentId, runId, id);   // consume only after the kept bytes are durably accepted
   dropLive();
   const writtenId = w.id;
@@ -20494,7 +20749,8 @@ function servePending(req, res) {
     const rows = listPending(agent).map(p => redact({
       runId: p.runId || '', id: p.id || '', kind: p.kind || 'note',
       content: String(p.content || ''), scope: p.scope || 'global',
-      origin: p.origin || 'commander', createdAt: p.createdAt || 0
+      origin: p.origin || 'commander', createdAt: p.createdAt || 0,
+      ...(p.proposalType === 'decision-lesson' ? { proposalType:p.proposalType, sourceDecisionId:p.sourceDecisionId, sourceOutcomeEventId:p.sourceOutcomeEventId, sourceDecision:p.sourceDecision, sourceOutcome:p.sourceOutcome, evidenceRefs:p.evidenceRefs, uncertainty:p.uncertainty, sourceTrust:'unconfirmed' } : {})
     }));
     json(200, { agentId: agent, pending: rows });
   } catch (e) { json(500, readRouteFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty

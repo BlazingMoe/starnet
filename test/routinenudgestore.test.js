@@ -39,6 +39,17 @@ R._setCronForTest([]);   // cron known-empty from here on
 A.eq(R.willPropose(), true, 'a cadence recipe past the launch floor with no live routine is offered');
 A.eq(R._pick().id, 'morning-brief', 'the pick is the eligible recipe');
 
+/* Public Control Mode read model: a detached, immutable projection of the canonical pick. It must not expose
+   store internals or create a second decision path; callers can only observe the evidence StarNet already chose. */
+const opportunity = R.opportunity();
+A.ok(opportunity && Object.isFrozen(opportunity), 'public routine opportunity is immutable');
+A.eq(opportunity.id, 'morning-brief', 'public routine opportunity reuses the canonical pick');
+A.eq(opportunity.name, 'Morning Brief', 'public routine opportunity exposes the canonical recipe label');
+A.eq(opportunity.n, 5, 'public routine opportunity exposes the real launch count');
+A.eq(opportunity.cadence, 'morning', 'public routine opportunity passes through authored cadence without inference');
+A.eq(Object.keys(opportunity).sort().join(','), 'cadence,id,n,name', 'public routine opportunity exposes only the bounded read model');
+A.ok(opportunity !== R._pick(), 'public routine opportunity is detached from the internal pick object');
+
 launchCounts = { 'morning-brief': { n: R.LAUNCH_FLOOR - 1, lastAt: 1 } };
 A.eq(R.willPropose(), false, 'below the launch floor → no offer');
 
@@ -143,5 +154,45 @@ A.ok(/ctx\.launchSeed = null/.test(mkt), 'the launch seed is consumed one-shot (
 A.ok(/function recipeLifeChip/.test(mkt), 'the bay defines the recipe life chip (lane F)');
 A.ok(/ProspectStore\.launches\(\)/.test(mkt.slice(mkt.indexOf('function recipeLifeChip'), mkt.indexOf('function recipeLifeChip') + 900)), 'the life chip reads the real scout launch counters');
 A.ok(!/popular/i.test(mkt.slice(mkt.indexOf('function recipeLifeChip'), mkt.indexOf('function recipeCardHTML'))), 'the life chip never claims popularity (own counts only — truthful telemetry)');
+
+/* The UI observes the same candidate and the existing QuerySpine freshness contract.
+   The old item-or-null API and post-run nudge rules are deliberately unchanged. */
+const { QuerySpine: Q } = require('../frontend/app/queryspine.js');
+let now = 1000;
+Q._setClockForTest(() => now);
+Q._setTimersForTest(() => 1, () => {});
+Q._setGetForTest(() => new Promise(() => {}));
+R._setQueryForTest(Q);
+R._setCronForTest(null);
+R.reset(); R.init();
+launchCounts = { 'morning-brief': { n: 5 } };
+A.eq(R.opportunityEvidence(), { known: false, stale: false, item: null }, 'unloaded cron evidence remains unknown');
+Q.update('cron', { jobs: [] });
+const evidence = R.opportunityEvidence();
+A.ok(Object.isFrozen(evidence) && Object.isFrozen(evidence.item), 'evidence and candidate projections are immutable');
+A.eq(evidence.item, R.opportunity(), 'evidence uses the existing canonical candidate');
+A.eq([evidence.known, evidence.stale], [true, false], 'fresh shared cron evidence is identified');
+now += 5000;
+A.eq(R.opportunityEvidence().stale, true, 'shared query TTL controls freshness without a second clock');
+Q.update('cron', { jobs: [] });
+Q.invalidate('cron');
+A.eq(R.opportunityEvidence().stale, true, 'shared invalidation cannot appear current');
+Q.update('cron', { jobs: [{ meta: { recipeId: 'morning-brief' } }] });
+A.eq(R.opportunityEvidence(), { known: true, stale: false, item: null }, 'known scheduled recipe is a proven negative');
+Q.update('cron', { jobs: [] });
+const recipes = global.Recipes;
+delete global.Recipes;
+A.eq(R.opportunityEvidence().known, false, 'missing recipe source remains unavailable');
+global.Recipes = recipes;
+const prospects = global.ProspectStore;
+delete global.ProspectStore;
+A.eq(R.opportunityEvidence().known, false, 'missing usage source remains unavailable');
+global.ProspectStore = { launches: () => { throw new Error('unavailable'); } };
+A.eq(R.opportunityEvidence().known, false, 'failed usage reads remain unavailable');
+global.ProspectStore = prospects;
+A.eq(R.willPropose(), true, 'observing evidence did not spend the existing offer budget');
+R._setQueryForTest(null);
+A.eq(R.opportunityEvidence().known, false, 'missing shared freshness authority fails closed');
+Q._resetForTest();
 
 A.report('routinenudgestore');
