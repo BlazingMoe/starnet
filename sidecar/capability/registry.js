@@ -93,6 +93,7 @@
       { capId: 'cabinet', tool: 'fs.table_operation', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.xlsx_sheets', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.read_xlsx_range', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.xlsx_table_operation', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.write', scope: 'write', requiresConsent: true, network: false },

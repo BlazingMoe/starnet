@@ -231,11 +231,13 @@
       if(rnum<1||rnum>1048576) throw new Error('worksheet contains an invalid row coordinate');
       inferredRow=rnum;
       if (rnum < startRow || rnum >= startRow + rowCount) continue;
+      if (wanted.has(rnum)) throw new Error('worksheet contains a duplicate row coordinate in the selected range');
       const vals = new Map();
       for (const c of row.match(/<c\b[^>]*\/>|<c\b[^>]*>[\s\S]*?<\/c>/g) || []) {
         const ref = /\br="([A-Z]+)([1-9][0-9]*)"/i.exec(c); if (!ref) throw new Error('worksheet cell without a supported coordinate');
         if(Number(ref[2])!==rnum) throw new Error('worksheet cell coordinate does not match its row');
         const col = columnNumber(ref[1]); if(col<1||col>16384) throw new Error('worksheet contains an invalid column coordinate'); if (col < startCol || col >= startCol + colCount) continue;
+        if (vals.has(col)) throw new Error('worksheet contains a duplicate cell coordinate in the selected range');
         const type = (/\bt="([^"]+)"/.exec(c) || [])[1] || 'n', fm = /<f\b[^>]*>([\s\S]*?)<\/f>|<f\b[^>]*\/>/.exec(c);
         const vm = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(c);
         let value = null, valueType=type==='s'?'sharedString':type==='inlineStr'?'string':type==='str'?'string':type==='b'?'boolean':type==='e'?'error':type==='d'?'dateRaw':'number';
