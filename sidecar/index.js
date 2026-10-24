@@ -15385,6 +15385,7 @@ async function runOnce(o) {
     // (webreader.js — headless, cookie-less, shared across runs, SKYNET_WEB_READER=0 disables)
     reader: stationWebReader,
     politeness: stationWebPoliteness,
+    sourceReceiptNow: () => Date.now(),
     resolveServiceKey: (name, sfc) => serviceKeysMod.resolveForRequest(serviceKeys, name, sfc),
     // workspace files in outbound requests (${file:...} body refs / multipart parts): resolved through the
     // SAME resolveInside jail as fs.* and browser.upload, so a request can only carry this agent's own files.

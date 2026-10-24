@@ -419,6 +419,8 @@
 
   function makeWebTools(deps) {
     deps = deps || {};
+    // Production supplies wall time; standalone fixtures use a deterministic epoch.
+    const sourceReceiptNow = typeof deps.sourceReceiptNow === 'function' ? deps.sourceReceiptNow : () => 0;
     const undici = require('undici');
     const rawFetch = deps.fetchImpl || undici.fetch;
     if (!rawFetch) throw new Error('web.js requires global fetch (Node 18+) or deps.fetchImpl');
@@ -812,12 +814,12 @@
       if (blockedReason) return {
         id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
         callId: String((ctx && ctx.callId) || ''), state: 'blocked', requestedUrlDisplay: displayUrl,
-        method: 'transport', fetchedAt: new Date().toISOString(), blockedReason: String(blockedReason).slice(0, 120)
+        method: 'transport', fetchedAt: new Date(sourceReceiptNow()).toISOString(), blockedReason: String(blockedReason).slice(0, 120)
       };
       return {
         id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
         callId: String((ctx && ctx.callId) || ''), state: 'fetched', requestedUrlDisplay: displayUrl,
-        method: fetched.source, fetchedAt: new Date().toISOString(), truncated: !!fetched.fullText,
+        method: fetched.source, fetchedAt: new Date(sourceReceiptNow()).toISOString(), truncated: !!fetched.fullText,
         textSha256: crypto.createHash('sha256').update(String(fetched.text)).digest('hex')
       };
     }

@@ -22,7 +22,7 @@ const { makeArtifactCollector } = require('../sidecar/artifacts.js');
     const html = '<html><body><article>Fixture says option A costs 42.</article></body></html>';
     const registry = makeRegistry();
     let receiptSequence = 0;
-    makeWebTools({ lookup: null, sourceReceiptId: () => (++receiptSequence === 1 ? '0123456789abcdef0123456789abcdef' : receiptSequence.toString(16).padStart(32, '0')), fetchImpl: async url => String(url).includes('duckduckgo')
+    makeWebTools({ lookup: null, sourceReceiptNow: () => 1792800000000, sourceReceiptId: () => (++receiptSequence === 1 ? '0123456789abcdef0123456789abcdef' : receiptSequence.toString(16).padStart(32, '0')), fetchImpl: async url => String(url).includes('duckduckgo')
       ? { status: 200, headers: { get: () => 'text/html' }, text: async () => '' }
       : String(url).includes('/network-error')
         ? Promise.reject(new Error('network down'))
@@ -50,6 +50,7 @@ const { makeArtifactCollector } = require('../sidecar/artifacts.js');
     A.ok(/source receipt: [a-f0-9]{32}/.test(fetched.content), 'model-facing content receives an opaque host receipt marker');
     A.ok(!fetched.content.includes('token=secret') && !fetched.content.includes('#frag'), 'model-facing source label does not expose query or fragment');
     const sourceReceipt = journal.inspect(runId).completed[0].result.sourceReceipt;
+    A.eq(sourceReceipt.fetchedAt, new Date(1792800000000).toISOString(), 'fetched receipt uses injected host clock');
     A.ok(sourceReceipt && sourceReceipt.state === 'fetched' && sourceReceipt.callId === 'fetch-1', 'journal stores whitelisted host metadata tied to the exact call');
     A.eq(sourceReceipt.id, '0123456789abcdef0123456789abcdef', 'journal redaction preserves the host receipt match key');
     A.eq(sourceReceipt.requestedUrlDisplay, 'https://example.com/article', 'receipt uses an explicitly display-only redacted requested URL');
@@ -122,6 +123,7 @@ const { makeArtifactCollector } = require('../sidecar/artifacts.js');
     A.eq(truncatedManifest.ok, true, 'truncated fetch can be disclosed with its explicit state');
     const blockedFetch = await call('fetch-blocked', 'web_fetch', { url: 'https://example.com/missing' });
     const blockedReceipt = journal.inspect(runId).completed.find(x => x.intent.callId === 'fetch-blocked').result.sourceReceipt;
+    A.eq(blockedReceipt.fetchedAt, new Date(1792800000000).toISOString(), 'blocked receipt uses injected host clock');
     A.eq(blockedReceipt.state, 'blocked', 'soft transport answer is represented as a host blocked receipt: ' + JSON.stringify(journal.inspect(runId).completed.find(x => x.intent.callId === 'fetch-blocked')));
     const blockedManifest = await call('write-blocked', 'fs.write_dossier_sources', { path: 'dossier/blocked/sources.md', claims: [{ claim: 'claim could not be checked', receiptId: blockedReceipt.id, publicationDate: null, state: 'blocked' }] });
     A.eq(blockedManifest.ok, true, 'blocked transport result can be explicitly recorded');
