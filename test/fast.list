@@ -273,6 +273,7 @@ test/artifacts.test.js
 test/deliverables-csv-artifact.e2e.test.js
 test/deliverables-xlsx-artifact.e2e.test.js
 test/deliverables-docx-artifact.e2e.test.js
+test/deliverables-dossier-artifact.e2e.test.js
 test/deliverable-store.test.js
 test/idempotency-ledger.test.js
 test/deliverable-provenance.test.js
