@@ -64,6 +64,39 @@
   const { note: failNote } = (typeof require === 'function') ? require('./failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
 
   const SILENT_MARKER = '[SILENT]';
+  const MAX_WORKFLOW_DECISIONS = 64;
+  function projectWorkflowDecisions(rows) {
+    const kinds = ['filter', 'split', 'join', 'loop', 'route'];
+    const outcomes = ['route', 'default', 'fallback', 'selected', 'fanout', 'awaiting-branches', 'waiting', 'released', 'partial-timeout', 'back', 'done', 'exhausted-escalation', 'exhausted-done', 'escalation-target'];
+    const decisions = [];
+    let truncated = rows.length > MAX_WORKFLOW_DECISIONS;
+    for (const row of rows.slice(0, MAX_WORKFLOW_DECISIONS)) {
+      if (!row || typeof row !== 'object' || !kinds.includes(row.kind) || !outcomes.includes(row.outcome)) { truncated = true; continue; }
+      const clean = { kind: row.kind, outcome: row.outcome };
+      if (row.junction != null && /^-?\d{1,8},-?\d{1,8}$/.test(String(row.junction))) clean.junction = String(row.junction);
+      if (['E', 'S', 'W', 'N'].includes(row.lane)) clean.lane = row.lane;
+      if (row.agent != null) {
+        const agent = String(row.agent);
+        if (agent.length > 80) truncated = true;
+        clean.agent = agent.slice(0, 80);
+      }
+      if (Array.isArray(row.agents)) {
+        if (row.agents.length > 16) truncated = true;
+        clean.agents = row.agents.slice(0, 16).map(agent => {
+          const id = String(agent);
+          if (id.length > 80) truncated = true;
+          return id.slice(0, 80);
+        });
+      }
+      if (row.expected != null) {
+        const expected = Number(row.expected);
+        if (!Number.isFinite(expected) || expected > 100 || expected < 0) truncated = true;
+        clean.expected = Math.max(0, Math.min(100, Number.isFinite(expected) ? expected : 0));
+      }
+      decisions.push(clean);
+    }
+    return { decisions, truncated };
+  }
   const iso = cron._internals.iso;   // ms(arg) -> ISO; deterministic (the lint bans only the zero-arg new Date)
   // B4 redacted-egress: the SAME structural redaction the channel tee applies, so both autonomous lanes
   // (routed messages + scheduled cron) ship one shape to the floor — tool_call name-only, tool_result
@@ -270,7 +303,14 @@
           baseReason = baseReason + ' (paused: consecutive-failures x' + settled.consecutiveFailures + ')';
         }
       }
-      if (!owned || committed) try { emit('cron.result', { jobId: jobId, runId: runId, outcome: outcome, reason: owned ? baseReason : (baseReason + ' (stale-lease)') }); } catch (_) {}
+      if (!owned || committed) try {
+        const resultEvent = { jobId: jobId, runId: runId, outcome: outcome, reason: owned ? baseReason : (baseReason + ' (stale-lease)') };
+        if (state.workflowDecisions) {
+          resultEvent.workflowDecisions = state.workflowDecisions;
+          resultEvent.workflowDecisionsTruncated = state.workflowDecisionsTruncated === true;
+        }
+        emit('cron.result', resultEvent);
+      } catch (_) {}
       const continueAfterCommit = !(owned && committed && afterFinalizationCommitted && afterFinalizationCommitted(cronStore.getJob(getJobs(), jobId)) === false);
       if (owned && committed && continueAfterCommit) {
         const liveJob = cronStore.getJob(getJobs(), jobId) || { id: jobId };
@@ -527,7 +567,16 @@
             unattendedGrants: [],
             onHop: function () { renewLease(job.id, runId); }
           })).then(
-            function (line) { if (line && String(line.text || '').trim()) state.buf = line.text; if (line && typeof line.usd === 'number' && isFinite(line.usd)) state.usd += line.usd; finishFire(job.id, runId, state, null); },
+            function (line) {
+              if (line && String(line.text || '').trim()) state.buf = line.text;
+              if (line && typeof line.usd === 'number' && isFinite(line.usd)) state.usd += line.usd;
+              if (line && Array.isArray(line.decisions)) {
+                const projected = projectWorkflowDecisions(line.decisions);
+                state.workflowDecisions = projected.decisions;
+                state.workflowDecisionsTruncated = projected.truncated || line.decisionsTruncated === true;
+              }
+              finishFire(job.id, runId, state, null);
+            },
             // A CHAIN FAILURE NEVER CHANGES THE ROUTINE'S OUTCOME: stage one really did run and really did
             // produce work. Same law the channel path holds — the line is never a gate on the answer.
             // It is still SAID OUT LOUD: a silently swallowed chain error is indistinguishable from a floor

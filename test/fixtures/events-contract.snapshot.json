@@ -320,7 +320,9 @@
       "jobId",
       "outcome",
       "reason",
-      "runId"
+      "runId",
+      "workflowDecisions",
+      "workflowDecisionsTruncated"
     ]
   },
   "cron.skipped": {

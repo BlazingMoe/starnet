@@ -48,6 +48,7 @@ const cases = [
   ['cron.fire', { jobId: 'j1', runId: 'r', scheduledFor: 1700000000000 }, { jobId: 'j1' }],
   ['cron.skipped', { jobId: 'j1', reason: 'already-running' }, { jobId: 'j1', reason: 'because' }],
   ['cron.result', { jobId: 'j1', runId: 'r', outcome: 'ok', reason: 'done' }, { jobId: 'j1', runId: 'r', outcome: 'maybe' }],
+  ['cron.result', { jobId: 'j1', runId: 'r', outcome: 'ok', workflowDecisions: [{ kind: 'route', outcome: 'route', agent: 'writer' }], workflowDecisionsTruncated: false }, { jobId: 'j1', runId: 'r', outcome: 'ok', workflowDecisions: [{ kind: 'model', outcome: 'route' }] }],
   ['checkpoint.created', { agentId: 'a', runId: 'r', turn: 2, snapshotId: 's1', files: 3, bytes: 900 }, { agentId: 'a', runId: 'r', snapshotId: 's1' }],
   ['checkpoint.restored', { agentId: 'a', runId: 'r', toSnapshotId: 's1', reason: 'rewind' }, { agentId: 'a', runId: 'r' }],
   ['shell.exec', { agentId: 'a', runId: 'r', callId: 'c1', cmdSummary: 'npm test', cwd: '/w', exitCode: 0, ms: 12, truncated: false }, { agentId: 'a', runId: 'r', callId: 'c1', exitCode: 'zero' }],
