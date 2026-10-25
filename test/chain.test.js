@@ -21,6 +21,74 @@ let T = 0; const clock = () => (T += 10);
 
 (async () => {
 
+  /* ---- REAL compiled FILTER decisions flow into the executor's ephemeral trace ---- */
+  {
+    const belt = (x, y, dir) => ({ x, y, dir });
+    const plan = P.compileRoutingPlan({
+      props: [{ id: 'a', t: 'bay', x: 0, y: 2, w: 1, h: 1, agentId: 'triage' },
+        { id: 'f', t: 'filter', x: 3, y: 2, w: 1, h: 1, routes: { code: 'N' }, def: 'S' },
+        { id: 'c', t: 'bay', x: 5, y: 0, w: 1, h: 1, agentId: 'coder' },
+        { id: 'w', t: 'bay', x: 5, y: 4, w: 1, h: 1, agentId: 'writer' }],
+      belts: [belt(1, 2, 'E'), belt(2, 2, 'E'), belt(3, 2, 'E'), belt(3, 1, 'E'), belt(4, 1, 'E'), belt(3, 3, 'E'), belt(4, 3, 'E')]
+    });
+    const router = makeRouter(); router.setPlan(plan);
+    let runs = 0;
+    const c = makeChainRunner({
+      nextAgent: (id, ctx) => router.chainNext(id, ctx),
+      stepAgent: (id, ctx) => router.chainStep(id, ctx),
+      getTag: text => /CODE_RESULT/.test(text) ? 'code' : 'unmatched-sensitive-classification',
+      runAgent: async ({ agentId }) => { runs++; return { text: agentId + ' result' }; }, now: clock
+    });
+    const routed = await c.advance({ agentId: 'triage', text: 'CODE_RESULT', lineId: P.lineOf(plan, 'triage') });
+    A.eq(routed.hops.map(h => h.agentId).join(','), 'coder', 'the integrated compiled plan still routes the explicit match to coder');
+    A.ok(routed.decisions.some(d => d.kind === 'filter' && d.outcome === 'route' && d.lane === 'N'), 'the same execution returns its explicit filter decision');
+    A.ok(!JSON.stringify(routed.decisions).includes('CODE_RESULT'), 'trace excludes output text');
+    A.ok(!JSON.stringify(routed.decisions).includes('sensitive-classification'), 'trace excludes arbitrary classification values');
+
+    const calls = runs;
+    const budget = await c.advance({ agentId: 'triage', text: 'CODE_RESULT', lineId: P.lineOf(plan, 'triage'), entryUsd: 0.01, limits: { maxUsdPerMessage: 0.01 } });
+    A.eq(budget.hops.length, 0, 'the spend ceiling still prevents the selected stage from running');
+    A.eq(runs, calls, 'the selected route does not bypass budget enforcement');
+    A.ok(budget.decisions.some(d => d.kind === 'route' && d.agent === 'coder'), 'trace states the planned route without claiming execution');
+    A.ok(budget.stopped, 'budget stop remains explicit alongside route decision');
+
+    const gated = makeChainRunner({
+      nextAgent: (id, ctx) => router.chainNext(id, ctx),
+      stepAgent: (id, ctx) => router.chainStep(id, ctx),
+      getTag: () => 'code',
+      runAgent: async () => ({ error: 'consent required' }), now: clock
+    });
+    const denied = await gated.advance({ agentId: 'triage', text: 'classified', lineId: P.lineOf(plan, 'triage') });
+    A.eq(denied.hops.length, 0, 'the existing caller-side consent refusal still prevents a completed hop');
+    A.ok(/consent required/.test(denied.stopped), 'the consent refusal remains the reported stop reason');
+    A.ok(denied.decisions.some(d => d.kind === 'route' && d.agent === 'coder'), 'trace keeps the routing choice distinct from consent acceptance');
+
+    const deadPlan = P.compileRoutingPlan({
+      props: [{ id: 'a', t: 'bay', x: 0, y: 2, w: 1, h: 1, agentId: 'triage' },
+        { id: 'f', t: 'filter', x: 3, y: 2, w: 1, h: 1, routes: { code: 'N' }, def: 'S' },
+        { id: 'c', t: 'bay', x: 5, y: 0, w: 1, h: 1, agentId: 'coder' }],
+      belts: [belt(1, 2, 'E'), belt(2, 2, 'E'), belt(3, 2, 'E'), belt(3, 1, 'E'), belt(4, 1, 'E'), belt(3, 3, 'E')]
+    });
+    router.setPlan(deadPlan);
+    const terminal = await c.advance({ agentId: 'triage', text: 'unmatched', lineId: P.lineOf(deadPlan, 'triage') });
+    A.eq(terminal.hops.length, 0, 'a selected dead-end route still launches no stage');
+    A.ok(terminal.decisions.some(d => d.kind === 'filter' && d.outcome === 'default' && d.lane === 'S'), 'executor collector preserves the route decision before chainStep returns null');
+  }
+
+  /* ---- decision trace remains capped across repeated loop hops ---- */
+  {
+    let passes = 0;
+    const c = makeChainRunner({
+      nextAgent: () => null,
+      stepAgent: () => ({ loop: '7,7', max: 100, backTo: 'a', next: null }),
+      runAgent: async () => { passes++; return { text: 'still reviewing' }; }, now: clock
+    });
+    const res = await c.advance({ agentId: 'a', text: 'start', lineId: 'line-a' });
+    A.eq(passes, 100, 'bounded loop decisions continue to execute under the existing iteration limit');
+    A.eq(res.decisions.length, 64, 'trace storage remains at its hard per-run bound');
+    A.ok(res.decisionsTruncated, 'overflow is disclosed with a truncation flag');
+  }
+
   /* ---- a two-stage line runs BOTH agents; the reply is the LAST stage's ---- */
   {
     const log = [], events = [];
