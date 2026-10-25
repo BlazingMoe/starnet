@@ -189,6 +189,21 @@
       source: 'builtin', forkedFrom: null
     },
     {
+      id: 'offer-economics-dossier', name: 'Offer and Economics Dossier', emoji: '◈', tagline: 'A bounded offer, with costs kept honest',
+      accent: '#d9a85a',
+      blurb: 'Turns an operator-selected niche and explicit assumptions into a reviewable offer, cost ledger, rights checklist and small pilot plan.',
+      tags: { general: 0.7, research: 0.3 },
+      params: [
+        { key: 'offer', label: 'Offer and niche', placeholder: 'who it serves, the problem and the proposed product/service', required: true },
+        { key: 'scope', label: 'Deliverables and boundaries', placeholder: 'deliverables, exclusions, revision cap and allowed inputs', required: true },
+        { key: 'assumptions', label: 'Fee, cost and time assumptions', placeholder: 'currency, fee snapshot/date, cost ceiling and minutes for sales/support/revisions; write unknown where missing', required: true },
+        { key: 'workspace', label: 'Output folder', placeholder: 'e.g. business/offer-pilot', required: true }
+      ],
+      task: 'Prepare an Offer and Economics dossier for {offer}, using scope {scope} and only the operator-provided assumptions {assumptions}. Save the four files under {workspace}: offer.md, economics.csv, rights-and-policy.md and pilot-plan.md. In offer.md, state the target buyer, promised outcome, exact deliverables, exclusions, capped revisions, allowed inputs and acceptance criteria. In economics.csv, use an assumptions/fee/time ledger with columns metric, value, unit, currency, status (observed, estimate, assumption, actual, or unknown), as_of, and notes. For time rows set unit to minutes and leave currency blank; for monetary rows set unit to currency amount and put the supplied currency identifier in currency. Keep unknown distinct from zero. Record a fee snapshot only when supplied with its source/date; do not calculate contribution, profit, forecasts or hourly returns in this first milestone. Apply domain-specific guidance only when it matches the operator-selected offer: for POD, address original seller designs, verify any no-inventory/minimum-order and subscription assumptions for the selected product, and record possible fulfilment charges before marketplace payout, fees, refunds/reprints and working-capital exposure; for a Fiverr image service, use only a current fee snapshot supplied or verified for the chosen service and keep unsupported fees unknown; for a fictional-industry website concept, label the business, audit findings and assets synthetic and do not imply a real prospect or site inspection. Omit these examples when unrelated to the selected offer. In rights-and-policy.md, cover ownership/license of every input/output, customer permission, platform terms, privacy, disclosures and unresolved legal/compliance checks; do not copy protected competitor designs or claims. In pilot-plan.md, propose a small reversible test with the success measure, authoritative evidence source, maximum time/money at risk, stop rules and a time log for sales, production, support and revisions. Generic service or product offers are supported; choose no business model on the operator’s behalf. Keep missing inputs and unsupported fees unknown, do not estimate demand from likes/search volume, and never present assumptions as transactions. This is a planning and draft-artifact task only: do not send messages, publish/list, buy, place orders, create accounts, subscribe, trade or imply adapters exist. These instructions guide the run; the existing capability, consent and permission controls remain authoritative at execution time. Use only the existing consent-gated verified filesystem writers; read every saved file back and report gaps. If any writer is unavailable or denied, stop and report the exact blocker without claiming the bundle is complete.',
+      category: 'business', gear: ['cabinet'], skills: ['plan'], cadence: null,
+      source: 'builtin', forkedFrom: null
+    },
+    {
       id: 'client-onboard-kit', name: 'Client Onboarding Kit', emoji: '⊞', tagline: 'Start the project properly',
       accent: '#6fbcc0',
       blurb: 'Everything a new client needs in week one — so the project starts clean instead of drifting.',

@@ -15,6 +15,7 @@ const os = require('os');
 const zlib = require('node:zlib');
 const events = require('../shared/events.js');
 const { makeEmitter } = require('../shared/emitter.js');
+const { makeArtifactCollector } = require('../sidecar/artifacts.js');
 const { makeReplayProvider } = require('../sidecar/providers/replay.js');
 const { makeCostEngine } = require('../sidecar/cost.js');
 const { runAgentLoop } = require('../sidecar/loop.js');
@@ -537,6 +538,84 @@ const fixture = {
     // a CLEAN stop omits finishReason entirely (old clean-run payloads stay byte-identical).
     const cleanEnd = seq.find(e => e.name === 'agent.run.end' && e.payload.runId === 'itest');
     A.ok(cleanEnd && cleanEnd.payload.finishReason === undefined, 'a clean run omits finishReason (additive, not always-on)');
+  }
+
+  // Offer and Economics dossier synthetic acceptance: real catalogue filling, agent loop, dispatcher,
+  // consented verified writers and read-back. No arithmetic engine or external action is simulated.
+  {
+    const recipe = require('../frontend/app/recipe-catalog/business.js').find(r => r.id === 'offer-economics-dossier');
+    A.ok(recipe, 'offer economics dossier is in the existing business catalogue');
+    const task = require('../frontend/app/recipes.js').fillTask(recipe, {
+      offer: 'Synthetic bicycle repair studios: one-page fictional website concept',
+      scope: 'one draft page; excludes domain, hosting, outreach and booking; one revision; synthetic assets only',
+      assumptions: 'EUR; platform fee snapshot unknown; maximum pilot spend EUR 0; sales/support/revision time unknown',
+      workspace: 'offer-fixture'
+    });
+    A.ok(/do not calculate contribution, profit, forecasts or hourly returns/i.test(task), 'recipe keeps unsupported arithmetic out of this milestone');
+    const inputPath = path.join(ROOT, 'agent', 'offer-source.txt');
+    const inputBytes = Buffer.from('Synthetic operator brief; immutable fixture input.');
+    await fsp.writeFile(inputPath, inputBytes);
+    const outputs = {
+      'offer.md': '# Offer\nSynthetic fictional bicycle repair website concept. One draft page, one revision; excludes domain, hosting, outreach and booking. Synthetic assets only.\n',
+      'rights-and-policy.md': '# Rights and policy\nFictional business and synthetic concept only; no real site was inspected. Use original or licensed assets only. Customer permissions, hosting/legal checks and future maintenance terms remain unknown. No account, outreach, domain, booking or publication.\n',
+      'pilot-plan.md': '# Pilot\nPrepare one private fictional bicycle repair website concept using synthetic assets. Maximum spend: EUR 0 by operator instruction. Track production, sales, support and revisions separately; time remains unknown until logged. Stop if rights, scope or hosting costs are unclear. No domain purchase, message, booking or publication.\n'
+    };
+    const econRows = [
+      ['platform fee snapshot', 'unknown', 'currency amount', 'EUR', 'unknown', '', 'No source/date supplied'],
+      ['maximum pilot spend', '0', 'currency amount', 'EUR', 'assumption', '2026-10-25', 'Operator-supplied fixture bound; zero is explicit, not missing'],
+      ['production time', 'unknown', 'minutes', '', 'unknown', '', 'Not measured'],
+      ['sales and support time', 'unknown', 'minutes', '', 'unknown', '', 'Not measured'],
+      ['refunds and payment fees', 'unknown', 'currency amount', 'EUR', 'unknown', '', 'No transactions or fee snapshot']
+    ];
+    const turns = [];
+    const tool = (id, name, args) => turns.push([
+      { type: 'tool_start', index: 0, id, name },
+      { type: 'tool_args', index: 0, chunk: JSON.stringify(args) },
+      { type: 'done', finishReason: 'tool_calls' }
+    ]);
+    for (const [name, content] of Object.entries(outputs)) tool('offer-write-' + name, 'fs_write', { path: 'offer-fixture/' + name, content });
+    tool('offer-write-economics', 'fs_write_csv', {
+      path: 'offer-fixture/economics.csv',
+      columns: ['metric', 'value', 'unit', 'currency', 'status', 'as_of', 'notes'], rows: econRows
+    });
+    for (const name of ['offer.md', 'economics.csv', 'rights-and-policy.md', 'pilot-plan.md']) tool('offer-read-' + name, 'fs_read', { path: 'offer-fixture/' + name });
+    turns.push([{ type: 'text', delta: 'Synthetic offer dossier saved and read back; no commercial outcome is claimed.' }, { type: 'done', finishReason: 'stop' }]);
+    const offerBus = A.makeBus(), offerSeq = A.collectBus(offerBus, events.names()), offerEmit = makeEmitter(offerBus, () => {});
+    const dp = makeReplayProvider({ models: fixture.models, turns });
+    const observedWrites = [];
+    const offerArtifacts = makeArtifactCollector();
+    const offerDispatch = async (call, ctx) => {
+      const name = fromWire.get(call.name) || call.name;
+      const args = call.args || {};
+      const dispatched = await dispatch(call, ctx);
+      if (name === 'fs.write' || name === 'fs.write_csv') {
+        observedWrites.push({ name, args, result: dispatched });
+        offerArtifacts.observe({ toolName: name, args, result: dispatched });
+      }
+      return dispatched;
+    };
+    const result = await runAgentLoop({ messages: [{ role: 'user', content: task }], provider: dp, emit: offerEmit,
+      cost: makeCostEngine({ priceOf: dp.priceOf }), tools: toolDefs, dispatch: offerDispatch, capCtx,
+      model: 'replay/model', agentId: 'agent', runId: 'offer-economics-fixture',
+      limits: { maxIters: 12, maxCostUsd: 1 }, clock: { now: () => 0 }
+    });
+    A.eq(result.reason, 'done', 'offer dossier completes through the normal dispatcher');
+    const actualCalls = offerSeq.filter(e => e.name === 'agent.tool_call').map(e => fromWire.get(e.payload.name) || e.payload.name);
+    A.eq(actualCalls, ['fs.write', 'fs.write', 'fs.write', 'fs.write_csv', 'fs.read', 'fs.read', 'fs.read', 'fs.read'], 'only the four approved artifact writes and their read-backs run');
+    const results = offerSeq.filter(e => e.name === 'agent.tool_result').map(e => e.payload);
+    A.eq(results.length, 8, 'every dossier write/read has a paired result');
+    A.ok(results.every(r => r.isError === false), 'all offer dossier filesystem operations succeed');
+    A.eq(observedWrites.length, 4, 'exactly four production writer calls return receipts');
+    A.ok(observedWrites.every(x => x.result.receipt && x.result.receipt.state === 'read-back-verified' && x.result.receipt.path === x.args.path), 'each writer returns a matching read-back-verified receipt');
+    for (const [name, content] of Object.entries(outputs)) A.eq(await fsp.readFile(path.join(ROOT, 'agent', 'offer-fixture', name), 'utf8'), content, 'verified artifact is persisted: ' + name);
+    const csv = await fsp.readFile(path.join(ROOT, 'agent', 'offer-fixture', 'economics.csv'), 'utf8');
+    A.ok(csv.startsWith('metric,value,unit,currency,status,as_of,notes\r\n') && csv.includes('production time,unknown,minutes,,unknown'), 'economics CSV writes minutes with blank currency and preserves unknown');
+    A.ok(csv.includes('maximum pilot spend,0,currency amount,EUR,assumption'), 'explicit zero is distinguishable from unknown and monetary unit has currency');
+    const artifactRows = offerArtifacts.list().sort((a, b) => a.path.localeCompare(b.path));
+    A.eq(artifactRows.map(x => x.path), ['offer-fixture/economics.csv', 'offer-fixture/offer.md', 'offer-fixture/pilot-plan.md', 'offer-fixture/rights-and-policy.md'], 'actual artifact collector lists all four dossier files');
+    for (const item of artifactRows) A.eq(item.bytes, (await fsp.readFile(path.join(ROOT, 'agent', item.path))).length, 'collector artifact byte count matches verified file: ' + item.path);
+    A.ok(Buffer.compare(await fsp.readFile(inputPath), inputBytes) === 0, 'source fixture remains byte-identical');
+    A.ok(!actualCalls.some(n => /channel\.send|web_search|web_fetch|browser|purchase|order|publish/i.test(n)), 'fixture performs no outreach, research, publishing or commerce side effect');
   }
 
   try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch (e) {}

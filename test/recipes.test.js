@@ -622,4 +622,21 @@ A.ok(/off your plate/.test(mlWhy) && /“(fix|bug)”/.test(mlWhy), 'the why nam
 A.ok(/your goal/.test(R.forYouReason(R.get('fix-bug'), { painText: 'fix bug', goalText: 'fix bug' })), 'a goal match outranks the pain phrasing when both hit');
 A.eq(R.forYouReason(R.get('fix-bug'), { painText: 'the the and', goalText: '' }), '', 'stoplist words never earn a pain reason');
 
+const offerEconomics = R.get('offer-economics-dossier');
+A.ok(offerEconomics, 'offer-economics-dossier is registered in the shared catalogue');
+if (offerEconomics) {
+  A.eq(offerEconomics.category, 'business', 'offer dossier is categorized as business');
+  A.eq(offerEconomics.params.map(p => p.key), ['offer', 'scope', 'assumptions', 'workspace'], 'launch form exposes offer, bounded scope, explicit economics assumptions and output folder');
+  A.ok(/offer\.md, economics\.csv, rights-and-policy\.md and pilot-plan\.md/.test(offerEconomics.task), 'recipe names the four requested output artifacts');
+  A.ok(/unknown distinct from zero/.test(offerEconomics.task), 'unknown values cannot be silently represented as zero');
+  A.ok(/columns metric, value, unit, currency, status/.test(offerEconomics.task) && /time rows set unit to minutes and leave currency blank/.test(offerEconomics.task), 'economics ledger defines explicit unit and currency semantics');
+  A.ok(/do not calculate contribution, profit, forecasts or hourly returns/.test(offerEconomics.task), 'first milestone does not claim deterministic economics');
+  A.ok(/Apply domain-specific guidance only when it matches the operator-selected offer/.test(offerEconomics.task) && /Omit these examples when unrelated to the selected offer/.test(offerEconomics.task), 'specialty guidance is conditional on the selected business');
+  A.ok(/for a Fiverr image service, use only a current fee snapshot supplied or verified/.test(offerEconomics.task), 'Fiverr fee details are never hardcoded or treated as current without evidence');
+  A.ok(/for POD, address original seller designs/.test(offerEconomics.task) && /fulfilment charges before marketplace payout/.test(offerEconomics.task), 'POD instructions retain payout cash-gap and rights risks when relevant');
+  A.ok(/for a fictional-industry website concept, label the business, audit findings and assets synthetic/.test(offerEconomics.task), 'website concept must remain visibly fictional when relevant');
+  A.ok(/do not send messages, publish\/list, buy, place orders, create accounts, subscribe, trade/.test(offerEconomics.task), 'planning task explicitly forbids external and commercial actions');
+  A.ok(/existing capability, consent and permission controls remain authoritative/.test(offerEconomics.task), 'recipe text is guidance and does not replace runtime permissions');
+}
+
 A.report('recipes');
