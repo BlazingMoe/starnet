@@ -269,6 +269,7 @@ test/run-recovery-ui.test.js
 test/run-journal.loop.test.js
 test/longhaul-retention.test.js
 test/autonomy-ledger.test.js
+test/workflow-ledger.test.js
 test/artifacts.test.js
 test/deliverables-csv-artifact.e2e.test.js
 test/deliverables-xlsx-artifact.e2e.test.js

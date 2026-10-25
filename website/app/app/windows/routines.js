@@ -301,10 +301,13 @@
       return '<span class="' + (ok ? 'pos' : '') + '"' + (ok ? '' : ' style="color:var(--bad)"') + '>' + (ok ? '✓ ok' : '✕ ' + esc(j.lastReason || 'error')) + '</span> <span class="dim">' + esc(fmtRel(j.lastRunAt)) + '</span>';
     }
     function decisionTrail(j) {
-      if (recentCronDecisions === null) return '<div class="mc-detail dim">recent scheduling decisions unavailable</div>';
-      const entries = recentCronDecisions.filter(e => e && e.jobId === j.id).slice(0, 3);
-      if (!entries.length) return '<div class="mc-detail dim">no recent scheduling decisions in the retained ledger window</div>';
-      return '<div class="mc-detail dim">recent scheduling decisions: ' + entries.map(e => {
+      if (recentCronDecisions === null) return '<div class="mc-detail dim">recent scheduling/workflow ledger unavailable</div><div class="mc-detail dim">workflow history covers scheduled fires only; Run Now is not included, and ledger append failures can leave gaps</div>';
+      const jobEntries = recentCronDecisions.filter(e => e && e.jobId === j.id);
+      const scheduling = jobEntries.filter(e => e.binding !== 'workflow-trace' && e.binding !== 'workflow-decision').slice(0, 3);
+      const traces = jobEntries.filter(e => e.binding === 'workflow-trace').slice(0, 2);
+      const detailRows = jobEntries.filter(e => e.binding === 'workflow-decision');
+      const lines = [];
+      if (scheduling.length) lines.push('<div class="mc-detail dim">recent scheduling decisions: ' + scheduling.map(e => {
         const scheduledFor = e.detail && e.detail.scheduledFor;
         const scheduled = scheduledFor != null ? wallClock(scheduledFor) : '';
         const recorded = wallClock(e.ts);
@@ -312,7 +315,52 @@
         const reason = e.kind === 'fire' ? 'scheduled fire' : (e.reason || 'reason unavailable');
         const time = scheduled ? 'scheduled for ' + scheduled : recorded ? 'decision recorded ' + recorded : 'time unavailable';
         return esc(label + ' · ' + reason + ' · ' + time);
-      }).join(' ; ') + '</div>';
+      }).join(' ; ') + '</div>');
+      if (scheduling.length && !traces.length) lines.push('<div class="mc-detail dim">no workflow trace in the retained window for these scheduling decisions</div>');
+      if (traces.length) {
+        const traceLines = traces.map(summary => {
+          const d = summary.detail || {};
+          const runId = summary.runId;
+          const decisions = detailRows.filter(e => e && e.runId === runId)
+            .sort((a, b) => Number((a.detail || {}).index) - Number((b.detail || {}).index));
+          const expected = Math.max(0, Number(d.retainedDecisionCount) || 0);
+          const validDecisions = [], seenIndexes = new Set();
+          let invalidDetail = false;
+          decisions.forEach(e => {
+            const index = Number(e.detail && e.detail.index);
+            if (!Number.isSafeInteger(index) || index < 0 || index > 7 || seenIndexes.has(index)) { invalidDetail = true; return; }
+            seenIndexes.add(index); validDecisions.push(e);
+          });
+          const incomplete = validDecisions.length !== expected || invalidDetail;
+          const shortRun = String(runId || 'unavailable').slice(0, 12);
+          const when = wallClock(summary.ts);
+          const identity = 'run ' + shortRun + (when ? ' · recorded ' + when : ' · recorded time unavailable');
+          if (expected === 0 && Number(d.observedDecisionCount) === 0) {
+            return '<div class="mc-detail dim">workflow trace for ' + esc(identity) + ': no workflow decisions recorded' + (d.traceTruncated === true ? ' · trace capped' : '') + '</div>';
+          }
+          const choices = validDecisions.map(e => {
+            const x = e.detail || {};
+            let label = String(x.kind || 'step') + ' · ' + String(x.outcome || 'outcome unavailable');
+            if (x.junction) label += ' at ' + x.junction;
+            if (x.lane) label += ' (' + x.lane + ')';
+            if (x.selectedAgent) label += ' → ' + x.selectedAgent;
+            if (x.fanoutCount != null) label += ' · ' + x.fanoutCount + ' fan-out target' + (Number(x.fanoutCount) === 1 ? '' : 's');
+            return esc(label);
+          });
+          const observed = Math.max(0, Number(d.observedDecisionCount) || 0);
+          const countText = observed + ' decision' + (observed === 1 ? '' : 's') + ' observed';
+          const caveat = d.traceTruncated === true ? ' · trace capped' : '';
+          const history = incomplete ? ' · retained detail incomplete' : '';
+          return '<div class="mc-detail dim">scheduled workflow choices for ' + esc(identity) + ' (' + esc(countText) + caveat + history + '): ' +
+            (choices.length ? choices.join(' ; ') : 'decision detail unavailable') +
+            ' <span title="A recorded route is a choice, not proof that its target ran.">· choices do not prove execution</span></div>';
+        });
+        lines.push.apply(lines, traceLines);
+      }
+      if (!traces.length && detailRows.length) lines.push('<div class="mc-detail dim">workflow detail exists without its summary in the retained window; this run history is incomplete</div>');
+      if (!jobEntries.length) lines.push('<div class="mc-detail dim">no recent scheduling or workflow decision trace in the retained ledger window; older runs may predate workflow recording</div>');
+      lines.push('<div class="mc-detail dim">workflow history covers scheduled fires only; Run Now is not included, and ledger append failures can leave gaps</div>');
+      return lines.join('');
     }
     // TICKER HEALTH (scheduler-audit GA-9): armed alone can't prove ticks are completing. GET /api/cron carries a
     // real observed `health` block; render it beside the armed banner. Only meaningful when armed (a disarmed
@@ -454,7 +502,9 @@
         routineJobs = jobs;
         try {
           const ledger = await Harness.api.get('/api/autonomy/ledger?source=cron&limit=500');
-          recentCronDecisions = ledger && Array.isArray(ledger.entries) ? ledger.entries.filter(e => e && (e.kind === 'skip' || e.kind === 'defer' || (e.kind === 'fire' && e.binding === 'schedule'))) : null;
+          recentCronDecisions = ledger && Array.isArray(ledger.entries) ? ledger.entries.filter(e => e &&
+            (e.kind === 'skip' || e.kind === 'defer' || (e.kind === 'fire' && e.binding === 'schedule') ||
+             (e.kind === 'note' && (e.binding === 'workflow-trace' || e.binding === 'workflow-decision')))) : null;
         } catch (_) { recentCronDecisions = null; }
         // the live cronArmed — feeds the create-confirm's honest arm-state line. A HALTED scheduler is not armed no
         // matter what the intent flag says, or the create-confirm promises a fire that an E-STOP is holding down.

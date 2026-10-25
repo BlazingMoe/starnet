@@ -42,7 +42,7 @@ async function create(value, badInput, misfire, maxItersText, badIters, maxCostT
 }
 function row(job, recentCronDecisions) {
   return vm.runInNewContext(wallSrc + '\n' + decisionSrc + '\n' + rowSrc + '\nrow(job)', {
-    job, esc: String, fmtRel: String, human: String, schedulerArmed: true,
+    job, esc: value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'), fmtRel: String, human: String, schedulerArmed: true,
     runsLine: () => 'agent', lastResult: () => '', spendLine: () => '',
     recentCronDecisions: recentCronDecisions === undefined ? [] : recentCronDecisions,
     failureStreakLine: () => '', deliveryLine: () => '',
@@ -276,8 +276,40 @@ async function previewRace() {
   const timestampOnlyHtml = row({ id: 'trail' }, [{ jobId: 'trail', kind: 'skip', reason: 'legacy', ts: T }]);
   A.ok(timestampOnlyHtml.includes('decision recorded ' + vm.runInNewContext(wallSrc + '\nwallClock(' + T + ')')), 'missing scheduledFor is disclosed as the decision-record timestamp');
   A.ok(row({ id: 'trail' }, [{ jobId: 'trail', kind: 'fire', binding: 'schedule', ts: T }]).includes('triggered · scheduled fire'), 'recent trail calls a scheduled fire triggered rather than claiming the run completed');
+  const workflowHtml = row({ id: 'trail' }, [
+    { jobId: 'trail', runId: 'run-new', binding: 'workflow-trace', detail: { observedDecisionCount: 2, retainedDecisionCount: 2, traceTruncated: false } },
+    { jobId: 'trail', runId: 'run-new', binding: 'workflow-decision', detail: { index: 0, kind: 'route', outcome: 'route', junction: '<img src=x>', lane: 'N', selectedAgent: 'writer', fanoutCount: 2 } },
+    { jobId: 'trail', runId: 'run-new', binding: 'workflow-decision', detail: { index: 1, kind: 'filter', outcome: 'selected' } },
+  ]);
+  A.ok(workflowHtml.includes('scheduled workflow choices for run run-new · recorded ') && workflowHtml.includes('(2 decisions observed'), 'workflow trace renders timestamped run-scoped bounded summary');
+  A.ok(workflowHtml.includes('&lt;img src=x&gt;') && !workflowHtml.includes('<img src=x>'), 'untrusted workflow labels are escaped');
+  A.ok(workflowHtml.includes('2 fan-out targets') && workflowHtml.includes('choices do not prove execution'), 'fan-out is summarized and choices are not presented as proof of execution');
+  A.ok(workflowHtml.includes('workflow history covers scheduled fires only; Run Now is not included'), 'manual Run Now coverage boundary is explicit once');
+  const incompleteHtml = row({ id: 'trail' }, [
+    { jobId: 'trail', runId: 'run-old', binding: 'workflow-trace', detail: { observedDecisionCount: 4, retainedDecisionCount: 2, traceTruncated: true } },
+    { jobId: 'trail', runId: 'run-new', binding: 'workflow-trace', detail: { observedDecisionCount: 1, retainedDecisionCount: 1, traceTruncated: false } },
+    { jobId: 'trail', runId: 'run-old', binding: 'workflow-decision', detail: { index: 0, kind: 'route', outcome: 'route' } },
+  ]);
+  A.ok(incompleteHtml.includes('4 decisions observed · trace capped') && incompleteHtml.includes('retained detail incomplete'), 'bounded and partially retained history is disclosed per run');
+  A.ok(incompleteHtml.includes('run run-old') && incompleteHtml.includes('run run-new'), 'same routine runs remain separately summarized by bounded run id');
+  const emptyTraceHtml = row({ id: 'trail' }, [{ jobId: 'trail', runId: 'empty-run', ts: T, binding: 'workflow-trace', detail: { observedDecisionCount: 0, retainedDecisionCount: 0, traceTruncated: false } }]);
+  A.ok(emptyTraceHtml.includes('no workflow decisions recorded'), 'an explicit empty trace is distinguished from unavailable history');
+  const emptyCappedHtml = row({ id: 'trail' }, [{ jobId: 'trail', runId: 'empty-capped', ts: T, binding: 'workflow-trace', detail: { observedDecisionCount: 0, retainedDecisionCount: 0, traceTruncated: true } }]);
+  A.ok(emptyCappedHtml.includes('no workflow decisions recorded · trace capped'), 'an empty upstream-truncated trace remains visibly capped');
+  const orphanHtml = row({ id: 'trail' }, [{ jobId: 'trail', runId: 'orphan', binding: 'workflow-decision', detail: { index: 0, kind: 'route', outcome: 'route' } }]);
+  A.ok(orphanHtml.includes('workflow detail exists without its summary'), 'orphaned detail rows are disclosed as incomplete');
+  const noWorkflowHtml = row({ id: 'trail' }, [{ jobId: 'trail', kind: 'fire', binding: 'schedule', runId: 'scheduled-run', ts: T }]);
+  A.ok(noWorkflowHtml.includes('no workflow trace in the retained window'), 'scheduling entries with no trace are disclosed');
+  const duplicateDetailHtml = row({ id: 'trail' }, [
+    { jobId: 'trail', runId: 'duplicate', binding: 'workflow-trace', detail: { observedDecisionCount: 2, retainedDecisionCount: 2, traceTruncated: false } },
+    { jobId: 'trail', runId: 'duplicate', binding: 'workflow-decision', detail: { index: 0, kind: 'route', outcome: 'route' } },
+    { jobId: 'trail', runId: 'duplicate', binding: 'workflow-decision', detail: { index: 0, kind: 'filter', outcome: 'selected' } },
+  ]);
+  A.ok(duplicateDetailHtml.includes('retained detail incomplete'), 'duplicate ledger detail indexes are disclosed as incomplete');
+  A.ok(row({ id: 'trail' }, []).includes('older runs may predate workflow recording'), 'empty retained history is distinguished from a complete history');
   A.ok(row({ id: 'trail', enabled: true, nextRunAt: '2026-10-06T13:00:00.000Z' }).includes('next ' + vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z")')), 'next-run label uses the authoritative scheduled instant through the local clock formatter');
-  A.ok(row({ id: 'trail' }, null).includes('recent scheduling decisions unavailable'), 'a failed ledger read is disclosed as unavailable');
+  A.ok(row({ id: 'trail' }, null).includes('recent scheduling/workflow ledger unavailable'), 'a failed ledger read is disclosed as unavailable');
+  A.ok(row({ id: 'empty-ledger' }, []).includes('Run Now is not included'), 'manual coverage remains explicit with an empty retained history');
   const utcLabel = vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z", "UTC")');
   const berlinLabel = vm.runInNewContext(wallSrc + '\nwallClock("2026-10-06T13:00:00.000Z", "Europe/Berlin")');
   A.ok(utcLabel.includes('1:00 PM') && berlinLabel.includes('3:00 PM'), 'wall-clock projection resolves the same scheduled instant in both UTC and Europe/Berlin');

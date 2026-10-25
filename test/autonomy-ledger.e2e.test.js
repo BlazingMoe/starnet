@@ -13,6 +13,7 @@ const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
+const { projectWorkflowTrace } = require('../sidecar/autonomy-ledger.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -136,6 +137,14 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === job.id && l.agentId === 'radar-agent'), 'the durable log carries the fire decision');
     A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === scheduledJob.id && l.detail && l.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the durable log preserves the scheduled occurrence instant');
 
+    // Seed a representative adapter-shaped workflow trace into the isolated ledger file and prove the existing
+    // read-only API rehydrates it after restart. The adapter projection itself is exercised separately by
+    // workflow-ledger.test.js; this integration locks file + route behavior without adding a write endpoint.
+    const workflowTraceFixture = projectWorkflowTrace({ jobId: scheduledJob.id, runId: scheduledFire.runId, workflowDecisions: [
+      { kind: 'route', outcome: 'route', lane: 'N', agent: 'writer', agents: ['writer', 'reviewer'] }
+    ] }, 'radar-agent').map(row => Object.assign({ ts: Date.now() }, row));
+    fs.appendFileSync(ledgerFile, workflowTraceFixture.map(row => JSON.stringify(row)).join('\n') + '\n');
+
     // (3) RESTART over the SAME workspaces dir -> the decision survives a process restart.
     try { child.kill(); } catch (_) {}
     await sleep(300);
@@ -147,6 +156,10 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     const survived = (await restarted.json()).entries;
     A.ok(survived.some(e => e.kind === 'fire' && e.jobId === job.id), 'the fire decision SURVIVED a sidecar restart (durable)');
     A.ok(survived.some(e => e.kind === 'fire' && e.jobId === scheduledJob.id && e.detail && e.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the scheduled instant survived a sidecar restart');
+    const workflowSummary = survived.find(e => e.binding === 'workflow-trace' && e.jobId === scheduledJob.id && e.runId === scheduledFire.runId);
+    A.ok(workflowSummary, 'the cold-start API serves the workflow trace summary from the existing ledger');
+    A.eq(workflowSummary.detail.observedDecisionCount, 1, 'the API returns bounded summary fields');
+    A.ok(survived.some(e => e.binding === 'workflow-decision' && e.jobId === scheduledJob.id && e.runId === scheduledFire.runId && e.detail.selectedAgent === 'writer'), 'the API returns run-bound decision detail');
   } finally {
     try { child && child.kill(); } catch (_) {}
     try { mock.server.close(); } catch (_) {}

@@ -75,7 +75,7 @@ const { mergeNotes } = require('./notebookrestore.js');
 const { makeRunStore } = require('./runstore.js');
 const { parseRunRequestLimits, tightenRunLimits } = require('./run-request-limits.js');
 const { makeGrowthRatings, deriveRating: deriveGrowthRating } = require('./growthratings.js');
-const { makeAutonomyLedger } = require('./autonomy-ledger.js');   // NS-0: durable append-only ledger of autonomy decisions
+const { makeAutonomyLedger, projectWorkflowTrace } = require('./autonomy-ledger.js');   // NS-0: durable append-only ledger of autonomy decisions
 const { makeArtifactCollector } = require('./artifacts.js');   // work-visibility: per-run "what did it produce" ledger
 const { makeCompletionEvidence } = require('./completion-evidence.js'); // structured effect proof; never guesses task completion
 const { makeRunExecutionState, toolBytesCapFor } = require('./run-execution-state.js'); // one lifecycle for per-run latches/counters/artifacts
@@ -4767,7 +4767,7 @@ const autoNotifier = makeAutoNotifier({
 // `binding` names the mechanism so a reader can answer "why didn't it act": concurrency-cap, no-capability, etc.
 const AUTONOMY_SKIP_BINDING = { 'at-capacity': 'concurrency-cap', 'no-capability': 'no-capability', 'disabled': 'paused', 'caught-up': 'stale-fast-forward', 'already-running': 'in-flight', 'stale-lock-reclaimed': 'lease-reclaim' };
 function ledgerFromCron(name, payload) {
-  const p = payload || {};
+  const p = redact(payload || {}) || {};
   const agentOf = (jobId) => { const j = (cronJobs || []).find(x => x && x.id === jobId); return (j && j.agentId) || null; };
   const scheduledFor = p.scheduledFor != null ? p.scheduledFor : null;
   if (name === 'cron.fire') {
@@ -4775,6 +4775,13 @@ function ledgerFromCron(name, payload) {
   } else if (name === 'cron.skipped') {
     const isDefer = p.reason === 'at-capacity';
     recordAutonomy({ source: 'cron', kind: isDefer ? 'defer' : 'skip', jobId: p.jobId, agentId: agentOf(p.jobId), reason: p.reason, binding: AUTONOMY_SKIP_BINDING[p.reason] || 'schedule', detail: scheduledFor != null ? { scheduledFor } : undefined });
+  } else if (name === 'cron.result' && Array.isArray(p.workflowDecisions)) {
+    // Persist the scheduler's bounded, content-free route trace under the same run identity. The ledger accepts
+    // primitive-only detail bags, so fan-out IDs are reduced to a count and at most eight decision rows are kept.
+    // A final summary row records the observed/retained counts and is appended last so it remains visible when a
+    // query window cuts through an older run. This seam is the scheduled driver path; manual Run Now emits its
+    // result directly and does not currently flow through cronEmitNotify.
+    for (const entry of projectWorkflowTrace(p, agentOf(p.jobId))) recordAutonomy(entry);
   }
 }
 // feed every cron event to the notifier alongside the validated SSE/console emit; it never throws into the cron pass.
