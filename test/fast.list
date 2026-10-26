@@ -754,5 +754,6 @@ test/github-pr-review.integration.test.js
 
 test/fs.table-operation.test.js
 test/fs.xlsx-table-operation.test.js
+test/offer-economics.test.js
 test/table-operation.test.js
 test/dossier-source-manifest.test.js

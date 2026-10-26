@@ -64,6 +64,7 @@ const { makeCodeTools } = CodeMode;
 const { makeSkillTools } = require('./tools/builtin/skills.js');    // H4: the agent's reusable skill library tools
 const Todo = require('./tools/builtin/todo.js');
 const DeliverableTool = require('./tools/builtin/deliverable.js');   // deliverable_note — the agent NAMES its finished work (prose only; never status/crew)
+const { makeEconomicsTools } = require('./tools/builtin/economics.js'); // economics.calculate — exact bounded arithmetic over supplied scenario inputs
 const { makeImageTools } = require('./tools/builtin/image.js');           // STUDIO: image_generate / image_analyze (OpenRouter multimodal)
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
 const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STUDIO: voice_generate — speech saved into the workspace as a playable clip
@@ -15505,6 +15506,7 @@ async function runOnce(o) {
       return selectSourceReceipts(runJournal.inspect(String(runId)), runId, agentId);
     }
   }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
+  makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)

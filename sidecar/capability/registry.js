@@ -94,6 +94,9 @@
       { capId: 'cabinet', tool: 'fs.xlsx_sheets', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.read_xlsx_range', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.xlsx_table_operation', scope: 'read', requiresConsent: false, network: false },
+      // Pure arithmetic over caller-supplied assumptions/estimates. Cabinet-gated because the business dossier
+      // requires the same object as its verified artifact writers; this does not read or mutate files itself.
+      { capId: 'cabinet', tool: 'economics.calculate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.write', scope: 'write', requiresConsent: true, network: false },

@@ -629,8 +629,11 @@ if (offerEconomics) {
   A.eq(offerEconomics.params.map(p => p.key), ['offer', 'scope', 'assumptions', 'workspace'], 'launch form exposes offer, bounded scope, explicit economics assumptions and output folder');
   A.ok(/offer\.md, economics\.csv, rights-and-policy\.md and pilot-plan\.md/.test(offerEconomics.task), 'recipe names the four requested output artifacts');
   A.ok(/unknown distinct from zero/.test(offerEconomics.task), 'unknown values cannot be silently represented as zero');
-  A.ok(/columns metric, value, unit, currency, status/.test(offerEconomics.task) && /time rows set unit to minutes and leave currency blank/.test(offerEconomics.task), 'economics ledger defines explicit unit and currency semantics');
-  A.ok(/do not calculate contribution, profit, forecasts or hourly returns/.test(offerEconomics.task), 'first milestone does not claim deterministic economics');
+  A.ok(/columns metric, value, unit, currency, status/.test(offerEconomics.task) && /time rows use whole minutes with blank currency/.test(offerEconomics.task), 'economics ledger defines explicit unit and currency semantics');
+  A.ok(/NEVER do arithmetic in prose/.test(offerEconomics.task) && /call economics\.calculate/.test(offerEconomics.task), 'recipe routes supported arithmetic to the exact calculator tool');
+  A.ok(/non-negative integer minor-unit string/.test(offerEconomics.task) && /do not pass decimal major-unit values/.test(offerEconomics.task), 'recipe supplies exact integer minor-unit strings, not decimal money');
+  A.ok(/all three fee\/cost\/refund categories/.test(offerEconomics.task) && /does not accept or create actual transaction records/.test(offerEconomics.task), 'recipe exposes category completeness and refuses to imply actual transaction proof');
+  A.ok(/Preserve any unavailable or partial tool result/.test(offerEconomics.task) && /leave affected ledger metrics unknown/.test(offerEconomics.task), 'recipe preserves unavailable metrics instead of filling them from prose');
   A.ok(/Apply domain-specific guidance only when it matches the operator-selected offer/.test(offerEconomics.task) && /Omit these examples when unrelated to the selected offer/.test(offerEconomics.task), 'specialty guidance is conditional on the selected business');
   A.ok(/for a Fiverr image service, use only a current fee snapshot supplied or verified/.test(offerEconomics.task), 'Fiverr fee details are never hardcoded or treated as current without evidence');
   A.ok(/for POD, address original seller designs/.test(offerEconomics.task) && /fulfilment charges before marketplace payout/.test(offerEconomics.task), 'POD instructions retain payout cash-gap and rights risks when relevant');
