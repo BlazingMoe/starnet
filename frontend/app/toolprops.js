@@ -25,6 +25,7 @@
 const ToolProps = (() => {
   // exact-name grants that don't share a family prefix (from CAP_REGISTRY's notebook rows)
   const EXACT = {
+    'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',
     web_fetch: 'dish',
     web_request: 'dish',   // calling a third-party API is a WEB reach — the dish is the prop that projects it
