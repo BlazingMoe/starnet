@@ -551,7 +551,7 @@ const fixture = {
     const task = require('../frontend/app/recipes.js').fillTask(recipe, {
       offer: 'Synthetic bicycle repair studios: one-page fictional website concept',
       scope: 'one draft page; excludes domain, hosting, outreach and booking; one revision; synthetic assets only',
-      assumptions: 'EUR; synthetic operator estimate dated 2026-10-26; gross revenue EUR 250.00; platform fee EUR 10.00; materials EUR 55.00; refunds EUR 0.00; total time 180 minutes',
+      assumptions: 'EUR; synthetic operator estimate dated 2026-10-26; gross revenue EUR 250.00; platform fee EUR 10.00; materials EUR 55.00; refunds EUR 0.00; total time 180 minutes; separately supplied opening cash EUR 150.00, reserve EUR 50.00 and dated outflow/inflow assumptions through 2026-10-28',
       workspace: 'offer-fixture'
     });
     A.ok(/NEVER do arithmetic in prose/.test(task) && /call economics\.calculate/.test(task), 'recipe directs supported arithmetic to the deterministic tool');
@@ -569,7 +569,16 @@ const fixture = {
       fees: [{ label: 'platform fee', amountMinor: '1000', currency: 'EUR', status: 'estimate', asOf: '2026-10-26', source: 'synthetic operator fixture' }],
       costs: [{ label: 'materials', amountMinor: '5500', currency: 'EUR', status: 'estimate', asOf: '2026-10-26', source: 'synthetic operator fixture' }],
       refunds: [{ label: 'refunds', amountMinor: '0', currency: 'EUR', status: 'assumption', asOf: '2026-10-26', source: 'synthetic operator fixture: explicit zero' }],
-      timeMinutes: 180
+      timeMinutes: 180,
+      liquidity: {
+        startDate: '2026-10-26', endDate: '2026-10-28',
+        initialCash: { label: 'opening cash', amountMinor: '15000', currency: 'EUR', status: 'estimate', asOf: '2026-10-26', source: 'synthetic operator fixture' },
+        minimumReserve: { label: 'reserve', amountMinor: '5000', currency: 'EUR', status: 'assumption', asOf: '2026-10-26', source: 'synthetic operator fixture' },
+        events: [
+          { id: 'fulfilment-1', kind: 'outflow', date: '2026-10-27', label: 'fulfilment', amountMinor: '11000', currency: 'EUR', status: 'estimate', asOf: '2026-10-26', source: 'synthetic operator fixture' },
+          { id: 'settlement-1', kind: 'inflow', date: '2026-10-27', label: 'settlement', amountMinor: '7000', currency: 'EUR', status: 'estimate', asOf: '2026-10-26', source: 'synthetic operator fixture' }
+        ]
+      }
     };
     const expectedEconomics = calculateEconomics(econScenario);
     const econRows = [
@@ -579,6 +588,8 @@ const fixture = {
       ['refunds total', expectedEconomics.categoryTotals.refunds.amount, 'currency amount', 'EUR', expectedEconomics.refunds[0].status, '2026-10-26', 'Explicit operator-supplied zero'],
       ['net contribution', expectedEconomics.netContributionAmount.value, 'currency amount', 'EUR', expectedEconomics.calculationStatus, '2026-10-26', expectedEconomics.omittedCostCaveat],
       ['effective hourly amount', expectedEconomics.effectiveHourlyAmount.value, 'currency amount', 'EUR', expectedEconomics.calculationStatus, '2026-10-26', expectedEconomics.effectiveHourlyAmount.rounding],
+      ['liquidity closing balance', expectedEconomics.liquidity.closingBalanceMinor, 'minor units', 'EUR', expectedEconomics.liquidity.status, '2026-10-26', expectedEconomics.liquidity.caveat],
+      ['liquidity reserve shortfall', expectedEconomics.liquidity.shortfallToReserveMinor, 'minor units', 'EUR', expectedEconomics.liquidity.status, expectedEconomics.liquidity.earliestShortfallDate, expectedEconomics.liquidity.caveat],
       ['total time', '180', 'minutes', '', 'estimate', '2026-10-26', 'Synthetic operator fixture']
     ];
     const turns = [];
@@ -631,6 +642,8 @@ const fixture = {
     A.ok(csv.startsWith('metric,value,unit,currency,status,as_of,notes\r\n') && csv.includes('gross revenue,250.00,currency amount,EUR,estimate'), 'CSV retains operator-supplied scenario inputs');
     A.ok(csv.includes('net contribution,185.00,currency amount,EUR,assumption') && csv.includes('effective hourly amount,61.67,currency amount,EUR,assumption'), 'CSV rows agree with exact dispatcher arithmetic, conservative status, and documented rounding');
     A.ok(csv.includes('refunds total,0.00,currency amount,EUR,assumption'), 'refund summary retains the operator-supplied assumption status');
+    A.ok(csv.includes('liquidity closing balance,11000,minor units,EUR,assumption') && csv.includes('liquidity reserve shortfall,1000,minor units,EUR,assumption'), 'CSV artifact retains returned liquidity values and assumption status');
+    A.ok(csv.includes('only supplied assumptions within this explicit horizon') && csv.includes('spending authorization'), 'CSV artifact retains liquidity limitations verbatim');
     A.ok(csv.includes('total time,180,minutes,,estimate') && csv.includes('cannot prove that all costs'), 'time units and completeness caveat are retained in the ledger');
     const artifactRows = offerArtifacts.list().sort((a, b) => a.path.localeCompare(b.path));
     A.eq(artifactRows.map(x => x.path), ['offer-fixture/economics.csv', 'offer-fixture/offer.md', 'offer-fixture/pilot-plan.md', 'offer-fixture/rights-and-policy.md'], 'actual artifact collector lists all four dossier files');
