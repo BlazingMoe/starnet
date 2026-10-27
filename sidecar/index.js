@@ -2371,7 +2371,8 @@ async function queueDecisionLessonCandidate(input) {
     id, kind:'lesson', proposalType:'decision-lesson', content:String(input.lesson), scope:'global', origin:'decision-outcome',
     sourceDecisionId:String(input.decisionId), sourceOutcomeEventId:String(input.outcomeEventId),
     sourceDecision:String(input.sourceDecision), sourceOutcome:String(input.sourceOutcome),
-    evidenceRefs:Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 24) : [], uncertainty:String(input.uncertainty || 'unknown')
+    evidenceRefs:Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 24) : [], uncertainty:String(input.uncertainty || 'unknown'),
+    ...(input.lessonContract ? { lessonContract:input.lessonContract } : {})
   };
   const pending = MemoryStore.findPending(notebookStore, input.agentId, runId, id);
   if (!pending) {
@@ -20574,6 +20575,7 @@ async function writeMemoryRecord(agentId, prop, opts) {
 
 async function claimDecisionLessonKeep(agentId, prop) {
   if (!prop || prop.proposalType !== 'decision-lesson') return;
+  if (prop.lessonContract) throw new Error('structured lesson requires scoped validation/promotion; not yet supported');
   await notebookStore.update('decisions:' + agentId, stored => {
     const list = Array.isArray(stored) ? stored.slice() : [];
     const idx = list.findIndex(d => d && d.id === prop.sourceDecisionId);
@@ -20584,6 +20586,7 @@ async function claimDecisionLessonKeep(agentId, prop) {
     if (pi < 0) throw new Error('source outcome has no pending lesson proposal');
     const prior = proposals[pi];
     if (prior.lesson !== prop.content) throw new Error('lesson candidate no longer matches its source receipt');
+    if (prior.contract || prop.lessonContract) throw new Error('structured lesson requires scoped validation/promotion; not yet supported');
     if (prior.status === 'kept') return undefined;
     if (prior.status === 'discarded') throw new Error('lesson candidate was discarded and cannot be kept');
     if (prior.status !== 'pending' && prior.status !== 'staging' && prior.status !== 'reviewing-kept') throw new Error('lesson candidate is not available for Keep');
@@ -20759,7 +20762,7 @@ function servePending(req, res) {
       runId: p.runId || '', id: p.id || '', kind: p.kind || 'note',
       content: String(p.content || ''), scope: p.scope || 'global',
       origin: p.origin || 'commander', createdAt: p.createdAt || 0,
-      ...(p.proposalType === 'decision-lesson' ? { proposalType:p.proposalType, sourceDecisionId:p.sourceDecisionId, sourceOutcomeEventId:p.sourceOutcomeEventId, sourceDecision:p.sourceDecision, sourceOutcome:p.sourceOutcome, evidenceRefs:p.evidenceRefs, uncertainty:p.uncertainty, sourceTrust:'unconfirmed' } : {})
+      ...(p.proposalType === 'decision-lesson' ? { proposalType:p.proposalType, sourceDecisionId:p.sourceDecisionId, sourceOutcomeEventId:p.sourceOutcomeEventId, sourceDecision:p.sourceDecision, sourceOutcome:p.sourceOutcome, evidenceRefs:p.evidenceRefs, uncertainty:p.uncertainty, ...(p.lessonContract ? {lessonContract:p.lessonContract} : {}), sourceTrust:'unconfirmed' } : {})
     }));
     json(200, { agentId: agent, pending: rows });
   } catch (e) { json(500, readRouteFailure('memory.pending', e)); }   // an un-answered high-stakes deck must not vanish behind a 200-empty

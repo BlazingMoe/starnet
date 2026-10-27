@@ -27,6 +27,9 @@ function memFs() {
   A.eq(reg.get('decision.record').readOnly,false,'record is a write');
   A.eq(reg.get('decision.outcome').readOnly,false,'outcome is a write');
   A.eq(reg.get('decision.record').requiresConsent,false,'inherits existing private notebook grant consent behavior');
+  const contractSchema=reg.get('decision.lesson_propose').schema.properties.contract;
+  A.eq(contractSchema.additionalProperties,false,'typed contract tool schema rejects undeclared fields');
+  A.eq(contractSchema.properties.scope.properties.type.enum.join(','),'global,customer,project','typed schema advertises bounded scope kinds');
   A.eq(toolKind('decision.list'),'read','ACP shows list as a read');
   A.eq(toolKind('decision.record'),'edit','ACP shows record as an edit');
   A.eq(toolKind('decision.outcome'),'edit','ACP shows outcome as an edit');
@@ -44,7 +47,7 @@ function memFs() {
   r=await call('decision.outcome',{id:'decision_cli-1',eventId:'out-1',outcome:'different',evidenceRefs:[]}); A.ok(!r.ok,'conflicting event ID reuse fails');
   r=await call('decision.list',{},'other'); A.eq(JSON.parse(r.content).total,0,'decision history is isolated per agent');
   // Reconstruct the store and tools with the same filesystem to prove actual cold persistence.
-  const cold=makeMemoryStore({fs,path,workspaces:root}), coldReg=makeRegistry(); makeDecisionTools({store:cold,clock:{now:()=>456},proposeLesson:async input=>{const id='lesson_'+input.outcomeEventId;const proposal={id,kind:'lesson',proposalType:'decision-lesson',content:input.lesson,sourceDecisionId:input.decisionId,sourceOutcomeEventId:input.outcomeEventId,sourceDecision:input.sourceDecision,sourceOutcome:input.sourceOutcome,evidenceRefs:input.evidenceRefs,uncertainty:input.uncertainty};const added=await appendPending(cold,input.agentId,'lesson_'+input.outcomeEventId,[proposal],456);return added||listPending(cold,input.agentId).some(x=>x.id===id)?{ok:true}:{ok:false,error:'queue full'};}}).register(coldReg);
+  const cold=makeMemoryStore({fs,path,workspaces:root}), coldReg=makeRegistry(); makeDecisionTools({store:cold,clock:{now:()=>456},proposeLesson:async input=>{const id='lesson_'+input.outcomeEventId;const proposal={id,kind:'lesson',proposalType:'decision-lesson',content:input.lesson,sourceDecisionId:input.decisionId,sourceOutcomeEventId:input.outcomeEventId,sourceDecision:input.sourceDecision,sourceOutcome:input.sourceOutcome,evidenceRefs:input.evidenceRefs,uncertainty:input.uncertainty,...(input.lessonContract?{lessonContract:input.lessonContract}:{})};const added=await appendPending(cold,input.agentId,'lesson_'+input.outcomeEventId,[proposal],456);return added||listPending(cold,input.agentId).some(x=>x.id===id)?{ok:true}:{ok:false,error:'queue full'};}}).register(coldReg);
   r=await coldReg.dispatch({id:'c',name:'decision.list',args:{},argsRaw:'{}',parseError:null},{agentId:'hero'});
   const page=JSON.parse(r.content); A.eq(page.records.length,2,'both decisions survive a fresh store/tool construction');
   const first=page.records.find(x=>x.clientId==='cli-1');
@@ -80,6 +83,17 @@ function memFs() {
   r=await coldReg.dispatch({id:'x',name:'decision.outcome',args:{id:'decision_refs',eventId:'refs-out',outcome:'model observed result',evidenceRefs:longRefsO},argsRaw:'{}',parseError:null},{agentId:'refs'}); A.ok(r.ok,'long bounded outcome refs are accepted');
   r=await coldReg.dispatch({id:'x',name:'decision.lesson_propose',args:{decisionId:'decision_refs',outcomeEventId:'refs-out',lesson:'Retest the result.'},argsRaw:'{}',parseError:null},{agentId:'refs'}); A.ok(r.ok,'combined 24-reference lesson candidate is queued');
   const refRow=listPending(cold,'refs')[0]; A.eq(refRow.evidenceRefs.length,24,'all 24 unique source references survive durable queueing'); A.ok(refRow.evidenceRefs.every(x=>x.length===1000),'1000-character evidence references are not silently truncated');
+  const contract={schemaVersion:1,scope:{type:'project',id:'project-9'},sourceRefs:['artifact:contract'],uncertainty:'one run only',confidence:null,version:'lesson-v1',recheckAt:'2026-11-01',expiresAt:'2026-12-01',positiveExamples:['matching approved project'],negativeExamples:['unrelated project']};
+  for (const bad of [{...contract,scope:{type:'customer'}},{...contract,scope:{type:'global',id:'x'}},{...contract,scopeId:'ignored-alias'},{...contract,recheckAt:'2026-02-30'},{...contract,expiresAt:'2026-10-31'},{...contract,unknown:'x'},{...contract,positiveExamples:[]}]) {
+    r=await coldReg.dispatch({id:'v',name:'decision.lesson_propose',args:{decisionId:'decision_cli-1',outcomeEventId:'out-1',lesson:'Verify with a second independent run.',contract:bad},argsRaw:'{}',parseError:null},{agentId:'hero'});
+    A.ok(!r.ok,'invalid lesson contract is rejected before staging');
+  }
+  r=await coldReg.dispatch({id:'p',name:'decision.record',args:{clientId:'contract',decision:'use scoped rule',alternatives:[],evidenceRefs:['artifact:contract'],uncertainty:'one run only'},argsRaw:'{}',parseError:null},{agentId:'contractor'}); A.ok(r.ok,'contract candidate decision records');
+  r=await coldReg.dispatch({id:'p',name:'decision.outcome',args:{id:'decision_contract',eventId:'contract-out',outcome:'model reports a result',evidenceRefs:['run:contract']},argsRaw:'{}',parseError:null},{agentId:'contractor'}); A.ok(r.ok,'contract candidate outcome records');
+  r=await coldReg.dispatch({id:'p',name:'decision.lesson_propose',args:{decisionId:'decision_contract',outcomeEventId:'contract-out',lesson:'Use only in this project.',contract},argsRaw:'{}',parseError:null},{agentId:'contractor'}); A.ok(r.ok,'valid typed candidate stages');
+  r=await coldReg.dispatch({id:'p',name:'decision.lesson_propose',args:{decisionId:'decision_contract',outcomeEventId:'contract-out',lesson:'Use only in this project.',contract:{...contract,version:'lesson-v2'}},argsRaw:'{}',parseError:null},{agentId:'contractor'}); A.ok(!r.ok,'changed contract conflicts even when candidate text matches');
+  const durableContract=listPending(cold,'contractor')[0].lessonContract; A.eq(durableContract.scope.id,'project-9','typed metadata is in durable pending queue'); A.eq(durableContract.authority,'reference-only','typed metadata has no instruction authority');
+  const roundTrip=makeMemoryStore({fs,path,workspaces:root}); A.eq(listPending(roundTrip,'contractor')[0].lessonContract.expiresAt,'2026-12-01','typed metadata survives cold store reconstruction');
   const colder=makeMemoryStore({fs,path,workspaces:root}); A.eq(listPending(colder,'hero').find(x=>x.proposalType==='decision-lesson').sourceOutcomeEventId,'out-1','pending lesson survives cold store reconstruction');
   r=await coldReg.dispatch({id:'l',name:'decision.lesson_propose',args:{decisionId:'decision_cli-1',outcomeEventId:'missing',lesson:'x'},argsRaw:'{}',parseError:null},{agentId:'hero'}); A.ok(!r.ok,'lesson source outcome must resolve in persisted history');
   // Exact retries remain safe at capacity; new records and outcome events fail instead of evicting history.

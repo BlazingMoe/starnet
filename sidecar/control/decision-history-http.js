@@ -22,6 +22,21 @@ function boundedList(value, cap, redact) {
 function timestamp(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
+function projectLessonContract(value, redact) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || value.schemaVersion !== 1 || !value.scope || typeof value.scope !== 'object') return null;
+  const s = value.scope;
+  if (!['global','customer','project'].includes(s.type) || (s.type === 'global' ? s.id != null : typeof s.id !== 'string')) return null;
+  const list = xs => Array.isArray(xs) ? xs.slice(0, MAX_ITEMS).map(x => boundedText(x, MAX_TEXT, redact)) : [];
+  const confidence = value.confidence == null ? null : value.confidence;
+  return {
+    schemaVersion:1, scope:{type:s.type, ...(s.id == null ? {} : {id:boundedText(s.id,120,redact)})},
+    sourceRefs:list(value.sourceRefs), uncertainty:boundedText(value.uncertainty,MAX_TEXT,redact),
+    confidence:typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : null,
+    version:boundedText(value.version,80,redact), recheckAt:boundedText(value.recheckAt,10,redact), expiresAt:boundedText(value.expiresAt,10,redact),
+    positiveExamples:list(value.positiveExamples), negativeExamples:list(value.negativeExamples),
+    trust:'unverified', authority:'reference-only'
+  };
+}
 function pageNumber(value, fallback, max) {
   if (value == null || value === '') return fallback;
   if (!/^(0|[1-9]\d*)$/.test(String(value))) return null;
@@ -62,7 +77,8 @@ function projectRecord(row, redact) {
       outcomeEventId: boundedText(proposal && proposal.outcomeEventId, 120, redact),
       lesson: boundedText(proposal && proposal.lesson, MAX_TEXT, redact),
       status: LESSON_STATES.has(proposal && proposal.status) ? proposal.status : 'unknown',
-      createdAt: timestamp(proposal && proposal.createdAt)
+      createdAt: timestamp(proposal && proposal.createdAt),
+      ...(projectLessonContract(proposal && proposal.contract, redact) ? { contract: projectLessonContract(proposal.contract, redact) } : {})
     }))
   };
 }

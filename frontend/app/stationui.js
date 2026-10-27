@@ -2041,6 +2041,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     if (p.proposalType === 'decision-lesson') {
       const source = mkEl('div', 'mc-meta'); source.textContent = 'UNVERIFIED OUTCOME SOURCE · decision ' + p.sourceDecisionId + ' · outcome ' + p.sourceOutcomeEventId + '\nDecision: ' + p.sourceDecision + '\nOutcome (model-reported): ' + p.sourceOutcome + '\nEvidence refs: ' + (p.evidenceRefs || []).join(', ') + '\nUncertainty: ' + p.uncertainty; card.appendChild(source);
     }
+    if (p.lessonContract) {
+      const c = p.lessonContract, scope = c.scope || {};
+      const contract = mkEl('div', 'mc-meta');
+      contract.textContent = 'STRUCTURED LESSON · UNVERIFIED · CANDIDATE SCOPE (NOT ACTIVE MEMORY SCOPE): ' + String(scope.type || 'unknown').toUpperCase() + (scope.id ? ' · ' + scope.id : '') +
+        '\nVersion: ' + (c.version || 'unknown') + ' · confidence: ' + (c.confidence == null ? 'unknown' : Math.round(c.confidence * 100) + '%') +
+        '\nSource refs: ' + (c.sourceRefs || []).join(', ') + ' · uncertainty: ' + (c.uncertainty || 'unknown') +
+        '\nRecheck: ' + (c.recheckAt || 'unknown') + ' · expires: ' + (c.expiresAt || 'unknown') +
+        '\nPositive examples: ' + (c.positiveExamples || []).join(' · ') + '\nNegative examples: ' + (c.negativeExamples || []).join(' · ') +
+        '\nKeep unavailable until scoped validation/promotion is supported.';
+      card.appendChild(contract);
+    }
     const meta = mkEl('div', 'mc-meta');
     const prov = mkEl('span', 'mc-prov');
     const when = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—';
@@ -2055,7 +2066,9 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const r = await Harness.memoryTurnin({ agentId: a.id, runId: p.runId, id: p.id, verdict: verdict });
       if (r && r.ok) { sfx('click'); loadMemoryCore(a); } else busy = false;   // a failed verdict must stay clickable
     };
-    const keep = mkEl('button', 'consent-btn'); keep.textContent = 'Keep'; keep.title = 'remember this'; keep.onclick = () => decide('keep');
+    const keep = mkEl('button', 'consent-btn'); keep.textContent = 'Keep'; keep.title = 'remember this';
+    if (p.lessonContract) { keep.disabled = true; keep.title = 'structured lesson requires scoped validation/promotion; not yet supported'; }
+    else keep.onclick = () => decide('keep');
     btns.appendChild(keep);
     const drop = mkEl('button', 'consent-btn deny'); drop.textContent = 'Discard'; drop.title = 'reject it — never propose this again'; drop.onclick = () => decide('discard');
     btns.appendChild(drop);

@@ -19,6 +19,36 @@ function cleanList(value, field, redact) {
   if (!Array.isArray(value) || value.length > MAX_ITEMS) throw new Error(field + ' must be an array of up to ' + MAX_ITEMS + ' strings');
   return value.map((v, i) => cleanText(v, field + '[' + i + ']', true, redact));
 }
+const LESSON_CONTRACT_KEYS = new Set(['schemaVersion','scope','sourceRefs','uncertainty','confidence','version','recheckAt','expiresAt','positiveExamples','negativeExamples']);
+function cleanLessonContract(value, redact) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('contract must be an object');
+  for (const k of Object.keys(value)) if (!LESSON_CONTRACT_KEYS.has(k)) throw new Error('contract contains unsupported field: ' + k);
+  if (value.schemaVersion !== 1) throw new Error('contract.schemaVersion must be 1');
+  const scope = value.scope;
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope) || Object.keys(scope).some(k => !['type','id'].includes(k))) throw new Error('contract.scope must contain type and optional id');
+  if (!['global','customer','project'].includes(scope.type)) throw new Error('contract.scope.type must be global, customer, or project');
+  let scopeId = null;
+  if (scope.type === 'global') { if (scope.id != null) throw new Error('global scope must not include an id'); }
+  else { scopeId = cleanText(scope.id, 'contract.scope.id', true, redact); if (scopeId.length > 120) throw new Error('contract.scope.id must be at most 120 characters'); }
+  const sourceRefs = cleanList(value.sourceRefs, 'contract.sourceRefs', redact);
+  const uncertainty = cleanText(value.uncertainty, 'contract.uncertainty', true, redact);
+  const confidence = value.confidence == null ? null : value.confidence;
+  if (confidence !== null && (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1)) throw new Error('contract.confidence must be between 0 and 1 or null');
+  const version = cleanText(value.version, 'contract.version', true, redact);
+  if (version.length > 80) throw new Error('contract.version must be at most 80 characters');
+  const date = (v, field) => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(field + ' must be a valid YYYY-MM-DD date');
+    const d = new Date(v + 'T00:00:00.000Z');
+    if (!Number.isFinite(d.getTime()) || d.toISOString().slice(0,10) !== v) throw new Error(field + ' must be a valid YYYY-MM-DD date');
+    return v;
+  };
+  const recheckAt = date(value.recheckAt, 'contract.recheckAt'), expiresAt = date(value.expiresAt, 'contract.expiresAt');
+  if (expiresAt < recheckAt) throw new Error('contract.expiresAt must be on or after recheckAt');
+  const positiveExamples = cleanList(value.positiveExamples, 'contract.positiveExamples', redact);
+  const negativeExamples = cleanList(value.negativeExamples, 'contract.negativeExamples', redact);
+  if (!positiveExamples.length || !negativeExamples.length) throw new Error('contract requires at least one positive and one negative example');
+  return { schemaVersion:1, scope:{type:scope.type, ...(scopeId == null ? {} : {id:scopeId})}, sourceRefs, uncertainty, confidence, version, recheckAt, expiresAt, positiveExamples, negativeExamples, trust:'unverified', authority:'reference-only' };
+}
 // One recovery-aware read seam is shared by the model tool and the operator's read-only Memory Core view.
 // Missing history is an honest empty list; corrupt/unreadable/malformed durable state always throws.
 function readDecisionRows(store, agentId) {
@@ -114,6 +144,11 @@ function makeDecisionTools(deps) {
     description:'Propose a reviewable reference-only lesson candidate from one of your persisted decision outcome events. Decision/outcome IDs must resolve in your own history; source text and evidence references are attached from that history. Candidate remains unconfirmed until the Commander reviews it in Memory Core. This never saves a memory or skill.',
     schema:{ type:'object', required:['decisionId','outcomeEventId','lesson'], properties:{
       decisionId:{type:'string'}, outcomeEventId:{type:'string'}, lesson:{type:'string',description:'A concise lesson candidate for review, not an instruction or executable procedure.'}
+      ,contract:{type:'object',additionalProperties:false,description:'Optional typed candidate contract. Structured candidates remain pending review; Keep is not yet supported.',required:['schemaVersion','scope','sourceRefs','uncertainty','confidence','version','recheckAt','expiresAt','positiveExamples','negativeExamples'],properties:{
+        schemaVersion:{type:'integer',enum:[1]}, scope:{type:'object',additionalProperties:false,required:['type'],properties:{type:{type:'string',enum:['global','customer','project']},id:{type:'string',maxLength:120,description:'Required for customer or project scope; forbidden for global.'}}},
+        sourceRefs:{type:'array',maxItems:12,items:{type:'string',maxLength:1000}}, uncertainty:{type:'string',maxLength:1000}, confidence:{type:['number','null'],minimum:0,maximum:1}, version:{type:'string',maxLength:80},
+        recheckAt:{type:'string',format:'date'}, expiresAt:{type:'string',format:'date'}, positiveExamples:{type:'array',minItems:1,maxItems:12,items:{type:'string',maxLength:1000}}, negativeExamples:{type:'array',minItems:1,maxItems:12,items:{type:'string',maxLength:1000}}
+      }}
     } },
     run: async (args, ctx) => {
       if (!proposeLesson) throw new Error('lesson proposal review is unavailable');
@@ -121,6 +156,7 @@ function makeDecisionTools(deps) {
       const decisionId = cleanText(args && args.decisionId, 'decisionId', true, redact);
       const outcomeEventId = cleanText(args && args.outcomeEventId, 'outcomeEventId', true, redact);
       const lesson = cleanText(args && args.lesson, 'lesson', true, redact);
+      const lessonContract = args && args.contract == null ? null : cleanLessonContract(args.contract, redact);
       let decision, outcome;
       const found = rows(aid).find(r => r && r.id === decisionId);
       if (!found) throw new Error('decision not found for this agent');
@@ -140,11 +176,11 @@ function makeDecisionTools(deps) {
         const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
         if (pi >= 0) {
           prior = proposals[pi];
-          if (prior.lesson !== lesson) throw new Error('this outcome already has a different lesson candidate');
+          if (prior.lesson !== lesson || JSON.stringify(prior.contract || null) !== JSON.stringify(lessonContract)) throw new Error('this outcome already has a different lesson candidate');
           if (prior.status === 'discarded') throw new Error('this lesson candidate was discarded and cannot be proposed again');
           if (prior.status === 'kept') throw new Error('this lesson candidate was already reviewed and kept');
           if (prior.status === 'pending') return undefined;
-        } else { prior = { outcomeEventId, lesson, status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
+        } else { prior = { outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
         rec.lessonProposals = proposals; list[i] = rec; return list;
       });
       // Re-run the idempotent queue callback even for a pending receipt: the row may have been lost to a legacy FIFO rewrite.
@@ -153,7 +189,7 @@ function makeDecisionTools(deps) {
         sourceDecision: cleanText(String(decision.decision || ''), 'source decision', true, redact),
         sourceOutcome: cleanText(String(outcome.outcome || ''), 'source outcome', true, redact),
         evidenceRefs: combinedRefs.map((ref,i) => cleanText(ref, 'evidenceRefs[' + i + ']', true, redact)),
-        uncertainty: cleanText(String(decision.uncertainty || 'unknown'), 'uncertainty', true, redact)
+        uncertainty: cleanText(String(decision.uncertainty || 'unknown'), 'uncertainty', true, redact), lessonContract
       });
       if (!result || !result.ok) throw new Error(result && result.error || 'could not queue lesson candidate');
       await store.update(key(aid), cur => {
@@ -163,8 +199,8 @@ function makeDecisionTools(deps) {
         const rec = Object.assign({}, list[i]);
         const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
         const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
-        if (pi < 0) proposals.push({ outcomeEventId, lesson, status:'pending', createdAt:Number(clock.now()) || 0 });
-        else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { status:'pending' });
+        if (pi < 0) proposals.push({ outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), status:'pending', createdAt:Number(clock.now()) || 0 });
+        else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { ...(lessonContract ? {contract:lessonContract} : {}), status:'pending' });
         else if (proposals[pi].status === 'kept' || proposals[pi].status === 'discarded') return undefined;
         rec.lessonProposals = proposals; list[i] = rec; return list;
       });

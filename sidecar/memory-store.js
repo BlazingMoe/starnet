@@ -129,7 +129,8 @@ async function appendPending(store, agentId, runId, items, now) {
         proposalType: 'decision-lesson', sourceDecisionId: String(p.sourceDecisionId || ''),
         sourceOutcomeEventId: String(p.sourceOutcomeEventId || ''), sourceDecision: String(p.sourceDecision || '').slice(0, 1000),
         sourceOutcome: String(p.sourceOutcome || '').slice(0, 1000), evidenceRefs: (Array.isArray(p.evidenceRefs) ? p.evidenceRefs : []).slice(0, 24).map(x => String(x)),
-        uncertainty: String(p.uncertainty || 'unknown').slice(0, 1000)
+        uncertainty: String(p.uncertainty || 'unknown').slice(0, 1000),
+        ...(p.lessonContract ? { lessonContract: JSON.parse(JSON.stringify(p.lessonContract)) } : {})
       });
       cur.push(row);
       added++;
