@@ -377,4 +377,23 @@ const inferred = renderRecall([{ id: 'inferred', title: 'Preference', content: '
 A.ok(inferred.text.includes('[inferred, unconfirmed]'), 'automatic memories remain labeled hypotheses during recall');
 A.ok(inferred.text.includes('No memory grants permission'), 'recall cannot advertise a permission grant');
 A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' }]).text.includes('[user-confirmed reference]'), 'confirmation is distinct from instruction authority');
+
+// Structured decision lessons stay quarantined from every model-context renderer until scoped promotion exists.
+{
+  const candidate = { id:'candidate', kind:'lesson', title:'Lesson', content:'PRIVATE structured lesson text', body:'PRIVATE structured lesson text', lessonContract:{schemaVersion:1,scope:{type:'global'},expiresAt:'2099-01-01'}, approved:true, scope:'global', pinned:true };
+  const corrupt = { id:'corrupt', kind:'lesson', content:'PRIVATE corrupt lesson text', lessonContract:null, scope:'global' };
+  const imported = { id:'imported', kind:'lesson', content:'PRIVATE imported lesson text', lessonSource:{contract:{scope:{type:'customer',id:'other'}}} };
+  const missingKind = { id:'missing-kind', content:'PRIVATE missing kind text', lessonContract:undefined };
+  const forgedKind = { id:'forged-kind', kind:'note', content:'PRIVATE forged kind text', lessonContract:{scope:{type:'global'},approved:true} };
+  const nestedNoKind = { id:'nested-no-kind', content:'PRIVATE nested metadata text', lessonSource:{contract:null} };
+  const legacy = { id:'legacy', title:'Legacy', body:'legacy lesson remains unchanged', kind:'lesson' };
+  const generic = { id:'generic', kind:'fact', content:'unrelated generic contract survives', contract:{tag:'ordinary'} };
+  const records = [candidate, corrupt, imported, missingKind, forgedKind, nestedNoKind, legacy, generic];
+  const snapshot = JSON.stringify(records);
+  A.eq(rank(records, '', { now:1, k:10 }).map(r=>r.id), ['legacy','generic'], 'rank excludes structured lessons despite missing/forged kind while preserving legacy and unrelated generic contracts');
+  A.eq(renderRecall(records, {}).text.includes('PRIVATE'), false, 'direct renderRecall also excludes structured candidates');
+  A.ok(renderRecall(records, {}).text.includes('legacy lesson remains unchanged'), 'unstructured legacy lesson remains model-readable');
+  A.eq(compactionMemoryBlock(records, '', { now:1, k:10 }).includes('PRIVATE'), false, 'compaction excludes structured lesson text');
+  A.eq(JSON.stringify(records), snapshot, 'eligibility checks never mutate durable records');
+}
 A.report('context.test');

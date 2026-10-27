@@ -132,7 +132,7 @@ const oauthDevice = require('./providers/oauth-device.js');
 const oauthTokenStore = require('./providers/oauth-token-store.js');
 const { effectiveModel: resolveEffectiveModel, effectiveUsd } = require('./spend.js');
 const { makeEmitter } = require('../shared/emitter.js');
-const { redact, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt } = require('./context.js');
+const { redact, renderRecall, injectRecall, rank, makeContext, compactionMemoryBlock, compactionSummaryPrompt, eligibleMemoryRecords } = require('./context.js');
 const { makeSummarizer } = require('./compaction-summarizer.js');   // chunked context-compaction fold (Lane A)
 const { runRouteFailure } = require('./runroute.js');   // a failure escaping handleRun must never read as an empty 200
 const { json: respondJson, readJsonBody, isAgentId } = require('./respond.js');   // canonical json()/body/agent-id helpers — adopt incrementally, don't mass-migrate
@@ -15508,7 +15508,7 @@ async function runOnce(o) {
     }
   }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
   makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
@@ -20550,6 +20550,9 @@ async function writeMemoryRecord(agentId, prop, opts) {
     rec = recordFromProposal(prop || {}, { now: Date.now(), runId: runId || (prop && prop.sourceRunId), id: writtenId, content, origin: opts.origin, userConfirmed: opts.userConfirmed === true });
     if (trustDelta) rec.trust = memcore.nextTrust(rec.trust, trustDelta);   // M-mem.6: keep/edit seeds real trust; silent auto-save leaves it neutral
     if (prop && prop.proposalType === 'decision-lesson') rec.lessonSource = { decisionId:prop.sourceDecisionId, outcomeEventId:prop.sourceOutcomeEventId, decision:prop.sourceDecision, outcome:prop.sourceOutcome, evidenceRefs:Array.isArray(prop.evidenceRefs) ? prop.evidenceRefs.slice(0,24) : [], uncertainty:prop.uncertainty || 'unknown', trust:'unconfirmed' };
+    // Preserve even malformed/null candidate metadata as a quarantine marker. Retrieval treats presence
+    // as structured and fail-closed; operator review still owns the full stored record.
+    if (prop && Object.prototype.hasOwnProperty.call(prop, 'lessonContract')) rec.lessonContract = prop.lessonContract;
     list.push(rec);
     return list;
   });

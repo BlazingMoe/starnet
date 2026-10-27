@@ -128,7 +128,8 @@
     const limit = recallOpts.limit || 1500;
     const header = recallOpts.header != null ? recallOpts.header : RECALL_HEADER;
     const out = { text: '', count: 0, chars: 0, usedIds: [] };
-    if (!Array.isArray(records) || !records.length) return out;
+    records = eligibleMemoryRecords(records);
+    if (!records.length) return out;
     const lines = [];
     const usedIds = [];
     let used = 0;
@@ -198,6 +199,24 @@
     if (r.content != null && r.kind && r.kind !== 'note') return String(r.title != null ? r.title : '') + ' ' + String(r.content);   // profile/fact/skill
     return String(r.title != null ? r.title : '') + ' ' + String(r.body != null ? r.body : (r.content != null ? r.content : ''));
   }
+  // Structured decision lessons are candidates for a future scoped-promotion flow, not active memory.
+  // Presence is the quarantine signal, including malformed/null metadata; no model-provided
+  // approval/status/scope value can make a candidate eligible.
+  function isStructuredLessonRecord(r) {
+    if (!r || typeof r !== 'object') return false;
+    // lessonContract is itself an unambiguous marker, even if an importer/migration changed kind to
+    // note or dropped it. Generic `contract` needs a lesson marker to avoid hiding unrelated records.
+    if (Object.prototype.hasOwnProperty.call(r, 'lessonContract')) return true;
+    const lesson = r.kind === 'lesson' || r.proposalType === 'decision-lesson' || Object.prototype.hasOwnProperty.call(r, 'lessonSource');
+    if (!lesson) return false;
+    if (Object.prototype.hasOwnProperty.call(r, 'contract')) return true;
+    const source = r.lessonSource;
+    return !!(source && typeof source === 'object' &&
+      (Object.prototype.hasOwnProperty.call(source, 'lessonContract') || Object.prototype.hasOwnProperty.call(source, 'contract')));
+  }
+  function eligibleMemoryRecords(records) {
+    return (Array.isArray(records) ? records : []).filter(r => r && !isStructuredLessonRecord(r));
+  }
   // The shared BM25 core, EXPOSED: `scores[i]` is record i's pure lexical relevance to the query (0 = no term
   // overlap), `queried` says whether the query carried at least one significant token. rank() builds on this,
   // and the runtime skill index (skills/runtime.js) reuses it by shimming {name, summary} onto the record
@@ -231,7 +250,7 @@
     const k = rankOpts.k || 8;
     const halfLife = rankOpts.halfLifeMs || 6048e5;   // 7 days (usage recency)
     const trustHalfLife = rankOpts.trustHalfLifeMs || 2592e6;   // 30 days (endorsement fade — mirrors memcore.TRUST_HALFLIFE_MS)
-    const recs = Array.isArray(records) ? records.filter(Boolean) : [];
+    const recs = eligibleMemoryRecords(records);
     if (!recs.length) return [];
     const rel = bm25(recs, query);   // shared lexical core — scores align with recs
     let scored = recs.map((r, i) => {
@@ -430,5 +449,5 @@
     return api;
   }
 
-  return { makeContext, redact, renderRecall, injectRecall, rank, bm25, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS };
+  return { makeContext, redact, renderRecall, injectRecall, rank, bm25, flagInjection, stripRecallFence, compactionMemoryBlock, compactionSummaryPrompt, COMPACTION_SECTIONS, isStructuredLessonRecord, eligibleMemoryRecords };
 });
