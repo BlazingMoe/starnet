@@ -3045,7 +3045,8 @@ function loadProjects() {
       displayPath: typeof p.displayPath === 'string' ? p.displayPath : p.root,
       grantedAt: (typeof p.grantedAt === 'number' && isFinite(p.grantedAt)) ? p.grantedAt : null,
       lastTouchedAt: (typeof p.lastTouchedAt === 'number' && isFinite(p.lastTouchedAt)) ? p.lastTouchedAt : null,
-      isGitRepo: !!p.isGitRepo
+      isGitRepo: !!p.isGitRepo,
+      lessonProjectId: (typeof p.lessonProjectId === 'string' && /^[A-Za-z0-9_-]{16,120}$/.test(p.lessonProjectId)) ? p.lessonProjectId : null
     }));
   } catch (e) { return []; }
 }
@@ -3063,6 +3064,13 @@ function blessProjectRoot(rootReal, meta) {
   const key = 'path:' + rootReal;
   const at = (typeof meta.now === 'number' && isFinite(meta.now)) ? meta.now : Date.now();
   if (grantsPermanent.has(key)) { projectsStore.touch(rootReal, at); return true; }
+  // A revoked project's old binding must not revive when trust is granted again. Clear it durably first;
+  // if this extra restriction cannot be saved, do not grant the path.
+  const oldProject = projectsStore.get(rootReal);
+  if (oldProject && oldProject.lessonProjectId) {
+    const cleared = projectsStore.clearLessonProject(rootReal);
+    if (!cleared.ok) return false;
+  }
   const next = Array.from(grantsPermanent); next.push(key);
   const nextMeta = Object.assign({}, grantMeta, { [key]: { grantedAt: at } });
   try { persistAllowlist(next, nextMeta); }
@@ -9168,6 +9176,7 @@ const ROUTES = [
   { m: 'POST', exact: '/api/projects/bless', h: handleProjectBless },   // NS-5c: ADD a project (interactive-only, blesses through the same path-grant machinery)
   { m: 'POST', exact: '/api/projects/discover', h: handleProjectDiscover }, // explicit bounded scan; returns candidates and grants nothing
   { m: 'POST', exact: '/api/projects/forget', h: handleProjectForget },   // Projects rail: hard-forget revoked metadata (never withdraws trust)
+  { m: 'POST', exact: '/api/projects/lesson-binding', h: handleProjectLessonBinding },
   { m: 'POST', exact: '/api/projects/pickfolder', h: handleProjectPickFolder },   // Projects rail "browse": native OS folder chooser (grants nothing)
   { m: 'POST', exact: '/api/pickpath', h: handlePickPath },   // typed recipe fill-ins: native file OR folder chooser (grants nothing)
   { m: 'POST', exact: '/api/harness/detect', h: handleHarnessDetect },   // IMPORT-AN-AGENT: find on-disk OpenClaw/Hermes agent homes (read-only)
@@ -14741,8 +14750,12 @@ async function handleRun(req, res) {
   // is injected ONLY when that root is STILL a standing blessed path grant (isBlessedRoot — the same live check
   // the scanner uses). An un-blessed/revoked/garbage root injects NOTHING: the run must never assert folder
   // access the grant layer can't prove. The line rides `system` so it reaches every provider identically.
+  if (body && ['lessonProjectId','lessonScope','scope','scopeId','customerId'].some(k => Object.prototype.hasOwnProperty.call(body, k))) { res.writeHead(400); return res.end('lesson scope fields are host managed'); }
   const projectRootRaw = (body && typeof body.projectRoot === 'string') ? body.projectRoot.trim().slice(0, 4096) : '';
   const projectBlessed = !!(projectRootRaw && isBlessedRoot(projectRootRaw));
+  const projectBinding = projectBlessed ? projectsStore.get(projectRootRaw) : null;
+  const lessonScopeSnapshot = projectBinding && projectBinding.lessonProjectId
+    ? Object.freeze({ schemaVersion:1, type:'project', id:projectBinding.lessonProjectId }) : null;
   const projectLine = projectScopeLine(projectRootRaw, projectBlessed);
   // ...and the project's OWN house rules, on the same grant. Read ONCE here, before the run, so the text is
   // byte-stable for the whole run and never shifts the cached system prefix mid-stream (providers/anthropic.js).
@@ -14950,6 +14963,7 @@ async function handleRun(req, res) {
       // only when the root is STILL blessed — the same proof gate projectLine uses above. An unblessed root files
       // the work as unscoped rather than asserting a folder relationship the grant layer can't back.
       projectRoot: projectBlessed ? projectRootRaw : '',
+      lessonScopeSnapshot,
       preloadSkills,
       extraObjects,    // a placed WORKBENCH -> shell.exec + verify.run, additive on the default office
       stationObjects,  // Class Loadouts (shared-gear): station-wide gear for SKILL availability (tools stay room-scoped)
@@ -16065,6 +16079,8 @@ async function runOnce(o) {
     // fs.* uses it as the relative base (while re-running path trust per target), and shell.* uses it as the
     // run-scoped default cwd. Unblessed roots were erased by handleRun before runOnce, so this is host-minted.
     projectRoot: o.projectRoot || null,
+    lessonScopeSnapshot: o.lessonScopeSnapshot && o.lessonScopeSnapshot.type === 'project' && typeof o.lessonScopeSnapshot.id === 'string'
+      ? Object.freeze({ schemaVersion:1, type:'project', id:o.lessonScopeSnapshot.id }) : null,
     // PRECISE CHECKPOINT ROOT. fs.* invokes this after path-trust has resolved the actual base but before bytes
     // change; shell/verify invoke it after their real cwd is resolved but before spawning. This closes the gap
     // where the generic host hook always snapshotted WORKSPACES/<agentId> even while the tool mutated a blessed
@@ -17408,7 +17424,7 @@ async function runOnce(o) {
         }
       }
       const runEndedAt = Date.now();
-      runStore.record({ runId, parentRunId: o.parentRunId || '', agentId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.sessionPrompt || '', deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: providerUnmetered, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal });   // execution terminal stays separate from the neutral Task Brief outcome used by progression
+      runStore.record({ runId, parentRunId: o.parentRunId || '', agentId, reason: ((result && result.reason) || 'done'), clarifying: taskQuestionAsked, turns: finalTurns, tokens: finalTokens, usd: finalUsd, title: title, streamId: o.streamId || '', sessionTitle: o.sessionTitle || '', deliveryPrompt: o.sessionPrompt || '', deliveryText, recipeId: o.recipeId || '', projectRoot: o.projectRoot || '', lessonScopeSnapshot: o.lessonScopeSnapshot || null, deliverable: deliverableNotes.take(runId), model: finalModel, reasoningEffort, unmetered: providerUnmetered, artifacts: execution.artifactList(), toolsOk: execution.toolsOk(), toolTrace: execution.toolTraceList(), failureStage: execution.failureStage(), failureCode: execution.failureCode(), uncertainMutations: execution.uncertainMutations(), completionEvidence: finalCompletionEvidence, recoveryAttempts: execution.recoveryAttempts(), startedAt: runStartedAt, endedAt: runEndedAt, durationMs: runEndedAt - runStartedAt, identityFallback, internal });   // execution terminal stays separate from the neutral Task Brief outcome used by progression
 
       // P0.1/H1.1: persist the full DIALOGUE (not just the outcome) — a durable server-side transcript for EVERY
       // run, incl. headless ones (cron/Telegram/delegated). Append the triggering user directive, then EVERY new
@@ -17722,7 +17738,15 @@ async function handlePermissionsGrant(req, res) {
 // non-curated class). Fail-closed: a torn persist keeps the grant rather than reporting a phantom revoke.
 async function handlePermissionsRevoke(req, res) {
   let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (e) { res.writeHead(400); return res.end('bad json'); }
-  const r = grantManager.revoke(body && body.key);
+  const key = body && body.key;
+  if (typeof key === 'string' && key.indexOf('path:') === 0) {
+    const root = key.slice(5);
+    if (projectsStore.has(root)) {
+      const cleared = projectsStore.clearLessonProject(root);
+      if (!cleared.ok) { res.writeHead(500, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); return res.end(JSON.stringify({ ok:false, error:cleared.reason || 'project binding could not be cleared; trust remains' })); }
+    }
+  }
+  const r = grantManager.revoke(key);
   res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(r));
 }
@@ -17737,6 +17761,22 @@ function handleProjectsList(req, res) {
   const projects = snap.projects.map(p => Object.assign({}, p, { blessed: grantsPermanent.has('path:' + p.root) }));
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify({ projects: projects }));
+}
+
+async function handleProjectLessonBinding(req, res) {
+  const sendJson = (code, obj) => respondJson(res, code, obj);
+  let body; try { body = JSON.parse(await readBody(req, 4096)) || {}; } catch (_) { return sendJson(400, { ok:false, reason:'bad json' }); }
+  if (!body || Object.keys(body).some(k => k !== 'root' && k !== 'action')) return sendJson(400, { ok:false, reason:'only root and action are accepted; identity is host managed' });
+  const root = body && body.root;
+  if (typeof root !== 'string' || !root) return sendJson(400, { ok:false, reason:'missing project root' });
+  if (!grantsPermanent.has('path:' + root) || !projectsStore.has(root)) return sendJson(409, { ok:false, reason:'project must be currently trusted' });
+  const r = body.action === 'clear' ? projectsStore.clearLessonProject(root)
+    : body.action === 'bind' ? projectsStore.bindLessonProject(root, () => crypto.randomUUID())
+    : body.action === 'rebind' ? projectsStore.bindLessonProject(root, () => crypto.randomUUID(), true)
+    : null;
+  if (!r) return sendJson(400, { ok:false, reason:'action must be bind, rebind, or clear' });
+  if (!r.ok) return sendJson(r.reason === 'unknown project' ? 404 : 500, r);
+  return sendJson(200, { ok:true, bound:!!r.project.lessonProjectId, lessonProjectId:r.project.lessonProjectId });
 }
 
 // POST /api/projects/discover — user-triggered, bounded marker scan of conventional project shelves.

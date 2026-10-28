@@ -20,6 +20,14 @@ const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
 // once a tool result is in the transcript → a short final text. So the directive IS the absolute path to read.
 function startMockOpenRouter() {
   const requests = [];
+  let armedHold = null;
+  function holdNext(target) {
+    let readyResolve, releaseResolve;
+    const ready = new Promise(resolve => { readyResolve = resolve; });
+    const wait = new Promise(resolve => { releaseResolve = resolve; });
+    armedHold = { target, readyResolve, wait, releaseResolve };
+    return { ready, release: () => releaseResolve() };
+  }
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
@@ -28,12 +36,15 @@ function startMockOpenRouter() {
         return;
       }
       if (req.url.indexOf('/chat/completions') >= 0) {
-        let body = ''; req.on('data', d => { body += d; }); req.on('end', () => {
+        let body = ''; req.on('data', d => { body += d; }); req.on('end', async () => {
           let msgs = []; try { msgs = (JSON.parse(body).messages) || []; } catch (_) {}
           requests.push(msgs);
           const hasToolResult = msgs.some(m => m && m.role === 'tool');
           const lastUser = [...msgs].reverse().find(m => m && m.role === 'user');
           const target = lastUser ? String(lastUser.content || '') : '';
+          if (!hasToolResult && armedHold && target === armedHold.target) {
+            const gate = armedHold; armedHold = null; gate.readyResolve(); await gate.wait;
+          }
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
           if (!hasToolResult) {
             res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'r1', type: 'function', function: { name: 'fs_read', arguments: JSON.stringify({ path: target }) } }] } }] }) + '\n\n');
@@ -49,7 +60,7 @@ function startMockOpenRouter() {
       }
       res.writeHead(404); res.end();
     });
-    server.listen(0, HOST, () => resolve({ server, requests, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
+    server.listen(0, HOST, () => resolve({ server, requests, holdNext, base: 'http://' + HOST + ':' + server.address().port + '/api/v1' }));
   });
 }
 
@@ -64,7 +75,7 @@ function boot(port, env, attemptsLeft) {
     };
     child.stdout.on('data', onData); child.stderr.on('data', onData);
     child.on('error', e => { if (!settled) { settled = true; reject(e); } });
-    setTimeout(() => { if (!settled) { settled = true; try { child.kill(); } catch (_) {} reject(new Error('boot timeout:\n' + out)); } }, 9000);
+    setTimeout(() => { if (!settled) { settled = true; try { child.kill(); } catch (_) {} reject(new Error('boot timeout:\n' + out)); } }, 60000);
   });
 }
 
@@ -93,6 +104,9 @@ function boot(port, env, attemptsLeft) {
   fs.writeFileSync(path.join(repo2, 'index.js'), 'const MARKER_TWO = 2;\n');
   const subDir = path.join(repo2, 'src');       // a folder INSIDE the repo — bless it, the repo ROOT gets trusted
   const looseFile = path.join(repo2, 'index.js');
+  const repo3 = fs.mkdtempSync(path.join(os.tmpdir(), 'ptrust-repo3-'));
+  fs.mkdirSync(path.join(repo3, '.git'), { recursive: true });
+  const otherFile = path.join(repo3, 'other.txt'); fs.writeFileSync(otherFile, 'synthetic second project');
 
   const env = { SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base, STARNET_PROJECT_DISCOVERY_ROOTS: repo2 };   // NO FULL_ACCESS → the consent broker is live
   let running = await boot(8760 + (process.pid % 40), env, 25);
@@ -100,10 +114,10 @@ function boot(port, env, attemptsLeft) {
   let token;
 
   // drive an interactive run reading `target`; answer any path.trust prompt with `decision`.
-  async function driveRead(agentId, target, decision) {
+  async function driveRead(agentId, target, decision, runOptions, onRunStart) {
     const res = await fetch(B + '/api/run', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
-      body: JSON.stringify({ key: 'sk-or-v1-fake', model: 'test/model', agentId, isTask: true, placed: ['cabinet'], messages: [{ role: 'user', content: target }] })
+      body: JSON.stringify(Object.assign({ key: 'sk-or-v1-fake', model: 'test/model', agentId, isTask: true, placed: ['cabinet'], messages: [{ role: 'user', content: target }] }, runOptions || {}))
     });
     const reader = res.body.getReader(); const dec = new TextDecoder();
     let buf = '', runId = '', prompts = [], names = [];
@@ -115,7 +129,7 @@ function boot(port, env, attemptsLeft) {
         if (!line) continue;
         let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
         names.push(ev.name);
-        if (ev.name === 'agent.run.start') runId = ev.payload.runId;
+        if (ev.name === 'agent.run.start') { runId = ev.payload.runId; if (typeof onRunStart === 'function') onRunStart(runId); }
         if (ev.name === 'permission.prompt') {
           prompts.push(ev.payload);
           fetch(B + '/api/consent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
@@ -123,7 +137,7 @@ function boot(port, env, attemptsLeft) {
         }
       }
     }
-    return { names, prompts };
+    return { names, prompts, runId };
   }
 
   try {
@@ -178,6 +192,19 @@ function boot(port, env, attemptsLeft) {
     const projAdd = await (await fetch(B + '/api/projects', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     const addedRow = (projAdd.projects || []).find(p => path.resolve(p.root).toLowerCase() === path.resolve(repo2).toLowerCase());
     A.ok(addedRow && addedRow.blessed === true && addedRow.isGitRepo === true, 'GET /api/projects lists the ADDED project (blessed, git)');
+    const bindingHeaders = { 'Content-Type':'application/json', 'X-StarNet-Token':token, Origin:B };
+    const bindLesson = (root, action, more) => fetch(B + '/api/projects/lesson-binding', { method:'POST', headers:bindingHeaders, body:JSON.stringify(Object.assign({ root, action }, more || {})) });
+    const noTokenBinding = await fetch(B + '/api/projects/lesson-binding', { method:'POST', headers:{ 'Content-Type':'application/json', Origin:B }, body:JSON.stringify({ root:addedRow.root, action:'bind' }) });
+    A.eq(noTokenBinding.status, 403, 'lesson binding API requires the station API token');
+    A.eq((await bindLesson(addedRow.root, 'bogus')).status, 400, 'unknown binding action is rejected');
+    A.eq((await bindLesson(addedRow.root, 'bind', { lessonProjectId:'forged-model-id' })).status, 400, 'binding API rejects caller-supplied identity fields');
+    A.eq((await bindLesson(path.join(repo2, 'not-blessed'), 'bind')).status, 409, 'binding API requires a currently blessed root');
+    const bound1Response = await bindLesson(addedRow.root, 'bind'); const bound1 = await bound1Response.json();
+    A.ok(bound1Response.status === 200 && bound1.ok && bound1.bound && /^[A-Za-z0-9_-]{16,120}$/.test(bound1.lessonProjectId), 'operator binding mints an opaque host ID');
+    const boundAgain = await (await bindLesson(addedRow.root, 'bind')).json();
+    A.eq(boundAgain.lessonProjectId, bound1.lessonProjectId, 'repeated bind is idempotent');
+    const forgedRun = await fetch(B + '/api/run', { method:'POST', headers:bindingHeaders, body:JSON.stringify({ lessonScope:{ type:'project', id:'forged' } }) });
+    A.eq(forgedRun.status, 400, 'interactive run rejects caller-supplied scope authority before dispatch');
     const forget = (root) => fetch(B + '/api/projects/forget', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B }, body: JSON.stringify({ root }) });
     const forgetBlessed = await forget(addedRow.root); const forgetBlessedJson = await forgetBlessed.json();
     A.eq(forgetBlessed.status, 409, 'forget refuses an actively blessed project (trust must be revoked first)');
@@ -185,14 +212,62 @@ function boot(port, env, attemptsLeft) {
     const permsAdd = await (await fetch(B + '/api/permissions', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     A.ok((permsAdd.grants || []).some(g => g.indexOf('path:') === 0 && path.resolve(g.slice(5)).toLowerCase() === path.resolve(repo2).toLowerCase()), 'the SAME path:<root> grant appears in /api/permissions (one grant store, two doorways)');
     // d) an interactive run reads under the ADDED root with NO prompt (the route-blessed grant is real trust).
-    const rAdd = await driveRead('ptagent-added', looseFile, 'deny');
+    const rAdd = await driveRead('ptagent-added', looseFile, 'deny', { projectRoot:addedRow.root });
     A.eq(rAdd.prompts.filter(p => p.tool === 'path.trust').length, 0, 'a read under the ADDED (route-blessed) root does NOT prompt');
+    const runRows = await (await fetch(B + '/api/runs?agent=ptagent-added', { headers:bindingHeaders })).json();
+    const boundRun = (runRows.runs || []).find(r => r.runId === rAdd.runId);
+    A.eq(boundRun && boundRun.lessonScopeSnapshot && boundRun.lessonScopeSnapshot.id, bound1.lessonProjectId, 'run history records the immutable host-resolved binding snapshot');
+    const secondBless = await bless(repo3); A.eq(secondBless.status, 200, 'second synthetic project is trusted for isolation coverage');
+    const secondProjectBinding = await (await bindLesson(repo3, 'bind')).json();
+    A.ok(secondProjectBinding.bound && secondProjectBinding.lessonProjectId !== bound1.lessonProjectId, 'second project receives a distinct operator identity');
+    const holdFile = path.join(repo2, 'binding-hold.txt'); fs.writeFileSync(holdFile, 'synthetic held read');
+    const gate = mock.holdNext(holdFile);
+    let heldRunStart; const heldRunStarted = new Promise(resolve => { heldRunStart = resolve; });
+    const heldRunPromise = driveRead('ptagent-held', holdFile, 'deny', { projectRoot:addedRow.root }, heldRunStart);
+    const heldRunId = await heldRunStarted; await gate.ready;
+    let otherRunStart; const otherRunStarted = new Promise(resolve => { otherRunStart = resolve; });
+    const otherRunPromise = driveRead('ptagent-other', otherFile, 'deny', { projectRoot:repo3 }, otherRunStart);
+    const otherRunId = await otherRunStarted;
+    const otherRunResult = await otherRunPromise;
+    A.eq(otherRunResult.prompts.filter(p => p.tool === 'path.trust').length, 0, 'second concurrent project run uses only its own blessed root');
+    const rotatedBinding = await (await bindLesson(addedRow.root, 'rebind')).json();
+    A.ok(rotatedBinding.bound && rotatedBinding.lessonProjectId !== bound1.lessonProjectId, 'operator rebind rotates identity while the first run is held');
+    gate.release();
+    const heldRunResult = await heldRunPromise;
+    A.ok(heldRunResult.names.includes('agent.run.end'), 'held interactive run completes after release');
+    const heldRows = await (await fetch(B + '/api/runs?agent=ptagent-held', { headers:bindingHeaders })).json();
+    const otherRows = await (await fetch(B + '/api/runs?agent=ptagent-other', { headers:bindingHeaders })).json();
+    A.eq((heldRows.runs || []).find(r => r.runId === heldRunId)?.lessonScopeSnapshot?.id, bound1.lessonProjectId, 'in-flight run keeps its immutable pre-rebind identity');
+    A.eq((otherRows.runs || []).find(r => r.runId === otherRunId)?.lessonScopeSnapshot?.id, secondProjectBinding.lessonProjectId, 'simultaneous run records its independent project identity');
     // e) remove = revoke through the existing surface → /api/projects reflects blessed:false (list mirrors the grant store).
     const revAdd = (permsAdd.grants || []).find(g => g.indexOf('path:') === 0 && path.resolve(g.slice(5)).toLowerCase() === path.resolve(repo2).toLowerCase());
-    await fetch(B + '/api/permissions/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B }, body: JSON.stringify({ key: revAdd }) });
+    // Force a real project-store persistence failure by moving its file aside and placing a directory at the
+    // target name (all paths are within this test's isolated scratch workspace). Revoke must fail closed.
+    const projectsFile = path.join(ws, 'projects.json');
+    const projectsHeld = path.join(ws, 'projects.json.failure-hold');
+    fs.renameSync(projectsFile, projectsHeld); fs.mkdirSync(projectsFile);
+    const revokeNoPersist = await fetch(B + '/api/permissions/revoke', { method:'POST', headers:bindingHeaders, body:JSON.stringify({ key: revAdd }) });
+    A.eq(revokeNoPersist.status, 500, 'revoke refuses when it cannot durably clear the project binding');
+    fs.rmdirSync(projectsFile); fs.renameSync(projectsHeld, projectsFile);
+    for (const name of fs.readdirSync(ws).filter(n => /^projects\.json\.[0-9]+\..+\.tmp$/.test(n))) fs.unlinkSync(path.join(ws, name));
+    const stillBound = await (await fetch(B + '/api/projects', { headers:bindingHeaders })).json();
+    const stillBoundRow = (stillBound.projects || []).find(p => path.resolve(p.root).toLowerCase() === path.resolve(repo2).toLowerCase());
+    A.ok(stillBoundRow && stillBoundRow.blessed && stillBoundRow.lessonProjectId === rotatedBinding.lessonProjectId, 'failed revoke leaves grant and prior binding intact');
+    const revokeOk = await fetch(B + '/api/permissions/revoke', { method:'POST', headers:bindingHeaders, body:JSON.stringify({ key: revAdd }) });
+    A.eq(revokeOk.status, 200, 'revoke succeeds after durable project store is restored');
     const projAfter = await (await fetch(B + '/api/projects', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     const afterRow = (projAfter.projects || []).find(p => path.resolve(p.root).toLowerCase() === path.resolve(repo2).toLowerCase());
     A.ok(afterRow && afterRow.blessed === false, 'after revoke, the ADDED project reports blessed:false (truthful telemetry)');
+    A.eq(afterRow && afterRow.lessonProjectId, null, 'successful revoke durably clears the binding');
+    const regrant = await bless(addedRow.root); const regrantJson = await regrant.json();
+    A.eq(regrant.status, 200, 'regrant after revocation is allowed after stale binding removal');
+    const afterRegrant = await (await fetch(B + '/api/projects', { headers:bindingHeaders })).json();
+    const regrantedRow = (afterRegrant.projects || []).find(p => path.resolve(p.root).toLowerCase() === path.resolve(repo2).toLowerCase());
+    A.ok(regrantJson.ok && regrantedRow && regrantedRow.blessed && regrantedRow.lessonProjectId === null, 'regrant does not revive the previous lesson identity');
+    const rebound = await (await bindLesson(regrantedRow.root, 'bind')).json();
+    A.ok(rebound.bound && rebound.lessonProjectId !== rotatedBinding.lessonProjectId, 'new explicit bind after regrant receives a different identity');
+    const revAgain = await fetch(B + '/api/permissions/revoke', { method:'POST', headers:bindingHeaders, body:JSON.stringify({ key: revAdd }) });
+    A.eq(revAgain.status, 200, 'test cleanup revokes regranted project');
     const forgotten = await forget(afterRow.root); const forgottenJson = await forgotten.json();
     A.eq(forgotten.status, 200, 'forget accepts a revoked project');
     A.eq(forgottenJson.ok, true, 'revoked-project forget reports ok:true');
@@ -279,6 +354,7 @@ function boot(port, env, attemptsLeft) {
     try { fs.rmSync(ws, { recursive: true, force: true }); } catch (_) {}
     try { fs.rmSync(proj, { recursive: true, force: true }); } catch (_) {}
     try { fs.rmSync(repo2, { recursive: true, force: true }); } catch (_) {}
+    try { fs.rmSync(repo3, { recursive: true, force: true }); } catch (_) {}
   }
   A.report('e2e.pathtrust.test');
 })().catch(e => { console.error(e); process.exit(1); });

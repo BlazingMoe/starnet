@@ -4163,7 +4163,7 @@ const App = (() => {
       const tip = (r.blessed ? '' : 'REVOKED (trust withdrawn) — ') + 'click to open this project · right-click for actions';
       const sess = projSessionsOf(r.root);
       const extra = Math.max(0, sess.length - 3);
-      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + (st.status ? ', ' + st.status : '') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + projDot(r) + '"></span>' +
         '<span class="proj-main">' +
           '<span class="proj-line">' +
@@ -4176,6 +4176,7 @@ const App = (() => {
             '<span class="proj-path">' + U.esc(r.path) + '</span>' +
             (sess.length ? '<span class="proj-sess-n">' + sess.length + ' session' + (sess.length === 1 ? '' : 's') + '</span>' : '') +
           '</span>' +
+          (r.blessed ? '<span class="lesson-binding"><span>' + (r.lessonProjectId ? 'Lesson context bound' : 'No lesson context bound') + '</span>' + (r.lessonProjectId ? '<button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="rebind">Rebind with new identity</button><button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="clear">Clear lesson context</button>' : '<button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="bind">Bind for lesson proposals</button>') + '</span>' : '') +
         '</span>' +
         '</li>' +
         sess.slice(0, 3).map(s =>
@@ -4211,6 +4212,24 @@ const App = (() => {
       li.oncontextmenu = (e) => { e.preventDefault(); openProjectMenu(row, e.clientX, e.clientY); };
       const keb = li.querySelector('.ws-kebab');
       if (keb) keb.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const b = keb.getBoundingClientRect(); openProjectMenu(row, b.left, b.bottom + 2, keb); };
+    });
+    ul.querySelectorAll('.lesson-bind').forEach(button => {
+      button.onclick = async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const action = button.dataset.action;
+        const purpose = action === 'bind' ? 'Bind this trusted project to future lesson proposals?' : action === 'rebind' ? 'Replace this project binding with a new identity for future runs?' : 'Clear this project binding for future runs?';
+        if (!window.confirm(purpose + ' This does not approve or enable any lesson.')) return;
+        button.disabled = true;
+        try {
+          const response = await fetch('/api/projects/lesson-binding', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ root:button.dataset.root, action }) });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.reason || 'Binding could not be saved');
+          renderProjects();
+        } catch (error) {
+          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(error.message || 'Binding could not be saved', '', undefined, { transient:true });
+          button.disabled = false;
+        }
+      };
     });
   }
   /* ENTERED: breadcrumb back-row + project header + this project's sessions as FULL rail rows (they are real
