@@ -383,6 +383,7 @@ test/skill-goldens.test.js
 test/eval-skills-runner.test.js
 test/dossierinject.test.js
 test/recipes.test.js
+test/website-demo.test.js
 test/recipes.sop.test.js
 test/recipefit.test.js
 test/loop-templates.test.js

@@ -189,6 +189,22 @@
       source: 'builtin', forkedFrom: null
     },
     {
+      id: 'fictional-website-demo', name: 'Fictional Industry Website Demo', emoji: '⌂', tagline: 'A private, reusable sample concept',
+      accent: '#88b6a0',
+      blurb: 'Erstellt ein eigenständiges, klar fiktives Demo für lokale Dienste mit simuliertem Formular und verifiziertem Export.',
+      tags: { general: 0.6, code: 0.4 },
+      params: [
+        { key: 'industry', label: 'Demo-Branche', type: 'choice', options: ['salon', 'trades'], default: 'salon' },
+        { key: 'businessName', label: 'Erfundener Geschäftsname', placeholder: 'freiwillig; leer lassen für den Vorlagen-Namen', required: false, default: '' },
+        { key: 'tagline', label: 'Erfundener kurzer Leitsatz', placeholder: 'freiwillig; leer lassen für den Vorlagen-Text', required: false, default: '' },
+        { key: 'location', label: 'Muster-Ort', placeholder: 'freiwillig; leer lassen für „Musterort“', required: false, default: '' },
+        { key: 'workspace', label: 'Ausgabeordner', placeholder: 'z. B. demos/fiktiver-salon', required: true }
+      ],
+      task: 'Erstelle ein privates, fiktives Branchen-Demo für {industry}. Verwende ausschließlich diese ausdrücklich erfundenen Angaben: Name {businessName}, Leitsatz {tagline}, Muster-Ort {location}. Recherchiere oder erschließe kein reales Unternehmen, keinen Ort, Interessenten, Kunden, Preis oder Anspruch. Rufe website.demo.generate mit Branche und optionalen Textfeldern auf. Das reine Generatorwerkzeug liefert zwei Dateien mit festen Namen index.html und README.md und führt keinerlei Ein-/Ausgabe aus. Speichere jede Datei mit dem bestehenden einwilligungspflichtigen fs.write-Werkzeug unter {workspace}; erhalte jeden byte-verifizierten Beleg. Verwende weder Shell noch einen anderen Schreibweg. Lies anschließend beide genauen Pfade mit fs.read zurück und vergleiche den Inhalt mit dem generierten Paket. Wenn ein Schreibvorgang verweigert wird, fehlschlägt oder die Rücklesung abweicht, stoppe und melde genau diese Lücke; behaupte nicht, der Export sei vollständig. Nenne die zwei verifizierten Dateien und Belege. Die Website bleibt eigenständig, responsiv, per Tastatur bedienbar und durchgehend als fiktives Demo gekennzeichnet. Das Formular zeigt nur eine Bestätigung auf der Seite; niemals senden, speichern, buchen, anbieten oder jemanden kontaktieren. Keine externen Assets, Netzwerkanfragen, Analysewerkzeuge, Testimonials, Kundenbehauptungen, echten Identitäten oder kopierten Geschäftsinhalte. Die README dokumentiert Herkunft, Nicht-Senden/Nicht-Speichern und Grenzen einer Anpassung. Nur Entwurf und Export: nicht veröffentlichen, hosten, Interessenten kontaktieren, einkaufen oder Dienste verbinden.',
+      category: 'business', gear: ['cabinet'], skills: ['plan'], cadence: null,
+      source: 'builtin', forkedFrom: null
+    },
+    {
       id: 'offer-economics-dossier', name: 'Offer and Economics Dossier', emoji: '◈', tagline: 'A bounded offer, with costs kept honest',
       accent: '#d9a85a',
       blurb: 'Turns an operator-selected niche and explicit assumptions into a reviewable offer, cost ledger, rights checklist and small pilot plan.',
