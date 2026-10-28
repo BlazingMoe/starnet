@@ -93,15 +93,24 @@ try {
   const initial = await evalJS(cdp, `(()=>{const li=[...document.querySelectorAll('#projects .proj-row')].find(x=>x.dataset.root===${JSON.stringify(blessed.root)});return li?{text:li.innerText,button:li.querySelector('.lesson-bind')?.innerText,box:li.querySelector('.lesson-binding')?.getBoundingClientRect().toJSON(),row:li.getBoundingClientRect().toJSON()}:null})()`);
   if (!initial || !initial.text.includes('No lesson context bound') || initial.button !== 'Bind for lesson proposals') throw new Error('production Projects rail did not show the operator bind control: ' + JSON.stringify(initial));
   if (initial.box.right > initial.row.right + 1) throw new Error('unbound controls overflow the project row: ' + JSON.stringify(initial));
-  await evalJS(cdp, `window.confirm=()=>true;document.querySelector('#projects .lesson-bind[data-action="bind"]').focus()`);
+  await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]').focus()`);
   const focusedBind = await evalJS(cdp, `document.activeElement===document.querySelector('#projects .lesson-bind[data-action="bind"]')`);
   if (!focusedBind) throw new Error('binding control could not receive keyboard focus');
   await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`);
   if (await evalJS(cdp, `!!document.querySelector('#projects .proj-crumb')`)) throw new Error('nested button Enter key was intercepted as project-row activation');
   await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]').click()`);
+  let saved, row;
+  const armedBind = await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]')?.innerText === 'CLICK AGAIN TO BIND'`);
+  if (!armedBind) throw new Error('first bind click did not arm the native station confirmation');
+  await sleep(4300); // Let ArmConfirm's real timeout cancel the pending bind.
+  const cancelledBind = await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]')?.innerText === 'Bind for lesson proposals'`);
+  saved = await (await fetch(base + '/api/projects', { headers:{ 'X-StarNet-Token':apiToken, Origin:base } })).json();
+  row = saved.projects.find(p => p.root === blessed.root);
+  if (!cancelledBind || row?.lessonProjectId !== null || requestHeaders.some(h => Object.keys(h).some(k => k.toLowerCase() === 'x-starnet-token' && h[k]))) throw new Error('cancelled bind changed state or reached the binding API');
+  await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]').click();document.querySelector('#projects .lesson-bind[data-action="bind"]').click()`);
   await eventually(() => evalJS(cdp, `document.querySelector('#projects .lesson-binding')?.innerText.includes('Lesson context bound')`).catch(() => false), 'bound state render');
-  let saved = await (await fetch(base + '/api/projects', { headers:{ 'X-StarNet-Token':apiToken, Origin:base } })).json();
-  let row = saved.projects.find(p => p.root === blessed.root);
+  saved = await (await fetch(base + '/api/projects', { headers:{ 'X-StarNet-Token':apiToken, Origin:base } })).json();
+  row = saved.projects.find(p => p.root === blessed.root);
   if (!row?.lessonProjectId) throw new Error('UI binding did not persist through token-authenticated API');
   const firstId = row.lessonProjectId;
   await eventually(() => requestHeaders.some(h => Object.keys(h).some(k => k.toLowerCase() === 'x-starnet-token' && h[k])), 'API token on browser binding request');
@@ -112,13 +121,13 @@ try {
   const boundShot = await cdp.send('Page.captureScreenshot', { format:'png', captureBeyondViewport:false });
   screenshotPath = path.join(os.tmpdir(), 'starnet-project-binding-ui-' + process.pid + '.png');
   fs.writeFileSync(screenshotPath, Buffer.from(boundShot.data, 'base64'));
-  await evalJS(cdp, `window.confirm=()=>true;document.querySelector('#projects .lesson-bind[data-action="rebind"]').click()`);
+  await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="rebind"]').click();document.querySelector('#projects .lesson-bind[data-action="rebind"]').click()`);
   await eventually(async () => {
     const latest = await (await fetch(base + '/api/projects', { headers:{ 'X-StarNet-Token':apiToken, Origin:base } })).json();
     return latest.projects.find(p => p.root === blessed.root)?.lessonProjectId !== firstId;
   }, 'rebound identity');
   await eventually(() => evalJS(cdp, `!!document.querySelector('#projects .lesson-bind[data-action="clear"]')`).catch(() => false), 'rebound controls render');
-  await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="clear"]').click()`);
+  await evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="clear"]').click();document.querySelector('#projects .lesson-bind[data-action="clear"]').click()`);
   await eventually(() => evalJS(cdp, `document.querySelector('#projects .lesson-bind[data-action="bind"]')?.innerText === 'Bind for lesson proposals'`).catch(() => false), 'cleared state render');
   saved = await (await fetch(base + '/api/projects', { headers:{ 'X-StarNet-Token':apiToken, Origin:base } })).json();
   row = saved.projects.find(p => p.root === blessed.root);

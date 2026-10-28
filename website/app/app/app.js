@@ -4214,11 +4214,12 @@ const App = (() => {
       if (keb) keb.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const b = keb.getBoundingClientRect(); openProjectMenu(row, b.left, b.bottom + 2, keb); };
     });
     ul.querySelectorAll('.lesson-bind').forEach(button => {
-      button.onclick = async (e) => {
-        e.preventDefault(); e.stopPropagation();
-        const action = button.dataset.action;
-        const purpose = action === 'bind' ? 'Bind this trusted project to future lesson proposals?' : action === 'rebind' ? 'Replace this project binding with a new identity for future runs?' : 'Clear this project binding for future runs?';
-        if (!window.confirm(purpose + ' This does not approve or enable any lesson.')) return;
+      const action = button.dataset.action;
+      const armedLabel = action === 'bind' ? 'CLICK AGAIN TO BIND' : action === 'rebind' ? 'CLICK AGAIN TO REBIND' : 'CLICK AGAIN TO CLEAR';
+      button.title = 'This does not approve or enable any lesson.';
+      button.addEventListener('click', e => e.stopPropagation());
+      if (typeof ArmConfirm === 'undefined' || !ArmConfirm.wire) return;
+      ArmConfirm.wire(button, { armedLabel, timeoutMs:4000, onConfirm: async () => {
         button.disabled = true;
         try {
           const response = await fetch('/api/projects/lesson-binding', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ root:button.dataset.root, action }) });
@@ -4229,7 +4230,7 @@ const App = (() => {
           if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(error.message || 'Binding could not be saved', '', undefined, { transient:true });
           button.disabled = false;
         }
-      };
+      } });
     });
   }
   /* ENTERED: breadcrumb back-row + project header + this project's sessions as FULL rail rows (they are real
