@@ -7,6 +7,7 @@ const PAGE_DEFAULT = 20;
 const PAGE_MAX = 50;
 const MAX_TEXT = 1000;
 const MAX_ITEMS = 12;
+const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
 function lessonSourceKey(agentId, decisionId, outcomeEventId) { return JSON.stringify([String(agentId), String(decisionId), String(outcomeEventId)]); }
 function cleanText(value, field, required, redact) {
   if (typeof value !== 'string') throw new Error(field + ' must be a string');
@@ -18,6 +19,12 @@ function cleanText(value, field, required, redact) {
 function cleanList(value, field, redact) {
   if (!Array.isArray(value) || value.length > MAX_ITEMS) throw new Error(field + ' must be an array of up to ' + MAX_ITEMS + ' strings');
   return value.map((v, i) => cleanText(v, field + '[' + i + ']', true, redact));
+}
+function projectBindingSnapshot(ctx) {
+  const s = ctx && ctx.lessonScopeSnapshot;
+  // Shape validation preserves the host's opaque-ID format; persisted data is still historical evidence, not proof against edits/imports.
+  if (!s || s.schemaVersion !== 1 || s.type !== 'project' || typeof s.id !== 'string' || !HOST_PROJECT_ID_RE.test(s.id)) return null;
+  return { schemaVersion:1, type:'project', id:s.id };
 }
 const LESSON_CONTRACT_KEYS = new Set(['schemaVersion','scope','sourceRefs','uncertainty','confidence','version','recheckAt','expiresAt','positiveExamples','negativeExamples']);
 function cleanLessonContract(value, redact) {
@@ -82,6 +89,7 @@ function makeDecisionTools(deps) {
     } },
     run: async (args, ctx) => {
       const aid = ctx && ctx.agentId || 'agent';
+      const sourceProjectBinding = projectBindingSnapshot(ctx);
       const clientId = cleanText(args && args.clientId, 'clientId', true, redact);
       if (clientId.length > 120) throw new Error('clientId must be at most 120 characters');
       const decision = cleanText(args && args.decision, 'decision', true, redact);
@@ -96,12 +104,13 @@ function makeDecisionTools(deps) {
         const prior = list.find(r => r && r.clientId === clientId);
         if (prior) {
           const same = prior.decision === decision && JSON.stringify(prior.alternatives) === JSON.stringify(alternatives)
-            && JSON.stringify(prior.evidenceRefs) === JSON.stringify(evidenceRefs) && prior.uncertainty === uncertainty && prior.confidence === confidence;
+            && JSON.stringify(prior.evidenceRefs) === JSON.stringify(evidenceRefs) && prior.uncertainty === uncertainty && prior.confidence === confidence
+            && JSON.stringify(prior.sourceProjectBinding || null) === JSON.stringify(sourceProjectBinding);
           if (!same) throw new Error('clientId already belongs to a different decision');
           saved = prior; duplicate = true; return undefined;
         }
         saved = { id: 'decision_' + clientId, clientId, decision, alternatives, evidenceRefs, uncertainty, confidence,
-          createdAt: Number(clock.now()) || 0, source: 'model', trust: 'unconfirmed', outcomeStatus:'pending', outcomeEvents: [] };
+          ...(sourceProjectBinding ? {sourceProjectBinding} : {}), createdAt: Number(clock.now()) || 0, source: 'model', trust: 'unconfirmed', outcomeStatus:'pending', outcomeEvents: [] };
         if (list.length >= MAX_RECORDS) throw new Error('decision history is full (' + MAX_RECORDS + '); archive or reset before recording more');
         list.push(saved); return list;
       });
@@ -161,6 +170,13 @@ function makeDecisionTools(deps) {
       const found = rows(aid).find(r => r && r.id === decisionId);
       if (!found) throw new Error('decision not found for this agent');
       decision = found;
+      // Attribution comes from the immutable record-time snapshot, so later proposals need no live project context.
+      // This checked shape is historical/quarantined metadata, never current permission or proof against storage edits/imports.
+      const sourceProjectBinding = decision.sourceProjectBinding && decision.sourceProjectBinding.schemaVersion === 1 && decision.sourceProjectBinding.type === 'project' && typeof decision.sourceProjectBinding.id === 'string' && HOST_PROJECT_ID_RE.test(decision.sourceProjectBinding.id)
+        ? { schemaVersion:1, type:'project', id:decision.sourceProjectBinding.id } : null;
+      if (lessonContract && lessonContract.scope.type === 'project' && (!sourceProjectBinding || lessonContract.scope.id !== sourceProjectBinding.id)) {
+        throw new Error('project-scoped lesson contract must match the decision host project binding');
+      }
       outcome = (Array.isArray(decision.outcomeEvents) ? decision.outcomeEvents : []).find(e => e && e.eventId === outcomeEventId);
       if (!outcome) throw new Error('outcome event not found on that decision');
       if (outcome.source !== 'model' || outcome.trust !== 'unconfirmed') throw new Error('outcome event has invalid or unsupported provenance');
@@ -176,11 +192,12 @@ function makeDecisionTools(deps) {
         const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
         if (pi >= 0) {
           prior = proposals[pi];
-          if (prior.lesson !== lesson || JSON.stringify(prior.contract || null) !== JSON.stringify(lessonContract)) throw new Error('this outcome already has a different lesson candidate');
+          if (prior.lesson !== lesson || JSON.stringify(prior.contract || null) !== JSON.stringify(lessonContract)
+            || JSON.stringify(prior.sourceProjectBinding || null) !== JSON.stringify(sourceProjectBinding)) throw new Error('this outcome already has a different lesson candidate');
           if (prior.status === 'discarded') throw new Error('this lesson candidate was discarded and cannot be proposed again');
           if (prior.status === 'kept') throw new Error('this lesson candidate was already reviewed and kept');
           if (prior.status === 'pending') return undefined;
-        } else { prior = { outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
+        } else { prior = { outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
         rec.lessonProposals = proposals; list[i] = rec; return list;
       });
       // Re-run the idempotent queue callback even for a pending receipt: the row may have been lost to a legacy FIFO rewrite.
@@ -189,7 +206,7 @@ function makeDecisionTools(deps) {
         sourceDecision: cleanText(String(decision.decision || ''), 'source decision', true, redact),
         sourceOutcome: cleanText(String(outcome.outcome || ''), 'source outcome', true, redact),
         evidenceRefs: combinedRefs.map((ref,i) => cleanText(ref, 'evidenceRefs[' + i + ']', true, redact)),
-        uncertainty: cleanText(String(decision.uncertainty || 'unknown'), 'uncertainty', true, redact), lessonContract
+        uncertainty: cleanText(String(decision.uncertainty || 'unknown'), 'uncertainty', true, redact), lessonContract, sourceProjectBinding
       });
       if (!result || !result.ok) throw new Error(result && result.error || 'could not queue lesson candidate');
       await store.update(key(aid), cur => {
@@ -199,8 +216,8 @@ function makeDecisionTools(deps) {
         const rec = Object.assign({}, list[i]);
         const proposals = Array.isArray(rec.lessonProposals) ? rec.lessonProposals.slice() : [];
         const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
-        if (pi < 0) proposals.push({ outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), status:'pending', createdAt:Number(clock.now()) || 0 });
-        else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { ...(lessonContract ? {contract:lessonContract} : {}), status:'pending' });
+        if (pi < 0) proposals.push({ outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'pending', createdAt:Number(clock.now()) || 0 });
+        else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'pending' });
         else if (proposals[pi].status === 'kept' || proposals[pi].status === 'discarded') return undefined;
         rec.lessonProposals = proposals; list[i] = rec; return list;
       });

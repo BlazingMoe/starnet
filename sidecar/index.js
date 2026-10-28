@@ -2370,6 +2370,8 @@ async function queueDecisionLessonCandidate(input) {
   const prop = {
     id, kind:'lesson', proposalType:'decision-lesson', content:String(input.lesson), scope:'global', origin:'decision-outcome',
     sourceDecisionId:String(input.decisionId), sourceOutcomeEventId:String(input.outcomeEventId),
+    ...(input.sourceProjectBinding && typeof input.sourceProjectBinding.id === 'string' && /^[A-Za-z0-9_-]{16,120}$/.test(input.sourceProjectBinding.id)
+      ? { sourceProjectBinding:{ schemaVersion:1, type:'project', id:input.sourceProjectBinding.id, provenance:'host-admission-snapshot', authority:'historical-only' } } : {}),
     sourceDecision:String(input.sourceDecision), sourceOutcome:String(input.sourceOutcome),
     evidenceRefs:Array.isArray(input.evidenceRefs) ? input.evidenceRefs.slice(0, 24) : [], uncertainty:String(input.uncertainty || 'unknown'),
     ...(input.lessonContract ? { lessonContract:input.lessonContract } : {})

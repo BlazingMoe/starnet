@@ -104,6 +104,7 @@ async function restoreDeclined(store, agentId, text) {
    Pure over the injected store with an INJECTED `now` (memory-store.js is inside the determinism scan), so the
    queue is unit-testable without booting the server — the same reason restoreDeclined was factored out. */
 const PENDING_CAP = 50;   // FIFO bound: a runaway backlog must never grow without limit
+const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
 function pendingKey(runId, id) { return String(runId == null ? '' : runId) + ':' + String(id == null ? '' : id); }
 
 // Queue high-stakes proposals for later review. Idempotent per (runId, id): re-stashing the same batch — which a
@@ -130,6 +131,9 @@ async function appendPending(store, agentId, runId, items, now) {
         sourceOutcomeEventId: String(p.sourceOutcomeEventId || ''), sourceDecision: String(p.sourceDecision || '').slice(0, 1000),
         sourceOutcome: String(p.sourceOutcome || '').slice(0, 1000), evidenceRefs: (Array.isArray(p.evidenceRefs) ? p.evidenceRefs : []).slice(0, 24).map(x => String(x)),
         uncertainty: String(p.uncertainty || 'unknown').slice(0, 1000),
+        ...(p.sourceProjectBinding && p.sourceProjectBinding.schemaVersion === 1 && p.sourceProjectBinding.type === 'project'
+          && typeof p.sourceProjectBinding.id === 'string' && HOST_PROJECT_ID_RE.test(p.sourceProjectBinding.id)
+          ? { sourceProjectBinding:{ schemaVersion:1, type:'project', id:p.sourceProjectBinding.id, provenance:'host-admission-snapshot', authority:'historical-only' } } : {}),
         ...(p.lessonContract ? { lessonContract: JSON.parse(JSON.stringify(p.lessonContract)) } : {})
       });
       cur.push(row);

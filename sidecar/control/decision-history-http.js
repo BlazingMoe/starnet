@@ -4,6 +4,7 @@
 const { PAGE_DEFAULT, PAGE_MAX, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS } = require('../tools/builtin/decisions.js');
 
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
 const LESSON_STATES = new Set(['staging', 'pending', 'reviewing-kept', 'kept', 'discarded']);
 // A decision can carry up to 40 outcome events with 12 references each; keep the outer page
 // intentionally smaller than decision.list so the complete nested audit evidence remains bounded.
@@ -21,6 +22,11 @@ function boundedList(value, cap, redact) {
 }
 function timestamp(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+function projectSourceBinding(value) {
+  // Projection shape does not authenticate imported or edited durable history; this label stays historical-only.
+  if (!value || typeof value !== 'object' || value.schemaVersion !== 1 || value.type !== 'project' || typeof value.id !== 'string' || !HOST_PROJECT_ID_RE.test(value.id)) return null;
+  return { schemaVersion:1, type:'project', id:value.id.slice(0,120), provenance:'host-admission-snapshot', authority:'historical-only' };
 }
 function projectLessonContract(value, redact) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.schemaVersion !== 1 || !value.scope || typeof value.scope !== 'object') return null;
@@ -59,6 +65,7 @@ function projectRecord(row, redact) {
     createdAt: timestamp(row.createdAt),
     source: row.source === 'model' ? 'model' : 'unknown',
     trust: row.trust === 'unconfirmed' ? 'unconfirmed' : 'unknown',
+    ...(projectSourceBinding(row.sourceProjectBinding) ? {sourceProjectBinding:projectSourceBinding(row.sourceProjectBinding)} : {}),
     outcomeStatus: row.outcomeStatus === 'pending' || row.outcomeStatus === 'recorded' ? row.outcomeStatus : 'unknown',
     outcomeEventsTotal: outcomes.length,
     outcomeEventsTruncated: outcomes.length > MAX_OUTCOME_EVENTS,
@@ -78,6 +85,7 @@ function projectRecord(row, redact) {
       lesson: boundedText(proposal && proposal.lesson, MAX_TEXT, redact),
       status: LESSON_STATES.has(proposal && proposal.status) ? proposal.status : 'unknown',
       createdAt: timestamp(proposal && proposal.createdAt),
+      ...(projectSourceBinding(proposal && proposal.sourceProjectBinding) ? {sourceProjectBinding:projectSourceBinding(proposal.sourceProjectBinding)} : {}),
       ...(projectLessonContract(proposal && proposal.contract, redact) ? { contract: projectLessonContract(proposal.contract, redact) } : {})
     }))
   };
