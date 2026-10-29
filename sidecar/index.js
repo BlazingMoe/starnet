@@ -66,6 +66,7 @@ const Todo = require('./tools/builtin/todo.js');
 const DeliverableTool = require('./tools/builtin/deliverable.js');   // deliverable_note — the agent NAMES its finished work (prose only; never status/crew)
 const { makeEconomicsTools } = require('./tools/builtin/economics.js'); // economics.calculate — exact bounded arithmetic over supplied scenario inputs
 const { makeWebsiteAuditTools } = require('./tools/builtin/website-audit.js');
+const { makeWebsiteLeadsTools } = require('./tools/builtin/website-leads.js');
 const { makeWebsiteDemoTools } = require('./tools/builtin/website-demo.js'); // Pure fictional website demo generator; export remains through fs.write
 const { makeImageTools } = require('./tools/builtin/image.js');           // STUDIO: image_generate / image_analyze (OpenRouter multimodal)
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
@@ -15527,6 +15528,7 @@ async function runOnce(o) {
   }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
   makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
   makeWebsiteAuditTools().register(registry);
+  makeWebsiteLeadsTools().register(registry);
   makeWebsiteDemoTools().register(registry); // pure bounded template; filesystem export remains consent-gated fs.write
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall

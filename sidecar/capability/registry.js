@@ -98,6 +98,7 @@
       // requires the same object as its verified artifact writers; this does not read or mutate files itself.
       { capId: 'cabinet', tool: 'economics.calculate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.demo.generate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
