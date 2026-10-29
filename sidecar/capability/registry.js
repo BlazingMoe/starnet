@@ -100,6 +100,7 @@
       { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fiverr.handoff.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'channel.content.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'etsy.pod.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.demo.generate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },

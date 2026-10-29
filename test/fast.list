@@ -764,3 +764,5 @@ test/website-leads.test.js
 test/etsy-pod.test.js
 
 test/fiverr-handoff.test.js
+
+test/channel-content.test.js
