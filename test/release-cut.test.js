@@ -9,6 +9,8 @@ const { join, resolve } = require('node:path');
 const ROOT = resolve(__dirname, '..');
 const packageVersion = require('../package.json').version;
 const versionPattern = packageVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const derivativeMode = JSON.parse(readFileSync(join(ROOT, 'qa', 'product-perfect', 'derivative-mode.json'), 'utf8'));
+const tauriConfig = JSON.parse(readFileSync(join(ROOT, 'src-tauri', 'tauri.conf.json'), 'utf8'));
 // A fixture key FILE (never real key material): --dry-run only proves the key path exists and
 // prints the signing command; it never signs. Without this, the test needs the operator's real
 // ~/.tauri key and goes red on any CI runner (v0.6.3 train run 4). Named starnet-updater.key so
@@ -22,8 +24,29 @@ const result = spawnSync(process.execPath, [
   '--no-pre-build-ctor'
 ], { cwd: ROOT, encoding: 'utf8', env: Object.assign({}, process.env, { STARNET_UPDATER_KEY_FILE: keyFile }) });
 
-assert.equal(result.status, 0, result.stderr || result.stdout);
 const output = result.stdout + result.stderr;
+
+// A derivative must NOT become publishable by inheriting StarNet's release signer assumptions.
+// Until Moe AI Station owns its updater key + public key + release pipeline, the production
+// configuration deliberately keeps updater artifacts disabled and the inherited release cutter
+// must fail closed. When derivative mode is eventually retired for an independently signed
+// release train, the original StarNet cryptographic release assertions below become active again.
+if (derivativeMode && derivativeMode.enabled) {
+  assert.equal(derivativeMode.rules && derivativeMode.rules.neverReuseUpstreamReleaseInfrastructure, true,
+    'derivative mode must explicitly forbid inherited release infrastructure');
+  assert.equal(!!(tauriConfig.bundle && tauriConfig.bundle.createUpdaterArtifacts), false,
+    'derivative updater artifacts stay disabled until an independent signing pipeline exists');
+  assert.equal(result.status, 1,
+    'the inherited StarNet release cutter must fail closed while derivative signing is not configured');
+  assert.match(output, /bundle\.createUpdaterArtifacts is false/i,
+    'release refusal must name the disabled updater-artifact safety gate');
+  assert.doesNotMatch(output, /RELEASE CUT COMPLETE/i,
+    'a derivative without its own signing authority must never print a successful release receipt');
+  console.log('release-cut.test: OK (derivative release remains fail-closed until independent signing exists)');
+  process.exit(0);
+}
+
+assert.equal(result.status, 0, result.stderr || result.stdout);
 assert.match(output, /desktop:build .*explicit updater signing follows/i);
 assert.match(output, /--config .*release-unsigned-updater\.conf\.json/i);
 assert.match(output, /signer sign --private-key-path .*starnet-updater\.key --password=/i);

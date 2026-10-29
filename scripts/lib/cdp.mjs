@@ -45,7 +45,7 @@ export class CDP {
     ws.addEventListener('message', (e) => {
       const m = JSON.parse(e.data);
       if (m.id && this.pending.has(m.id)) {
-        const { resolve, reject } = this.pending.get(m.id); this.pending.delete(m.id);
+        const { resolve, reject, timer } = this.pending.get(m.id); clearTimeout(timer); this.pending.delete(m.id);
         m.error ? reject(new Error(m.error.message)) : resolve(m.result);
       } else if (m.method) { (this.handlers.get(m.method) || []).forEach((h) => h(m.params)); }
     });
@@ -53,9 +53,9 @@ export class CDP {
   send(method, params = {}) {
     const id = ++this.id;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, 30000);
+      this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
-      setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('CDP timeout: ' + method)); } }, 30000);
     });
   }
   on(method, fn) { if (!this.handlers.has(method)) this.handlers.set(method, []); this.handlers.get(method).push(fn); }

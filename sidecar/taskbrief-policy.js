@@ -167,6 +167,10 @@ function validateProceed(candidate) {
 
 function canMutate(brief, tool) {
   if (!brief || !tool) return { ok: true };
+  // Only the built-in consent-free todo metadata describes private session planning. A capability
+  // label alone is not trusted: external tools can carry caller/server-controlled annotations.
+  if (tool.name === 'todo' && tool.capability === 'taskplan' && tool.scope === 'write'
+      && tool.requiresConsent === false && tool.impact !== 'external-unknown') return { ok: true };
   // Built-in reads are non-consequential, but MCP tools are deliberately `external-unknown` even when an
   // untrusted server advertises readOnlyHint. That annotation may shape grants; it cannot bypass the brief gate.
   if (tool.scope === 'read' && tool.impact !== 'external-unknown') return { ok: true };

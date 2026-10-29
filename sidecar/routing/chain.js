@@ -33,6 +33,7 @@ const Verdict = require('./verdict.js');   // the VERDICT channel (pure parser +
 // the DEFAULT ceilings — a line that sets no LINE BUDGET runs under exactly these. They are the one
 // normalizer's defaults (Pipeline.LINE_LIMIT_DEFAULTS) so the compiler and the executor can never disagree.
 const MAX_HOPS = Pipeline.LINE_LIMIT_DEFAULTS.maxHops;                  // 6 stages AFTER the first (a drawn floor with more is a design smell, not a run)
+const MAX_DECISIONS = 64;
 const MAX_CHAIN_USD = Pipeline.LINE_LIMIT_DEFAULTS.maxUsdPerMessage;    // $2.00 — the WHOLE chain's spend ceiling, entry run included (seed.entryUsd) — one message must not become an open tab
 const PREVIEW = 40;
 
@@ -234,7 +235,28 @@ function makeChainRunner(o) {
     if (lineLimits && lineId) { try { fromPlan = lineLimits(lineId); } catch (_) { fromPlan = null; } }
     let pool = null; try { pool = poolCap(); } catch (_) { pool = null; }
     const lim = effectiveLimits(s.limits || fromPlan, { maxHops, maxUsd }, pool);
-    const out = { text: s.text, agentId: startAgent, hops: [], usd: 0, stopped: null, limits: { maxHops: lim.maxHops, maxUsd: lim.maxUsd, maxUsdPerDay: lim.maxUsdPerDay, clamped: lim.clamped } };
+    const out = { text: s.text, agentId: startAgent, hops: [], usd: 0, stopped: null, decisions: [], decisionsTruncated: false, limits: { maxHops: lim.maxHops, maxUsd: lim.maxUsd, maxUsdPerDay: lim.maxUsdPerDay, clamped: lim.clamped } };
+    function noteDecision(row) {
+      if (row && typeof row === 'object' && ((Array.isArray(row.agents) && (row.agents.length > 16 || row.agents.slice(0, 16).some(a => String(a).length > 80))) || (row.agent != null && String(row.agent).length > 80) || (row.expected != null && Number(row.expected) > 100))) out.decisionsTruncated = true;
+      if (out.decisions.length >= MAX_DECISIONS) { out.decisionsTruncated = true; return; }
+      if (!row || typeof row !== 'object') return;
+      const kinds = ['filter', 'split', 'join', 'loop', 'route'];
+      const outcomes = ['route', 'default', 'fallback', 'selected', 'fanout', 'awaiting-branches', 'waiting', 'released', 'partial-timeout', 'back', 'done', 'exhausted-escalation', 'exhausted-done', 'escalation-target'];
+      if (!kinds.includes(row.kind) || !outcomes.includes(row.outcome)) return;
+      const clean = { kind: row.kind, outcome: row.outcome };
+      if (row.junction != null && /^-?\d{1,8},-?\d{1,8}$/.test(String(row.junction))) clean.junction = String(row.junction);
+      if (['E', 'S', 'W', 'N'].includes(row.lane)) clean.lane = row.lane;
+      if (row.agent != null) clean.agent = String(row.agent).slice(0, 80);
+      if (Array.isArray(row.agents)) clean.agents = row.agents.slice(0, 16).map(a => String(a).slice(0, 80));
+      if (row.expected != null) clean.expected = Math.max(0, Math.min(100, Number(row.expected) || 0));
+      out.decisions.push(clean);
+    }
+    function noteDecisions(list) {
+      if (!Array.isArray(list)) return;
+      const limit = Math.min(list.length, MAX_DECISIONS);
+      for (let i = 0; i < limit; i++) noteDecision(list[i]);
+      if (list.length > limit) out.decisionsTruncated = true;
+    }
     if (!nextAgent || !runAgent || !startAgent) return out;
     // the entry run's spend lands in the line's DAY bucket here — the caller never sees this ledger
     // (out.usd stays HOP-ONLY; the ledger is the only place entry + hops are summed across messages).
@@ -265,6 +287,7 @@ function makeChainRunner(o) {
        first, the siblings follow — deterministic, sorted by fanSiblings. */
     if (fanSiblings && lineId) {
       let sib = []; try { sib = fanSiblings(cur, { lineId }) || []; } catch (_) { sib = []; }
+      if (sib.length) noteDecision({ kind: 'split', outcome: 'fanout', agents: [cur].concat(sib) });
       for (const a of sib) pending.push({ agentId: a, text: originalText, from: null, entry: true });
     }
     // a branch that ends (terminal / parked at the joiner) hands the loop to the next queued branch
@@ -280,7 +303,12 @@ function makeChainRunner(o) {
       } else {
         const ctx = { tag: getTag(out.text), verdict: getVerdict(out.text), lineId: lineId, fromTile: fromTile, via: via };
         fromTile = null; via = null;
-        try { step = stepAgent ? stepAgent(cur, ctx) : null; } catch (_) { step = null; }
+        const traceOut = { decisions: [], decisionsTruncated: false };
+        const tracedCtx = Object.assign({}, ctx, { traceOut });
+        try { step = stepAgent ? stepAgent(cur, tracedCtx, traceOut) : null; } catch (_) { step = null; }
+        if (step && step.decisionsTruncated) out.decisionsTruncated = true;
+        noteDecisions(step && step.decisions ? step.decisions : traceOut.decisions);
+        if (!step && traceOut.decisionsTruncated) out.decisionsTruncated = true;
         if (step && step.branches) {
           // a FAN-OUT split mid-line: every lane runs from this output; first lane now, the rest queued
           const br = step.branches.slice();
@@ -290,13 +318,16 @@ function makeChainRunner(o) {
           // THE BARRIER. Park this branch's output; release only when every in-lane has delivered for this run.
           const r = barrier.deliver(step.join + '|' + runId, step.expect, cur, out.text, step.timeoutMin);
           if (!r.released) {
+            noteDecision({ kind: 'join', junction: step.join, outcome: 'waiting', expected: step.expect });
             if (pending.length) { forced = nextPending(); hop--; continue; }   // run the next branch; it may fill the barrier
             // nothing left to run in THIS call: wait for another deliverer (same run) or the joiner's timeout
             const w = await barrier.wait(step.join + '|' + runId, step.timeoutMin);
             if (!w) { out.stopped = 'the joiner at ' + step.join + ' lost its branches'; return out; }
+            noteDecision({ kind: 'join', junction: step.join, outcome: w.timedOut ? 'partial-timeout' : 'released', expected: step.expect });
             out.text = Pipeline.joinPayload(w.parts, w.missing);
             say('workitem.delivered', { workitemId: newId(), finalQueueId: cur, agentId: cur, box: 'join:' + step.join, ms: 0, ts: now() });
           } else {
+            noteDecision({ kind: 'join', junction: step.join, outcome: 'released', expected: step.expect });
             out.text = Pipeline.joinPayload(r.parts, []);
           }
           branchMode = false;
@@ -316,12 +347,21 @@ function makeChainRunner(o) {
           const byVerdict = Verdict.isVerdictWord(step.when);
           const wants = !step.when ? true : byVerdict ? (ctx.verdict !== String(step.when).toLowerCase()) : (ctx.tag === step.when);
           const again = step.backTo && n < step.max && wants;
+          noteDecision({ kind: 'loop', junction: step.loop, outcome: again ? 'back' : (step.when && wants && n >= step.max ? (step.esc && !visited[step.esc] ? 'exhausted-escalation' : 'exhausted-done') : 'done') });
           if (again) {
             iter[step.loop] = n + 1; loopHop = true; looping = true;
             target = step.backTo; fromTile = null;
             out.text = '[LOOP — pass ' + (n + 1) + ' of ' + step.max + ' round the gate at ' + step.loop + ']\n' + out.text;
           } else {
             target = step.next; looping = false;   // spent (or the verdict passed): leave on the done lane
+            if (!(step.when && wants && n >= step.max && step.esc && !visited[step.esc])) {
+              if (step.nextDecisionsTruncated) out.decisionsTruncated = true;
+              if (Array.isArray(step.nextDecisions)) {
+                if (step.nextDecisions.length > 32) out.decisionsTruncated = true;
+                const bounded = step.nextDecisions.slice(0, 32).filter(d => d && (d.kind === 'filter' || d.kind === 'split'));
+                noteDecisions(bounded);
+              }
+            }
             if (step.when && wants && n >= step.max) {
               out.loopExhausted = true;
               /* THE ESCALATION LANE (2026-08-30): a gate with a third wired lane sends verdict-exhausted
@@ -331,6 +371,7 @@ function makeChainRunner(o) {
                  note stands, never a silent second run. */
               if (step.esc && !visited[step.esc]) {
                 target = step.esc;
+                noteDecision({ kind: 'loop', junction: step.loop, outcome: 'escalation-target', agent: step.esc });
                 out.text = '[LOOP — escalated: ' + n + ' pass' + (n === 1 ? '' : 'es') + ' round the gate at ' + step.loop
                   + (byVerdict ? ' without VERDICT: ' + String(step.when).toLowerCase() : ' while the output still read as ' + step.when)
                   + ' — handed to the escalation lane]\n' + out.text;
@@ -353,6 +394,7 @@ function makeChainRunner(o) {
         if (pending.length) { forced = nextPending(); hop--; continue; }
         out.stopped = refusalNote(cur, lineId); return out;
       }
+      if (target && !(step && step.branches)) noteDecision({ kind: 'route', outcome: 'selected', agent: target });
       if (looping) loopHop = true;
       if (visited[target] && !loopHop) { out.stopped = 'the line loops back to ' + target; return out; }
       if (loopHop) loopHops++;

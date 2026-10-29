@@ -191,11 +191,12 @@ function makeRouter(o) {
 
   /* chainStep / fanSiblings (2026-08-21) — the JOINER + LOOP reading of the same plan, same pick counter, for the
      chain runner. chainNext above stays the plain single-dock reading every older surface uses. */
-  function chainStep(agentId, ctx) {
+  function chainStep(agentId, ctx, traceOut) {
     const p = activePlan();
     if (!p || !agentId || !Pipeline.chainStep) return null;
     const pick = (k, n) => { const c = rr[k] || 0; rr[k] = (c + 1) % n; return c; };
-    return Pipeline.chainStep(p, agentId, ctx || {}, pick);
+    const input = ctx || {};
+    return Pipeline.chainStep(p, agentId, input, pick, traceOut || input.traceOut);
   }
   /* loopGateAfter(agentId, lineId) -> { when, max } when this dock's own lane meets a LOOP gate before any other
      dock (2026-08-22), else null. A PURE read of the same walk chainStep takes, on a no-op pick so the splitter

@@ -858,7 +858,8 @@ const App = (() => {
   // the persisted shape of a crew member (systemPrompt is derived, recomposed on rehydrate).
   function serializeAgentLite(a) {
     return { id: a.id, name: a.name, color: a.color, skin: a.skin || DATA.DEFAULT_SKIN, model: a.model, provider: a.provider || null, reasoningEffort: a.reasoningEffort || null, personaId: a.personaId,
-             role: a.role || (a.id === 'agent' ? 'orchestrator' : 'specialist'), voiceTraits: a.voiceTraits || null, customVoice: a.customVoice || '',
+             role: a.role || (a.id === 'agent' ? 'orchestrator' : 'specialist'), orgRole: orgRoleOf(a), parentAgentId: parentAgentIdOf(a),
+             voiceTraits: a.voiceTraits || null, customVoice: a.customVoice || '',
              approvalMode: a.approvalMode || 'ask', executionProfile: executionProfileOf(a), workshop: !!a.workshop, purpose: a.purpose || null, specialtyId: a.specialtyId || null, docs: a.docs,
              skills: Array.isArray(a.skills) ? a.skills.slice() : [],   // Class Loadouts S1: per-agent skill package persists
              stats: a.stats || null, createdAt: a.createdAt };
@@ -871,7 +872,8 @@ const App = (() => {
       if (!s || !s.id || s.id === 'agent' || agents.has(s.id)) continue;   // hero already registered; skip dups (so the 'specialist' default below is always correct here — the orchestrator never routes through this path)
       const a = { id: s.id, name: s.name, color: s.color, skin: s.skin || DATA.DEFAULT_SKIN, model: s.model || (agent && agent.model),
                   provider: s.provider || (agent && agent.provider) || null, reasoningEffort: s.reasoningEffort || (agent && agent.reasoningEffort) || null,   // #4: per-agent provider+effort (fall back to the hero's)
-                  personaId: s.personaId, role: s.role || 'specialist', voiceTraits: s.voiceTraits || null, customVoice: s.customVoice || '',
+                  personaId: s.personaId, role: s.role || 'specialist', orgRole: orgRoleOf(s), parentAgentId: parentAgentIdOf(s),
+                  voiceTraits: s.voiceTraits || null, customVoice: s.customVoice || '',
                   approvalMode: s.approvalMode || 'ask', executionProfile: executionProfileOf(s), workshop: !!s.workshop, purpose: s.purpose || null, specialtyId: s.specialtyId || null,
                   skills: Array.isArray(s.skills) ? s.skills.slice() : [],   // Class Loadouts S1: restore the per-agent skill package
                   docs: s.docs, stats: (s.stats && typeof s.stats === 'object') ? s.stats : null, createdAt: s.createdAt || Date.now() };
@@ -1019,7 +1021,9 @@ const App = (() => {
       ? AgentId.normalizeName(requestedName)
       : AgentId.allocName((spec && spec.name) || 'AGENT', liveAgents());
     const a = {
-      id, name: nm, role: 'specialist',   // summoned crew are specialists under the Orchestrator
+      id, name: nm, role: 'specialist',   // inherited runtime role stays compatible
+      orgRole: orgRoleOf({ orgRole: spec && spec.orgRole, role: 'specialist' }),
+      parentAgentId: summonParentAgentId(opts),
       color: SUITS[agents.size % SUITS.length], skin: (spec && spec.skin) || DATA.DEFAULT_SKIN,
       model: (pin && pin.model) || agent.model,
       provider: (pin && pin.provider) || agent.provider || null,
@@ -1367,10 +1371,30 @@ const App = (() => {
     if (!a || typeof Xp === 'undefined' || !Xp.credential || !a.stats) return '';
     try { return Xp.credential(a.stats).text || ''; } catch (_) { return ''; }
   }
+  const ORG_ROLE_IDS = new Set(['commander', 'manager', 'specialist', 'worker']);
+  function orgRoleOf(a) {
+    const explicit = String((a && a.orgRole) || '').trim().toLowerCase();
+    if (ORG_ROLE_IDS.has(explicit)) return explicit;
+    const runtime = String((a && a.role) || '').trim().toLowerCase();
+    if (runtime === 'orchestrator') return 'commander';
+    if (runtime === 'specialist') return 'specialist';
+    return null;
+  }
+  function parentAgentIdOf(a) {
+    const id = String((a && a.parentAgentId) || '').trim();
+    return /^[A-Za-z0-9_-]{1,40}$/.test(id) ? id : null;
+  }
+  function summonParentAgentId(opts) {
+    const requested = String((opts && opts.parentAgentId) || '').trim();
+    if (requested && agents.has(requested)) return requested;
+    return agents.has('agent') ? 'agent' : null;
+  }
   function pushRoster() {
     try {
       const fallbackProv = (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter';
-      const list = liveAgents().map(a => ({ agentId: a.id, system: a.systemPrompt || '', name: a.name || a.id, model: a.model || '', provider: a.provider || fallbackProv, role: rosterRole(a), approvalMode: (a.approvalMode === 'full' ? 'full' : 'ask'), executionProfile: executionProfileOf(a),
+      const list = liveAgents().map(a => ({ agentId: a.id, system: a.systemPrompt || '', name: a.name || a.id, model: a.model || '', provider: a.provider || fallbackProv, role: rosterRole(a),
+        orgRole: orgRoleOf(a), parentAgentId: parentAgentIdOf(a),
+        approvalMode: (a.approvalMode === 'full' ? 'full' : 'ask'), executionProfile: executionProfileOf(a),
         track: rosterTrack(a),    // S3: this agent's EARNED track record, so the lead's dispatch briefing can pick on evidence (see rosterTrack)
         workshop: !!a.workshop,   // W3: the away-build grant travels with the roster so the consent broker can honor it
         skills: Array.isArray(a.skills) ? a.skills : [], reasoningEffort: a.reasoningEffort || null }));   // #4: each agent's OWN provider; Class Loadouts S1: per-agent skill package + applied effort
@@ -1423,7 +1447,7 @@ const App = (() => {
     // per-agent prop it needs to sit and work. See summonAgent: the seed is that agent's desk and nothing
     // else; the Commander can move or reclaim it in REFIT like any placed prop.
     let a = null;
-    try { a = summonAgent(spec, { activate: false, desk: true }); } catch (_) { a = null; }
+    try { a = summonAgent(spec, { activate: false, desk: true, parentAgentId: ev.agentId }); } catch (_) { a = null; }
     if (!a) return null;
     let rosterLanded = false;
     try { rosterLanded = (await lastRosterPush) === true; } catch (_) {}
@@ -2784,7 +2808,7 @@ const App = (() => {
     // the FIRST agent is always the station's OVERSEER — the orchestrating lead the Commander commissions before
     // any specialist. Its voice is the archetype + fine-tune dials + free-text note; its APPROVAL mode (ask vs
     // full access) drives the real consent broker, while the mission/context/orders are authored in the awakening.
-    agent = { id: 'agent', name, role: 'orchestrator', color: pickedColor, skin: pickedSkin || DATA.DEFAULT_SKIN, model,
+    agent = { id: 'agent', name, role: 'orchestrator', orgRole: 'commander', parentAgentId: null, color: pickedColor, skin: pickedSkin || DATA.DEFAULT_SKIN, model,
               provider: (typeof Harness !== 'undefined' && Harness.getProv) ? Harness.getProv() : 'openrouter',   // #4: stamp the chosen provider+effort onto the hero so a later agent-switch can restore them
               reasoningEffort: (typeof Harness !== 'undefined' && Harness.getReasoningEffort) ? Harness.getReasoningEffort() : 'medium',
               personaId: pickedPersona, voiceTraits: Object.assign({}, pickedTraits), customVoice: pickedCustomVoice.trim(),
@@ -4139,7 +4163,7 @@ const App = (() => {
       const tip = (r.blessed ? '' : 'REVOKED (trust withdrawn) — ') + 'click to open this project · right-click for actions';
       const sess = projSessionsOf(r.root);
       const extra = Math.max(0, sess.length - 3);
-      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + (st.status ? ', ' + st.status : '') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
+      return '<li class="ws-row proj-row' + (r.blessed ? '' : ' proj-revoked') + '" data-root="' + U.esc(r.root) + '" tabindex="0" role="button" aria-label="' + U.esc(r.name + ' project' + (r.blessed ? '' : ', access revoked') + '; Enter to open; Shift+F10 for actions') + '" aria-keyshortcuts="Shift+F10" title="' + U.esc(tip) + '">' +
         '<span class="' + projDot(r) + '"></span>' +
         '<span class="proj-main">' +
           '<span class="proj-line">' +
@@ -4152,6 +4176,7 @@ const App = (() => {
             '<span class="proj-path">' + U.esc(r.path) + '</span>' +
             (sess.length ? '<span class="proj-sess-n">' + sess.length + ' session' + (sess.length === 1 ? '' : 's') + '</span>' : '') +
           '</span>' +
+          (r.blessed ? '<span class="lesson-binding"><span>' + (r.lessonProjectId ? 'Lesson context bound' : 'No lesson context bound') + '</span>' + (r.lessonProjectId ? '<button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="rebind">Rebind with new identity</button><button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="clear">Clear lesson context</button>' : '<button type="button" class="lesson-bind" data-root="' + U.esc(r.root) + '" data-action="bind">Bind for lesson proposals</button>') + '</span>' : '') +
         '</span>' +
         '</li>' +
         sess.slice(0, 3).map(s =>
@@ -4187,6 +4212,25 @@ const App = (() => {
       li.oncontextmenu = (e) => { e.preventDefault(); openProjectMenu(row, e.clientX, e.clientY); };
       const keb = li.querySelector('.ws-kebab');
       if (keb) keb.onclick = (e) => { e.preventDefault(); e.stopPropagation(); const b = keb.getBoundingClientRect(); openProjectMenu(row, b.left, b.bottom + 2, keb); };
+    });
+    ul.querySelectorAll('.lesson-bind').forEach(button => {
+      const action = button.dataset.action;
+      const armedLabel = action === 'bind' ? 'CLICK AGAIN TO BIND' : action === 'rebind' ? 'CLICK AGAIN TO REBIND' : 'CLICK AGAIN TO CLEAR';
+      button.title = 'This does not approve or enable any lesson.';
+      button.addEventListener('click', e => e.stopPropagation());
+      if (typeof ArmConfirm === 'undefined' || !ArmConfirm.wire) return;
+      ArmConfirm.wire(button, { armedLabel, timeoutMs:4000, onConfirm: async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch('/api/projects/lesson-binding', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ root:button.dataset.root, action }) });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.reason || 'Binding could not be saved');
+          renderProjects();
+        } catch (error) {
+          if (typeof StationUI !== 'undefined' && StationUI.notify) StationUI.notify(error.message || 'Binding could not be saved', '', undefined, { transient:true });
+          button.disabled = false;
+        }
+      } });
     });
   }
   /* ENTERED: breadcrumb back-row + project header + this project's sessions as FULL rail rows (they are real
@@ -4992,8 +5036,8 @@ const App = (() => {
     // (the title screen — RESUME / NEW STATION / the destructive NEW AGENT wipe — is gone; boot auto-resumes,
     //  see the three-way at the foot of init(). Re-entry is handled by reentry()/startCreation().)
 
-    // data portability — the safety net for the localStorage-fragile agent. Export bundles nonsecret
-    // starnet.* records + a memory snapshot into one file; import restores them on any browser.
+    // data portability — export bundles nonsecret starnet.* records + a memory snapshot. Online import is
+    // intentionally refused until the app can establish exclusive ownership across runs, tabs and autosave.
     const dataStatus = m => { const n = el('data-status'); if (n) n.textContent = m || ''; };
     el('btn-export').onclick = async () => {
       SFX.click(); dataStatus('exporting…');
@@ -5008,16 +5052,10 @@ const App = (() => {
       const f = fileImport.files && fileImport.files[0];
       if (!f) return;
       const r = await Backup.importFile(f);
-      // bad(), not a bespoke error() — that cue never existed, so the `&&` guard silently swallowed
-      // the only audible signal a restore had failed. bad() is the station's negative-outcome voice.
-      if (!r.ok) { dataStatus('import failed — ' + r.error); SFX.bad(); return; }
-      SFX.boot();
-      const mem = (typeof r.memoriesRestored === 'number') ? r.memoriesRestored
-        : (r.memories ? r.memories + ' in file' : 0);
-      dataStatus('restored ' + (r.agentName || 'agent') + ' — ' + (r.records == null ? r.keys : r.records) + ' records'
-        + (mem ? ' + ' + mem + ' memories' : ''));
-      gateActive = false;
-      reentry();   // resume straight into the restored agent (or its RESUME screen if creds are still missing)
+      // Online restore fails closed before changing localStorage or sending durable writes. Put the actionable
+      // boundary explanation beside the control; never describe this refusal as a partial restore.
+      dataStatus(r.error || 'online restore unavailable; preserve your backup');
+      SFX.bad();
     };
 
     // FORWARD-VERSION GATE (P0.3), step 1 — the LOCAL cache. Save.load() returns null for a future save (so no

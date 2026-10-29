@@ -22,7 +22,9 @@ const path = require('path');
 const vm = require('vm');
 
 const SRC = path.join(__dirname, '..', 'frontend', 'app', 'harness.js');
-const source = fs.readFileSync(SRC, 'utf8');
+// The source slicer uses LF anchors; normalize checked-out CRLF files to keep its function
+// boundaries stable on Windows and Unix worktrees.
+const source = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
 
 /* ---------- slice the real bodies out of harness.js ---------- */
 

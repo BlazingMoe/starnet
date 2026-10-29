@@ -70,7 +70,7 @@ function intervalJob(id, everyStr) {
   // ---- 1. TRANSACTIONAL DISPATCH: a failed advance persist launches NOTHING; the job stays due; the
   //         next tick with a healthy disk fires exactly once. ----
   {
-    const j = intervalJob('t1', 'every 1m');                 // armed nextRunAt = T0 + 60000
+    const j = Object.assign(intervalJob('t1', 'every 1m'), { maxIters: 3, maxCostUsd: 0.12 }); // armed nextRunAt = T0 + 60000
     const s = setup([j]);
     s.setFailPersist(true);
     s.clock.set(T0 + 60000);
@@ -86,6 +86,7 @@ function intervalJob(id, everyStr) {
     const r2 = s.driver.applyTick(s.clock.now());
     A.eq(r2.fired, 1, 'healthy disk on the next tick -> the deferred job fires');
     A.eq(s.runs.length, 1, 'exactly one launch total (no double-fire, no loss)');
+    A.eq(s.runs[0].opts.requestLimits, { maxIters: 3, maxCostUsd: 0.12 }, 'scheduled routine forwards both entry-run limits');
     A.ok(Date.parse(s.getJob('t1').nextRunAt) > s.clock.now(), 'the advance persisted before the launch');
     s.runs[0].resolve(); await flush();
   }

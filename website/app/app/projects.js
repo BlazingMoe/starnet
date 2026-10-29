@@ -54,6 +54,7 @@
         blessed: blessed,
         state: blessed ? 'blessed' : 'revoked',
         isGitRepo: !!p.isGitRepo,
+        lessonProjectId: typeof p.lessonProjectId === 'string' ? p.lessonProjectId : null,
         lastTouchedAt: (typeof p.lastTouchedAt === 'number' && p.lastTouchedAt > 0) ? p.lastTouchedAt : null,
         rel: relTime((typeof p.lastTouchedAt === 'number' && p.lastTouchedAt > 0) ? p.lastTouchedAt : null, nowMs)
       };

@@ -27,6 +27,17 @@
     // host injects it so an explicit notebook.read query orders its matches the way recall does; standalone (no
     // injection) the tool falls back to store order, staying dependency-free for the browser build + tests.
     const rank = typeof deps.rank === 'function' ? deps.rank : null;
+    // Structured lesson candidates remain visible in operator memory review but are never model-readable
+    // until a separate scoped-promotion path exists. The host injects context.js's shared predicate.
+    const eligibleMemoryRecords = typeof deps.eligibleMemoryRecords === 'function' ? deps.eligibleMemoryRecords : (rows) =>
+      (Array.isArray(rows) ? rows : []).filter(r => {
+        if (!r) return false;
+        if (Object.prototype.hasOwnProperty.call(r, 'lessonContract')) return false;
+        const lesson = r.kind === 'lesson' || r.proposalType === 'decision-lesson' || Object.prototype.hasOwnProperty.call(r, 'lessonSource');
+        return !lesson || !(Object.prototype.hasOwnProperty.call(r, 'lessonContract') || Object.prototype.hasOwnProperty.call(r, 'contract') ||
+          (r.lessonSource && typeof r.lessonSource === 'object' &&
+            (Object.prototype.hasOwnProperty.call(r.lessonSource, 'lessonContract') || Object.prototype.hasOwnProperty.call(r.lessonSource, 'contract'))));
+      });
     // injected trust fold (memcore.nextTrust) for notebook.feedback's rating nudge; inline fallback keeps the
     // tool standalone. clamp + step (delta*0.15) MUST match memcore.nextTrust — kept in sync.
     const nextTrust = typeof deps.nextTrust === 'function' ? deps.nextTrust : (prev, delta) => {
@@ -187,7 +198,7 @@
       schema: { type: 'object', properties: { query: { type: 'string' } } },
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
-        let list = notesOf(aid);
+        let list = eligibleMemoryRecords(notesOf(aid));
         const q = args && args.query;
         if (q) {
           const ql = String(q).toLowerCase();
@@ -204,7 +215,7 @@
         // report the SIZE of the whole store on a filtered read, so the agent knows how much memory it is holding
         // (the reference harness puts a usage percentage in the system prompt; we have no cap to measure against,
         // but the count is the honest half of that signal — and it is the number a crowded notebook shows up in).
-        const total = q ? notesOf(aid).length : list.length;
+        const total = q ? eligibleMemoryRecords(notesOf(aid)).length : list.length;
         const foot = q ? '\n\n(' + list.length + ' of ' + total + ' entries in memory)' : '';
         return { content: body + foot, summary: list.length + ' note(s)' };
       }

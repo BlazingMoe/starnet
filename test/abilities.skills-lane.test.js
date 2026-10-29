@@ -10,8 +10,24 @@ const vm = require('vm');
 const A = require('./_assert.js');
 
 const source = fs.readFileSync(path.join(__dirname, '../frontend/app/stationui.js'), 'utf8');
-const laneMatch = source.match(/function abilitySkillsLane\(body\) \{[\s\S]*?\n  \}\n  window\.AbilityLanes/);
+function extractSkillsLane(sourceText) {
+  const normalized = sourceText.replace(/\r\n|\r/g, '\n');
+  return normalized.match(/function abilitySkillsLane\(body\) \{[\s\S]*?\n  \}\n  window\.AbilityLanes/);
+}
+const laneMatch = extractSkillsLane(source);
 A.ok(laneMatch, 'the ABILITIES Skills lane is present');
+
+// stationui.js may be checked out with mixed Windows and Unix line endings. Normalize only
+// for source extraction, then require the same complete, bounded function in each form.
+const lfSource = source.replace(/\r\n|\r/g, '\n');
+const crlfSource = lfSource.replace(/\n/g, '\r\n');
+const lines = lfSource.split('\n');
+const mixedSource = lines.map((line, i) => line + (i < lines.length - 1 ? (i % 2 ? '\r\n' : '\n') : '')).join('');
+for (const [label, variant] of [['LF', lfSource], ['CRLF', crlfSource], ['mixed LF/CRLF', mixedSource]]) {
+  const variantMatch = extractSkillsLane(variant);
+  A.ok(variantMatch, `the ABILITIES Skills lane extracts with ${label} line endings`);
+  A.eq(variantMatch && variantMatch[0], laneMatch && laneMatch[0], `Skills lane extraction remains bounded with ${label} line endings`);
+}
 
 const laneSource = laneMatch[0].replace(/\n  window\.AbilityLanes[\s\S]*$/, '');
 const context = {

@@ -65,6 +65,40 @@
     return n ? out : undefined;
   }
 
+  // Project an already-redacted cron.result trace into bounded primitive ledger rows. Keep this pure helper
+  // beside the existing ledger sanitizer so tests and integrations use the exact durable row contract.
+  function projectWorkflowTrace(payload, agentId) {
+    const p = payload || {};
+    if (typeof p.jobId !== 'string' || !p.jobId || typeof p.runId !== 'string' || !p.runId || !Array.isArray(p.workflowDecisions)) return [];
+    const kinds = new Set(['filter', 'split', 'join', 'loop', 'route']);
+    const outcomes = new Set(['route', 'default', 'fallback', 'selected', 'fanout', 'awaiting-branches', 'waiting', 'released', 'partial-timeout', 'back', 'done', 'exhausted-escalation', 'exhausted-done', 'escalation-target']);
+    const observed = Math.min(64, p.workflowDecisions.length);
+    const rows = [];
+    let omitted = p.workflowDecisionsTruncated === true || p.workflowDecisions.length > 8;
+    p.workflowDecisions.slice(0, Math.min(observed, 8)).forEach((d, index) => {
+      if (!d || typeof d !== 'object' || !kinds.has(d.kind) || !outcomes.has(d.outcome)) { omitted = true; return; }
+      const detail = { index, kind: d.kind, outcome: d.outcome };
+      const short = (value, max) => {
+        if (value == null) return undefined;
+        const s = String(value);
+        if (s.length > max) omitted = true;
+        return s.slice(0, max);
+      };
+      const junction = short(d.junction, 40), lane = short(d.lane, 4), selectedAgent = short(d.agent, 80);
+      if (junction) detail.junction = junction;
+      if (lane) detail.lane = lane;
+      if (selectedAgent) detail.selectedAgent = selectedAgent;
+      if (Array.isArray(d.agents)) {
+        detail.fanoutCount = Math.min(16, d.agents.length);
+        if (d.agents.length > 16) omitted = true;
+      }
+      rows.push({ source: 'cron', kind: 'note', jobId: p.jobId, agentId, runId: p.runId, binding: 'workflow-decision', detail });
+    });
+    rows.push({ source: 'cron', kind: 'note', jobId: p.jobId, agentId, runId: p.runId, binding: 'workflow-trace',
+      detail: { observedDecisionCount: observed, retainedDecisionCount: rows.length, traceTruncated: omitted } });
+    return rows;
+  }
+
   function makeAutonomyLedger(opts) {
     opts = opts || {};
     const io = opts.io || { readAll() { return []; }, append() {} };
@@ -122,5 +156,5 @@
     };
   }
 
-  return { makeAutonomyLedger };
+  return { makeAutonomyLedger, projectWorkflowTrace };
 });

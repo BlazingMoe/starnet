@@ -117,6 +117,16 @@ function loopFloor(gateCfg) {
   const st = P.chainStep(plan, 'reviewer', onLine(plan, 'reviewer'));
   A.ok(st && st.loop === '12,4', 'chainStep from the reviewer meets the loop gate');
   A.eq(st.max, 5, 'step carries max'); A.eq(st.backTo, 'drafter', 'step carries backTo'); A.eq(st.next, 'publisher', 'step carries the done dock');
+  const routedDone = loopFloor({ when: 'approved' });
+  routedDone.props.push({ id: 'done-filter', t: 'filter', x: 13, y: 4, w: 1, h: 1, routes: { code: 'N' }, def: 'E' });
+  routedDone.props.push({ id: 'done-code', t: 'bay', x: 30, y: 0, w: 2, h: 2, agentId: 'coder' });
+  routedDone.belts.push(belt(13, 3, 'N'), belt(13, 2, 'N'), belt(13, 1, 'N'), belt(13, 0, 'E'));
+  for (let x = 14; x < 30; x++) routedDone.belts.push(belt(x, 0, 'E'));
+  const routedPlan = P.compileRoutingPlan(routedDone);
+  const routedLoop = P.chainStep(routedPlan, 'reviewer', onLine(routedPlan, 'reviewer', { tag: 'code' }));
+  A.eq(routedLoop && routedLoop.loop, '12,4', 'the loop gate remains the authoritative step');
+  A.eq(routedLoop.next, 'coder', 'the done-lane filter continues choosing the same next dock');
+  A.ok(routedLoop.nextDecisions.some(d => d.kind === 'filter' && d.outcome === 'route' && d.lane === 'N'), 'the used done-lane filter choice is returned with the loop step');
   const back = P.chainStep(plan, 'reviewer', onLine(plan, 'reviewer', { fromTile: { x: 12, y: 4 }, via: 'back' }));
   A.eq(back && back.agentId, 'drafter', 'resuming via the back lane reaches the drafter');
   A.eq(P.chainNext(plan, 'reviewer', onLine(plan, 'reviewer')), 'publisher', 'chainNext reads the loop as spent (done lane)');

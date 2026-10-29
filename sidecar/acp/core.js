@@ -117,6 +117,7 @@
      Prefix-ordered, most specific first: browser.test_* is local synthetic UI driving (execute), not a fetch. */
   const KIND_EXACT = {
     web_search: 'search', web_fetch: 'fetch', web_request: 'fetch',
+    'decision.list': 'read', 'decision.record': 'edit', 'decision.outcome': 'edit', 'decision.lesson_propose': 'edit',
     image_generate: 'other', image_analyze: 'read',
     recall_conversation: 'search', todo: 'think', 'quest.update': 'think',
     'tool.search': 'search', 'widget.set': 'other', 'channel.send': 'other', 'channel.targets': 'read',

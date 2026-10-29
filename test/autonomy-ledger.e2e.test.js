@@ -13,6 +13,7 @@ const os = require('os');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { bootToken } = require('./_httpToken.js');
+const { projectWorkflowTrace } = require('../sidecar/autonomy-ledger.js');
 
 const HOST = '127.0.0.1';
 const INDEX = path.resolve(__dirname, '..', 'sidecar', 'index.js');
@@ -101,7 +102,19 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     const run = await fetch(B + '/api/cron/run', { method: 'POST', headers, body: JSON.stringify({ id: job.id }) });
     A.eq(run.status, 200, 'Run Now returns a stream');
     await drainNdjson(run);
-    await sleep(150);   // let the fsync'd ledger append land
+
+    // Force one isolated scheduled fire through the real scheduler. Its overdue one-shot is deterministic,
+    // and the fixture's OpenRouter endpoint above is a local mock, so no real provider call can occur.
+    const scheduledCreate = await fetch(B + '/api/cron', {
+      method: 'POST', headers,
+      body: JSON.stringify({ name: 'Scheduled evidence probe', prompt: 'fixture only', schedule: '2000-01-01T00:00:00.000Z', agentId: 'radar-agent', model: 'test/model', provider: 'openrouter' })
+    });
+    A.eq(scheduledCreate.status, 200, 'created deterministic overdue one-shot fixture');
+    const scheduledJob = (await scheduledCreate.json()).job;
+    A.ok(scheduledJob && scheduledJob.id && scheduledJob.nextRunAt, 'scheduled probe carries an authoritative due instant');
+    const arm = await fetch(B + '/api/cron/arm', { method: 'POST', headers, body: JSON.stringify({ enabled: true }) });
+    A.eq(arm.status, 200, 'arming runs an immediate scheduler reconcile in the isolated fixture');
+    await sleep(150);   // let both fsync'd ledger appends land
 
     // (1) the route now serves the fire decision with real identity.
     const after = await fetch(B + '/api/autonomy/ledger', { headers });
@@ -113,12 +126,24 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     A.eq(fire.source, 'cron', 'source is cron');
     A.eq(fire.agentId, 'radar-agent', 'the fire entry carries the real agentId');
     A.ok(fire.runId && fire.runId.length > 0, 'the fire entry carries the launched runId');
+    const scheduledFire = entries.find(e => e.kind === 'fire' && e.jobId === scheduledJob.id && e.binding === 'schedule');
+    A.ok(scheduledFire, 'the real scheduler fire reached the durable ledger');
+    A.eq(scheduledFire.detail && scheduledFire.detail.scheduledFor, Date.parse(scheduledJob.nextRunAt), 'scheduled fire preserves its exact due instant through the ledger integration');
 
     // (2) the durable JSONL exists on disk and carries the same real entry (persistence round-trip).
     const ledgerFile = path.join(ws, 'autonomy.ledger.jsonl');
     A.ok(fs.existsSync(ledgerFile), 'autonomy.ledger.jsonl was written to the workspaces dir');
     const diskLines = fs.readFileSync(ledgerFile, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
     A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === job.id && l.agentId === 'radar-agent'), 'the durable log carries the fire decision');
+    A.ok(diskLines.some(l => l.kind === 'fire' && l.jobId === scheduledJob.id && l.detail && l.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the durable log preserves the scheduled occurrence instant');
+
+    // Seed a representative adapter-shaped workflow trace into the isolated ledger file and prove the existing
+    // read-only API rehydrates it after restart. The adapter projection itself is exercised separately by
+    // workflow-ledger.test.js; this integration locks file + route behavior without adding a write endpoint.
+    const workflowTraceFixture = projectWorkflowTrace({ jobId: scheduledJob.id, runId: scheduledFire.runId, workflowDecisions: [
+      { kind: 'route', outcome: 'route', lane: 'N', agent: 'writer', agents: ['writer', 'reviewer'] }
+    ] }, 'radar-agent').map(row => Object.assign({ ts: Date.now() }, row));
+    fs.appendFileSync(ledgerFile, workflowTraceFixture.map(row => JSON.stringify(row)).join('\n') + '\n');
 
     // (3) RESTART over the SAME workspaces dir -> the decision survives a process restart.
     try { child.kill(); } catch (_) {}
@@ -130,6 +155,11 @@ async function drainNdjson(res) { await res.text(); }   // consume the Run Now s
     A.eq(restarted.status, 200, 'ledger route responds after restart');
     const survived = (await restarted.json()).entries;
     A.ok(survived.some(e => e.kind === 'fire' && e.jobId === job.id), 'the fire decision SURVIVED a sidecar restart (durable)');
+    A.ok(survived.some(e => e.kind === 'fire' && e.jobId === scheduledJob.id && e.detail && e.detail.scheduledFor === Date.parse(scheduledJob.nextRunAt)), 'the scheduled instant survived a sidecar restart');
+    const workflowSummary = survived.find(e => e.binding === 'workflow-trace' && e.jobId === scheduledJob.id && e.runId === scheduledFire.runId);
+    A.ok(workflowSummary, 'the cold-start API serves the workflow trace summary from the existing ledger');
+    A.eq(workflowSummary.detail.observedDecisionCount, 1, 'the API returns bounded summary fields');
+    A.ok(survived.some(e => e.binding === 'workflow-decision' && e.jobId === scheduledJob.id && e.runId === scheduledFire.runId && e.detail.selectedAgent === 'writer'), 'the API returns run-bound decision detail');
   } finally {
     try { child && child.kill(); } catch (_) {}
     try { mock.server.close(); } catch (_) {}
