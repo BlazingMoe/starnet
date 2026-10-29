@@ -98,4 +98,16 @@ A.eq(assessDrift(newestFirst(good(), good(), good())).streak, ['pass', 'pass', '
   A.ok(discovery.signals.some(s => s.code === 'tool_new' && s.tool === 'web_search'), 'regional intake unexpectedly discovering sources signals drift');
 }
 
+// Private Fiverr handoff must retain generator and verified export, with no external work.
+{
+  const trace = ['fiverr_handoff_prepare', 'fs_write', 'fs_read'].map((name, i) => ({ callId: 'fiverr-' + i, name }));
+  const handoff = overrides => good(Object.assign({ recipeId: 'fiverr-manual-handoff', toolTrace: trace }, overrides));
+  A.eq(assessDrift(newestFirst(handoff(), handoff(), handoff())).status, 'steady', 'Fiverr baseline steady');
+  for (const tool of trace) {
+    const missing = assessDrift(newestFirst(handoff(), handoff(), handoff({ toolTrace: trace.filter(t => t.name !== tool.name) })));
+    A.ok(missing.signals.some(s => s.code === 'tool_dropped' && s.tool === tool.name), 'Fiverr required tool drop signals drift');
+  }
+  const external = assessDrift(newestFirst(handoff(), handoff(), handoff({ toolTrace: trace.concat({ callId: 'external', name: 'fiverr_deliver' }) })));
+  A.ok(external.signals.some(s => s.code === 'tool_new' && s.tool === 'fiverr_deliver'), 'Fiverr external delivery signals drift');
+}
 A.report('recipe-drift');

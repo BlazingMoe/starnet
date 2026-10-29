@@ -762,3 +762,5 @@ test/website-audit.test.js
 test/website-leads.test.js
 
 test/etsy-pod.test.js
+
+test/fiverr-handoff.test.js
