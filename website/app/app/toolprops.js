@@ -25,6 +25,7 @@
 const ToolProps = (() => {
   // exact-name grants that don't share a family prefix (from CAP_REGISTRY's notebook rows)
   const EXACT = {
+    'website.audit.pack': 'cabinet',
     'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
     'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',

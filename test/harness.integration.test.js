@@ -22,6 +22,7 @@ const { runAgentLoop } = require('../sidecar/loop.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 const { makeRunJournal, selectSourceReceipts } = require('../sidecar/run-journal.js');
 const { makeWebTools } = require('../sidecar/tools/builtin/web.js');
+const { makeWebsiteAuditTools } = require('../sidecar/tools/builtin/website-audit.js');
 const { makeWebsiteDemoTools } = require('../sidecar/tools/builtin/website-demo.js');
 const { makeConnectorTools } = require('../sidecar/tools/builtin/connectors.js');
 const { makeBrowserTools } = require('../sidecar/tools/builtin/browser.js');
@@ -117,6 +118,7 @@ const fixture = {
   let activeDossierJournal = null;
   const registry = makeRegistry();
   makeWebTools({ fetchImpl: cannedFetch, lookup: null, sourceReceiptId: () => '0123456789abcdef0123456789abcdef' }).register(registry);
+  makeWebsiteAuditTools().register(registry);
   makeWebsiteDemoTools().register(registry);
   makeBrowserTools({ driver: { navigate: async u => u, snapshot: async () => [], click: async () => '', type: async () => '', press: async k => k, scroll: async () => '', back: async () => '', getText: async () => '', consoleLog: () => [], handleDialog: async () => ({}), screenshot: async () => '' } }).register(registry);
   makeDesktopTools({ opener: async () => 'launched' }).register(registry);
@@ -174,7 +176,7 @@ const fixture = {
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.demo.generate', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'widget.get', 'widget.set'];
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
 
