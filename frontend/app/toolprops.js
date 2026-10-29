@@ -27,6 +27,7 @@ const ToolProps = (() => {
   const EXACT = {
     'website.audit.pack': 'cabinet',
     'website.leads.prepare': 'cabinet',
+    'etsy.pod.prepare': 'cabinet',
     'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
     'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',
