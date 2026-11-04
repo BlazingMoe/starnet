@@ -287,6 +287,26 @@
     }
 
     const WRITE_BUFFER = Symbol('internal verified binary write');
+    // Host-only video completion seam. Never registered as a model tool. Uses the same
+    // path guard, byte ceiling, stale-write guard and read-back receipt as fs.write.
+    async function writeVideoArtifact(pathStr, data, ctx) {
+      if (!ctx || ctx.videoArtifactConsent !== true || !Buffer.isBuffer(data) || data.length < 16 || data.length > WRITE_BYTES || !/\.mp4$/i.test(pathStr)) throw new Error('Authorized bounded video artifact required');
+      const aid = ctx.agentId || 'agent';
+      const { abs } = await resolveInside(aid, pathStr, { scope: 'write', ctx });
+      await assertFresh(aid, abs, pathStr);
+      let initial = null;
+      try { initial = await fsp.readFile(abs); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
+      await fsp.mkdir(P.dirname(abs), { recursive: true });
+      const tmp = abs + '.render-' + sha256(data) + '.tmp';
+      const receipt = await verifiedMutation({ operation: 'video-write', path: pathStr, abs, expected: data, initial,
+        mutate: async () => {
+          const handle = await fsp.open(tmp, 'wx');
+          try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+          await fsp.rename(tmp, abs);
+        } });
+      await stampSeen(aid, abs);
+      return { mutationReceipt: receipt, receipt };
+    }
     const writeTool = {
       name: 'fs.write', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
       description: 'Write a UTF-8 text file into the current project folder when this session is project-scoped, otherwise into your private workspace. This is where your deliverables (reports, notes, code) are saved.',
@@ -1379,7 +1399,7 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool, writeVideoArtifact,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
       register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };

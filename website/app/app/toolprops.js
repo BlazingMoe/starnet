@@ -30,6 +30,10 @@ const ToolProps = (() => {
     'etsy.pod.prepare': 'cabinet',
     'fiverr.handoff.prepare': 'cabinet',
     'channel.content.prepare': 'cabinet',
+    'channel.render.prepare': 'cabinet',
+    'channel.render.submit': 'cabinet',
+    'channel.render.reconcile': 'cabinet',
+    'channel.render.finalize': 'cabinet',
     'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
     'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',

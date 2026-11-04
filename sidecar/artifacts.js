@@ -132,6 +132,13 @@
         const name = String(ob.toolName || ob.name || '');
         const args = (ob.args && typeof ob.args === 'object') ? ob.args : {};
         if (name === 'fs.write') return addFile('file', args.path, utf8Len(args.content));
+        if (name === 'channel.render.finalize') {
+          const receipt = r.mutationReceipt;
+          if (!receipt || receipt.operation !== 'video-write' || receipt.state !== 'read-back-verified'
+              || !Number.isSafeInteger(receipt.verifiedBytes) || receipt.verifiedBytes < 16
+              || !/^[a-f0-9]{64}$/.test(String(receipt.actualSha256 || '')) || receipt.sha256 !== receipt.actualSha256) return;
+          return addFile('file', receipt.path, receipt.verifiedBytes);
+        }
         if (name === 'fs.write_csv') {
           // The structured writer delegates to fs.write and returns its exact byte-verified receipt. Require
           // that proof before advertising the generated file or its size in the durable run artifact ledger.

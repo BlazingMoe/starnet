@@ -70,6 +70,9 @@ const { makeWebsiteLeadsTools } = require('./tools/builtin/website-leads.js');
 const { makeEtsyPodTools } = require('./tools/builtin/etsy-pod.js');
 const { makeFiverrHandoffTools } = require('./tools/builtin/fiverr-handoff.js');
 const { makeChannelContentTools } = require('./tools/builtin/channel-content.js');
+const { makeVideoRenderTools } = require('./tools/builtin/video-render.js');
+const { makeRenderStore } = require('./video-render-transaction.js');
+const { makeShotstackStage } = require('./shotstack-stage.js');
 const { makeWebsiteDemoTools } = require('./tools/builtin/website-demo.js'); // Pure fictional website demo generator; export remains through fs.write
 const { makeImageTools } = require('./tools/builtin/image.js');           // STUDIO: image_generate / image_analyze (OpenRouter multimodal)
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
@@ -1286,6 +1289,14 @@ const transcriptStore = makeTranscriptStore({ io: transcriptIo, clock: { now: ()
 // this avoids deleting the only recovery copy after the legacy transcript writer's fail-open append.
 const RUN_JOURNAL_DIR = path.join(WORKSPACES, '.run-journal');
 const runJournal = makeRunJournal({ dir: RUN_JOURNAL_DIR, fs, path, clock: { now: () => Date.now() }, redact });
+// One store/mutex per agent across runs; identities never share another agent's render state.
+const videoRenderStores = new Map();
+function videoRenderStoreFor(agentId) {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(agentId || ''))) throw new Error('Invalid render agent');
+  if (!videoRenderStores.has(agentId)) videoRenderStores.set(agentId, makeRenderStore({ fs, path,
+    fileFor: id => path.join(WORKSPACES, '.video-render', agentId, id + '.json') }));
+  return videoRenderStores.get(agentId);
+}
 // Recovery is intentionally lazy. Thousands of unresolved/failed journals are audit evidence and
 // must not be discarded, but parsing all of them synchronously before server.listen made startup
 // proportional to lifetime failures. GET /api/run-recoveries pages through the durable files.
@@ -15523,12 +15534,18 @@ async function runOnce(o) {
     fullAccess: unrestrictedHostNow() || executionProfile.filesystemScope === 'host-paths-except-hard-floor',
     unrestrictedHost: unrestrictedHostNow()
   });
-  makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager,
+  const runFsTools = makeFsTools({ fsp, pathMod: path, root: WORKSPACES, environment: executionEnvironment, limits: { writeBytes: 1 << 20, readReturn: 24000 }, redact, pathTrust: runPathTrust, docExtract, imageWire, editDiagnostics: lspManager,
     getRunSources: (sourceRunId, sourceAgentId) => {
       if (String(sourceRunId || '') !== String(runId || '') || String(sourceAgentId || '') !== String(agentId || '')) throw new Error('source receipts are limited to this run and agent');
       return selectSourceReceipts(runJournal.inspect(String(runId)), runId, agentId);
     }
-  }).register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
+  });
+  runFsTools.register(registry);   // redaction and every writer's existing jail/consent/verified-mutation path remain authoritative
+  makeVideoRenderTools({ service: ctx => ({
+    store: videoRenderStoreFor(ctx.agentId), clock: () => Date.now(),
+    provider: makeShotstackStage({ fetch: globalThis.fetch, apiKey: ENV('SHOTSTACK_API_KEY') || '', clock: () => Date.now(), signal: ctx.signal }),
+    writeVerified: runFsTools.writeVideoArtifact
+  }) }).register(registry);
   makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
   makeWebsiteAuditTools().register(registry);
   makeWebsiteLeadsTools().register(registry);
