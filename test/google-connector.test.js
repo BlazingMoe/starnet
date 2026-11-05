@@ -261,7 +261,10 @@ const catalog = require('../sidecar/mcp/catalog.js');
     }
     const before = calls.length;
     await assert.rejects(client.callTool('nonexistent', {}), /Unknown/);
-    await assert.rejects(client.callTool(defs[0].name, { url: 'https://evil.invalid' }), /Unknown argument/);
+    if (product === 'youtube') {
+      assert.equal(defs.length, 0, 'YouTube connector exposes no raw upload bypass tools');
+      assert.deepEqual(catalog.get('youtube').staticOauth.scopes, ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/youtube.upload']);
+    } else await assert.rejects(client.callTool(defs[0].name, { url: 'https://evil.invalid' }), /Unknown argument/);
     assert.equal(calls.length, before, 'invalid tools never reach the network');
     client.close();
   }

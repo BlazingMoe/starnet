@@ -4,6 +4,7 @@
 // enrollment, arbitrary URL, or bearer in a query string. The existing connector
 // manager owns permissions, refresh, reconnect, cancellation and tool projection.
 const ENDPOINTS = Object.freeze({
+  youtube: 'https://www.googleapis.com/youtube/v3',
   gmail: 'https://gmail.googleapis.com/gmail/v1/users/me',
   'google-contacts': 'https://people.googleapis.com/v1',
   'google-drive': 'https://www.googleapis.com/drive/v3',
@@ -17,6 +18,7 @@ function tool(name, description, properties, required, readOnly) {
     annotations: { readOnlyHint: !!readOnly, destructiveHint: !readOnly, openWorldHint: true } };
 }
 const TOOLS = {
+  youtube: [], // Upload authority exists only in the durable host transaction tools.
   gmail: [
     tool('search_messages', 'Search Gmail using Gmail search syntax. Returns message IDs; use read_message for contents.', { query: STR, pageToken: STR, maxResults: { type: 'integer', minimum: 1, maximum: 100 } }, [], true),
     tool('read_message', 'Read a Gmail message, including its MIME headers and base64url-encoded body parts.', { messageId: STR }, ['messageId'], true),
@@ -386,7 +388,8 @@ function makeGoogleTransport({ url, token, fetchImpl = fetch, timeoutMs = 30000 
       let result;
       if (msg.method === 'initialize') {
         // Prove the account/service responds before publishing connected status.
-        const probe = product === 'gmail' ? { url: url + '/profile' }
+        const probe = product === 'youtube' ? { url: url + '/channels', query: { part: 'id', mine: 'true' } }
+          : product === 'gmail' ? { url: url + '/profile' }
           : product === 'google-calendar' ? { url: url + '/users/me/calendarList', query: { maxResults: 1 } }
           : product === 'google-contacts' ? { url: url + '/people/me/connections', query: { pageSize: 1, personFields: 'names' } }
           : { url: ENDPOINTS['google-drive'] + '/files', query: { pageSize: 1, fields: 'files(id)' } };

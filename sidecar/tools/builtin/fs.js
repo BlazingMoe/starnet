@@ -286,6 +286,22 @@
       throw error;
     }
 
+    // Host-only exact MP4 read. Relative jail only, no path-trust expansion. The
+    // open handle pins the inspected file and the digest binds its actual bytes.
+    async function readVideoArtifact(intent, ctx) {
+      if (!ctx?.agentId || typeof intent?.path !== 'string' || P.win32.isAbsolute(intent.path) || P.posix.isAbsolute(intent.path) || /^[A-Za-z]:/.test(intent.path) || !/\.mp4$/i.test(intent.path) || !Number.isSafeInteger(intent.bytes) || intent.bytes < 32 || intent.bytes > WRITE_BYTES) throw new Error('Bound jailed video required');
+      const { abs } = await resolveInside(ctx.agentId, intent.path, { scope: 'read' });
+      const handle = await fsp.open(abs, 'r');
+      try {
+        const st = await handle.stat();
+        if (!st.isFile() || st.size !== intent.bytes) throw new Error('Video size changed');
+        const data = Buffer.alloc(intent.bytes + 1); let used = 0;
+        while (used < data.length) { const r = await handle.read(data, used, data.length - used, used); if (!r.bytesRead) break; used += r.bytesRead; }
+        const bytes = data.subarray(0, used);
+        if (used !== intent.bytes || sha256(bytes) !== intent.sha256 || bytes.toString('ascii', 4, 8) !== 'ftyp') throw new Error('Video digest or MP4 changed');
+        return bytes;
+      } finally { await handle.close(); }
+    }
     const WRITE_BUFFER = Symbol('internal verified binary write');
     // Host-only video completion seam. Never registered as a model tool. Uses the same
     // path guard, byte ceiling, stale-write guard and read-back receipt as fs.write.
@@ -1399,7 +1415,7 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool, writeVideoArtifact,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool, writeVideoArtifact, readVideoArtifact,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
       register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };

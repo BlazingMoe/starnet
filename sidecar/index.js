@@ -71,6 +71,9 @@ const { makeEtsyPodTools } = require('./tools/builtin/etsy-pod.js');
 const { makeFiverrHandoffTools } = require('./tools/builtin/fiverr-handoff.js');
 const { makeChannelContentTools } = require('./tools/builtin/channel-content.js');
 const { makeVideoRenderTools } = require('./tools/builtin/video-render.js');
+const { makeYoutubeUploadTools } = require('./tools/builtin/youtube-upload.js');
+const { makeUploadStore } = require('./youtube-upload-transaction.js');
+const { makeYoutubePrivate } = require('./youtube-private.js');
 const { makeRenderStore } = require('./video-render-transaction.js');
 const { makeShotstackStage } = require('./shotstack-stage.js');
 const { makeWebsiteDemoTools } = require('./tools/builtin/website-demo.js'); // Pure fictional website demo generator; export remains through fs.write
@@ -1291,6 +1294,13 @@ const RUN_JOURNAL_DIR = path.join(WORKSPACES, '.run-journal');
 const runJournal = makeRunJournal({ dir: RUN_JOURNAL_DIR, fs, path, clock: { now: () => Date.now() }, redact });
 // One store/mutex per agent across runs; identities never share another agent's render state.
 const videoRenderStores = new Map();
+const youtubeUploadStores = new Map();
+function youtubeUploadStoreFor(agentId) {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(agentId || ''))) throw new Error('Invalid upload agent');
+  if (!youtubeUploadStores.has(agentId)) youtubeUploadStores.set(agentId, makeUploadStore({ fs, path,
+    fileFor: id => path.join(WORKSPACES, '.youtube-upload', agentId, id + '.json') }));
+  return youtubeUploadStores.get(agentId);
+}
 function videoRenderStoreFor(agentId) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(agentId || ''))) throw new Error('Invalid render agent');
   if (!videoRenderStores.has(agentId)) videoRenderStores.set(agentId, makeRenderStore({ fs, path,
@@ -1698,7 +1708,8 @@ function maybeRewarmModelCatalog() {
 }
 
 // jail helper reused by the read-only /api/file route (resolveInside proves a path stays in the workspace)
-const fsJail = makeFsTools({ fsp, pathMod: path, root: WORKSPACES })._internals;
+const fsHostTools = makeFsTools({ fsp, pathMod: path, root: WORKSPACES });
+const fsJail = fsHostTools._internals;
 
 // USER ATTACHMENTS (COMMS): save Commander-attached photos/files into the workspace + expand their history
 // references into provider content blocks at run time. Jailed writes/reads reuse the same resolveInside proof.
@@ -15547,6 +15558,19 @@ async function runOnce(o) {
     writeVerified: runFsTools.writeVideoArtifact
   }) }).register(registry);
   makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
+  makeYoutubeUploadTools({ service: ctx => ({
+    store: youtubeUploadStoreFor(ctx.agentId), clock: () => Date.now(),
+    renderReceipt: id => videoRenderStoreFor(ctx.agentId).read(id),
+    readVerified: intent => fsHostTools.readVideoArtifact(intent, { agentId: ctx.agentId }),
+    provider: makeYoutubePrivate({ fetch: globalThis.fetch, clock: () => Date.now(), signal: ctx.signal,
+      credential: async () => {
+        const cfg = connectorConfigs.find(c => c.id === 'youtube');
+        if (!cfg || cfg.enabled === false || cfg.url !== 'https://www.googleapis.com/youtube/v3') throw new Error('YouTube connector not configured');
+        const got = await ensureConnectorOauthToken('youtube', false);
+        return { ...got, scopes: String(connectorOauth.byId.youtube?.scope || '').split(/\s+/).filter(Boolean) };
+      }
+    })
+  }) }).register(registry);
   makeWebsiteAuditTools().register(registry);
   makeWebsiteLeadsTools().register(registry);
   makeEtsyPodTools().register(registry);

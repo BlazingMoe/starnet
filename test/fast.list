@@ -767,3 +767,4 @@ test/fiverr-handoff.test.js
 
 test/channel-content.test.js
 test/video-render-transaction.test.js
+test/youtube-upload-transaction.test.js

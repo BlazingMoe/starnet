@@ -144,6 +144,10 @@
        The panel renders it as a live "VIA <name>" jump to that card instead of a mute disabled button. */
     /* StarNet implements MCP tools locally over stable Google APIs. The publisher supplies
        an installed-app OAuth registration; customers never configure a Google Cloud project. */
+    { id: 'youtube', name: 'YouTube private upload', category: 'Productivity', authType: 'oauth', transport: 'http',
+      url: 'https://www.googleapis.com/youtube/v3', googleApi: true, official: false, homepage: 'https://www.youtube.com',
+      aliases: ['youtube private upload'], staticOauth: GOOGLE_OAUTH(['https://www.googleapis.com/auth/youtube.upload']),
+      blurb: 'Private resumable uploads through explicit host transaction steps. No publishing or scheduling. Account and channel readback must succeed with the upload-only grant.' },
     { id: 'gmail', name: 'Gmail', category: 'Productivity', authType: 'oauth', transport: 'http',
       url: 'https://gmail.googleapis.com/gmail/v1/users/me', googleApi: true, official: false, homepage: 'https://mail.google.com',
       aliases: ['google', 'gmail', 'google mail', 'email', 'gsuite', 'g suite', 'google workspace'],
