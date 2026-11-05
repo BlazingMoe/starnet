@@ -131,6 +131,21 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.ok(/report desktop control unavailable and provide manual steps/.test(desktop) && /npm CLI is not callable by StarNet unless the runtime explicitly exposes it/.test(desktop), 'desktop does not promise an unavailable driver or external CLI');
   A.ok(/Observe-act-verify/.test(desktop) && /fresh refs only if a tool actually returns references/.test(desktop) && /Retry only safe, reversible actions/.test(desktop) && /No silent external actions/.test(desktop) && /credentials, personal data/.test(desktop), 'desktop requires fresh evidence, safe retries, privacy, and explicit external-action authorization');
 
+  // UI quality recipes are concise StarNet-native adapters, not bulk copies of
+  // the development skills. They remain opt-in and capability-gated so simply
+  // appearing in the catalogue neither spends prompt budget nor grants tools.
+  for (const slug of ['web-design-quality', 'product-interface-quality', 'interface-content-quality']) {
+    const skill = by[slug];
+    A.ok(skill, slug + ': discovered from the bundled library');
+    A.eq(skill.requires, ['cabinet', 'workbench'], slug + ': exact write/execution capability requirements');
+    A.eq(skill.default, false, slug + ': opt-in only');
+    A.ok(!C.isAvailable(skill, ['cabinet']) && C.isAvailable(skill, ['cabinet', 'workbench']), slug + ': both objects gate availability');
+  }
+  A.ok(/does not add a browser.*network access.*publishing authority/s.test(by['web-design-quality'].body), 'web design recipe does not invent tools or publication authority');
+  A.ok(/responsive behavior/.test(by['web-design-quality'].body) && /desktop and narrow\/mobile widths/.test(by['web-design-quality'].body), 'web design recipe requires responsive implementation and visual verification');
+  A.ok(/changes no capability or permission/.test(by['product-interface-quality'].body) && /Do not create a second memory store/.test(by['product-interface-quality'].body), 'product interface recipe preserves authority and memory boundaries');
+  A.ok(/WCAG 2\.2 A\/AA/.test(by['interface-content-quality'].body) && /never approve coverage that was not inspected/i.test(by['interface-content-quality'].body), 'interface content recipe ties findings to standards and honest evidence');
+
   // budget invariant: with the FULL expanded catalog default-on AND every object placed, compose HONORS the 12k
   // budget — it omit-flags the overflow instead of silently truncating (the growth from 9->28 recipes is exactly
   // why almost every port ships default:false; forcing them ALL on must degrade gracefully, never blow the window).
