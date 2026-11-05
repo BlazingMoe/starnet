@@ -224,6 +224,7 @@ function makeDecisionTools(deps) {
       return { content:'Queued an unverified lesson candidate for Memory Core review. No memory or skill was saved.', summary:'lesson awaiting review' };
     }
   };
+  const validationTool = require('./lesson-validation.js').makeValidationTool({store,clock,redact,readRows:readDecisionRows,cleanContract:cleanLessonContract});
   const listTool = {
     name:'decision.list', capability:'memory', scope:'read', requiresConsent:false,
     description:'List your structured decision history. These are unconfirmed model records, separate from notebook facts and excluded from automatic memory recall.',
@@ -240,6 +241,6 @@ function makeDecisionTools(deps) {
       return { content:JSON.stringify({records:page,total,offset,limit,hasMore:offset + page.length < total}), summary:page.length + ' of ' + total + ' decision record(s)' };
     }
   };
-  return { recordTool, outcomeTool, lessonTool, listTool, register(reg) { reg.register(recordTool); reg.register(outcomeTool); reg.register(lessonTool); reg.register(listTool); return reg; } };
+  return { recordTool, outcomeTool, lessonTool, validationTool, listTool, register(reg) { reg.register(recordTool); reg.register(outcomeTool); reg.register(lessonTool); reg.register(validationTool); reg.register(listTool); return reg; } };
 }
-module.exports = { makeDecisionTools, readDecisionRows, lessonSourceKey, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };
+module.exports = { cleanLessonContract, makeDecisionTools, readDecisionRows, lessonSourceKey, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS, PAGE_DEFAULT, PAGE_MAX };

@@ -388,7 +388,8 @@ A.ok(renderRecall([{ content: 'prefers reports', confirmation: 'user-confirmed' 
   const nestedNoKind = { id:'nested-no-kind', content:'PRIVATE nested metadata text', lessonSource:{contract:null} };
   const legacy = { id:'legacy', title:'Legacy', body:'legacy lesson remains unchanged', kind:'lesson' };
   const generic = { id:'generic', kind:'fact', content:'unrelated generic contract survives', contract:{tag:'ordinary'} };
-  const records = [candidate, corrupt, imported, missingKind, forgedKind, nestedNoKind, legacy, generic];
+  const validated = {...candidate,id:'validated',reviewState:{state:'evidence-passed',trust:'unverified',authority:'reference-only'},validations:[{result:'evidence-passed'}]};
+  const records = [candidate, validated, corrupt, imported, missingKind, forgedKind, nestedNoKind, legacy, generic];
   const snapshot = JSON.stringify(records);
   A.eq(rank(records, '', { now:1, k:10 }).map(r=>r.id), ['legacy','generic'], 'rank excludes structured lessons despite missing/forged kind while preserving legacy and unrelated generic contracts');
   A.eq(renderRecall(records, {}).text.includes('PRIVATE'), false, 'direct renderRecall also excludes structured candidates');

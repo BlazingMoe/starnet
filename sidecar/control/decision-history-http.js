@@ -1,7 +1,9 @@
 /* Read-only, selected-agent decision/outcome history for the dedicated Memory Core. */
 'use strict';
 
-const { PAGE_DEFAULT, PAGE_MAX, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS } = require('../tools/builtin/decisions.js');
+const { cleanLessonContract, PAGE_DEFAULT, PAGE_MAX, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS } = require('../tools/builtin/decisions.js');
+
+const { projectValidation } = require('../tools/builtin/lesson-validation.js');
 
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
@@ -49,7 +51,7 @@ function pageNumber(value, fallback, max) {
   const n = Number(value);
   return Number.isSafeInteger(n) && n <= max ? n : null;
 }
-function projectRecord(row, redact) {
+function projectRecord(row, redact, now, agentId) {
   row = row && typeof row === 'object' ? row : {};
   const outcomes = Array.isArray(row.outcomeEvents) ? row.outcomeEvents : [];
   const proposals = Array.isArray(row.lessonProposals) ? row.lessonProposals : [];
@@ -81,6 +83,7 @@ function projectRecord(row, redact) {
     lessonProposalsTotal: proposals.length,
     lessonProposalsTruncated: proposals.length > MAX_OUTCOME_EVENTS,
     lessonProposals: proposals.slice(-MAX_OUTCOME_EVENTS).reverse().map(proposal => ({
+      ...projectValidation(proposal, redact, now, row, agentId, cleanLessonContract),
       outcomeEventId: boundedText(proposal && proposal.outcomeEventId, 120, redact),
       lesson: boundedText(proposal && proposal.lesson, MAX_TEXT, redact),
       status: LESSON_STATES.has(proposal && proposal.status) ? proposal.status : 'unknown',
@@ -126,7 +129,8 @@ function makeDecisionHistoryHttp(opts) {
         const at = timestamp(a.row && a.row.createdAt), bt = timestamp(b.row && b.row.createdAt);
         return ((bt == null ? -1 : bt) - (at == null ? -1 : at)) || b.index - a.index;
       });
-      const page = ordered.slice(offset, offset + limit).map(x => projectRecord(x.row, redact));
+      const projectedAt = opts.clock && opts.clock.now();
+      const page = ordered.slice(offset, offset + limit).map(x => projectRecord(x.row, redact, projectedAt, agentId));
       return send(res, 200, {
         ok:true, agentId, records:page, total:rows.length, offset, limit,
         hasMore:offset + Math.min(limit, Math.max(0, rows.length - offset)) < rows.length

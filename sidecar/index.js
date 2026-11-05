@@ -9157,6 +9157,7 @@ const memoryControlHttp = makeMemoryControlHttp({
   respondJson
 });
 const decisionHistoryHttp = makeDecisionHistoryHttp({
+  clock: { now: () => Date.now() },
   readForAgent: (agentId) => readDecisionRows(notebookStore, agentId),
   respondJson, redact, isAgentId
 });

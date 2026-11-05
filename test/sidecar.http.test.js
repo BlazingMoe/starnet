@@ -1042,6 +1042,11 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
       { id:'decision_discard', decision:'chose route A', alternatives:['route B'], evidenceRefs:['artifact:review-2'], uncertainty:'no control group', confidence:0.4, createdAt:30, source:'model', trust:'unconfirmed', outcomeStatus:'recorded', outcomeEvents:[{eventId:'outcome_discard',outcome:'model reports increased latency',evidenceRefs:['run:r7'],createdAt:40,source:'model',trust:'unconfirmed'}], lessonProposals:[{outcomeEventId:'outcome_discard',lesson:'Avoid this path.',status:'pending'}] },
       { id:'decision_structured', decision:'test scoped path', alternatives:[], evidenceRefs:['artifact:scoped'], uncertainty:'single result', confidence:null, createdAt:5, source:'model', trust:'unconfirmed', outcomeStatus:'recorded', outcomeEvents:[{eventId:'outcome_structured',outcome:'model reports success',evidenceRefs:['run:s1'],createdAt:6,source:'model',trust:'unconfirmed'}], lessonProposals:[{outcomeEventId:'outcome_structured',lesson:'Keep this scoped.',status:'pending',contract:{schemaVersion:1,scope:{type:'customer',id:'cust-7'},sourceRefs:['artifact:scoped','run:s1'],uncertainty:'single result',confidence:null,version:'v1',recheckAt:'2026-11-01',expiresAt:'2026-12-01',positiveExamples:['customer A with approved brief'],negativeExamples:['other customer'],trust:'unverified',authority:'reference-only'}}] }
     ];
+    // Seed a real BIZ-5 evidence receipt before reconstructing the host's durable history.
+    decisionRows[2].lessonProposals[0].createdAt=7;
+    const validationStore={get:()=>decisionRows,readKey:()=>({status:'ok',value:decisionRows}),update:async(_,fn)=>{const next=fn(decisionRows);if(next) decisionRows.splice(0,decisionRows.length,...next);}};
+    const validationTool=require('../sidecar/tools/builtin/decisions.js').makeDecisionTools({store:validationStore,clock:{now:()=>Date.parse('2026-10-01T00:00:00Z')}}).validationTool;
+    await validationTool.run({validationId:'http-heldout',binding:{agentId:'agent',decisionId:'decision_structured',outcomeEventId:'outcome_structured',version:'v1',scope:{type:'customer',id:'cust-7'},sourceRefs:['artifact:scoped','run:s1']},uncertainty:'synthetic held-out claims only',cases:[{id:'positive',category:'positive',sourceRefs:['heldout:p'],expected:'matches',observed:'matches',result:'pass'},{id:'negative',category:'negative',sourceRefs:['heldout:n'],expected:'rejects',observed:'rejects',result:'pass'}]},{agentId:'agent'});
     const lessonRows = [
       { key:'lesson_keep:lesson_keep',runId:'lesson_keep',id:'lesson_keep',kind:'lesson',content:'Retest the finding.',scope:'global',origin:'decision-outcome',createdAt:1,proposalType:'decision-lesson',sourceDecisionId:'decision_keep',sourceOutcomeEventId:'outcome_keep',sourceDecision:'chose route B',sourceOutcome:'model says run 2 passed',evidenceRefs:Array.from({length:24},(_,i)=>'R'.repeat(990)+String(i).padStart(10,'0')),uncertainty:'single rerun; unverified' },
       { key:'lesson_discard:lesson_discard',runId:'lesson_discard',id:'lesson_discard',kind:'lesson',content:'Avoid this path.',scope:'global',origin:'decision-outcome',createdAt:2,proposalType:'decision-lesson',sourceDecisionId:'decision_discard',sourceOutcomeEventId:'outcome_discard',sourceDecision:'chose route A',sourceOutcome:'model says latency rose',evidenceRefs:['run:r7'],uncertainty:'no control group; unverified' },
@@ -1066,6 +1071,7 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     const structuredRead=await j('GET','/api/memory/decisions?agent=agent&limit=10');
     A.eq(structuredRead.body.records.find(r=>r.id==='decision_structured').lessonProposals[0].contract.scope.id,'cust-7','typed contract survives the durable decision-history projection');
     A.eq(lessonDeck.body.pending.find(p=>p.id==='lesson_structured').lessonContract.scope.type,'customer','typed contract survives pending queue projection');
+    A.eq(structuredRead.body.records.find(r=>r.id==='decision_structured').lessonProposals[0].reviewState.state,'evidence-passed','held-out audit survives actual HTTP cold reconstruction');
     const keptLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_keep',id:'lesson_keep',verdict:'keep'});
     A.eq(keptLesson.status,200,'operator Keep processes lesson through the existing review handler');
     const discardedLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_discard',id:'lesson_discard',verdict:'discard'});
@@ -1078,6 +1084,8 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.ok(/scoped validation\/promotion/.test(structuredKeep.body.error),'structured Keep explains the current validation boundary');
     A.eq((await j('GET','/api/memory/records?agent=agent')).body.records.length,beforeStructuredKeep.body.records.length,'structured Keep creates no notebook record');
     A.eq((await j('GET','/api/memory/pending?agent=agent')).body.pending.some(p=>p.id==='lesson_structured'),true,'structured Keep denial preserves the pending candidate for review');
+    const structuredEdit=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_structured',id:'lesson_structured',verdict:'edit',content:'Edited scoped lesson'});
+    A.eq(structuredEdit.status,409,'passed held-out evidence grants no Edit authority');
     const structuredDiscard=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_structured',id:'lesson_structured',verdict:'discard'});
     A.eq(structuredDiscard.status,200,'structured candidate remains discardable through existing review lifecycle');
     const keptRecords=await j('GET','/api/memory/records?agent=agent');
@@ -1087,6 +1095,8 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.eq(lessonRecord.lessonSource.evidenceRefs.length,24,'kept record retains every source evidence reference'); A.ok(lessonRecord.lessonSource.evidenceRefs.every(x=>x.length===1000),'kept record preserves full reference values');
     A.eq(lessonRecord.lessonSource.trust,'unconfirmed','kept candidate source remains unconfirmed');
     const reviewedRows=JSON.parse(fs.readFileSync(path.join(ws,'agent.decisions.json'),'utf8'));
+    A.eq(reviewedRows[2].lessonProposals[0].validations.length,1,'Discard retains held-out historical audit');
+    A.eq(reviewedRows[2].lessonProposals[0].status,'discarded','validated candidate Discard is terminal');
     A.eq(reviewedRows[0].lessonProposals[0].status,'kept','Keep receipt is recorded on source decision');
     A.eq(reviewedRows[1].lessonProposals[0].status,'discarded','Discard receipt is recorded on source decision');
     const reviewedHistory=await j('GET','/api/memory/decisions?agent=agent&limit=10');
