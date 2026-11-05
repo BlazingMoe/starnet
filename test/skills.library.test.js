@@ -109,6 +109,28 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.ok(/decision\.lesson_propose/.test(by['decision-learning'].body) && /untrusted data/.test(by['decision-learning'].body) && /discarded\/kept/.test(by['decision-learning'].body) && /reference-only Memory Core record/.test(by['decision-learning'].body), 'decision-learning uses the review queue, treats sources as untrusted, preserves terminal receipts, and explains retained lesson authority');
   A.ok(by['meme-generation'] && by['meme-generation'].requires.indexOf('studio') >= 0, 'Meme Generation is image-gated (STUDIO)');
 
+  // Native recipes describe existing routes without granting new runtime capabilities.
+  for (const [slug, object] of [['firecrawl-research', 'dish'], ['agent-desktop', 'computer']]) {
+    const skill = by[slug];
+    A.ok(skill, slug + ': discovered from the bundled library');
+    A.eq(skill.requires, [object], slug + ': exact capability requirement');
+    A.eq(skill.default, false, slug + ': opt-in only');
+    A.ok(!C.isAvailable(skill, []) && C.isAvailable(skill, [object]), slug + ': object gates availability');
+    const row = C.catalog([skill], { overrides: {}, placedTypes: [object] })[0];
+    A.ok(row.available && !row.enabled, slug + ': catalog separates availability from enablement');
+    const raw = fs.readFileSync(path.join(dir, slug + '.md'), 'utf8').replace(/\r\n/g, '\n');
+    A.ok(/^---\nname: .+\nslug: .+\ndescription: .+\ncategory: .+\nrequires: \[[a-z]+\]\nlicense: MIT\ndefault: false\n---\n/.test(raw), slug + ': flat frontmatter contract');
+  }
+  const firecrawl = by['firecrawl-research'].body;
+  A.ok(firecrawl.includes('consent-gated `web_request`') && firecrawl.includes('https://api.firecrawl.dev/v2') && firecrawl.includes('Authorization: Bearer ${FIRECRAWL_API_KEY}'), 'Firecrawl uses the existing consent-gated REST route and literal host-resolved key');
+  A.ok(/service-key readiness/.test(firecrawl) && /fail closed/.test(firecrawl) && /robots/.test(firecrawl) && /allowed-source/.test(firecrawl) && /host policy/.test(firecrawl), 'Firecrawl requires readiness, source permission, and fail-closed policy');
+  A.ok(/request\/page\/time budget/.test(firecrawl) && /provenance/.test(firecrawl) && /Cite original sources/.test(firecrawl), 'Firecrawl bounds work and requires cited provenance');
+  A.ok(/does not expose Firecrawl MCP or SDK tools/.test(firecrawl) && /or vendor the AGPL server/.test(firecrawl) && /Do not bypass restrictions/.test(firecrawl) && /or perform automatic private crawling/.test(firecrawl), 'Firecrawl explicitly excludes unsupported tools, vendoring, and private crawling');
+  const desktop = by['agent-desktop'].body;
+  A.ok(/computer\.use.*only when actually exposed/.test(desktop) && /supported Windows desktop/.test(desktop) && /explicit driver/.test(desktop) && /host-minted attended\/full-power authorization/.test(desktop), 'desktop route requires actual runtime exposure, platform, driver, and host authority');
+  A.ok(/report desktop control unavailable and provide manual steps/.test(desktop) && /npm CLI is not callable by StarNet unless the runtime explicitly exposes it/.test(desktop), 'desktop does not promise an unavailable driver or external CLI');
+  A.ok(/Observe-act-verify/.test(desktop) && /fresh refs only if a tool actually returns references/.test(desktop) && /Retry only safe, reversible actions/.test(desktop) && /No silent external actions/.test(desktop) && /credentials, personal data/.test(desktop), 'desktop requires fresh evidence, safe retries, privacy, and explicit external-action authorization');
+
   // budget invariant: with the FULL expanded catalog default-on AND every object placed, compose HONORS the 12k
   // budget — it omit-flags the overflow instead of silently truncating (the growth from 9->28 recipes is exactly
   // why almost every port ships default:false; forcing them ALL on must degrade gracefully, never blow the window).
