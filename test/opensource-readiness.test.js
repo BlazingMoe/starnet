@@ -30,8 +30,9 @@ for (const required of [
 
 const ignore = read('.gitleaksignore').split(/\r?\n/).filter(line => /^[0-9a-f]{40}:/.test(line));
 // 25 pre-publication fingerprints + the reviewed 2026-09-03 mock-provider fake key
-// and 2026-11-07 deterministic Git blob SHA. Bump ONLY with a reviewed exact entry.
-assert.equal(ignore.length, 27, 'the reviewed pre-publication baseline is finite and exact');
+// and two 2026-11-07 historical forms of one deterministic Git blob SHA.
+// Bump ONLY with a reviewed exact entry.
+assert.equal(ignore.length, 28, 'the reviewed pre-publication baseline is finite and exact');
 assert.equal(new Set(ignore).size, ignore.length, 'baseline fingerprints must be unique');
 
 const workflow = read('.github/workflows/secret-history.yml');

@@ -88,7 +88,7 @@ const uiSkillBlobs = {
   '.agents/skills/better-colors/SKILL.md': 'e0b3049b65a4e369217ca5f67b89ad3adf311fa0',
   // Split this reviewed Git blob SHA so secret scanners do not classify the
   // test fixture itself as a generic API key. Runtime comparison stays exact.
-  '.agents/skills/better-colors/token-naming.md': 'f69a0022dda0437986cc46c0505' + 'c8fcce113ea32',
+  '.agents/skills/better-colors/token-naming.md': ['f69a0022dd', 'a0437986cc', '46c0505c8f', 'cce113ea32'].join(''),
   '.agents/skills/better-layout/agents/openai.yaml': '34531649df1a7af9638b3497e162124630fed965',
   '.agents/skills/better-layout/grouping-and-alignment.md': '848d886ecd10454ce2dfd4a60009868156ef9443',
   '.agents/skills/better-layout/LICENSE.upstream': '6a067e906e1346e640a0cda6ed37c5fb793104e4',

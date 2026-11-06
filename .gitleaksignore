@@ -50,3 +50,4 @@ a5d72b7232f29e7c2d3ccf81a91d27217bc69559:test/openai-compat.e2e.test.js:generic-
 # better-colors/token-naming.md payload, not a credential. The source literal is
 # split in the follow-up commit; this exact historical fingerprint remains reachable.
 a9b14024f986fa2b4705aa63847d6e8030e33110:test/project-agent-skills.test.js:generic-api-key:89
+4c09fc29208534fd875ab100462c67a0cf35317b:test/project-agent-skills.test.js:generic-api-key:91
