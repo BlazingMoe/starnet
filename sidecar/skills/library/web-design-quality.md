@@ -17,3 +17,5 @@ Use for a new public-facing page, landing page, portfolio or substantial visual 
 5. Run the project's tests and, when an authorized browser is available, inspect real screenshots at desktop and narrow/mobile widths. Check hierarchy, overflow, text wrapping, focus order, missing assets and the requested interaction. Report any view or behavior that was not actually verified.
 
 Do not claim that using this recipe lowered cost. Record measured savings only when the runtime exposes comparable telemetry.
+
+For color/layout/motion work, preserve semantic token roles and the project's notation, spacing and motion conventions. Measure contrast against the rendered background in each supported theme; never invent a ratio. Check grouping, reading order, long localized strings and RTL where supported. Motion must be interruptible, respect reduced motion and leave a static state cue. Use existing dependencies only; this guidance grants no Figma, account or package-install authority.
