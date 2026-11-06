@@ -1111,6 +1111,29 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     const afterStaleKeep=await j('GET','/api/memory/records?agent=agent');
     A.eq((afterStaleKeep.body.records||[]).filter(r=>r.kind==='lesson').length,1,'stale Keep after Discard creates no notebook lesson');
 
+    // A separate agent exercises the dedicated validated PROJECT Keep through the real HTTP route.
+    const promotionStore=require('../sidecar/memory-store.js').makeMemoryStore({fs,path,workspaces:ws});
+    const promotionClock={now:()=>Date.parse('2026-11-01T00:00:00Z')};
+    const promotionTools=require('../sidecar/tools/builtin/decisions.js').makeDecisionTools({store:promotionStore,clock:promotionClock,proposeLesson:async()=>({ok:true})});
+    const promotionCtx={agentId:'promotion',lessonScopeSnapshot:{schemaVersion:1,type:'project',id:'opaque_project_id_0009'}};
+    await promotionTools.recordTool.run({clientId:'http',decision:'test project reference',alternatives:[],evidenceRefs:['source:p'],uncertainty:'synthetic'},promotionCtx);
+    await promotionTools.outcomeTool.run({id:'decision_http',eventId:'out',outcome:'observed',evidenceRefs:['source:o']},promotionCtx);
+    const promotionContract={schemaVersion:1,scope:{type:'project',id:'opaque_project_id_0009'},sourceRefs:['source:p','source:o'],uncertainty:'synthetic',confidence:null,version:'v1',recheckAt:'2099-01-01',expiresAt:'2099-02-01',positiveExamples:['match'],negativeExamples:['unrelated']};
+    await promotionTools.lessonTool.run({decisionId:'decision_http',outcomeEventId:'out',lesson:'Project reference only',contract:promotionContract},promotionCtx);
+    await promotionTools.validationTool.run({validationId:'http',binding:{agentId:'promotion',decisionId:'decision_http',outcomeEventId:'out',version:'v1',scope:promotionContract.scope,sourceRefs:promotionContract.sourceRefs},uncertainty:'synthetic',cases:[{id:'p',category:'positive',sourceRefs:['held:p'],expected:'match',observed:'match',result:'pass'},{id:'n',category:'negative',sourceRefs:['held:n'],expected:'reject',observed:'reject',result:'pass'}]},promotionCtx);
+    const promotionProp={id:'project-prop',runId:'project-review',kind:'lesson',proposalType:'decision-lesson',content:'Project reference only',sourceDecisionId:'decision_http',sourceOutcomeEventId:'out',lessonContract:promotionStore.get('decisions:promotion')[0].lessonProposals[0].contract};
+    await require('../sidecar/memory-store.js').appendPending(promotionStore,'promotion','project-review',[promotionProp],promotionClock.now());
+    const promotionPending=await j('GET','/api/memory/pending?agent=promotion');
+    A.eq(promotionPending.body.pending[0].promotion.eligible,true,'HTTP pending advertises current eligible project reference');
+    A.eq(promotionPending.body.pending[0].promotion.label,'Keep project reference only','HTTP Keep label does not imply generic memory approval');
+    const promotionBody={agentId:'promotion',runId:'project-review',id:'project-prop',verdict:'keep',promotion:'project-reference-only'};
+    A.eq((await j('POST','/api/memory/turnin',{...promotionBody,verdict:'edit',content:'changed'})).status,409,'validated project Edit remains blocked');
+    A.eq((await j('POST','/api/memory/turnin',{...promotionBody,promotion:undefined})).status,409,'generic Keep does not activate typed project memory');
+    const promoted=await j('POST','/api/memory/turnin',promotionBody);
+    A.eq(promoted.status,200,'dedicated operator project Keep promotes current validated reference');A.eq(promoted.body.trust,'unverified','HTTP promotion remains unverified');A.eq(promoted.body.authority,'reference-only','HTTP promotion remains reference-only');
+    const promotionRetry=await j('POST','/api/memory/turnin',promotionBody);A.eq(promotionRetry.status,200,'Keep retry reconciles after pending cleanup');A.eq(promotionRetry.body.id,promoted.body.id,'HTTP retry preserves deterministic notebook identity');A.eq(promotionRetry.body.duplicate,true,'HTTP retry is explicit');
+    A.eq(promotionStore.get('notebook:promotion').length,1,'HTTP promotion creates at most one record');A.eq(promotionStore.get('decisions:promotion')[0].lessonProposals[0].status,'kept','HTTP promotion commits review receipt');
+
     // ---- FORGET = NEVER AGAIN (2026-07-16 resurrect audit): Memory Core's Forget must be as durable as a
     //      veto/discard — the removed belief's text joins the SAME permanent declined denylist, or reflection
     //      re-mints the deleted fact on a later run and the silent-save writes it straight back. ----

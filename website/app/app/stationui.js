@@ -2063,11 +2063,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let busy = false;
     const decide = async (verdict) => {
       if (busy) return; busy = true;
-      const r = await Harness.memoryTurnin({ agentId: a.id, runId: p.runId, id: p.id, verdict: verdict });
+      const r = await Harness.memoryTurnin({ agentId: a.id, runId: p.runId, id: p.id, verdict: verdict, ...(verdict === 'keep' && p.promotion && p.promotion.eligible ? {promotion:'project-reference-only'} : {}) });
       if (r && r.ok) { sfx('click'); loadMemoryCore(a); } else busy = false;   // a failed verdict must stay clickable
     };
     const keep = mkEl('button', 'consent-btn'); keep.textContent = 'Keep'; keep.title = 'remember this';
-    if (p.lessonContract) { keep.disabled = true; keep.title = 'structured lesson requires scoped validation/promotion; not yet supported'; }
+    if (p.lessonContract || p.structuredLesson) {
+      keep.textContent = 'Keep project reference only';
+      keep.disabled = !(p.promotion && p.promotion.type === 'project-reference-only' && p.promotion.eligible === true);
+      keep.title = keep.disabled ? 'Requires current passed project-scoped validation' : 'Unverified reference for this project and agent only; grants no permissions or instructions';
+      if (!keep.disabled) keep.onclick = () => decide('keep');
+    }
     else keep.onclick = () => decide('keep');
     btns.appendChild(keep);
     const drop = mkEl('button', 'consent-btn deny'); drop.textContent = 'Discard'; drop.title = 'reject it — never propose this again'; drop.onclick = () => decide('discard');

@@ -316,6 +316,8 @@ const { makeTaskHistoryHost } = require('./orchestration/task-history-host.js');
 const { makeManagedRecoveryLifecycleHook } = require('./orchestration/managed-recovery-lifecycle.js');   // Moe AI Station: bounded restart-safe managed-task recovery
 const { makeAgentControlHttp } = require('./control/agent-http.js');   // Moe AI Station: sanitized read-only live organization view
 const { makeMemoryControlHttp } = require('./control/memory-http.js');   // Moe AI Station: content-free memory provenance overview
+const LessonPromotion = require('./tools/builtin/lesson-promotion.js');
+function canReadProjectLesson(record, ctx) { return LessonPromotion.canRead(notebookStore, record, ctx); }
 const { makeDecisionHistoryHttp } = require('./control/decision-history-http.js');   // selected-agent Memory Core history reader
 const { makeCostControlHttp } = require('./control/cost-http.js');   // Moe AI Station: read-only ledger + budget governor overview
 const { makeProviderControlHttp } = require('./control/provider-http.js');   // Moe AI Station: read-only registry + observed quota evidence
@@ -15578,7 +15580,7 @@ async function runOnce(o) {
   makeFiverrHandoffTools().register(registry);
   makeChannelContentTools().register(registry);
   makeWebsiteDemoTools().register(registry); // pure bounded template; filesystem export remains consent-gated fs.write
-  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
+  makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, canReadStructuredLesson:canReadProjectLesson, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
@@ -16389,7 +16391,7 @@ async function runOnce(o) {
       // '' when nothing to preserve. Fail-open: a memory hiccup must never block the summary.
       try {
         const recs = notebookStore.get('notebook:' + agentId);
-        if (Array.isArray(recs) && recs.length) return compactionMemoryBlock(recs, transcript, { now: Date.now(), k: 5, limit: 800, streamId: o.streamId || null });
+        if (Array.isArray(recs) && recs.length) return compactionMemoryBlock(recs, transcript, { now: Date.now(), k: 5, limit: 800, streamId: o.streamId || null, agentId, lessonScopeSnapshot:o.lessonScopeSnapshot, canReadStructuredLesson:canReadProjectLesson });
       } catch (_) {}
       return '';
     }
@@ -17147,8 +17149,9 @@ async function runOnce(o) {
     const stored = notebookStore.get('notebook:' + agentId);
     const recs = o.recovery ? [] : (Array.isArray(stored) ? stored : []);
     const q = recentUserText(messages);   // last up-to-3 user turns (attachment turns flattened to THEIR text) — a bare "yes, do that" still ranks against the ask it answers
-    const ranked = rank(recs, q, { now: Date.now(), streamId });   // M-mem.2b: boost the active workstream's working memory
-    const recall = renderRecall(ranked, { limit: 1500 });
+    const recallOpts = {now:Date.now(),streamId,agentId,lessonScopeSnapshot:o.lessonScopeSnapshot,canReadStructuredLesson:canReadProjectLesson};
+    const ranked = rank(recs, q, recallOpts);   // M-mem.2b: boost the active workstream's working memory
+    const recall = renderRecall(ranked, { ...recallOpts, limit: 1500 });
     if (recall.text) {
       msgs = injectRecall(msgs, redact(recall.text));   // §5.6 belt-and-suspenders: a legacy plaintext note can't reach the provider verbatim
       emit('memory.recall', { agentId, runId, count: recall.count, chars: recall.chars });
@@ -20616,6 +20619,7 @@ function skillNameFromReflection(content) {
 // memory.feedback — the caller owns that (the semantics differ: keep=+2, edit=+1, silent auto-save=none). Returns
 // { ok, id, kind, skill? } or { ok:false, error }. `opts.source` labels a skill's provenance ('reflection').
 async function writeMemoryRecord(agentId, prop, opts) {
+  if (prop && LessonPromotion.isStructuredProposal(notebookStore, agentId, prop)) return {ok:false,error:"structured lesson requires operator project-reference promotion"};
   opts = opts || {};
   const content = String(opts.content != null ? opts.content : (prop && prop.content) || '').trim();
   if (!content) return { ok: false, error: 'a kept memory cannot be empty' };
@@ -20769,7 +20773,10 @@ async function handleMemoryTurnin(req, res) {
   // LOOK UP the durable proposal without consuming it. KEEP/EDIT is a two-phase operation: the destination write
   // must succeed before the queue/card is removed, or ENOSPC turns the Commander's decision into permanent loss.
   const queued = findPending(agentId, runId, id);
-  const prop = live || queued;
+  let prop = live || queued;
+  if (!prop && verdict === "keep" && body.promotion === LessonPromotion.PROMOTION) {
+    try { prop = LessonPromotion.retryProposal(notebookStore, agentId, runId, id); } catch (e) { return json(409,{error:e.message}); }
+  }
   if (!prop) return json(404, { error: 'no such proposal (it may have expired)' });
   const dropLive = () => {
     if (batch && live) {
@@ -20788,6 +20795,15 @@ async function handleMemoryTurnin(req, res) {
     chanEmit('memory.feedback', { agentId, id: prop.id, delta: fb.delta, reason: fb.reason });
     return json(200, { ok: true, verdict, id: null });
   }
+  // Structured Keep has its own operator-only commit; generic trust/skill/feedback paths never run.
+  try {
+    if (LessonPromotion.isStructuredProposal(notebookStore, agentId, prop)) {
+      if (verdict !== 'keep' || body.promotion !== LessonPromotion.PROMOTION) return json(409,{error:'structured lesson requires scoped validation/promotion through Keep project reference only; Edit is blocked'});
+      const promoted = await LessonPromotion.promote({store:notebookStore,agentId,prop,runId,clock:{now:()=>Date.now()}});
+      await takePending(agentId,runId,id);dropLive();
+      return json(200,{...promoted,verdict:'keep'});
+    }
+  } catch(e) { return json(409,{error:'project reference promotion unavailable: '+e.message}); }
   // keep/edit -> commit a real §5.2 record via the ONE write path (shared with silent auto-save). The keep/edit
   // verdict seeds real trust (fb.delta); a skill proposal becomes a saved skill instead of a note.
   if (prop.proposalType === 'decision-lesson') { try { await claimDecisionLessonKeep(agentId, prop); } catch (e) { return json(409, { error:'lesson review is no longer available: ' + ((e && e.message) || e) }); } }
@@ -20858,6 +20874,7 @@ function servePending(req, res) {
     const agent = u.searchParams.get('agent') || 'agent';
     if (!isAgentId(agent)) return json(403, { error: 'forbidden' });
     const rows = listPending(agent).map(p => redact({
+      ...(p.proposalType === 'decision-lesson' || Object.prototype.hasOwnProperty.call(p,'lessonContract') ? LessonPromotion.pendingPromotion(notebookStore,agent,p,Date.now()) : {}),
       runId: p.runId || '', id: p.id || '', kind: p.kind || 'note',
       content: String(p.content || ''), scope: p.scope || 'global',
       origin: p.origin || 'commander', createdAt: p.createdAt || 0,

@@ -132,4 +132,4 @@ function projectValidation(p,redact,now,row,agentId,cleanContract) {
     throw new Error('validation projection exceeds byte budget');
   } catch (_) { return {reviewState:{state:'unavailable',...LABELS},validationFreshness:'unknown'}; }
 }
-module.exports={makeValidationTool,projectValidation,MAX_EVIDENCE_BYTES,MAX_AUDIT_BYTES,MAX_PROJECTION_BYTES};
+module.exports={inspect,audit,freshness,stable,makeValidationTool,projectValidation,MAX_EVIDENCE_BYTES,MAX_AUDIT_BYTES,MAX_PROJECTION_BYTES};

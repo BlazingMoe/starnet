@@ -84,7 +84,7 @@ const api=sandbox.module.exports;
   const index=fs.readFileSync(path.join(__dirname,'../frontend/index.html'),'utf8');
   A.ok(station.includes('MemoryDecisionHistory.load(a.id)'),'selected agent Memory Core mounts the retrospective using its own agent ID');
   A.ok(station.includes('STRUCTURED LESSON · UNVERIFIED') && station.includes('Positive examples:') && station.includes('Negative examples:'),'pending lesson review renders structured metadata and both examples as text');
-  A.ok(/if \(p\.lessonContract\) \{ keep\.disabled = true; keep\.title = 'structured lesson requires scoped validation\/promotion; not yet supported'/.test(station),'structured lesson Keep is visibly disabled pending validation/promotion');
+  A.ok(station.includes("keep.textContent = 'Keep project reference only'") && station.includes("p.promotion.eligible === true") && station.includes("promotion:'project-reference-only'"),'project reference Keep requires eligible host projection and sends explicit promotion intent');
   A.eq(stationMirror,station,'website station UI mirror includes the structured lesson review boundary');
   A.ok(index.includes('app/memorydecisions.js'),'the decision history component loads before the Memory Core owner');
   A.report('memory-decisions-ui.test');

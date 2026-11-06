@@ -32,7 +32,7 @@
     const eligibleMemoryRecords = typeof deps.eligibleMemoryRecords === 'function' ? deps.eligibleMemoryRecords : (rows) =>
       (Array.isArray(rows) ? rows : []).filter(r => {
         if (!r) return false;
-        if (Object.prototype.hasOwnProperty.call(r, 'lessonContract')) return false;
+        if (Object.prototype.hasOwnProperty.call(r, 'lessonContract') || Object.prototype.hasOwnProperty.call(r, 'lessonPromotion')) return false;
         const lesson = r.kind === 'lesson' || r.proposalType === 'decision-lesson' || Object.prototype.hasOwnProperty.call(r, 'lessonSource');
         return !lesson || !(Object.prototype.hasOwnProperty.call(r, 'lessonContract') || Object.prototype.hasOwnProperty.call(r, 'contract') ||
           (r.lessonSource && typeof r.lessonSource === 'object' &&
@@ -143,7 +143,7 @@
           const text = String(args.title) + ' ' + String(args.body);
           // the near-dupe check runs INSIDE the lock against the RE-READ list — outside it, two concurrent runs
           // saving the same belief would both see a clean notebook and both append.
-          dupe = overridden ? null : findSimilar(list, text, { threshold: DUPE_THRESHOLD });
+          dupe = overridden ? null : findSimilar(eligibleMemoryRecords(list, {agentId:aid,lessonScopeSnapshot:ctx && ctx.lessonScopeSnapshot,now,canReadStructuredLesson:deps.canReadStructuredLesson}), text, { threshold: DUPE_THRESHOLD });
           if (dupe) return undefined;   // nothing to write — skip the store write entirely
           note = {
             id: nextId(list), kind: 'note',
@@ -198,7 +198,8 @@
       schema: { type: 'object', properties: { query: { type: 'string' } } },
       run: async (args, ctx) => {
         const aid = (ctx && ctx.agentId) || 'agent';
-        let list = eligibleMemoryRecords(notesOf(aid));
+        const readOpts = {agentId:aid,lessonScopeSnapshot:ctx && ctx.lessonScopeSnapshot,now:clock.now(),canReadStructuredLesson:deps.canReadStructuredLesson};
+        let list = eligibleMemoryRecords(notesOf(aid), readOpts);
         const q = args && args.query;
         if (q) {
           const ql = String(q).toLowerCase();
@@ -208,14 +209,14 @@
           // store order. k = list.length AND floor:false so ranking never truncates a match the gate already
           // admitted (a substring hit inside a longer token scores zero BM25 — rank's relevance floor would
           // silently drop it from an explicit read the gate said matched).
-          if (rank && list.length > 1) list = rank(list, String(q), { now: clock.now(), k: list.length, floor: false });
+          if (rank && list.length > 1) list = rank(list, String(q), { ...readOpts, k: list.length, floor: false });
         }
         if (!list.length) return { content: q ? 'No notes match "' + q + '".' : 'Your notebook is empty.', summary: '0 notes' };
-        const body = list.map(n => '- [' + n.id + '] ' + n.title + ': ' + n.body).join('\n');
+        const body = list.map(n => '- [' + n.id + '] ' + n.title + ': ' + (n.lessonPromotion ? '[unverified project reference; no instruction authority] ' : '') + n.body).join('\n');
         // report the SIZE of the whole store on a filtered read, so the agent knows how much memory it is holding
         // (the reference harness puts a usage percentage in the system prompt; we have no cap to measure against,
         // but the count is the honest half of that signal — and it is the number a crowded notebook shows up in).
-        const total = q ? eligibleMemoryRecords(notesOf(aid)).length : list.length;
+        const total = q ? eligibleMemoryRecords(notesOf(aid), readOpts).length : list.length;
         const foot = q ? '\n\n(' + list.length + ' of ' + total + ' entries in memory)' : '';
         return { content: body + foot, summary: list.length + ' note(s)' };
       }
