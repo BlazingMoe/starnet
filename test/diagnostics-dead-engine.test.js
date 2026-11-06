@@ -39,8 +39,9 @@ const Diag = require('../frontend/app/diagnostics.js');
     const alive = await Diag.localReport({ engineAlive: true });
     A.ok(/REACHABLE \(GET \/api\/health answered\)/.test(verdictLine(alive)), 'a proven-alive engine says so explicitly');
     A.ok(!/NOT REACHABLE/.test(verdictLine(alive)), 'a proven-alive engine is never reported as unreachable');
-    // The whole point of the report: it must tell support that a restart is the WRONG fix in this case.
-    A.ok(/will NOT help/.test(alive), 'the alive report warns support that restart/reinstall cannot help');
+    // Health liveness cannot establish the cause of a different endpoint failure.
+    A.ok(/proves only that the health endpoint answered/.test(alive), 'health success is scoped to the health endpoint');
+    A.ok(!/sidecar is fine|fault is upstream|will NOT help/.test(alive), 'health success does not invent a root cause or rule out recovery');
 
     const unproven = await Diag.localReport({});
     A.ok(/UNPROVEN/.test(verdictLine(unproven)), 'an unanswered probe is reported UNPROVEN...');

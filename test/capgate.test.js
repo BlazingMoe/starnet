@@ -112,6 +112,9 @@ function station(objsByRoom, assignedRoom) {
   const withCab = officeReach({ surface: 'interactive', extraObjects: [{ objectType: 'cabinet' }] });
   A.ok(withCab.tools.indexOf('fs.read') >= 0 && withCab.tools.indexOf('fs.write') >= 0, 'F3: placing a CABINET unlocks files');
   A.eq(withCab.approvalRules['fs.write'].requiresConsent, true, 'F3: file WRITE is consent-gated');
+  A.ok(withCab.tools.includes('economics.calculate'), 'F3: the pure offer calculator follows the cabinet used by the recipe');
+  A.eq(withCab.approvalRules['economics.calculate'].requiresConsent, false, 'F3: pure arithmetic adds no write-consent surface');
+  A.eq(fresh.tools.includes('economics.calculate'), false, 'F3: no cabinet means the calculator is absent');
   const withWb = officeReach({ surface: 'interactive', extraObjects: [{ objectType: 'workbench' }] });
   A.ok(withWb.tools.indexOf('shell.exec') >= 0 && withWb.tools.indexOf('verify.run') >= 0, 'F3: placing a WORKBENCH unlocks the terminal');
 

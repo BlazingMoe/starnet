@@ -1,6 +1,11 @@
 # Google account sign-in
 
-Customers use **Sign in with Google**, choose an account, and approve the listed
+> **Moe AI Station private-fork note:** the active deployment target is one private operator.
+> Use an OAuth Desktop app registration from a Google Cloud project you control as described in
+> `MOE_PRIVATE_OPERATOR_RUNBOOK.md`. The public-publisher activation material below remains
+> inherited reference only unless redistribution becomes a future goal.
+
+The operator uses **Sign in with Google**, chooses an account, and approves the listed
 permissions. No customer creates a Cloud project, enrolls in an MCP preview, or
 enters a client ID, client secret, or API key. The default browser handles consent;
 the desktop sidecar receives the loopback callback using state and PKCE S256.
@@ -52,11 +57,18 @@ grant access to Drive or another Google account. Each card can therefore use a
 different Google account. Simultaneous accounts within one service remain outside
 this change's scope.
 
-Gmail supports search, message/thread/attachment reading, draft creation and draft
-sending. Calendar is read-only. Drive supports metadata, file search, text exports
-and file metadata creation/update; `drive.file` limits which files StarNet can
-modify. Docs and Sheets support read/create/edit. Tools return real API errors;
-there is no simulated connection state. Responses are bounded to 8 MiB.
+Gmail supports search, message/thread/attachment reading, label discovery, reversible
+read/unread and inbox/archive state, explicit label changes, structured compose drafts,
+thread-safe sender reply drafts, advanced raw drafts and explicit draft sending.
+Calendar supports calendar/event reads, free/busy checks, event creation, partial
+event updates, deletion, and RSVP changes for the signed-in account's own `self:true`
+attendee entry. Drive supports metadata/search, Google Workspace text exports, bounded
+text/Markdown/CSV/JSON content reads, one-request text artifact creation, text-content
+replacement and metadata updates; `drive.file` limits which files StarNet can modify.
+Docs support read/create, simple end-of-document text append and advanced batch updates.
+Sheets support read/create, range writes, table-row append and advanced structural batch
+updates. Tools return real API errors; there is no simulated connection state. Responses
+are bounded to 8 MiB and requests to 2 MiB.
 
 References: [Google native OAuth](https://developers.google.com/identity/protocols/oauth2/native-app),
 [Google OAuth verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification).

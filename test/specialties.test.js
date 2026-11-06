@@ -93,4 +93,17 @@ A.eq(draft.manual, '- rule one', 'fromAgent pulls the manual from agent.docs');
 A.eq(draft.persona, 'gremlin', 'fromAgent carries the agent persona');
 A.eq(draft.accent, '#abc', 'fromAgent carries the agent suit color');
 
+
+/* ---------- organizational role metadata ---------- */
+A.eq(S.get('foreman').orgRole, 'manager', 'real Team Lead is exposed to the Recruitment Bay as manager');
+A.eq(S.get('harvester').orgRole, 'worker', 'real Data Collector is exposed as worker');
+A.eq(S.get('apptester').orgRole, 'worker', 'real QA Tester is exposed as worker');
+A.eq(S.get('researcher').orgRole, 'specialist', 'ordinary classes remain specialists');
+const customWorker = S.saveCustom({ name: 'Bounded Worker', purpose: 'Do one bounded task.', manual: '- Return evidence.', orgRole: 'worker' });
+A.eq(customWorker.orgRole, 'worker', 'custom specialty preserves an explicit org role');
+A.eq(S.get(customWorker.id).orgRole, 'worker', 'custom org role survives registry round-trip');
+const customDefault = S.saveCustom({ name: 'Plain Custom', purpose: 'Help broadly.', manual: '- Stay scoped.' });
+A.eq(customDefault.orgRole, 'specialist', 'custom specialty defaults safely to specialist');
+const roleDraft = S.fromAgent({ name: 'LEAD', orgRole: 'manager', personaId: 'direct', docs: { purpose: 'lead', manual: '- delegate' } });
+A.eq(roleDraft.orgRole, 'manager', 'saving a live organizational agent as a specialty preserves its role');
 A.report('specialties');

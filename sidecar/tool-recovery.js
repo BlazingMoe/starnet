@@ -4,11 +4,16 @@
 'use strict';
 
 const RecoveryPolicy = require('./recovery-policy.js');
+const { abortableDelay } = require('./providers/provider.js').runtime;
 
 async function wait(delayMs, signal, sleep) {
   if (signal && signal.aborted) return false;
-  if (typeof sleep === 'function') await sleep(delayMs);
-  else await new Promise(resolve => setTimeout(resolve, delayMs));
+  try {
+    await (typeof sleep === 'function' ? sleep : abortableDelay)(delayMs, signal);
+  } catch (e) {
+    if (signal && signal.aborted) return false;
+    throw e;
+  }
   return !(signal && signal.aborted);
 }
 

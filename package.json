@@ -20,7 +20,7 @@
     "tauri"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=18.17"
   },
   "scripts": {
     "validate:raw": "node test/validate_map.js",
@@ -85,6 +85,7 @@
     "recovery:backup": "node scripts/station-recovery.mjs backup",
     "recovery:inspect": "node scripts/station-recovery.mjs inspect",
     "recovery:restore": "node scripts/station-recovery.mjs restore",
+    "recovery:browser": "node scripts/station-browser-recovery.mjs",
     "t3:release-smoke": "node scripts/t3-release-smoke.mjs",
     "t3:release-smoke:loop": "node scripts/t3-release-smoke.mjs --loop=3",
     "t3:release-smoke:live": "node scripts/t3-release-smoke.mjs --require-live",
@@ -166,7 +167,8 @@
     "@huggingface/transformers": "^4.2.0",
     "kokoro-js": "^1.2.1",
     "node-pty": "^1.1.0",
-    "ogg-opus-decoder": "^1.7.3"
+    "ogg-opus-decoder": "^1.7.3",
+    "undici": "6.28.1"
   },
   "overrides": {
     "adm-zip": "0.6.0",

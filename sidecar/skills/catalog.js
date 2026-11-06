@@ -35,10 +35,13 @@
   function parseFrontmatter(text) {
     let t = String(text == null ? '' : text);
     if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);   // strip a leading BOM if a skill file happens to have one
-    const m = t.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/);
+    // Text files can be checked out with LF, CRLF, or mixed endings. Keep prompt composition and its
+    // character budget stable by canonicalizing line endings at the catalog boundary.
+    t = t.replace(/\r\n?/g, '\n');
+    const m = t.match(/^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/);
     if (!m) return { meta: {}, body: t };
     const meta = {};
-    for (const line of m[1].split(/\r?\n/)) {
+    for (const line of m[1].split('\n')) {
       const mm = line.match(/^([A-Za-z0-9_-]+)\s*:\s*(.*)$/);
       if (mm) meta[mm[1]] = parseValue(mm[2]);
     }

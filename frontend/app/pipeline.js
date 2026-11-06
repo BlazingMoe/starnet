@@ -680,7 +680,7 @@
      Same line gate, same walk, same pick counter as chainNext — the runner calls THIS and chainNext stays the
      plain single-dock reading every older surface uses. `ctx.fromTile` lets the runner resume the walk from a
      junction it just released (a join) or re-enter from a loop gate (`ctx.via === 'back'`). */
-  function chainStep(plan, agentId, ctx, pick) {
+  function chainStep(plan, agentId, ctx, pick, traceOut) {
     if (!plan || !plan.chains || !plan.belts) return null;
     const carried = (ctx && ctx.lineId != null && String(ctx.lineId)) || null;
     const own = lineOf(plan, agentId);
@@ -693,12 +693,21 @@
     // gate's back lane / barrier is what runs, and only the walk below can see it
     if (!fromTile && (!rec || !rec.tile || (!rec.next.length && !rec.gated))) return null;
     const walkAgent = r => (r && r.agentId) ? r.agentId : null;
+    const MAX_DECISIONS = 32;
+    const observed = []; let observedTruncated = false;
+    function addDecision(list, row) {
+      const overflow = list.length >= MAX_DECISIONS;
+      if (!overflow) list.push(row); else observedTruncated = true;
+      if (observed.length < MAX_DECISIONS) observed.push(row); else observedTruncated = true;
+      return overflow;
+    }
     // walk one lane to the first foreign dock, honouring filters/merges; stops at a join, a loop or a fan-out split
     function walk(start, startDir) {
-      let t = start, forced = startDir || null, guard = 0; const seen = {};
+      let t = start, forced = startDir || null, guard = 0; const seen = {}, decisions = [];
+      let decisionsTruncated = false;
       while (t && guard++ < 4096) {
         const k = key(t.x, t.y);
-        if (bayAt[k] && bayAt[k] !== agentId) return { agentId: bayAt[k] };
+        if (bayAt[k] && bayAt[k] !== agentId) return { agentId: bayAt[k], decisions, decisionsTruncated };
         if (seen[k]) return null;
         seen[k] = true;
         const here = map[k]; if (!here) return null;
@@ -708,32 +717,58 @@
         else if (j && j.kind === 'join') {
           const ex = outLanes(map, t.x, t.y)[0] || here, v = DIRV[ex];
           const nt = { x: t.x + v[0], y: t.y + v[1] };
-          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: map[key(nt.x, nt.y)] ? walkAgent(walk(nt)) : null };
+          decisionsTruncated = addDecision(decisions, { kind: 'join', junction: k, outcome: 'awaiting-branches', expected: j.expect || 0 }) || decisionsTruncated;
+          const downstream = map[key(nt.x, nt.y)] ? walk(nt) : null;
+          return { join: k, expect: j.expect || 0, timeoutMin: j.timeoutMin || 10, next: walkAgent(downstream), decisions, decisionsTruncated };
         } else if (j && j.kind === 'loop') {
           const ll = loopLanes(map, t.x, t.y, j), vd = ll.done ? DIRV[ll.done] : null;
           const nt = vd ? { x: t.x + vd[0], y: t.y + vd[1] } : null;
           // esc (2026-08-30): the dock the ESCALATION lane reaches (pre-resolved at compile like backTo) —
           // the runner sends a verdict-exhausted crate THERE instead of annotating it onto the done lane
-          return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: j.backTo || null, when: j.when || null, esc: j.escTo || null, next: (nt && map[key(nt.x, nt.y)]) ? walkAgent(walk(nt)) : null };
+          const observedStart = observed.length;
+          const downstream = (nt && map[key(nt.x, nt.y)]) ? walk(nt) : null;
+          const nextDecisions = downstream && downstream.decisions || (!downstream ? observed.slice(observedStart) : []);
+          const nextDecisionsTruncated = !!(downstream && downstream.decisionsTruncated) || (!downstream && observedTruncated);
+          return { loop: k, max: j.max || LOOP_MAX_DEFAULT, backTo: j.backTo || null, when: j.when || null, esc: j.escTo || null, next: walkAgent(downstream), nextDecisions, nextDecisionsTruncated, decisions, decisionsTruncated };
         } else if (j && j.kind === 'split' && j.fanout) {
           /* a lane may lead to an INNER fan-out split (a cascade — how a floor goes wider than 3
              branches): its walk returns { branches }, and dropping that on the floor lost every dock
              behind it (the joiner then waited on branches nobody launched, 2026-08-30). Splice the
              inner split's branches in — recursion handles any depth. */
-          const lanes = outLanes(map, t.x, t.y), branches = [];
+          const lanes = outLanes(map, t.x, t.y), branches = [], nested = [];
           for (const ld of lanes) {
             const v = DIRV[ld], nt = { x: t.x + v[0], y: t.y + v[1] }; if (!map[key(nt.x, nt.y)]) continue;
+            const observedStart = observed.length;
             const r = walk(nt);
+            if (!r) {
+              const omitted = observed.slice(observedStart);
+              for (const decision of omitted) {
+                if (nested.length < MAX_DECISIONS) nested.push(decision); else decisionsTruncated = true;
+              }
+              if (observedTruncated) decisionsTruncated = true;
+            }
+            if (r && r.decisions) {
+              for (const decision of r.decisions) {
+                if (nested.length < MAX_DECISIONS) nested.push(decision); else decisionsTruncated = true;
+              }
+              if (r.decisionsTruncated) decisionsTruncated = true;
+            }
             if (r && r.branches) { for (const a of r.branches) if (branches.indexOf(a) < 0) branches.push(a); }
             else if (r && r.agentId && branches.indexOf(r.agentId) < 0) branches.push(r.agentId);
           }
-          return { branches, split: k };
+          if (branches.length > MAX_DECISIONS) { decisionsTruncated = true; observedTruncated = true; }
+          decisionsTruncated = addDecision(decisions, { kind: 'split', junction: k, outcome: 'fanout', agents: branches.slice(0, MAX_DECISIONS) }) || decisionsTruncated;
+          const combined = decisions.concat(nested);
+          if (combined.length > MAX_DECISIONS) decisionsTruncated = true;
+          return { branches, split: k, decisions: combined.slice(0, MAX_DECISIONS), decisionsTruncated };
         } else if (j && j.kind === 'filter') {
           const lanes = outLanes(map, t.x, t.y), want = j.routes && j.routes[tag];
-          d = (want && lanes.indexOf(want) >= 0) ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
+          const explicit = !!(want && lanes.indexOf(want) >= 0), fallback = !explicit && !(j.def && lanes.indexOf(j.def) >= 0);
+          d = explicit ? want : (j.def && lanes.indexOf(j.def) >= 0) ? j.def : (lanes[0] || here);
+          decisionsTruncated = addDecision(decisions, { kind: 'filter', junction: k, outcome: explicit ? 'route' : fallback ? 'fallback' : 'default', lane: d }) || decisionsTruncated;
         } else if (j && j.kind === 'split') {
           const lanes = outLanes(map, t.x, t.y);
-          if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; }
+          if (lanes.length) { const i = pick ? ((pick(k, lanes.length) % lanes.length) + lanes.length) % lanes.length : 0; d = lanes[i]; decisionsTruncated = addDecision(decisions, { kind: 'split', junction: k, outcome: 'selected', lane: d }) || decisionsTruncated; }
         }
         const v = DIRV[d], nx = t.x + v[0], ny = t.y + v[1];
         if (!map[key(nx, ny)]) return null;
@@ -741,14 +776,20 @@
       }
       return null;
     }
+    let result;
     if (fromTile) {
       // resume from a junction: a released JOIN leaves on its single exit; a LOOP re-entry takes the back lane
       const jk = key(fromTile.x, fromTile.y), j = junctions[jk];
-      if (j && j.kind === 'loop' && ctx.via === 'back') { if (!j.back) return null; return walk(fromTile, j.back); }
-      const ex = outLanes(map, fromTile.x, fromTile.y)[0]; if (!ex) return null;
-      return walk(fromTile, ex);
+      if (j && j.kind === 'loop' && ctx.via === 'back') result = j.back ? walk(fromTile, j.back) : null;
+      else { const ex = outLanes(map, fromTile.x, fromTile.y)[0]; result = ex ? walk(fromTile, ex) : null; }
+    } else result = walk(rec.tile);
+    // Optional side-channel preserves the historical null result for terminal/dead-end paths while letting the
+    // executor report decisions that were made before the walk reached that terminal.
+    if (result === null && traceOut && typeof traceOut === 'object') {
+      traceOut.decisions = observed.slice();
+      traceOut.decisionsTruncated = observedTruncated;
     }
-    return walk(rec.tile);
+    return result;
   }
 
   /* ---------- legibility layer: pure readouts of the compiled plan (no routing behavior) ----------

@@ -25,6 +25,22 @@
 const ToolProps = (() => {
   // exact-name grants that don't share a family prefix (from CAP_REGISTRY's notebook rows)
   const EXACT = {
+    'website.audit.pack': 'cabinet',
+    'website.leads.prepare': 'cabinet',
+    'etsy.pod.prepare': 'cabinet',
+    'fiverr.handoff.prepare': 'cabinet',
+    'channel.content.prepare': 'cabinet',
+    'channel.render.prepare': 'cabinet',
+    'channel.youtube.prepare': 'cabinet',
+    'channel.youtube.initiate': 'cabinet',
+    'channel.youtube.status': 'cabinet',
+    'channel.youtube.upload': 'cabinet',
+    'channel.youtube.verify': 'cabinet',
+    'channel.render.submit': 'cabinet',
+    'channel.render.reconcile': 'cabinet',
+    'channel.render.finalize': 'cabinet',
+    'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
+    'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',
     web_fetch: 'dish',
     web_request: 'dish',   // calling a third-party API is a WEB reach — the dish is the prop that projects it

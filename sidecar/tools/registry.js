@@ -94,6 +94,26 @@
     if (precondition) result.precondition = precondition;
     return result;
   };
+  function sourceReceiptFrom(toolName, call, ctx, value) {
+    if (toolName !== 'web_fetch' || !value || typeof value !== 'object'
+        || !/^[a-f0-9]{32}$/.test(String(value.id || ''))
+        || !['fetched', 'blocked'].includes(value.state)
+        || typeof value.requestedUrlDisplay !== 'string' || value.requestedUrlDisplay.length > 2048
+        || !Number.isFinite(Date.parse(value.fetchedAt || ''))) return null;
+    if (value.state === 'fetched' && (!/^[a-f0-9]{64}$/.test(String(value.textSha256 || ''))
+        || !['jina', 'direct', 'browser'].includes(value.method) || typeof value.truncated !== 'boolean')) return null;
+    if (value.state === 'blocked' && (value.method !== 'transport' || typeof value.blockedReason !== 'string' || value.blockedReason.length > 120)) return null;
+    let url;
+    try { url = new URL(value.requestedUrlDisplay); } catch (_) { return null; }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return null;
+    return {
+      id: value.id, runId: String((ctx && ctx.runId) || '').slice(0, 200),
+      agentId: String((ctx && ctx.agentId) || '').slice(0, 80),
+      callId: String((call && call.id) || '').slice(0, 200), state: value.state,
+      requestedUrlDisplay: url.href, method: value.method, fetchedAt: new Date(value.fetchedAt).toISOString(),
+      ...(value.state === 'fetched' ? { truncated: value.truncated, textSha256: value.textSha256 } : { blockedReason: value.blockedReason })
+    };
+  }
 
   // Ask the host to keep the full output. Never throws and never blocks a result: a parker that fails just
   // means we fall back to the plain clamp — losing the tail must never also lose the answer.
@@ -307,7 +327,16 @@
         }
         const fullBytes = typeof full === 'string' ? utf8Bytes(full) : null;
         const visible = full !== raw && typeof full === 'string' ? intrinsicReceipt(raw, full.length, fullBytes, parked) : raw;
-        return await notifyPost(okResult(visible, shaped ? out.summary : undefined, shaped ? out.control : undefined, parked, shaped ? out.images : undefined, typeof full === 'string' ? full.length : null, fullBytes, shaped ? out.mutationReceipt : null), elapsed());
+        const result = okResult(visible, shaped ? out.summary : undefined, shaped ? out.control : undefined, parked, shaped ? out.images : undefined, typeof full === 'string' ? full.length : null, fullBytes, shaped ? out.mutationReceipt : null);
+        result.sourceReceipt = shaped ? sourceReceiptFrom(call.name, call, ctx, out.sourceReceipt) : null;
+        // The central host cap can shorten output after a builtin has produced its own bounded excerpt.
+        // Preserve an honest truncation state and keep the opaque receipt marker visible even if the tail was cut.
+        if (result.sourceReceipt && result.sourceReceipt.state === 'fetched' && result.content !== visible) {
+          result.sourceReceipt.truncated = true;
+          const marker = '[host output truncated; source receipt: ' + result.sourceReceipt.id + ']';
+          if (typeof result.content === 'string') result.content = marker + '\n' + result.content;
+        }
+        return await notifyPost(result, elapsed());
       } catch (e) {
         if (e && e.__timeout) return await notifyPost(errResult('tool ' + call.name + ' timed out after ' + timeoutMs + 'ms', 'timeout'), elapsed());
         const errorText = 'tool ' + call.name + ' failed: ' + (e && e.message ? e.message : String(e));

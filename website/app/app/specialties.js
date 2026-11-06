@@ -20,11 +20,22 @@
   const shared = (typeof module !== 'undefined' && module.exports)
     ? require('../../shared/specialties.js')
     : (root.SharedSpecialties || {});
-  const api = factory(shared);
+  const org = (typeof module !== 'undefined' && module.exports)
+    ? require('../../shared/org-specialties.js')
+    : ((root.SK && root.SK.orgSpecialties) || {});
+  const api = factory(shared, org);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.Specialties = api; }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (shared) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (shared, org) {
   'use strict';
+
+  const ORG_ROLES = new Set(['commander', 'manager', 'specialist', 'worker']);
+  function orgRoleForSpec(s) {
+    const explicit = String((s && s.orgRole) || '').trim().toLowerCase();
+    if (ORG_ROLES.has(explicit)) return explicit;
+    if (org && typeof org.roleForSpecialty === 'function') return org.roleForSpecialty(s && s.id);
+    return 'specialist';
+  }
 
   const STORE_KEY = 'starnet.specialties.v1';   // localStorage home for custom (save-your-own) specialties
   const DEFAULT_ID = shared.DEFAULT_ID || 'chief';
@@ -91,6 +102,7 @@
       kit: normList(s.kit),                           // CAP_REGISTRY objectTypes auto-requisitioned at the workstation
       skills: normList(s.skills),                     // bundled skill-library slugs enabled for THIS agent (ADD-only)
       reasoningEffort: normEffort(s.reasoningEffort), // applied default effort (roster record); pips stay advisory
+      orgRole: orgRoleForSpec(s),                      // derivative hierarchy metadata; never a capability grant
       custom: false
     });
   }
@@ -133,6 +145,7 @@
       // LOADOUT (Class Loadouts S1): customs carry a loadout too so a saved class is a full loadout. S3 adds
       // the kit/skill pickers to the custom builder; until then these default empty (a plain persona-only class).
       kit: normList(s.kit).slice(), skills: normList(s.skills).slice(), reasoningEffort: normEffort(s.reasoningEffort),
+      orgRole: orgRoleForSpec(s),
       custom: true
     };
   }
@@ -175,6 +188,7 @@
       manual: (typeof d.manual === 'string' && d.manual) || '',
       persona: (agent && agent.personaId) || 'friendly',
       accent: (agent && agent.color) || '#ffaa33',
+      orgRole: orgRoleForSpec(agent || {}),
       model: 'balanced',
       starters: []
     };

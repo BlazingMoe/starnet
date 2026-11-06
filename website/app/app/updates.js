@@ -9,8 +9,9 @@ const Updates = (() => {
   // failure, an unsupported install layout). Reinstalling the latest build over the top keeps
   // ALL user data (workspaces live in Application Support; localStorage/IndexedDB in the WebView
   // store keyed by the unchanged bundle id — both OUTSIDE the app bundle the installer replaces).
-  // Kept in sync with tauri.conf.json plugins.updater.endpoints[0] (same repo, /releases/latest).
-  const RELEASES_PAGE = 'https://github.com/androoAGI/starnet-releases/releases/latest';
+  // DERIVATIVE ISOLATION: never send users to the upstream StarNet release repository.
+  // This points at our own fork until the dedicated signed Moe AI Station release channel is provisioned.
+  const RELEASES_PAGE = 'https://github.com/BlazingMoe/starnet/releases/latest';
   const CORE = (typeof UpdateCore !== 'undefined') ? UpdateCore : null;
   const TAURI = (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core) ? window.__TAURI__.core : null;
   const invoke = (cmd, args) => TAURI.invoke(cmd, args || {});
@@ -175,8 +176,6 @@ const Updates = (() => {
     return snapshot();
   }
 
-  // Bound any promise so a hung sidecar cannot stall the update. Timeout/throw returns an explicit failure
-  // marker; the installer never starts unless both final browser-owned writes are confirmed.
   function withTimeout(promise, ms, fallback) {
     return Promise.race([
       Promise.resolve().then(() => promise).catch(() => fallback),
@@ -184,14 +183,11 @@ const Updates = (() => {
     ]);
   }
 
-  // Flush the durable mirror + push the roster before the mutation barrier, each time-boxed and fail-closed.
   async function preInstallDrain(ms) {
     const budget = Math.max(250, +ms || 3000);
     const failed = { ok: false, timeout: true };
-    // flushForUpdate distinguishes "nothing pending" from "pending write failed"; only the latter blocks.
     const save = (typeof CloudSave !== 'undefined' && CloudSave && typeof CloudSave.flushForUpdate === 'function')
       ? await withTimeout(CloudSave.flushForUpdate(), budget, failed) : failed;
-    // App.pushRoster() returns true only after the sidecar accepts and parses the full roster replacement.
     const roster = (typeof App !== 'undefined' && App && typeof App.pushRoster === 'function')
       ? await withTimeout(App.pushRoster(), budget, false) : false;
     return { ok: !!(save && save.ok === true && roster === true), save, roster: roster === true };
@@ -240,9 +236,6 @@ const Updates = (() => {
     throw lastError || new Error('update cancellation failed');
   }
 
-  // Count of sidecar-CONFIRMED live runs (Channels.busy flips on real agent.run.start/end,
-  // never on hope) — the truthful input to the GB-4 install guard. 0 when Channels is absent
-  // (browser preview), which is also the only context where installing is impossible anyway.
   function liveRunCount() {
     try {
       return (typeof Channels !== 'undefined' && Channels && typeof Channels.busyCount === 'function')
@@ -261,9 +254,6 @@ const Updates = (() => {
       notify('Update progress channel is unavailable in this build', 'warn');
       return snapshot();
     }
-    // GB-4: the installer restarts (NSIS: kills) the app, terminating every live provider
-    // stream mid-run. Never do that as a click side effect — pause and make it an explicit
-    // choice. `force` is set only by the INSTALL ANYWAY button on the guard card.
     const running = liveRunCount();
     const blockReason = CORE.installBlockReason ? CORE.installBlockReason(running, !!opts.force) : null;
     if (blockReason) {
@@ -280,9 +270,6 @@ const Updates = (() => {
     state.error = '';
     const onEvent = new Channel(event => handleInstallEvent(event));
     emit();
-    // The installer can kill this process. First prove the newest save + roster landed, then ask the sidecar to
-    // freeze every mutation, wait for quiescence, snapshot workspace + browser state, read it back, and issue a
-    // durable receipt. Any failed proof leaves the current version running and writable.
     const drained = await preInstallDrain();
     if (!drained.ok) {
       state.phase = 'available';
@@ -304,13 +291,13 @@ const Updates = (() => {
     }
     state.phase = 'downloading';
     emit();
-    installing = true;   // from here a close-requested is the update restart — quit guard must allow it
+    installing = true;
     try {
       await invoke('starnet_update_install', { onEvent });
       state.phase = 'restarting';
       notify('StarNet update installed - restarting', 'good');
     } catch (e) {
-      installing = false;   // install failed; the app lives on, so the quit guard resumes normally
+      installing = false;
       let thawError = null;
       try { await cancelPreparation(); }
       catch (cancelError) { thawError = cleanError(cancelError); }
@@ -395,8 +382,6 @@ const Updates = (() => {
     if (auto) auto.addEventListener('change', ev => setAutoCheck(ev.target.checked));
     const open = body.querySelector('#set-updates-open');
     if (open && typeof StationUI !== 'undefined' && StationUI.toggleTerm) {
-      // no per-window width: UPDATE CENTER is the default PANEL shell, same as its BUILDERS entry
-      // (two window sizes only — see the note in frontend/css/style.css).
       open.addEventListener('click', () => StationUI.toggleTerm('updates', 'UPDATE CENTER', render, {}));
     }
   }
@@ -425,8 +410,6 @@ const Updates = (() => {
         (update.date ? '<div class="up-meta">published ' + esc(update.date) + '</div>' : '') +
         (notes ? '<pre class="up-notes">' + esc(notes) + '</pre>' : '<div class="up-meta">No release notes were provided.</div>');
       if (guardN > 0) {
-        // GB-4 guard card: install was clicked while agents are live. The count is
-        // Channels-confirmed, and the choice is the Commander's, not a side effect.
         out += '<div class="up-guard">' +
           esc(guardN === 1 ? '1 AGENT IS STILL WORKING' : guardN + ' AGENTS ARE STILL WORKING') +
           ' - INSTALLING RESTARTS STARNET AND KILLS ' + (guardN === 1 ? 'ITS RUN' : 'THEIR RUNS') + '.</div>' +
@@ -447,8 +430,6 @@ const Updates = (() => {
         '<div class="up-meta">' + (state.contentLength ? (pct + '% downloaded') : phaseLabel()) + '</div>';
     }
     if (state.error) {
-      // Auto-update failed — never leave the user stuck. Surface the manual path explicitly:
-      // reinstalling the latest build keeps all data (see RELEASES_PAGE note).
       out += '<div class="up-error">' + esc(state.error) +
         '<br><button class="bb sm up-manual" id="up-manual-err">DOWNLOAD LATEST MANUALLY</button>' +
         '<span class="up-meta up-manual-note">Reinstalling over the top keeps your station and settings.</span></div>';
@@ -458,7 +439,6 @@ const Updates = (() => {
     return out;
   }
 
-  // Open the releases page in the system browser — same invoke-with-fallback pattern app.js uses.
   function openReleasesPage() {
     try {
       if (TAURI && typeof TAURI.invoke === 'function') {
@@ -495,8 +475,6 @@ const Updates = (() => {
   return {
     init, refreshStatus, check, install, preInstallDrain, snapshot, settingsHtml, wireSettings, render,
     phase: () => state.phase,
-    // True once an update install has committed — quitguard.js reads this so it never blocks the
-    // macOS/Linux app.restart() close (Windows exits before restart, so it never asks).
     isInstalling: () => installing,
     prefs: () => Object.assign({}, prefs)
   };

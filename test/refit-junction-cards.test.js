@@ -20,7 +20,8 @@ const path = require('path');
 const WM = require('../frontend/app/worldmodel.js');
 const P = require('../frontend/app/pipeline.js');
 
-const src = f => fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', f), 'utf8');
+// Keep newline-sensitive source assertions stable across Windows and Unix checkouts.
+const src = f => fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', f), 'utf8').replace(/\r\n/g, '\n');
 const build = src('build.js');
 
 /* ---------- 1. PURE helpers, extracted from the shipped source ---------- */

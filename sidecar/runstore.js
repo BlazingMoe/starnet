@@ -100,6 +100,14 @@
     };
   }
 
+  // Shape validation only. The runstore does not establish provenance; only the host run-admission path
+  // may pass this field after resolving the current operator binding.
+  function lessonScopeSnapshot(v) {
+    if (!v || typeof v !== 'object' || v.schemaVersion !== 1 || v.type !== 'project') return null;
+    const id = str(v.id);
+    return /^[A-Za-z0-9_-]{16,120}$/.test(id) ? { schemaVersion:1, type:'project', id } : null;
+  }
+
   function toolTraceList(v) {
     if (!Array.isArray(v)) return [];
     const out = [];
@@ -228,6 +236,7 @@
         deliveryText: str(e.deliveryText).slice(0, DELIVERY_TEXT_MAX),
         recipeId: str(e.recipeId).slice(0, 60),   // provenance spine (additive): WHICH recipe launched this run ('' for non-recipe runs; old rows lack it and default '')
         projectRoot: str(e.projectRoot).slice(0, PROJECT_ROOT_MAX),   // deliverable organization (additive): the BLESSED project folder this run was scoped to ('' when unscoped/unblessed)
+        lessonScopeSnapshot: lessonScopeSnapshot(e.lessonScopeSnapshot),
         deliverable: deliverableNote(e.deliverable),                  // deliverable organization (additive): the agent's own PROSE name for the work (null when it never named it)
         reasoningEffort: str(e.reasoningEffort).trim().slice(0, 20),
         model: modelName(e.model),   // H3.3/G6: actual model used, or explicit (unknown) as a last resort

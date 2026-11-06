@@ -147,6 +147,16 @@ function memFs() {
     await appendPending(pstore, 'hero', 'run-b', [{ id: 'prop_1', kind: 'fact', content: 'a different belief' }], 7000);
     A.eq(listPending(pstore, 'hero').length, 2, 'the same prop id from a DIFFERENT run is its own entry');
 
+    const scopedLesson = { id:'lesson_project', kind:'lesson', proposalType:'decision-lesson', content:'Keep under review.',
+      sourceDecisionId:'decision_project', sourceOutcomeEventId:'out_project', sourceDecision:'choice', sourceOutcome:'reported',
+      sourceProjectBinding:{schemaVersion:1,type:'project',id:'opaque_project_id_0001',provenance:'forged',authority:'trusted'} };
+    await appendPending(pstore, 'lesson-agent', 'run-project', [scopedLesson], 7100);
+    const persistedBinding = findPending(pstore, 'lesson-agent', 'run-project', 'lesson_project').sourceProjectBinding;
+    A.eq(persistedBinding, {schemaVersion:1,type:'project',id:'opaque_project_id_0001',provenance:'host-admission-snapshot',authority:'historical-only'}, 'durable lesson metadata allowlists the bounded host binding and fixes its non-authoritative labels');
+    const badBindings = ['project-9', 'A'.repeat(121)].map((id, i) => ({ ...scopedLesson, id:'lesson_bad_'+i, sourceProjectBinding:{schemaVersion:1,type:'project',id} }));
+    await appendPending(pstore, 'lesson-agent', 'run-bad-projects', badBindings, 7200);
+    A.ok(badBindings.every(p => !Object.hasOwn(findPending(pstore, 'lesson-agent', 'run-bad-projects', p.id), 'sourceProjectBinding')), 'durable queue omits malformed or overlong host project IDs');
+
     const peeked = findPending(pstore, 'hero', 'run-a', 'prop_1');
     A.eq(peeked.content, 'the api key rotates monthly', 'two-phase turn-in can inspect the exact proposal before committing it');
     A.eq(listPending(pstore, 'hero').length, 2, 'non-consuming lookup leaves the proposal retryable when the destination write fails');

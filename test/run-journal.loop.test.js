@@ -35,7 +35,7 @@ function provider() {
   journal.begin({ runId: 'r', agentId: 'a' });
   const result = await runAgentLoop({
     messages, provider: provider(), emit() {}, model: 'm', agentId: 'a', runId: 'r',
-    onCheckpoint({ phase, messages: current, turn }) { journal.checkpoint('r', { phase, turn, messages: current }); },
+    onCheckpoint({ phase, messages: current, turn }) { journal.checkpointMessages('r', { phase, turn, messages: current }); },
     async dispatch(call) {
       journal.toolIntent('r', { callId: call.id, name: call.name, argsRaw: call.argsRaw, mutating: true, boundaryModel: 'prepared-dispatch-v1' });
       journal.toolDispatch('r', { callId: call.id, name: call.name, mutating: true });
@@ -47,7 +47,7 @@ function provider() {
   });
   journal.finish('r', { reason: result.reason, transcriptAck: true });
   const rows = _internals.parseRecords(io.read('r')).records;
-  A.eq(rows.map(r => r.type), ['begin', 'checkpoint', 'tool_intent', 'tool_dispatch', 'tool_result', 'checkpoint', 'checkpoint', 'finish'], 'assistant, prepared intent, dispatch, and result are durable in execution order');
+  A.eq(rows.map(r => r.type), ['begin', 'checkpoint', 'tool_intent', 'tool_dispatch', 'tool_result', 'checkpoint_delta', 'checkpoint_delta', 'finish'], 'assistant, prepared intent, dispatch, and result are durable in execution order');
   A.eq(rows[1].payload.phase, 'assistant', 'provider-valid tool-call assistant checkpoint is first');
   A.eq(rows[5].payload.phase, 'tool_results', 'paired tool results receive their own checkpoint');
   A.eq(journal.inspect('r').status, 'finished', 'fully paired terminal run is settled');
@@ -57,7 +57,7 @@ function provider() {
   uncertain.begin({ runId: 'u', agentId: 'a' });
   const failed = await runAgentLoop({
     messages: [{ role: 'user', content: 'mutate then fail' }], provider: provider(), emit() {}, model: 'm', agentId: 'a', runId: 'u',
-    onCheckpoint({ phase, messages: current }) { uncertain.checkpoint('u', { phase, messages: current }); },
+    onCheckpoint({ phase, messages: current }) { uncertain.checkpointMessages('u', { phase, messages: current }); },
     async dispatch(call) {
       uncertain.toolIntent('u', { callId: call.id, name: call.name, mutating: true, boundaryModel: 'prepared-dispatch-v1' });
       uncertain.toolDispatch('u', { callId: call.id, name: call.name, mutating: true });
