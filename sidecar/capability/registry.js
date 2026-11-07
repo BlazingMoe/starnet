@@ -100,6 +100,7 @@
       { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fiverr.handoff.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'service.studio.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'channel.content.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'channel.render.prepare', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'channel.youtube.prepare', scope: 'write', requiresConsent: true, network: false },

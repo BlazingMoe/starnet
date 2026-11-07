@@ -29,6 +29,7 @@ const ToolProps = (() => {
     'website.leads.prepare': 'cabinet',
     'etsy.pod.prepare': 'cabinet',
     'fiverr.handoff.prepare': 'cabinet',
+    'service.studio.prepare': 'cabinet',
     'channel.content.prepare': 'cabinet',
     'channel.render.prepare': 'cabinet',
     'channel.youtube.prepare': 'cabinet',

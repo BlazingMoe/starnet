@@ -767,6 +767,7 @@ test/website-leads.test.js
 test/etsy-pod.test.js
 
 test/fiverr-handoff.test.js
+test/service-studio.test.js
 
 test/channel-content.test.js
 test/video-render-transaction.test.js

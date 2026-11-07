@@ -69,6 +69,7 @@ const { makeWebsiteAuditTools } = require('./tools/builtin/website-audit.js');
 const { makeWebsiteLeadsTools } = require('./tools/builtin/website-leads.js');
 const { makeEtsyPodTools } = require('./tools/builtin/etsy-pod.js');
 const { makeFiverrHandoffTools } = require('./tools/builtin/fiverr-handoff.js');
+const { makeServiceStudioTools } = require('./tools/builtin/service-studio.js');
 const { makeChannelContentTools } = require('./tools/builtin/channel-content.js');
 const { makeVideoRenderTools } = require('./tools/builtin/video-render.js');
 const { makeYoutubeUploadTools } = require('./tools/builtin/youtube-upload.js');
@@ -15578,6 +15579,7 @@ async function runOnce(o) {
   makeWebsiteLeadsTools().register(registry);
   makeEtsyPodTools().register(registry);
   makeFiverrHandoffTools().register(registry);
+  makeServiceStudioTools().register(registry);
   makeChannelContentTools().register(registry);
   makeWebsiteDemoTools().register(registry); // pure bounded template; filesystem export remains consent-gated fs.write
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, canReadStructuredLesson:canReadProjectLesson, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
