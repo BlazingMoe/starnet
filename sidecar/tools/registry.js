@@ -318,6 +318,10 @@
         // A narrower tool ceiling may already have produced a preview. `fullContent` crosses this persistence
         // seam once and is never placed directly in model context.
         const full = shaped && typeof out.fullContent === 'string' ? out.fullContent : raw;
+        // Structured packs opt out of lossy success: check before parking or adding any receipt.
+        if (tool.requiresCompleteOutput && (typeof raw !== 'string' || full !== raw || raw.length > OUTPUT_MAX)) {
+          return await notifyPost(errResult('Complete tool output exceeds the active output limit or is incomplete; shorten supplied input. No partial result returned.', 'complete-output-required'), elapsed());
+        }
         // Park BEFORE clamping — the clamp is what destroys the middle, so the full text has to be on disk first.
         let parked = null;
         if (typeof full === 'string' && (full !== raw || full.length > OUTPUT_MAX) && ctx && typeof ctx.parkOutput === 'function') {

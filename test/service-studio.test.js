@@ -28,13 +28,14 @@ const events = require('../shared/events.js');
     review: Object.fromEntries(Demo.gates.map(k => [k, { decision: 'approved', evidenceId: 'fact' }])),
     duplicate: { workId: 'work-1', priorState: 'none', reconciliation: 'confirmed-new', evidenceId: 'fact' },
     revisionCap: 2, revisionsUsed: 0, supportWindowDays: 7, supportPlan: 'Two bounded rounds and seven days of documented questions', refundPlan: 'Supplied refund scenario reviewed by operator',
-    economics: { currency: 'EUR', costCurrency: 'EUR', quotedPriceMinor: '10000', costsMinor: Object.fromEntries(Demo.costs.map(k => [k, '100'])), minutes: { production: 40, revisions: 10, support: 10 }, evidenceId: 'estimate' }
+    economics: { currency: 'EUR', costCurrency: 'EUR', quotedPriceMinor: '10000', costsMinor: Object.fromEntries(Demo.costs.map(k => [k, '100'])), minutes: { acquisition: 20, sales: 10, production: 40, revisions: 10, support: 10 }, evidenceId: 'estimate' }
   };
   const fs = require('node:fs'), pack = Demo.prepare(input);
   A.eq(pack.state, 'READY_FOR_HUMAN_PRIVATE_PRODUCTION_REVIEW', 'only private human review readiness');
   A.eq(pack.economics.totalCostMinor, '1000', 'all ten supplied cost categories counted');
   A.eq(pack.economics.modeledContributionMinor, '9000', 'scenario is not revenue or profit');
-  A.eq(pack.economics.hourlyModeledContributionMinor, '9000', 'all time counted');
+  A.eq(pack.economics.totalMinutes, 90, 'all five time categories counted');
+  A.eq(pack.economics.hourlyModeledContributionMinor, '6000', 'all time counted');
   A.eq(Demo.prepare(input), pack, 'deterministic');
   const before = JSON.stringify(input); Demo.prepare(input); A.eq(JSON.stringify(input), before, 'input unchanged');
   A.eq(Object.keys(pack.files), ['service-brief.md','evidence-ledger.json','production-and-qa.json','economics-and-scope.json','readiness.json'], 'fixed five files');
@@ -72,8 +73,64 @@ const events = require('../shared/events.js');
   A.eq(Demo.prepare(mutate(x=>{x.duplicate.priorState='prepared';x.duplicate.reconciliation='confirmed-same-private-revision';})).state,'READY_FOR_HUMAN_PRIVATE_PRODUCTION_REVIEW','reconciled private revision allowed');
   A.eq(Demo.prepare(mutate(x=>x.economics.quotedPriceMinor='999999999999999999')).economics.modeledContributionMinor, '999999999999998999', 'exact BigInt above safe integer');
   A.eq(Demo.prepare(mutate(x=>x.economics.costsMinor.platform='200')).economics.modeledContributionMinor, '8900', 'fee is supplied, never hardcoded');
-  A.eq(Demo.prepare(mutate(x=>x.economics.minutes.production=41)).economics.hourlyModeledContributionMinor, '8852', 'hourly quotient truncates');
+  A.eq(Demo.prepare(mutate(x=>x.economics.minutes.production=41)).economics.hourlyModeledContributionMinor, '5934', 'hourly quotient truncates');
   A.ok(!Demo.prepare(mutate(x=>x.title='[click](https://evil.test)')).files['service-brief.md'].includes('](https://evil.test)'), 'markdown inert');
+  const boundedRegistry = makeRegistry(); Demo.makeServiceStudioTools().register(boundedRegistry);
+  const dispatchPack = args => boundedRegistry.dispatch({ id: 'bounded-pack', name: 'service.studio.prepare', args });
+  for (const field of ['acquisition', 'sales']) {
+    for (const value of [undefined, null, -1, 0.5, 100001, '10']) {
+      const args = mutate(x => { if (value === undefined) delete x.economics.minutes[field]; else x.economics.minutes[field] = value; });
+      A.throws(() => Demo.prepare(args), field + ' requires a bounded integer');
+      A.eq((await dispatchPack(args)).ok, false, field + ' invalid input rejected by registry');
+    }
+    const zero = Demo.prepare(mutate(x => x.economics.minutes[field] = 0));
+    A.eq(zero.state, 'NOT_READY', field + ' zero cannot silently pass readiness');
+    A.ok(zero.gaps.includes('Acquisition/sales time unresolved'), field + ' explicit gap');
+    const max = Demo.prepare(mutate(x => x.economics.minutes[field] = 100000));
+    A.eq(max.economics.totalMinutes, 90 - input.economics.minutes[field] + 100000, field + ' upper bound counted');
+  }
+  const large = mutate(x => {
+    x.evidence = Array.from({ length: 30 }, (_, i) => ({ ...fact, id: i === 0 ? 'fact' : i === 1 ? 'estimate' : 'evidence-' + i,
+      statement: '\\'.repeat(400), receipt: '\\'.repeat(200), sourceUrl: 'https://example.test/' + 'a'.repeat(479) }));
+    x.assets = Array.from({ length: 20 }, (_, i) => ({ ...x.assets[0], id: 'asset-' + i, license: '\\'.repeat(200) }));
+    for (const d of x.deliverables) d.specification = '\\'.repeat(400);
+    for (const q of x.qa) q.plan = '\\'.repeat(400);
+  });
+  A.ok(JSON.stringify(Demo.prepare(large)).length > 80000, 'valid escaped pack exceeds central ceiling');
+  const oversized = await dispatchPack(large);
+  A.eq(oversized.ok, false, 'oversized pack fails through registry');
+  A.eq(oversized.isError, true, 'oversized pack never partial success');
+  A.ok(oversized.content.length < 300 && oversized.content.includes('shorten supplied input'), 'small actionable failure');
+  A.eq(oversized.parkedPath, null, 'no hidden partial export');
+  const edge = mutate(x => {
+    x.assets = Array.from({ length: 20 }, (_, i) => ({ ...x.assets[0], id: 'asset-' + i, license: 'l'.repeat(400) }));
+    for (const d of x.deliverables) d.specification = 'd'.repeat(800);
+    x.evidence = Array.from({ length: 30 }, (_, i) => ({ ...fact,
+    id: i === 0 ? 'fact' : i === 1 ? 'estimate' : 'evidence-' + i, statement: 'a', receipt: 'r'.repeat(400),
+    sourceUrl: 'https://example.test/' + 'a'.repeat(479) })); });
+  const baseLength = JSON.stringify(Demo.prepare(edge)).length;
+  A.ok(baseLength < 80000 && baseLength + 30 * 799 > 80000, 'fixture spans exact boundary');
+  let remaining = 80000 - baseLength;
+  for (const e of edge.evidence) { const extra = Math.min(remaining, 799); e.statement += 'a'.repeat(extra); remaining -= extra; }
+  A.eq(JSON.stringify(Demo.prepare(edge)).length, 80000, 'exact boundary constructed');
+  const atLimit = await dispatchPack(edge);
+  A.eq(atLimit.ok, true, 'exact limit succeeds');
+  A.eq(JSON.parse(atLimit.content), Demo.prepare(edge), 'exact limit returns complete parseable five-file pack');
+  edge.title += 'a';
+  A.eq(JSON.stringify(Demo.prepare(edge)).length, 80001, 'one character above boundary');
+  A.eq((await dispatchPack(edge)).ok, false, 'one character above limit fails closed');
+  const registryPath = require.resolve('../sidecar/tools/registry.js'), cachedRegistry = require.cache[registryPath];
+  const previousLimit = process.env.SKYNET_TOOL_OUTPUT_MAX;
+  try {
+    process.env.SKYNET_TOOL_OUTPUT_MAX = '500'; delete require.cache[registryPath];
+    const tiny = require(registryPath).makeRegistry(); Demo.makeServiceStudioTools().register(tiny);
+    const result = await tiny.dispatch({ id: 'tiny-pack', name: 'service.studio.prepare', args: input });
+    A.eq(result.ok, false, 'studio honors smaller configured registry cap');
+    A.eq(result.summary, 'complete-output-required', 'smaller cap fails for complete output contract');
+  } finally {
+    if (previousLimit === undefined) delete process.env.SKYNET_TOOL_OUTPUT_MAX; else process.env.SKYNET_TOOL_OUTPUT_MAX = previousLimit;
+    require.cache[registryPath] = cachedRegistry;
+  }
   const source=fs.readFileSync(require.resolve('../sidecar/tools/builtin/service-studio.js'),'utf8'); A.ok(!/require\(|fetch\(|process\.|Date\.now/.test(source), 'pure no I/O or clock');
   const OriginalDate=global.Date; try { global.Date=class extends OriginalDate { constructor(v){if(arguments.length!==1)throw Error('ambient');super(v);} static now(){throw Error('ambient');} }; A.eq(Demo.prepare(input),pack,'no ambient time'); } finally {global.Date=OriginalDate;}
   for (const file of ['../frontend/app/toolprops.js','../website/app/app/toolprops.js']) A.eq(require(file).toolPropType('service.studio.prepare'),'cabinet','tool visibility');

@@ -33,7 +33,7 @@ const schema = obj({
   review: obj(Object.fromEntries(gates.map(k => [k, review]))),
   duplicate: obj({ workId: str(48), priorState: choice('none', 'prepared', 'delivered', 'ambiguous', 'unknown'), reconciliation: choice('confirmed-new', 'confirmed-same-private-revision', 'unresolved', 'unknown'), evidenceId: str(48) }),
   revisionCap: integer(20), revisionsUsed: integer(100), supportWindowDays: integer(365), supportPlan: str(800), refundPlan: str(800),
-  economics: obj({ currency: choice('EUR', 'USD', 'GBP'), costCurrency: choice('EUR', 'USD', 'GBP'), quotedPriceMinor: money, costsMinor: obj(Object.fromEntries(costs.map(k => [k, money]))), minutes: obj({ production: integer(100000), revisions: integer(100000), support: integer(100000) }), evidenceId: str(48) })
+  economics: obj({ currency: choice('EUR', 'USD', 'GBP'), costCurrency: choice('EUR', 'USD', 'GBP'), quotedPriceMinor: money, costsMinor: obj(Object.fromEntries(costs.map(k => [k, money]))), minutes: obj({ acquisition: integer(100000), sales: integer(100000), production: integer(100000), revisions: integer(100000), support: integer(100000) }), evidenceId: str(48) })
 });
 function validate(v, r, at = 'input') {
   const fail = () => { throw Error('Invalid service studio field: ' + at); };
@@ -104,6 +104,7 @@ function prepare(input) {
     if (minutes > 0) hourlyModeledContributionMinor = (contribution * 60n / BigInt(minutes)).toString();
     if (contribution <= 0n) gaps.push('Non-positive modeled contribution');
   }
+  if (e.minutes.acquisition === 0 || e.minutes.sales === 0) gaps.push('Acquisition/sales time unresolved');
   if (minutes === 0 || e.minutes.production === 0 || (input.revisionCap > 0 && e.minutes.revisions === 0) || (input.supportWindowDays > 0 && e.minutes.support === 0)) gaps.push('Production/revision/support time unresolved');
   const state = gaps.length ? 'NOT_READY' : 'READY_FOR_HUMAN_PRIVATE_PRODUCTION_REVIEW';
   const economics = { ...e, totalMinutes: minutes, totalCostMinor, modeledContributionMinor, hourlyModeledContributionMinor, calculation: 'Exact supplied integer minor units only; hourly quotient truncates toward zero. Quoted price and costs are a scenario, not actual revenue or profit. No platform fee is assumed.' };
@@ -117,5 +118,5 @@ function prepare(input) {
     'readiness.json': json({ state, gaps, duplicate: input.duplicate, review: input.review, nextStep: 'Human review of this private preparation pack only; independently verify evidence and actual work before any separately authorized production or external action.' })
   } };
 }
-const tool = { name: 'service.studio.prepare', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 5000, schema, description: 'Pure private digital-service preparation: one operator-selected lane, supplied evidence and five fixed review files. No file writes or external action authority.', run: async args => ({ content: JSON.stringify(prepare(args)), summary: 'Private studio preparation only; no files written or external action' }) };
+const tool = { name: 'service.studio.prepare', requiresCompleteOutput: true, capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 5000, schema, description: 'Pure private digital-service preparation: one operator-selected lane, supplied evidence and five fixed review files. No file writes or external action authority.', run: async args => ({ content: JSON.stringify(prepare(args)), summary: 'Private studio preparation only; no files written or external action' }) };
 module.exports = { prepare, schema, gates, costs, lanes, makeServiceStudioTools: () => ({ register(reg) { reg.register(tool); return reg; } }) };
