@@ -112,6 +112,7 @@
       { capId: 'cabinet', tool: 'channel.render.reconcile', scope: 'write', requiresConsent: true, network: true },
       { capId: 'cabinet', tool: 'channel.render.finalize', scope: 'write', requiresConsent: true, network: true },
       { capId: 'cabinet', tool: 'etsy.pod.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'crm.demo.generate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.demo.generate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },

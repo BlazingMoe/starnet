@@ -774,3 +774,5 @@ test/video-render-transaction.test.js
 test/youtube-upload-transaction.test.js
 
 test/channel-private-production-run.test.js
+
+test/crm-demo.test.js

@@ -40,6 +40,7 @@ const ToolProps = (() => {
     'channel.render.submit': 'cabinet',
     'channel.render.reconcile': 'cabinet',
     'channel.render.finalize': 'cabinet',
+    'crm.demo.generate': 'cabinet', // Pure synthetic CRM generation shares the verified export capability.
     'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
     'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
     web_search: 'dish',

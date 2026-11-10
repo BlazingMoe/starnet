@@ -31,6 +31,7 @@ const { makeChannelContentTools } = require('../sidecar/tools/builtin/channel-co
 const { makeVideoRenderTools } = require('../sidecar/tools/builtin/video-render.js');
 const { makeYoutubeUploadTools } = require('../sidecar/tools/builtin/youtube-upload.js');
 const { makeWebsiteDemoTools } = require('../sidecar/tools/builtin/website-demo.js');
+const { makeCrmDemoTools } = require('../sidecar/tools/builtin/crm-demo.js');
 const { makeConnectorTools } = require('../sidecar/tools/builtin/connectors.js');
 const { makeBrowserTools } = require('../sidecar/tools/builtin/browser.js');
 const { makeDesktopTools } = require('../sidecar/tools/builtin/desktop.js');
@@ -133,6 +134,7 @@ const fixture = {
   makeChannelContentTools().register(registry);
   makeVideoRenderTools().register(registry);
   makeYoutubeUploadTools().register(registry);
+  makeCrmDemoTools().register(registry);
   makeWebsiteDemoTools().register(registry);
   makeBrowserTools({ driver: { navigate: async u => u, snapshot: async () => [], click: async () => '', type: async () => '', press: async k => k, scroll: async () => '', back: async () => '', getText: async () => '', consoleLog: () => [], handleDialog: async () => ({}), screenshot: async () => '' } }).register(registry);
   makeDesktopTools({ opener: async () => 'launched' }).register(registry);
@@ -191,6 +193,7 @@ const fixture = {
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
   const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.content.prepare', 'channel.render.finalize', 'channel.render.prepare', 'channel.render.reconcile', 'channel.render.submit', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'etsy.pod.prepare', 'fiverr.handoff.prepare', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'service.studio.prepare', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'website.leads.prepare', 'widget.get', 'widget.set'];
+  EXPECTED.push('crm.demo.generate');
   EXPECTED.push('channel.youtube.prepare', 'channel.youtube.initiate', 'channel.youtube.status', 'channel.youtube.upload', 'channel.youtube.verify');
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
