@@ -79,6 +79,7 @@ const { makeRenderStore } = require('./video-render-transaction.js');
 const { makeShotstackStage } = require('./shotstack-stage.js');
 const { makeWebsiteDemoTools } = require('./tools/builtin/website-demo.js'); // Pure fictional website demo generator; export remains through fs.write
 const { makeCrmDemoTools } = require('./tools/builtin/crm-demo.js');
+const { makeVisualAssetTools } = require('./tools/builtin/visual-assets.js');
 const { makeImageTools } = require('./tools/builtin/image.js');           // STUDIO: image_generate / image_analyze (OpenRouter multimodal)
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
 const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STUDIO: voice_generate — speech saved into the workspace as a playable clip
@@ -15583,6 +15584,7 @@ async function runOnce(o) {
   makeServiceStudioTools().register(registry);
   makeChannelContentTools().register(registry);
   makeCrmDemoTools().register(registry);
+  makeVisualAssetTools({ fsp, pathMod: path, root: WORKSPACES, clock: () => Date.now() }).register(registry);
   makeWebsiteDemoTools().register(registry); // pure bounded template; filesystem export remains consent-gated fs.write
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, canReadStructuredLesson:canReadProjectLesson, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall

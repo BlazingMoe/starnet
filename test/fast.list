@@ -776,3 +776,5 @@ test/youtube-upload-transaction.test.js
 test/channel-private-production-run.test.js
 
 test/crm-demo.test.js
+
+test/visual-assets.test.js

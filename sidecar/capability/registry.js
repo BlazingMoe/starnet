@@ -308,6 +308,9 @@
     // key the agent already uses (no new provider). image_generate WRITES a file into the agent's workspace, so
     // it is consent-gated like fs.write; image_analyze only READS an image and returns text (consent-free).
     studio: [
+      { capId: 'studio', tool: 'visual.demo.plan', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'studio', tool: 'visual.demo.export', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'studio', tool: 'visual.demo.validate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'studio', tool: 'image_generate', scope: 'write', requiresConsent: true, network: true },
       { capId: 'studio', tool: 'image_analyze', scope: 'read', requiresConsent: false, network: true },
       // voice_generate SPEAKS to a file — the studio's third skill. Consent-gated for the same reason

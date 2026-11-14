@@ -139,6 +139,16 @@
               || !/^[a-f0-9]{64}$/.test(String(receipt.actualSha256 || '')) || receipt.sha256 !== receipt.actualSha256) return;
           return addFile('file', receipt.path, receipt.verifiedBytes);
         }
+        if (name === 'visual.demo.export') {
+          const receipt = r.receipt || r.mutationReceipt;
+          const assets = { 'youtube-thumbnail': 'thumbnail.png', logo: 'logo.svg', 'game-assets-2d': 'crystal.png', 'game-assets-3d': 'crystal.obj' };
+          const asset = assets[args.preparation && args.preparation.lane];
+          if (!asset || !/^visual-demos\/[a-f0-9]{64}$/.test(args.destination || '') || args.destination !== 'visual-demos/' + (args.operatorRequest && args.operatorRequest.preparationSha256) || !receipt || receipt.operation !== 'visual-demo-export' || receipt.state !== 'read-back-verified' || receipt.path !== args.destination || !Array.isArray(receipt.files) || receipt.files.length !== 4) return;
+          const expected = [asset, 'review.html', 'README.md', 'manifest.json'].map(n => args.destination + '/' + n);
+          if (new Set(receipt.files.map(f => f.path)).size !== 4 || receipt.files.some(f => !expected.includes(f.path) || f.state !== 'read-back-verified' || !Number.isSafeInteger(f.verifiedBytes) || f.verifiedBytes <= 0 || f.verifiedBytes > 64000 || !/^[a-f0-9]{64}$/.test(f.sha256 || '') || f.sha256 !== f.actualSha256)) return;
+          for (const f of receipt.files) addFile(/\.(png|svg)$/.test(f.path) ? 'image' : 'file', f.path, f.verifiedBytes);
+          return;
+        }
         if (name === 'fs.write_csv') {
           // The structured writer delegates to fs.write and returns its exact byte-verified receipt. Require
           // that proof before advertising the generated file or its size in the durable run artifact ledger.
