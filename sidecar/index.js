@@ -197,6 +197,7 @@ const { makeRouter } = require('./routing/router.js');
 const { makeChainRunner, effectiveLimits: chainEffectiveLimits } = require('./routing/chain.js');
 const { makeLineSpend } = require('./routing/line-spend.js');   // per-line DAY spend ledger (LINE BUDGET maxUsdPerDay) — durable sibling of routing.plan.json
 const { makeConnectorManager } = require('./mcp/manager.js');
+const UnrealMcpPolicy = require('./mcp/unreal-policy.js');
 const PrSweepPolicy = require('./mcp/pr-sweep-policy.js');
 const { makeHttpTransport } = require('./mcp/transport.http.js');
 const googleApiTransport = require('./mcp/transport.google.js');
@@ -4318,7 +4319,11 @@ const connectors = makeConnectorManager({
   },
   clock: { now: () => Date.now() }, timeoutMs: CAPS.toolTimeoutMs,
   schemaCache: connectorSchemaCacheStore,
-  validateConfig: cfg => cfg && cfg.transportKind === 'stdio' ? mcpStdioIsolationError(cfg) : '',
+  validateConfig: cfg => {
+    const unrealIssue = UnrealMcpPolicy.configError(cfg); if (unrealIssue) return unrealIssue;
+    return cfg && cfg.transportKind === 'stdio' ? mcpStdioIsolationError(cfg) : '';
+  },
+  toolAllowed: (cfg, tool) => UnrealMcpPolicy.toolAllowed(cfg, tool),
   fingerprintConfig: cfg => mcpSchemaCache.fingerprint(cfg, value => crypto.createHash('sha256').update(value).digest('hex')),
   stdioIdleMs: Math.max(1000, Number(process.env.STARNET_MCP_STDIO_IDLE_MS) || 15 * 60 * 1000),
   stdioMaxLifetimeMs: Math.max(1000, Number(process.env.STARNET_MCP_STDIO_MAX_LIFETIME_MS) || 6 * 60 * 60 * 1000),
