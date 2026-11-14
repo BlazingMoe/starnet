@@ -45,5 +45,5 @@ A.eq(policy.toolAllowed({ id: 'unreal-mcp' }, { name: 'Asset.import' }), false, 
   A.eq(calls, 0, 'blocked call never reaches connector');
   await manager.call('unreal-mcp', 'Asset.inspect', {});
   A.eq(calls, 1, 'explicit read-only tool reaches connector');
-  console.log('mcp.unreal-policy: OK (18 assertions)');
+  A.report('mcp.unreal-policy');
 })().catch(e => { console.error(e); process.exit(1); });
