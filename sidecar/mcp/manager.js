@@ -577,7 +577,7 @@
       const issue = configIssue(c); if (issue) throw new Error(issue);
       if (c.transportKind === 'stdio') await ensureLive(c);
       if (!c.client || c.state !== 'up') throw notConnected(id, toolName, ctx);
-      if (!allowedTools(c).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is not permitted by the host policy');
+      toolStillPublished(c, toolName);
       c.lastUsedAt = clock.now();
       if (c.transportKind !== 'http') return c.client.callTool(toolName, args || {});
       return httpCall(c, toolName, args, false);
@@ -589,6 +589,7 @@
        counting toward "unreachable". Non-401 failures keep the consecutive-failure net unchanged. */
     const SESSION_404 = /^connector HTTP 404\b/;
     function toolStillPublished(c, toolName) {
+      if (!(c.tools || []).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is no longer published by the current server');
       if (!allowedTools(c).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is not permitted by the host policy');
     }
     async function httpCall(c, toolName, args, isRetry) {
