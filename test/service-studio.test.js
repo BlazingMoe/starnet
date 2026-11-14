@@ -40,6 +40,11 @@ const events = require('../shared/events.js');
   const before = JSON.stringify(input); Demo.prepare(input); A.eq(JSON.stringify(input), before, 'input unchanged');
   A.eq(Object.keys(pack.files), ['service-brief.md','evidence-ledger.json','production-and-qa.json','economics-and-scope.json','readiness.json'], 'fixed five files');
   A.eq(JSON.parse(pack.files['evidence-ledger.json']).evidence.map(e => e.kind), ['observed-fact','creator-claim','platform-claim','assumption','hypothesis'], 'provenance preserved');
+  for (const lane of ['voiceover', 'music-edit', 'video-edit']) {
+    A.eq(Demo.lanes[lane].deliverables.length, 3, lane + ' has a bounded three-part handover');
+    A.ok(Object.keys(Demo.lanes[lane].qa).length >= 4, lane + ' requires specialized human QA');
+    A.ok(JSON.stringify(Demo.lanes[lane]).toLowerCase().includes('rights'), lane + ' names rights verification');
+  }
   const mutate = fn => { const x = JSON.parse(JSON.stringify(input)); fn(x); return x; };
   for (const lane of Object.keys(Demo.lanes)) {
     const x = mutate(x => { x.lane = lane; x.deliverables = Demo.lanes[lane].deliverables.map(id => ({ id, specification: 'Human reviewed specific ' + id })); x.qa = Object.keys(Demo.lanes[lane].qa).map(id => ({ id, plan: 'Human reviewed test of ' + id, decision: 'approved', evidenceId: 'fact' })); });
@@ -135,7 +140,7 @@ const events = require('../shared/events.js');
   const OriginalDate=global.Date; try { global.Date=class extends OriginalDate { constructor(v){if(arguments.length!==1)throw Error('ambient');super(v);} static now(){throw Error('ambient');} }; A.eq(Demo.prepare(input),pack,'no ambient time'); } finally {global.Date=OriginalDate;}
   for (const file of ['../frontend/app/toolprops.js','../website/app/app/toolprops.js']) A.eq(require(file).toolPropType('service.studio.prepare'),'cabinet','tool visibility');
   A.ok(fs.readFileSync(require.resolve('../sidecar/index.js'),'utf8').includes('makeServiceStudioTools().register(registry)'),'production registration');
-  const recipe=require('../frontend/app/recipe-catalog/business.js').find(r=>r.id==='digital-service-studio'); A.ok(recipe&&['service.studio.prepare','fs.write','fs.read','read-back-verified','compare exact','No shell','denied'].every(s=>recipe.task.includes(s)),'verified private export recipe');
+  const recipe=require('../frontend/app/recipe-catalog/business.js').find(r=>r.id==='digital-service-studio'); A.ok(recipe&&['service.studio.prepare','fs.write','fs.read','read-back-verified','compare exact','No shell','denied','voiceover','music-edit','video-edit','grants no music-generation authority'].every(s=>recipe.task.includes(s)),'verified private export recipe');
   A.eq(require('../website/app/app/recipe-catalog/business.js').find(r=>r.id===recipe.id),recipe,'recipe mirrored');
   const drift=require('../sidecar/recipe-drift.js'); const trace=['service_studio_prepare','fs_write','fs_read'].map(name=>({name,callId:name})); const driftRun=(extra=[])=>({runId:'studio-run',recipeId:recipe.id,reason:'done',model:'m',usd:0,toolTrace:trace.concat(extra),completionEvidence:{completionVerdict:'not_assessed',checks:[]}});
   for(const name of ['web_search','service_publish','code_run']) A.ok(drift.assessDrift([driftRun([{name,callId:'external'}]),driftRun(),driftRun()]).signals.some(s=>s.code==='tool_new'&&s.tool===name),'unexpected external tool signals drift');
