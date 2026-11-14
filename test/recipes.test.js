@@ -10,10 +10,20 @@
 const A = require('./_assert.js');
 const R = require('../frontend/app/recipes.js');
 const C = require('../frontend/app/classify.js');   // the same task/tag classifier the live app uses
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 
 /* ---------- catalog integrity ---------- */
 const builtins = R.builtins();
 A.ok(builtins.length >= 8, 'catalog ships a real library (>= 8 recipes), got ' + builtins.length);
+const explainData = builtins.find(r => r.id === 'data-explain');
+A.ok(explainData && /explicitly asks for a Word\/DOCX report[\s\S]*fs\.write_docx/.test(explainData.task), 'Explain This Data selects DOCX only for an explicit Word request');
+A.ok(explainData && /Save exactly one report format[\s\S]*Do not create both report files/.test(explainData.task), 'Explain This Data makes Markdown and DOCX reports mutually exclusive');
+A.ok(explainData && /matching read-back-verified fs\.write_docx receipt[\s\S]*read report\.docx with fs\.read/.test(explainData.task), 'DOCX recipe path requires verified write receipt and text read-back');
+const dossier = builtins.find(r => r.id === 'decision-dossier');
+A.ok(dossier && /fs\.write_dossier_sources[\s\S]*does not establish semantic support or truth/i.test(dossier.task), 'Decision Dossier requires host-validated receipts and disclaims semantic proof');
+A.ok(dossier && /reference_checked[\s\S]*truncated[\s\S]*blocked[\s\S]*unverifiable/i.test(dossier.task), 'Decision Dossier maps evidence states explicitly');
 
 const seen = {};
 for (const b of builtins) {
@@ -69,6 +79,49 @@ A.ok(fb.indexOf('{error}') < 0, 'fillTask leaves no unresolved token for a fille
 const fb2 = R.fillTask(R.get('fix-bug'), { error: 'X' });
 A.ok(fb2.indexOf('X') >= 0, 'fillTask accepts a recipe object, not just an id');
 
+// PR Sweep uses the real, dynamically discovered GitHub MCP connector and writes local evidence only.
+const prSweep = R.fillTask('pr-sweep', { scope: 'acme/app', workspace: 'github-pr-review' });
+A.ok(prSweep.includes('list_pull_requests') && prSweep.includes('pull_request_read') && prSweep.includes('get_diff'), 'PR Sweep directs discovery through the advertised GitHub MCP read tools');
+A.ok(prSweep.includes('Require the catalog connector named GitHub (read-only)') && prSweep.includes('Connectors catalog') && prSweep.includes('Never substitute the full-access GitHub connector'), 'PR Sweep requires the read-only connector and explains setup instead of falling back to full access');
+A.ok(prSweep.includes('Use only list_pull_requests and pull_request_read'), 'PR Sweep limits remote calls to the required read tools');
+A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && prSweep.includes('read both back'), 'PR Sweep saves and verifies local review artifacts');
+A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
+A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
+A.ok(prSweep.includes('PARTIAL/UNVERIFIED') && prSweep.includes('never comment, approve') && prSweep.includes('modify GitHub'), 'PR Sweep preserves evidence limits and forbids remote mutations');
+A.ok(prSweep.includes('acme/app') && prSweep.includes('github-pr-review') && !/[{}](?:scope|workspace)/.test(prSweep), 'PR Sweep launch resolves repository and output-workspace inputs');
+
+// Exercise the actual dossier click handler with the actual connector-window deep-link registration.
+// No app server, connector API, credentials, or remote calls are involved.
+{
+  const marketplace = fs.readFileSync(path.join(__dirname, '../frontend/app/marketplace.js'), 'utf8');
+  const connectors = fs.readFileSync(path.join(__dirname, '../frontend/app/windows/connectors.js'), 'utf8');
+  const handlerBody = A.fnBody(marketplace, 'function openPrSweepSetup()');
+  const events = [], connectorCalls = [];
+  const stationUI = {
+    h: {}, registerWindow() {},
+    openTerm: (...args) => events.push(['openTerm', ...args]),
+    closeTerm: (...args) => events.push(['closeTerm', ...args])
+  };
+  vm.runInNewContext(connectors, { StationUI: stationUI, setTimeout, clearTimeout, Map, Set });
+  const realConnectorJump = stationUI.connectorJump;
+  stationUI.connectorJump = id => { connectorCalls.push(id); return realConnectorJump(id); };
+  const context = { StationUI: stationUI, sfx: x => events.push(['sfx', x]), close: () => events.push(['closeDossier']), note: (...x) => events.push(['note', ...x]) };
+  vm.runInNewContext(`${handlerBody}; openPrSweepSetup()`, context);
+  A.eq(connectorCalls, ['github-readonly'], 'recipe click routes through the registered exact read-only catalog identity');
+  A.eq(events.filter(e => e[0] === 'openTerm'), [['openTerm', 'connectors', 'catalog']], 'registered connector route opens the catalog section');
+  A.ok(events.findIndex(e => e[0] === 'closeDossier') < events.findIndex(e => e[0] === 'openTerm'), 'recipe dossier closes before destination opens');
+  A.eq(events.filter(e => e[0] === 'note').length, 0, 'normal route does not show a misleading fallback');
+
+  const fallbackEvents = [];
+  const fallbackContext = {
+    StationUI: { openTerm: (...args) => fallbackEvents.push(['openTerm', ...args]) },
+    sfx() {}, close: () => fallbackEvents.push(['closeDossier']), note: (...args) => fallbackEvents.push(['note', ...args])
+  };
+  vm.runInNewContext(`${handlerBody}; openPrSweepSetup()`, fallbackContext);
+  A.eq(fallbackEvents.filter(e => e[0] === 'openTerm'), [['openTerm', 'connectors', 'catalog']], 'missing deep-link helper falls back to the real catalog navigation API');
+  A.ok(fallbackEvents.some(e => e[0] === 'note' && /GitHub \(read-only\)/.test(e[1])), 'fallback names the exact setup target');
+}
+
 // an optional param left blank falls back to its DEFAULT (morning-brief.window default = "the last 24 hours")
 const mb = R.fillTask('morning-brief', { topic: 'AI agents' });
 A.ok(mb.indexOf('the last 24 hours') >= 0, 'a blank optional param uses its default');
@@ -95,6 +148,22 @@ const dfill = R.fillTask(dangling.id, { thing: 'it' });
 A.ok(dfill.indexOf('Do it with {undeclared}.') >= 0, 'an undeclared token is left as-is');
 R.removeCustom(dangling.id);
 
+/* CSV data explanation composes the registered bounded read tools into a safe saved deliverable. */
+const dataExplain = R.get('data-explain');
+A.ok(dataExplain, 'Explain This Data remains a built-in recipe');
+A.eq(dataExplain.params.map(p => p.key), ['file', 'question', 'workspace'], 'dataset workflow accepts source, analysis question and output folder');
+A.ok(/fs\.profile_csv/.test(dataExplain.task) && /fs\.read_csv_rows/.test(dataExplain.task) && /fs\.table_operation/.test(dataExplain.task), 'dataset workflow uses streaming profile, paged rows, and bounded typed table operations');
+A.ok(/ordered pipeline of 1-8/.test(dataExplain.task) && /resultScope/.test(dataExplain.task) && /filtered rows/.test(dataExplain.task), 'dataset workflow documents ordered table pipelines and filtered aggregation scope');
+A.ok(/partial/.test(dataExplain.task) && /1000 data rows/.test(dataExplain.task), 'dataset workflow discloses partial coverage and the row ceiling');
+A.ok(/credential-pattern-redacted/.test(dataExplain.task) && /not general PII detection/.test(dataExplain.task) && /read both saved files back/i.test(dataExplain.task), 'dataset workflow states the exact redaction boundary and verifies report artifacts');
+A.ok(/IEEE-754 binary64/.test(dataExplain.task) && /decimal results are approximate/.test(dataExplain.task), 'dataset workflow preserves numeric approximation caveats');
+A.ok(/fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task) && /zero-based sheetIndex/.test(dataExplain.task), 'dataset workflow discovers worksheets and reads selected cell pages');
+A.ok(/present cached value may be stale/.test(dataExplain.task) && /never claim recalculation/.test(dataExplain.task), 'dataset workflow explains formula-cache limitations');
+A.ok(/Keep CSV as the default/.test(dataExplain.task) && /unless the user explicitly asks for Excel\/XLSX/.test(dataExplain.task) && /fs\.write_xlsx/.test(dataExplain.task), 'dataset findings remain CSV by default and use XLSX only on explicit request');
+A.ok(/read-back-verified fs\.write_xlsx receipt/.test(dataExplain.task) && /fs\.xlsx_sheets/.test(dataExplain.task) && /fs\.read_xlsx_range/.test(dataExplain.task), 'requested XLSX findings require a verified receipt and bounded workbook read-back');
+A.ok(/do not clean, edit or replace the source file/.test(dataExplain.task), 'dataset workflow preserves the input');
+A.ok(/do not spend tool turns creating or updating a todo list/.test(dataExplain.task) && /fs_list once on \{workspace\}/.test(dataExplain.task), 'bounded data workflow avoids planning churn and checks the output folder once');
+A.ok(/do not page the source just to establish that operation coverage/.test(dataExplain.task) && /immediately after writing/.test(dataExplain.task), 'bounded data workflow avoids redundant pages and verifies outputs immediately');
 /* every built-in, filled with sample values, must READ AS A REAL TASK DIRECTIVE (so it launches work, not
    chatter) AND carry a ranking lane consistent with what the app's own classifier tags the filled task as. */
 for (const b of builtins) {
@@ -552,5 +621,25 @@ const mlWhy = R.forYouReason(R.get('fix-bug'), { painText: 'I keep having to fix
 A.ok(/off your plate/.test(mlWhy) && /“(fix|bug)”/.test(mlWhy), 'the why names the pain-point match honestly, never as a goal: ' + mlWhy);
 A.ok(/your goal/.test(R.forYouReason(R.get('fix-bug'), { painText: 'fix bug', goalText: 'fix bug' })), 'a goal match outranks the pain phrasing when both hit');
 A.eq(R.forYouReason(R.get('fix-bug'), { painText: 'the the and', goalText: '' }), '', 'stoplist words never earn a pain reason');
+
+const offerEconomics = R.get('offer-economics-dossier');
+A.ok(offerEconomics, 'offer-economics-dossier is registered in the shared catalogue');
+if (offerEconomics) {
+  A.eq(offerEconomics.category, 'business', 'offer dossier is categorized as business');
+  A.eq(offerEconomics.params.map(p => p.key), ['offer', 'scope', 'assumptions', 'workspace'], 'launch form exposes offer, bounded scope, explicit economics assumptions and output folder');
+  A.ok(/offer\.md, economics\.csv, rights-and-policy\.md and pilot-plan\.md/.test(offerEconomics.task), 'recipe names the four requested output artifacts');
+  A.ok(/unknown distinct from zero/.test(offerEconomics.task), 'unknown values cannot be silently represented as zero');
+  A.ok(/columns metric, value, unit, currency, status/.test(offerEconomics.task) && /time rows use whole minutes with blank currency/.test(offerEconomics.task), 'economics ledger defines explicit unit and currency semantics');
+  A.ok(/NEVER do arithmetic in prose/.test(offerEconomics.task) && /call economics\.calculate/.test(offerEconomics.task), 'recipe routes supported arithmetic to the exact calculator tool');
+  A.ok(/non-negative integer minor-unit string/.test(offerEconomics.task) && /do not pass decimal major-unit values/.test(offerEconomics.task), 'recipe supplies exact integer minor-unit strings, not decimal money');
+  A.ok(/all three fee\/cost\/refund categories/.test(offerEconomics.task) && /does not accept or create actual transaction records/.test(offerEconomics.task), 'recipe exposes category completeness and refuses to imply actual transaction proof');
+  A.ok(/Preserve any unavailable or partial tool result/.test(offerEconomics.task) && /leave affected ledger metrics unknown/.test(offerEconomics.task), 'recipe preserves unavailable metrics instead of filling them from prose');
+  A.ok(/Apply domain-specific guidance only when it matches the operator-selected offer/.test(offerEconomics.task) && /Omit these examples when unrelated to the selected offer/.test(offerEconomics.task), 'specialty guidance is conditional on the selected business');
+  A.ok(/for a Fiverr image service, use only a current fee snapshot supplied or verified/.test(offerEconomics.task), 'Fiverr fee details are never hardcoded or treated as current without evidence');
+  A.ok(/for POD, address original seller designs/.test(offerEconomics.task) && /fulfilment charges before marketplace payout/.test(offerEconomics.task), 'POD instructions retain payout cash-gap and rights risks when relevant');
+  A.ok(/for a fictional-industry website concept, label the business, audit findings and assets synthetic/.test(offerEconomics.task), 'website concept must remain visibly fictional when relevant');
+  A.ok(/do not send messages, publish\/list, buy, place orders, create accounts, subscribe, trade/.test(offerEconomics.task), 'planning task explicitly forbids external and commercial actions');
+  A.ok(/existing capability, consent and permission controls remain authoritative/.test(offerEconomics.task), 'recipe text is guidance and does not replace runtime permissions');
+}
 
 A.report('recipes');

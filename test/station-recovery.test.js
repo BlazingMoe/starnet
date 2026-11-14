@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const A = require('./_assert.js');
 const R = require('../sidecar/station-recovery.js');
 const Save = require('../frontend/app/save.js');
+const FailOpen = require('../sidecar/failopen.js');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-disaster-recovery-'));
 const source = path.join(tmp, 'source-profile', 'workspaces');
@@ -33,6 +34,7 @@ function seedCompleteStation() {
   write('transcript.jsonl', JSON.stringify({ workstreamId: 'general', role: 'assistant', content: 'conversation survives', ts: 1 }) + '\n');
   write('channels/agent.history.json', { version: 1, messages: [{ role: 'user', content: 'telegram conversation', ts: 2 }] });
   write('agent.notebook.json', { entries: [{ id: 'memory-1', title: 'Remember', body: 'the station' }] });
+  write('agent.decisions.json', [{ id: 'decision-durable', source: 'model', trust: 'unconfirmed' }]);
   write('_commander.dossier.json', { version: 1, block: 'Commander context' });
   write('cron.jobs.json', { version: 1, jobs: [{ id: 'routine-1', schedule: '0 9 * * 1-5', prompt: 'weekday briefing' }] });
   write('loops.json', { version: 1, loops: [{ id: 'loop-1', objective: 'keep testing until green', status: 'active' }] });
@@ -84,6 +86,7 @@ A.ok(v1.report.reauthentication.some(x => x.kind === 'provider' && x.id === 'kim
 A.ok(v1.report.reauthentication.some(x => x.kind === 'project-path' && x.id === 'C:/Projects/demo'), 'machine-specific project authority requires explicit reauthorization');
 A.ok(v1.report.skipped.some(x => x.path === '.browser-profile/Cookies'), 'browser cookie profile is explicitly skipped');
 A.ok(v1.report.skipped.some(x => x.path === 'proc-ledger.json'), 'ephemeral process ownership is explicitly skipped');
+A.ok(v1.files.some(f => f.path === 'agent.decisions.json'), 'decision history is included in whole-workspace recovery');
 A.eq(R.validate(v1).ok, true, 'fresh bundle validates');
 
 // B. Atomic bundle creation and genuinely clean-profile restore preserve the semantic fingerprint.
@@ -100,6 +103,7 @@ A.eq(restoredV1.ok, true, 'complete bundle restores onto a clean profile');
 A.eq(restoredV1.rollback, null, 'clean restore needs no rollback generation');
 A.eq(cleanBrowser['starnet.station.v1'], browserV1['starnet.station.v1'], 'browser-owned station layout state restores');
 A.eq(cleanBrowser['starnet.byok.key'], undefined, 'browser credential is not restored');
+A.ok(fs.readFileSync(path.join(cleanTarget,'agent.decisions.json'),'utf8').includes('decision-durable'), 'decision history survives clean-profile restore');
 A.ok(read(cleanTarget, 'agent/workshop/run-1/report.md').includes('User-created deliverable bytes survive'), 'deliverable bytes restore');
 A.ok(!JSON.parse(read(cleanTarget, 'permissions.allow.json')).allow.includes('path:C:/Projects/demo'), 'clean profile never inherits machine-specific path authority');
 A.ok(JSON.parse(read(cleanTarget, 'permissions.allow.json')).allow.includes('fs.write:workspace'), 'portable non-path permissions are preserved');
@@ -145,6 +149,27 @@ A.throws(() => R.writeBundleAtomic({ bundle: missing, file: path.join(backups, '
 const stableFile = path.join(backups, 'stable.json');
 R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'stable' });
 const stableHash = hashFile(stableFile);
+A.throws(() => R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'no-replace', noReplace: true }), 'atomic no-replace writer refuses an existing recovery point');
+A.eq(hashFile(stableFile), stableHash, 'atomic no-replace refusal preserves the prior recovery point byte-for-byte');
+const racedFile = path.join(backups, 'raced.json');
+const racedWinner = 'another process created this recovery point';
+A.throws(() => R.writeBundleAtomic({ bundle: v1, file: racedFile, nonce: 'race', noReplace: true, beforeCommit() { fs.writeFileSync(racedFile, racedWinner, { flag: 'wx' }); } }), 'atomic no-replace commit rejects a destination created after preflight');
+A.eq(fs.readFileSync(racedFile, 'utf8'), racedWinner, 'a racing writer keeps its recovery point unchanged');
+A.eq(fs.existsSync(racedFile + '.tmp-' + process.pid + '-race'), false, 'failed no-replace race removes this writer staging file');
+const cleanupFile = path.join(backups, 'cleanup-warning.json');
+const cleanupFailopen = FailOpen.counts()['station-recovery.backup-stage-cleanup'] || 0;
+const cleanupFs = new Proxy(fs, { get(target, prop) {
+  if (prop === 'unlinkSync') return function (file) {
+    if (String(file).startsWith(cleanupFile + '.tmp-')) { const e = new Error('simulated staging cleanup failure'); e.code = 'EACCES'; throw e; }
+    return target.unlinkSync(file);
+  };
+  const value = target[prop]; return typeof value === 'function' ? value.bind(target) : value;
+} });
+const cleanupReceipt = R.writeBundleAtomic({ bundle: v1, file: cleanupFile, nonce: 'cleanup', noReplace: true, fs: cleanupFs });
+A.eq(fs.existsSync(cleanupFile), true, 'no-replace link commits a valid bundle before best-effort staging cleanup');
+A.eq(cleanupReceipt.stagingFileLeft, cleanupFile + '.tmp-' + process.pid + '-cleanup', 'receipt identifies a staging link left by cleanup failure');
+A.eq((FailOpen.counts()['station-recovery.backup-stage-cleanup'] || 0), cleanupFailopen + 1, 'staging cleanup failure is visible through fail-open diagnostics');
+fs.unlinkSync(cleanupReceipt.stagingFileLeft);
 A.throws(() => R.writeBundleAtomic({ bundle: v1, file: stableFile, nonce: 'interrupt', beforeCommit() { throw new Error('simulated power loss'); } }), 'interrupted backup reports failure');
 A.eq(hashFile(stableFile), stableHash, 'interrupted backup preserves the previous recovery point');
 A.eq(fs.readdirSync(backups).some(x => x.includes('interrupt')), false, 'interrupted temp file is cleaned');

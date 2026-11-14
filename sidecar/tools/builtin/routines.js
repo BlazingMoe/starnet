@@ -294,6 +294,8 @@
           if (!provider) throw new Error('provider must be openrouter or codex');
         }
         const repeatTimes = (args && Object.prototype.hasOwnProperty.call(args, 'repeatTimes')) ? args.repeatTimes : null;
+        const enabledToolsets = args && Object.prototype.hasOwnProperty.call(args, 'enabledToolsets') ? args.enabledToolsets : null;
+        if (enabledToolsets != null && !Array.isArray(enabledToolsets)) throw new Error('enabledToolsets must be an array or null');
         const spec = {
           name: clean((args && args.name) || 'Scheduled routine', NAME_CHARS),
           prompt: prompt,
@@ -309,7 +311,7 @@
           skills: Array.isArray(args && args.skills) ? args.skills.slice(0, 8) : [],
           contextFrom: Array.isArray(args && args.contextFrom) ? args.contextFrom.slice(0, 8) : null,
           monitorMode: !!(args && args.monitorMode),
-          enabledToolsets: Array.isArray(args && args.enabledToolsets) ? args.enabledToolsets.slice(0, 16) : null,
+          enabledToolsets: enabledToolsets == null ? null : enabledToolsets,
           repeat: { times: repeatTimes == null ? null : Math.max(1, parseInt(repeatTimes, 10) || 1) }
         };
         const job = await createRoutine(spec);

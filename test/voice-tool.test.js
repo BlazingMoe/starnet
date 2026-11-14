@@ -11,6 +11,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { makeVoiceTools } = require('../sidecar/tools/builtin/voice.js');
 const { CAP_REGISTRY } = require('../sidecar/capability/registry.js');
+const { makeMediaService, constants: mediaConstants } = require('../sidecar/media-service.js');
 
 // per-process root: two gates running at once must not race on a content-addressed path (see image.test.js)
 const ROOT = path.join(os.tmpdir(), 'starnet-voice-test-' + process.pid);
@@ -97,6 +98,40 @@ const okSynth = (over) => async (o) => Object.assign({ ok: true, buf: MP3, ext: 
   A.ok(/no speech synthesizer wired/.test(threw), 'a station with no synthesizer says so instead of writing a silent file');
 
   /* ---- G. CAP_REGISTRY + tool def ---- */
+  // Reuse the real media ladder's configuration probe without a network request.
+  let edgeEnabled = false, provider = '', synthesisCalls = 0;
+  const media = makeMediaService({ workspaces: ROOT,
+    providerRuntimeKey: name => name === provider ? 'test-key' : '',
+    edgetts: { enabled: () => edgeEnabled, synth: async () => { synthesisCalls++; return MP3; } }
+  });
+  A.eq(media.voiceRouteAvailable(), false, 'no provider key and disabled Edge means no configured route');
+  for (const name of mediaConstants.TTS_KEY_PROVIDERS) {
+    provider = name;
+    A.eq(media.voiceRouteAvailable(), true, name + ' is recognized by the real synthesis provider list');
+  }
+  provider = 'unsupported-provider';
+  A.eq(media.voiceRouteAvailable(), false, 'an unrelated provider does not imply voice support');
+  provider = '';
+  const unavailable = makeVoiceTools({ synth: media.synthesizeForAgent, routeAvailable: media.voiceRouteAvailable, fsp, pathMod: path, root: ROOT }).generateTool;
+  A.ok(unavailable.description.includes('no configured voice-generation route'), 'the advertised tool explains the host-proven setup gap');
+  A.eq(synthesisCalls, 0, 'configuration inspection never synthesizes or spends a request');
+  edgeEnabled = true;
+  A.eq(media.voiceRouteAvailable(), true, 'enabling keyless Edge immediately supplies a configured route');
+  const afterSetup = await unavailable.run({ text: 'Configuration changed.' }, ctxOf().ctx);
+  A.ok(afterSetup.content.includes('via edge'), 'registration-time warning does not freeze or block later real synthesis');
+  A.eq(synthesisCalls, 1, 'later execution uses the existing synthesis ladder exactly once');
+  edgeEnabled = false;
+  A.eq(media.voiceRouteAvailable(), false, 'disabling the last route immediately revokes readiness');
+  const failopen = require('../sidecar/failopen.js');
+  const probeFailuresBefore = failopen.counts()['voice.routeAvailable'] || 0;
+  for (const probe of [undefined, () => undefined, () => null, () => { throw new Error('unknown'); }, () => true]) {
+    const described = makeVoiceTools({ synth: okSynth(), routeAvailable: probe, fsp, pathMod: path, root: ROOT }).generateTool;
+    A.ok(!described.description.includes('no configured voice-generation route'), 'unknown or configured status never invents an outage');
+  }
+  A.eq(failopen.counts()['voice.routeAvailable'], probeFailuresBefore + 1, 'a failed configuration probe is recorded in shared diagnostics exactly once');
+  const host = await fsp.readFile(path.join(__dirname, '../sidecar/index.js'), 'utf8');
+  A.ok(/makeVoiceTools\(\{ synth: media\.synthesizeForAgent, routeAvailable: media\.voiceRouteAvailable/.test(host), 'production registration passes the authoritative probe with its synthesis function');
+
   const grant = (CAP_REGISTRY.studio || []).find(g => g.tool === 'voice_generate');
   A.ok(!!grant, 'voice_generate is granted by the studio object');
   A.eq(grant.capId, 'studio', 'it rides the studio capId beside image_generate');

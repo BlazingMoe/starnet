@@ -211,9 +211,9 @@
       if (context.error) lines.push('failure text:  ' + localRedact(context.error));
       try { if (typeof navigator !== 'undefined' && navigator.userAgent) lines.push('webview:       ' + String(navigator.userAgent).slice(0, 300)); } catch (_) {}
       lines.push('');
-      lines.push('NOTE FOR SUPPORT: "local engine: REACHABLE" means the sidecar is fine and the fault is upstream');
-      lines.push('(the model provider stream, or a request the sidecar accepted and never answered) — a restart or');
-      lines.push('reinstall will NOT help. "NOT REACHABLE" is the case where restarting the app is the right step.');
+      lines.push('NOTE FOR SUPPORT: "local engine: REACHABLE" proves only that the health endpoint answered.');
+      lines.push('A saved-station or diagnostics request may still fail inside the sidecar or its connection.');
+      lines.push('This report does not establish the cause or whether a restart would help. Preserve station data before recovery.');
       return lines.join('\n');
     }).catch(() => '');
   }

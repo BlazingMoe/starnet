@@ -38,6 +38,36 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.eq(s.default, false, 'no default -> false (off until enabled)');
 }
 
+// ---- B2. catalog text is line-ending neutral, including budget-based selection ----
+{
+  const lf = [
+    '---', 'name: First', 'slug: first', 'description: First recipe.', 'default: true', '---', '', 'A'.repeat(420), 'tail.'
+  ].join('\n');
+  const variants = [
+    ['LF', lf],
+    ['CRLF', lf.replace(/\n/g, '\r\n')],
+    ['mixed LF/CRLF', lf.split('\n').map((line, i) => line + (i < lf.split('\n').length - 1 ? (i % 2 ? '\r\n' : '\n') : '')).join('')]
+  ];
+  const second = C.parse('---\nname: Second\nslug: second\ndescription: Second recipe.\ndefault: true\n---\n\n' + 'B'.repeat(420), 'second');
+  let expected = null;
+  for (const [label, source] of variants) {
+    const first = C.parse(source, 'first');
+    const parsedSkills = [first, second];
+    const composed = C.compose(parsedSkills, { overrides: {}, placedTypes: [], budget: 600 });
+    const result = {
+      body: first.body,
+      selected: parsedSkills.filter(skill => C.isEnabled(skill, {}) && C.isAvailable(skill, [])).map(skill => skill.slug),
+      composed,
+      length: composed.length,
+      omitted: /omitted here to keep the prompt lean/.test(composed)
+    };
+    A.eq(first.body, 'A'.repeat(420) + '\ntail.', label + ' parsing canonicalizes body newlines');
+    A.ok(result.omitted, label + ' compose still reports recipes omitted by the existing body budget');
+    if (!expected) expected = result;
+    else A.eq(result, expected, label + ' parsing, selection, omissions, and composed length match LF');
+  }
+}
+
 // ---- C. loadDir: the REAL bundled library on disk parses correctly ----
 {
   const dir = path.join(__dirname, '..', 'sidecar', 'skills', 'library');
@@ -73,7 +103,58 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.eq(by['spike'].default, false, 'Spike is off by default');
   A.ok(by['decision-1-3-1'], 'new port: 1-3-1 Decision loaded');
   A.eq(by['decision-1-3-1'].requires.length, 0, '1-3-1 is pure reasoning (no object required)');
+  A.ok(by['decision-learning'], 'targeted decision-learning skill is explicitly selectable from the bundled library');
+  A.eq(by['decision-learning'].default, false, 'decision-learning stays off until the Commander enables it');
+  A.ok(by['decision-learning'].requires.includes('notebook') && by['decision-learning'].requires.includes('dish'), 'decision-learning is gated on its memory and source tools');
+  A.ok(/decision\.lesson_propose/.test(by['decision-learning'].body) && /untrusted data/.test(by['decision-learning'].body) && /discarded\/kept/.test(by['decision-learning'].body) && /reference-only Memory Core record/.test(by['decision-learning'].body), 'decision-learning uses the review queue, treats sources as untrusted, preserves terminal receipts, and explains retained lesson authority');
   A.ok(by['meme-generation'] && by['meme-generation'].requires.indexOf('studio') >= 0, 'Meme Generation is image-gated (STUDIO)');
+
+  // Native recipes describe existing routes without granting new runtime capabilities.
+  for (const [slug, object] of [['firecrawl-research', 'dish'], ['agent-desktop', 'computer']]) {
+    const skill = by[slug];
+    A.ok(skill, slug + ': discovered from the bundled library');
+    A.eq(skill.requires, [object], slug + ': exact capability requirement');
+    A.eq(skill.default, false, slug + ': opt-in only');
+    A.ok(!C.isAvailable(skill, []) && C.isAvailable(skill, [object]), slug + ': object gates availability');
+    const row = C.catalog([skill], { overrides: {}, placedTypes: [object] })[0];
+    A.ok(row.available && !row.enabled, slug + ': catalog separates availability from enablement');
+    const raw = fs.readFileSync(path.join(dir, slug + '.md'), 'utf8').replace(/\r\n/g, '\n');
+    A.ok(/^---\nname: .+\nslug: .+\ndescription: .+\ncategory: .+\nrequires: \[[a-z]+\]\nlicense: MIT\ndefault: false\n---\n/.test(raw), slug + ': flat frontmatter contract');
+  }
+  const firecrawl = by['firecrawl-research'].body;
+  A.ok(firecrawl.includes('consent-gated `web_request`') && firecrawl.includes('https://api.firecrawl.dev/v2') && firecrawl.includes('Authorization: Bearer ${FIRECRAWL_API_KEY}'), 'Firecrawl uses the existing consent-gated REST route and literal host-resolved key');
+  A.ok(/service-key readiness/.test(firecrawl) && /fail closed/.test(firecrawl) && /robots/.test(firecrawl) && /allowed-source/.test(firecrawl) && /host policy/.test(firecrawl), 'Firecrawl requires readiness, source permission, and fail-closed policy');
+  A.ok(/request\/page\/time budget/.test(firecrawl) && /provenance/.test(firecrawl) && /Cite original sources/.test(firecrawl), 'Firecrawl bounds work and requires cited provenance');
+  A.ok(/does not expose Firecrawl MCP or SDK tools/.test(firecrawl) && /or vendor the AGPL server/.test(firecrawl) && /Do not bypass restrictions/.test(firecrawl) && /or perform automatic private crawling/.test(firecrawl), 'Firecrawl explicitly excludes unsupported tools, vendoring, and private crawling');
+  const desktop = by['agent-desktop'].body;
+  A.ok(/computer\.use.*only when actually exposed/.test(desktop) && /supported Windows desktop/.test(desktop) && /explicit driver/.test(desktop) && /host-minted attended\/full-power authorization/.test(desktop), 'desktop route requires actual runtime exposure, platform, driver, and host authority');
+  A.ok(/report desktop control unavailable and provide manual steps/.test(desktop) && /npm CLI is not callable by StarNet unless the runtime explicitly exposes it/.test(desktop), 'desktop does not promise an unavailable driver or external CLI');
+  A.ok(/Observe-act-verify/.test(desktop) && /fresh refs only if a tool actually returns references/.test(desktop) && /Retry only safe, reversible actions/.test(desktop) && /No silent external actions/.test(desktop) && /credentials, personal data/.test(desktop), 'desktop requires fresh evidence, safe retries, privacy, and explicit external-action authorization');
+
+  // UI quality recipes are concise StarNet-native adapters, not bulk copies of
+  // the development skills. They remain opt-in and capability-gated so simply
+  // appearing in the catalogue neither spends prompt budget nor grants tools.
+  for (const slug of ['web-design-quality', 'product-interface-quality', 'interface-content-quality']) {
+    const skill = by[slug];
+    A.ok(skill, slug + ': discovered from the bundled library');
+    A.eq(skill.requires, ['cabinet', 'workbench'], slug + ': exact write/execution capability requirements');
+    A.eq(skill.default, false, slug + ': opt-in only');
+    A.ok(!C.isAvailable(skill, ['cabinet']) && !C.isAvailable(skill, ['workbench']) && C.isAvailable(skill, ['cabinet', 'workbench']), slug + ': both objects gate availability');
+    A.ok(skill.body.length < 3000, slug + ': compact adapter, not an upstream body');
+    A.eq(C.compose([skill], { placedTypes: ['cabinet', 'workbench'] }), '', slug + ': available alone spends no prompt budget');
+    for (const placedTypes of [[], ['cabinet'], ['workbench']]) {
+      A.eq(C.compose([skill], { overrides: { [slug]: true }, placedTypes }), '', slug + ': explicit enable cannot bypass missing capability');
+    }
+    A.ok(C.compose([skill], { overrides: { [slug]: true }, placedTypes: ['cabinet', 'workbench'] }).includes(skill.body), slug + ': enabled adapter composes intact');
+  }
+  A.ok(/does not add a browser.*network access.*publishing authority/s.test(by['web-design-quality'].body), 'web design recipe does not invent tools or publication authority');
+  A.ok(/responsive behavior/.test(by['web-design-quality'].body) && /desktop and narrow\/mobile widths/.test(by['web-design-quality'].body), 'web design recipe requires responsive implementation and visual verification');
+  A.ok(/changes no capability or permission/.test(by['product-interface-quality'].body) && /Do not create a second memory store/.test(by['product-interface-quality'].body), 'product interface recipe preserves authority and memory boundaries');
+  A.ok(/WCAG 2\.2 A\/AA/.test(by['interface-content-quality'].body) && /never approve coverage that was not inspected/i.test(by['interface-content-quality'].body), 'interface content recipe ties findings to standards and honest evidence');
+
+  A.ok(/semantic token roles/.test(by['web-design-quality'].body) && /never invent a ratio/.test(by['web-design-quality'].body) && /interruptible/.test(by['web-design-quality'].body), 'color, layout and motion stay project-aware and evidence-based');
+  A.ok(/Only when explicitly requested/.test(by['product-interface-quality'].body) && /prevent live requests or account mutations/.test(by['product-interface-quality'].body) && /only after their choice/.test(by['product-interface-quality'].body), 'state and variant work requires a request, mock isolation and a user choice');
+  A.ok(/read-only unless fixes were requested/.test(by['interface-content-quality'].body) && /Do not fetch refs/.test(by['interface-content-quality'].body) && /not reviewed from not verified/.test(by['interface-content-quality'].body), 'local review preserves scope, coverage and external authority boundaries');
 
   // budget invariant: with the FULL expanded catalog default-on AND every object placed, compose HONORS the 12k
   // budget — it omit-flags the overflow instead of silently truncating (the growth from 9->28 recipes is exactly

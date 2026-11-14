@@ -1022,6 +1022,117 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.eq(pend.body.pending, [], 'a station with nothing awaiting a verdict reports an empty deck');
     const pendBad = await j('GET', '/api/memory/pending?agent=..%2Fetc');
     A.eq(pendBad.status, 403, 'a bad agent id is refused, not path-joined');
+    const decisionNoTok = await fetch(B + '/api/memory/decisions?agent=agent');
+    A.eq(decisionNoTok.status, 403, 'GET /api/memory/decisions WITHOUT a token -> 403');
+    A.eq((await j('GET','/api/memory/decisions?agent=..%2Fetc')).status,403,'decision history rejects a path-traversal agent ID');
+    A.eq((await j('GET','/api/memory/decisions?agent=agent&limit=51')).status,400,'decision history rejects an oversized page');
+    A.eq((await fetch(B + '/api/memory/decisions?agent=agent',{method:'POST',headers:tok})).status,405,'decision history is read-only over HTTP');
+    const unseenHistory=await j('GET','/api/memory/decisions?agent=unseen-agent');
+    A.eq(unseenHistory.status,200,'a newly provisioned selected agent can read its absent history');
+    A.eq(unseenHistory.body.records.length,0,'only the selected absent agent is reported empty');
+    fs.writeFileSync(path.join(ws,'broken.decisions.json'),'{broken');
+    const brokenHistory=await j('GET','/api/memory/decisions?agent=broken');
+    A.eq(brokenHistory.status,500,'a corrupt selected-agent history is not reported as empty');
+    A.eq(brokenHistory.body.code,'EDECISION_HISTORY_UNAVAILABLE','history failure remains explicit to the operator UI');
+    // Decision lessons reuse this durable review queue. Exercise the real GET/Keep/Discard API after seeding
+    // source-linked proposals as if the sidecar had restarted; provenance must reach the notebook and receipt.
+    // This same durable source is now readable from the selected agent's Memory Core retrospective.
+    const decisionRows = [
+      { id:'decision_keep', decision:'chose route B', alternatives:['route A'], evidenceRefs:['artifact:review-1'], uncertainty:'small sample', confidence:null, createdAt:10, source:'model', trust:'unconfirmed', outcomeStatus:'recorded', outcomeEvents:[{eventId:'outcome_keep',outcome:'model reports a successful test',evidenceRefs:['run:r2'],createdAt:20,source:'model',trust:'unconfirmed'}], lessonProposals:[{outcomeEventId:'outcome_keep',lesson:'Retest the finding.',status:'pending'}], arbitrarySecretField:'DO NOT EXPOSE' },
+      { id:'decision_discard', decision:'chose route A', alternatives:['route B'], evidenceRefs:['artifact:review-2'], uncertainty:'no control group', confidence:0.4, createdAt:30, source:'model', trust:'unconfirmed', outcomeStatus:'recorded', outcomeEvents:[{eventId:'outcome_discard',outcome:'model reports increased latency',evidenceRefs:['run:r7'],createdAt:40,source:'model',trust:'unconfirmed'}], lessonProposals:[{outcomeEventId:'outcome_discard',lesson:'Avoid this path.',status:'pending'}] },
+      { id:'decision_structured', decision:'test scoped path', alternatives:[], evidenceRefs:['artifact:scoped'], uncertainty:'single result', confidence:null, createdAt:5, source:'model', trust:'unconfirmed', outcomeStatus:'recorded', outcomeEvents:[{eventId:'outcome_structured',outcome:'model reports success',evidenceRefs:['run:s1'],createdAt:6,source:'model',trust:'unconfirmed'}], lessonProposals:[{outcomeEventId:'outcome_structured',lesson:'Keep this scoped.',status:'pending',contract:{schemaVersion:1,scope:{type:'customer',id:'cust-7'},sourceRefs:['artifact:scoped','run:s1'],uncertainty:'single result',confidence:null,version:'v1',recheckAt:'2026-11-01',expiresAt:'2026-12-01',positiveExamples:['customer A with approved brief'],negativeExamples:['other customer'],trust:'unverified',authority:'reference-only'}}] }
+    ];
+    // Seed a real BIZ-5 evidence receipt before reconstructing the host's durable history.
+    decisionRows[2].lessonProposals[0].createdAt=7;
+    const validationStore={get:()=>decisionRows,readKey:()=>({status:'ok',value:decisionRows}),update:async(_,fn)=>{const next=fn(decisionRows);if(next) decisionRows.splice(0,decisionRows.length,...next);}};
+    const validationTool=require('../sidecar/tools/builtin/decisions.js').makeDecisionTools({store:validationStore,clock:{now:()=>Date.parse('2026-10-01T00:00:00Z')}}).validationTool;
+    await validationTool.run({validationId:'http-heldout',binding:{agentId:'agent',decisionId:'decision_structured',outcomeEventId:'outcome_structured',version:'v1',scope:{type:'customer',id:'cust-7'},sourceRefs:['artifact:scoped','run:s1']},uncertainty:'synthetic held-out claims only',cases:[{id:'positive',category:'positive',sourceRefs:['heldout:p'],expected:'matches',observed:'matches',result:'pass'},{id:'negative',category:'negative',sourceRefs:['heldout:n'],expected:'rejects',observed:'rejects',result:'pass'}]},{agentId:'agent'});
+    const lessonRows = [
+      { key:'lesson_keep:lesson_keep',runId:'lesson_keep',id:'lesson_keep',kind:'lesson',content:'Retest the finding.',scope:'global',origin:'decision-outcome',createdAt:1,proposalType:'decision-lesson',sourceDecisionId:'decision_keep',sourceOutcomeEventId:'outcome_keep',sourceDecision:'chose route B',sourceOutcome:'model says run 2 passed',evidenceRefs:Array.from({length:24},(_,i)=>'R'.repeat(990)+String(i).padStart(10,'0')),uncertainty:'single rerun; unverified' },
+      { key:'lesson_discard:lesson_discard',runId:'lesson_discard',id:'lesson_discard',kind:'lesson',content:'Avoid this path.',scope:'global',origin:'decision-outcome',createdAt:2,proposalType:'decision-lesson',sourceDecisionId:'decision_discard',sourceOutcomeEventId:'outcome_discard',sourceDecision:'chose route A',sourceOutcome:'model says latency rose',evidenceRefs:['run:r7'],uncertainty:'no control group; unverified' },
+      { key:'lesson_structured:lesson_structured',runId:'lesson_structured',id:'lesson_structured',kind:'lesson',content:'Keep this scoped.',scope:'global',origin:'decision-outcome',createdAt:3,proposalType:'decision-lesson',sourceDecisionId:'decision_structured',sourceOutcomeEventId:'outcome_structured',sourceDecision:'test scoped path',sourceOutcome:'model reports success',evidenceRefs:['artifact:scoped','run:s1'],uncertainty:'single result',lessonContract:decisionRows[2].lessonProposals[0].contract }
+    ];
+    fs.writeFileSync(path.join(ws,'agent.decisions.json'),JSON.stringify(decisionRows));
+    fs.writeFileSync(path.join(ws,'agent.pending.json'),JSON.stringify(lessonRows));
+    const decisionHistory=await j('GET','/api/memory/decisions?agent=agent&limit=1');
+    A.eq(decisionHistory.status,200,'Memory Core reads decision history through the actual sidecar route');
+    A.eq(decisionHistory.body.agentId,'agent','decision history remains scoped to the requested agent');
+    A.eq(decisionHistory.body.total,3,'history page reports the durable decision count');
+    A.eq(decisionHistory.body.records[0].id,'decision_discard','history page is ordered newest first');
+    A.eq(decisionHistory.body.records[0].trust,'unconfirmed','actual model records remain explicitly unconfirmed');
+    A.eq(decisionHistory.body.records[0].outcomeEvents[0].trust,'unconfirmed','actual model outcome events remain unconfirmed');
+    A.ok(!JSON.stringify(decisionHistory.body).includes('DO NOT EXPOSE'),'unknown durable fields are omitted from the HTTP projection');
+    const decisionNext=await j('GET','/api/memory/decisions?agent=agent&limit=1&offset=1');
+    A.eq(decisionNext.body.records[0].id,'decision_keep','the read-only history page can continue to older records');
+    const lessonDeck=await j('GET','/api/memory/pending?agent=agent');
+    A.eq(lessonDeck.body.pending[0].sourceTrust,'unconfirmed','review API labels lesson source as unconfirmed');
+    A.eq(lessonDeck.body.pending[0].evidenceRefs.length,24,'review API retains the complete bounded source evidence list'); A.ok(lessonDeck.body.pending[0].evidenceRefs.every(x=>x.length===1000),'review API does not truncate valid long references');
+    A.ok(/unverified/.test(lessonDeck.body.pending[0].uncertainty),'review API preserves explicit uncertainty');
+    const structuredRead=await j('GET','/api/memory/decisions?agent=agent&limit=10');
+    A.eq(structuredRead.body.records.find(r=>r.id==='decision_structured').lessonProposals[0].contract.scope.id,'cust-7','typed contract survives the durable decision-history projection');
+    A.eq(lessonDeck.body.pending.find(p=>p.id==='lesson_structured').lessonContract.scope.type,'customer','typed contract survives pending queue projection');
+    A.eq(structuredRead.body.records.find(r=>r.id==='decision_structured').lessonProposals[0].reviewState.state,'evidence-passed','held-out audit survives actual HTTP cold reconstruction');
+    const keptLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_keep',id:'lesson_keep',verdict:'keep'});
+    A.eq(keptLesson.status,200,'operator Keep processes lesson through the existing review handler');
+    const discardedLesson=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_discard',id:'lesson_discard',verdict:'discard'});
+    A.eq(discardedLesson.status,200,'operator Discard processes lesson through the existing review handler');
+    const beforeStructuredKeep=await j('GET','/api/memory/records?agent=agent');
+    const strippedStructuredRow={...lessonRows[2]}; delete strippedStructuredRow.lessonContract;
+    fs.writeFileSync(path.join(ws,'agent.pending.json'),JSON.stringify([strippedStructuredRow]));
+    const structuredKeep=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_structured',id:'lesson_structured',verdict:'keep'});
+    A.eq(structuredKeep.status,409,'structured candidate Keep fails closed from durable source receipt even if queue metadata is absent');
+    A.ok(/scoped validation\/promotion/.test(structuredKeep.body.error),'structured Keep explains the current validation boundary');
+    A.eq((await j('GET','/api/memory/records?agent=agent')).body.records.length,beforeStructuredKeep.body.records.length,'structured Keep creates no notebook record');
+    A.eq((await j('GET','/api/memory/pending?agent=agent')).body.pending.some(p=>p.id==='lesson_structured'),true,'structured Keep denial preserves the pending candidate for review');
+    const structuredEdit=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_structured',id:'lesson_structured',verdict:'edit',content:'Edited scoped lesson'});
+    A.eq(structuredEdit.status,409,'passed held-out evidence grants no Edit authority');
+    const structuredDiscard=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_structured',id:'lesson_structured',verdict:'discard'});
+    A.eq(structuredDiscard.status,200,'structured candidate remains discardable through existing review lifecycle');
+    const keptRecords=await j('GET','/api/memory/records?agent=agent');
+    const lessonRecord=(keptRecords.body.records||[]).find(r=>r.kind==='lesson');
+    A.ok(lessonRecord,'kept lesson is persisted as a lesson reference in notebook');
+    const keptNotebookRows=JSON.parse(fs.readFileSync(path.join(ws,'agent.notebook.json'),'utf8')); A.eq(keptNotebookRows.find(r=>r.id===lessonRecord.id).authority,'reference-only','kept lesson remains reference-only in durable record');
+    A.eq(lessonRecord.lessonSource.evidenceRefs.length,24,'kept record retains every source evidence reference'); A.ok(lessonRecord.lessonSource.evidenceRefs.every(x=>x.length===1000),'kept record preserves full reference values');
+    A.eq(lessonRecord.lessonSource.trust,'unconfirmed','kept candidate source remains unconfirmed');
+    const reviewedRows=JSON.parse(fs.readFileSync(path.join(ws,'agent.decisions.json'),'utf8'));
+    A.eq(reviewedRows[2].lessonProposals[0].validations.length,1,'Discard retains held-out historical audit');
+    A.eq(reviewedRows[2].lessonProposals[0].status,'discarded','validated candidate Discard is terminal');
+    A.eq(reviewedRows[0].lessonProposals[0].status,'kept','Keep receipt is recorded on source decision');
+    A.eq(reviewedRows[1].lessonProposals[0].status,'discarded','Discard receipt is recorded on source decision');
+    const reviewedHistory=await j('GET','/api/memory/decisions?agent=agent&limit=10');
+    const keepReceipt=reviewedHistory.body.records.find(r=>r.id==='decision_keep').lessonProposals[0];
+    const discardReceipt=reviewedHistory.body.records.find(r=>r.id==='decision_discard').lessonProposals[0];
+    A.eq(keepReceipt.status,'kept','read-only retrospective reflects the authoritative Keep receipt');
+    A.eq(discardReceipt.status,'discarded','read-only retrospective reflects the authoritative Discard receipt');
+    A.eq((await j('GET','/api/memory/pending?agent=agent')).body.pending.length,0,'reviewed candidates no longer reappear in pending deck');    // A stale card after Discard must be rejected before the notebook write path can run.
+    fs.writeFileSync(path.join(ws,'agent.pending.json'),JSON.stringify([lessonRows[1]]));
+    const staleKeep=await j('POST','/api/memory/turnin',{agentId:'agent',runId:'lesson_discard',id:'lesson_discard',verdict:'keep'});
+    A.eq(staleKeep.status,409,'stale Keep after Discard is rejected before writing memory');
+    const afterStaleKeep=await j('GET','/api/memory/records?agent=agent');
+    A.eq((afterStaleKeep.body.records||[]).filter(r=>r.kind==='lesson').length,1,'stale Keep after Discard creates no notebook lesson');
+
+    // A separate agent exercises the dedicated validated PROJECT Keep through the real HTTP route.
+    const promotionStore=require('../sidecar/memory-store.js').makeMemoryStore({fs,path,workspaces:ws});
+    const promotionClock={now:()=>Date.parse('2026-11-01T00:00:00Z')};
+    const promotionTools=require('../sidecar/tools/builtin/decisions.js').makeDecisionTools({store:promotionStore,clock:promotionClock,proposeLesson:async()=>({ok:true})});
+    const promotionCtx={agentId:'promotion',lessonScopeSnapshot:{schemaVersion:1,type:'project',id:'opaque_project_id_0009'}};
+    await promotionTools.recordTool.run({clientId:'http',decision:'test project reference',alternatives:[],evidenceRefs:['source:p'],uncertainty:'synthetic'},promotionCtx);
+    await promotionTools.outcomeTool.run({id:'decision_http',eventId:'out',outcome:'observed',evidenceRefs:['source:o']},promotionCtx);
+    const promotionContract={schemaVersion:1,scope:{type:'project',id:'opaque_project_id_0009'},sourceRefs:['source:p','source:o'],uncertainty:'synthetic',confidence:null,version:'v1',recheckAt:'2099-01-01',expiresAt:'2099-02-01',positiveExamples:['match'],negativeExamples:['unrelated']};
+    await promotionTools.lessonTool.run({decisionId:'decision_http',outcomeEventId:'out',lesson:'Project reference only',contract:promotionContract},promotionCtx);
+    await promotionTools.validationTool.run({validationId:'http',binding:{agentId:'promotion',decisionId:'decision_http',outcomeEventId:'out',version:'v1',scope:promotionContract.scope,sourceRefs:promotionContract.sourceRefs},uncertainty:'synthetic',cases:[{id:'p',category:'positive',sourceRefs:['held:p'],expected:'match',observed:'match',result:'pass'},{id:'n',category:'negative',sourceRefs:['held:n'],expected:'reject',observed:'reject',result:'pass'}]},promotionCtx);
+    const promotionProp={id:'project-prop',runId:'project-review',kind:'lesson',proposalType:'decision-lesson',content:'Project reference only',sourceDecisionId:'decision_http',sourceOutcomeEventId:'out',lessonContract:promotionStore.get('decisions:promotion')[0].lessonProposals[0].contract};
+    await require('../sidecar/memory-store.js').appendPending(promotionStore,'promotion','project-review',[promotionProp],promotionClock.now());
+    const promotionPending=await j('GET','/api/memory/pending?agent=promotion');
+    A.eq(promotionPending.body.pending[0].promotion.eligible,true,'HTTP pending advertises current eligible project reference');
+    A.eq(promotionPending.body.pending[0].promotion.label,'Keep project reference only','HTTP Keep label does not imply generic memory approval');
+    const promotionBody={agentId:'promotion',runId:'project-review',id:'project-prop',verdict:'keep',promotion:'project-reference-only'};
+    A.eq((await j('POST','/api/memory/turnin',{...promotionBody,verdict:'edit',content:'changed'})).status,409,'validated project Edit remains blocked');
+    A.eq((await j('POST','/api/memory/turnin',{...promotionBody,promotion:undefined})).status,409,'generic Keep does not activate typed project memory');
+    const promoted=await j('POST','/api/memory/turnin',promotionBody);
+    A.eq(promoted.status,200,'dedicated operator project Keep promotes current validated reference');A.eq(promoted.body.trust,'unverified','HTTP promotion remains unverified');A.eq(promoted.body.authority,'reference-only','HTTP promotion remains reference-only');
+    const promotionRetry=await j('POST','/api/memory/turnin',promotionBody);A.eq(promotionRetry.status,200,'Keep retry reconciles after pending cleanup');A.eq(promotionRetry.body.id,promoted.body.id,'HTTP retry preserves deterministic notebook identity');A.eq(promotionRetry.body.duplicate,true,'HTTP retry is explicit');
+    A.eq(promotionStore.get('notebook:promotion').length,1,'HTTP promotion creates at most one record');A.eq(promotionStore.get('decisions:promotion')[0].lessonProposals[0].status,'kept','HTTP promotion commits review receipt');
 
     // ---- FORGET = NEVER AGAIN (2026-07-16 resurrect audit): Memory Core's Forget must be as durable as a
     //      veto/discard — the removed belief's text joins the SAME permanent declined denylist, or reflection

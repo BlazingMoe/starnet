@@ -6,6 +6,7 @@
      provenance     : host registration boundary; 'host' or 'connector'
      capability     : the capId this tool belongs to (object=capability mapping; M1.3)
      requiresConsent: prompt before running (write/execute/network; M1.4)
+     requiresCompleteOutput: opt-in; reject output that cannot be returned in full
      timeoutMs      : per-tool execution bound (0 = none)
      preconditions  : machine-readable state requirements; strict identifiers only
      run(args, ctx) : async; returns a string or { content, summary }; THROWS on error. */
@@ -57,6 +58,7 @@
       capability: def.capability || null,
       impact: def.impact || null,
       requiresConsent: !!def.requiresConsent,
+      requiresCompleteOutput: def.requiresCompleteOutput === true,
       timeoutMs: def.timeoutMs || 0,
       preconditions: normalizePreconditions(def.preconditions),
       run: def.run || (async () => { throw new Error('tool "' + def.name + '" has no run()'); })

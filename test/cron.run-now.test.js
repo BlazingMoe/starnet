@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const src = fs.readFileSync(path.resolve(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+const cronDriverSrc = fs.readFileSync(path.resolve(__dirname, '..', 'sidecar', 'cron-driver.js'), 'utf8');
 
 function sliceBetween(text, startPattern, endPattern) {
   const start = text.search(startPattern);
@@ -29,6 +30,10 @@ A.ok(/function placeCronWorkitem\s*\(/.test(src), 'shared cron workitem helper e
 A.ok(/placeWorkitem:\s*placeCronWorkitem/.test(driverBlock), 'scheduled cron uses the shared workitem helper');
 A.ok(/placeCronWorkitem\s*\(\s*job\.agentId\s*,\s*job\.prompt\s*,\s*runId\s*\)/.test(runNowBlock), 'manual Run Now places a cron workitem');
 A.ok(/broadcast:\s*true/.test(runNowBlock), 'manual Run Now opts into SSE lifecycle broadcast');
+A.ok(/requestLimits:\s*\(Number\.isSafeInteger\(job\.maxIters\)[\s\S]{0,300}job\.maxCostUsd/.test(runNowBlock), 'Run Now forwards valid routine cost and iteration caps to the entry run');
+A.ok(/requestLimits:\s*\(Number\.isSafeInteger\(job\.maxIters\)[\s\S]{0,300}job\.maxCostUsd/.test(cronDriverSrc), 'scheduled fires forward valid routine cost and iteration caps to the entry run');
+A.ok(/enabledToolsets:\s*Array\.isArray\(job\.enabledToolsets\)[\s\S]{0,80}job\.enabledToolsets\.slice\(\)/.test(runNowBlock), 'Run Now forwards the routine toolset restriction to the shared run host');
+A.ok(/enabledToolsets:\s*Array\.isArray\(job\.enabledToolsets\)[\s\S]{0,80}job\.enabledToolsets\.slice\(\)/.test(cronDriverSrc), 'scheduled fires forward the same routine toolset restriction to the shared run host');
 A.ok(/manual[\s/]+Run Now[\s/]+opts into broadcast/i.test(runOnceBlock), 'runOnce comment documents manual cron broadcast reason');
 
 /* GRANTS NEVER FLOW DOWN A LINE (2026-08-04). The routine's unattended grant was approved for ONE agent —

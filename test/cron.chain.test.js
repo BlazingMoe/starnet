@@ -12,6 +12,7 @@ const { makeClock } = require('../shared/clock-rng.js');
 const cron = require('../sidecar/cron.js');
 const cronStore = require('../sidecar/cron-store.js');
 const { makeCronDriver } = require('../sidecar/cron-driver.js');
+const { redact } = require('../sidecar/context.js');
 
 const T0 = 1700000000000;
 const flush = () => new Promise(r => setImmediate(r));
@@ -20,7 +21,8 @@ function setup(opts) {
   opts = opts || {};
   const clock = makeClock(T0);
   const schedule = cron.parseSchedule('every 1m', T0);
-  let store = [cronStore.makeJob({ id: 'j1', prompt: 'research the thing', agentId: 'researcher', schedule, unattendedGrants: opts.grants, runsLine: opts.runsLine }, { id: 'j1', now: T0 })];
+  const jobSpecs = Array.isArray(opts.jobs) ? opts.jobs : [{ id: 'j1', prompt: 'research the thing', agentId: 'researcher', unattendedGrants: opts.grants, runsLine: opts.runsLine }];
+  let store = jobSpecs.map(spec => cronStore.makeJob(Object.assign({ schedule }, spec), { id: spec.id, now: T0 }));
   const events = [], runs = [], chainCalls = [];
   let idN = 0;
   const driver = makeCronDriver({
@@ -59,6 +61,94 @@ async function fireAndSettle(s, reply) {
     A.eq(s.chainCalls[0].streamId, 'cron-run-1', "hops ride the ROUTINE's stream so its session shows the whole line");
     A.eq(lastOf(s.events, 'cron.result').outcome, 'ok', 'the routine settles ok');
     A.eq(s.getJob('j1').lastStatus, 'ok', 'and its durable record is clean');
+  }
+
+  /* ---- decision metadata reaches the same structured cron.result as the delivered line ---- */
+  {
+    const decisions = [{ kind: 'filter', outcome: 'route', lane: 'N' }];
+    const s = setup({ advanceChain: async () => ({ text: 'line answer', hops: [], stopped: 'budget', decisions, decisionsTruncated: false }) });
+    await fireAndSettle(s, 'entry answer');
+    const result = lastOf(s.events, 'cron.result');
+    A.eq(result.workflowDecisions[0].outcome, 'route', 'the structured result exposes the returned route choice');
+    A.eq(result.workflowDecisionsTruncated, false, 'a complete small trace says it is complete');
+    A.eq(result.outcome, 'ok', 'planned routing remains separate from the routine outcome');
+    A.eq(result.workflowDecisions[0].lane, 'N', 'a budget-stopped line still exposes its decision without claiming the hop ran');
+  }
+
+  /* ---- consumer projection repeats trace bounds and drops unrecognized/unbounded row data ---- */
+  {
+    const excessive = Array.from({ length: 65 }, () => ({ kind: 'route', outcome: 'route', agent: 'w'.repeat(120), agents: Array.from({ length: 17 }, (_, i) => 'branch-' + i), prompt: 'never carry this' }));
+    const s = setup({ advanceChain: async () => ({ text: 'line answer', decisions: excessive }) });
+    await fireAndSettle(s, 'entry answer');
+    const result = lastOf(s.events, 'cron.result');
+    A.eq(result.workflowDecisions.length, 64, 'the consumer caps output at the chain hard limit');
+    A.eq(result.workflowDecisions[0].agent.length, 80, 'untrusted identifiers are length bounded again at the event seam');
+    A.eq(result.workflowDecisions[0].agents.length, 16, 'fan-out agent identifiers are capped at sixteen');
+    A.ok(result.workflowDecisionsTruncated, 'overflow and identifier truncation are disclosed');
+    A.ok(!Object.prototype.hasOwnProperty.call(result.workflowDecisions[0], 'prompt'), 'arbitrary decision fields are excluded');
+    const egress = redact({ workflowDecisions: [{ kind: 'route', outcome: 'route', agent: 'writer api_key=secret-12345' }] });
+    A.ok(!egress.workflowDecisions[0].agent.includes('secret-12345'), 'the same existing structural redactor used by cronEmit scrubs trace strings');
+  }
+
+  /* ---- a second fire on the same driver cannot inherit the first fire's trace ---- */
+  {
+    let call = 0;
+    const s = setup({ advanceChain: async () => (++call === 1
+      ? { text: 'first line', decisions: [{ kind: 'route', outcome: 'route', agent: 'first-only' }] }
+      : { text: 'second line' }) });
+    await fireAndSettle(s, 'first entry');
+    s.clock.set(T0 + 120000);
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 2, 'the same driver fires the next schedule window');
+    s.runs[1].opts.emit('agent.token', { delta: 'second entry' });
+    s.runs[1].opts.emit('agent.run.end', { reason: 'done' });
+    s.runs[1].resolve();
+    await flush(); await flush(); await flush();
+    const results = s.events.filter(e => e.name === 'cron.result').map(e => e.payload);
+    A.eq(results.length, 2, 'both sequential fires emitted one result');
+    A.eq(results[0].workflowDecisions[0].agent, 'first-only', 'the first fire retains its own trace');
+    A.ok(!Object.prototype.hasOwnProperty.call(results[1], 'workflowDecisions'), 'the second no-trace fire does not inherit it');
+  }
+
+  /* ---- overlapping jobs settling in reverse order keep trace attached to each run/job ---- */
+  {
+    const pending = Object.create(null);
+    const s = setup({
+      jobs: [
+        { id: 'j1', prompt: 'first prompt', agentId: 'first', runsLine: true },
+        { id: 'j2', prompt: 'second prompt', agentId: 'second', runsLine: true }
+      ],
+      advanceChain: o => new Promise(resolve => { pending[o.agentId] = resolve; })
+    });
+    s.clock.set(T0 + 60000);
+    s.driver.applyTick(s.clock.now());
+    A.eq(s.runs.length, 2, 'one driver launches both jobs concurrently');
+    for (const run of s.runs) {
+      run.opts.emit('agent.token', { delta: run.opts.agentId + ' entry' });
+      run.opts.emit('agent.run.end', { reason: 'done' });
+      run.resolve();
+    }
+    await flush(); await flush(); await flush();
+    A.ok(pending.first && pending.second, 'both lines are active at once');
+    pending.second({ text: 'second line', decisions: [{ kind: 'route', outcome: 'route', agent: 'second-target' }] });
+    await flush(); await flush();
+    pending.first({ text: 'first line', decisions: [{ kind: 'route', outcome: 'route', agent: 'first-target' }] });
+    await flush(); await flush();
+    const byJob = Object.fromEntries(s.events.filter(e => e.name === 'cron.result').map(e => [e.payload.jobId, e.payload]));
+    const fired = Object.fromEntries(s.events.filter(e => e.name === 'cron.fire').map(e => [e.payload.jobId, e.payload.runId]));
+    A.eq(byJob.j1.workflowDecisions[0].agent, 'first-target', 'reverse settlement keeps j1 trace on j1');
+    A.eq(byJob.j2.workflowDecisions[0].agent, 'second-target', 'reverse settlement keeps j2 trace on j2');
+    A.eq(byJob.j1.runId, fired.j1, 'j1 result keeps its firing runId');
+    A.eq(byJob.j2.runId, fired.j2, 'j2 result keeps its firing runId');
+  }
+
+  /* ---- no trace from an old/alternate chain seam leaves the historical event shape intact ---- */
+  {
+    const s = setup({ advanceChain: async () => ({ text: 'line answer', hops: [], stopped: null }) });
+    await fireAndSettle(s, 'entry answer');
+    const result = lastOf(s.events, 'cron.result');
+    A.ok(!Object.prototype.hasOwnProperty.call(result, 'workflowDecisions'), 'trace fields are omitted when absent');
+    A.ok(!Object.prototype.hasOwnProperty.call(result, 'workflowDecisionsTruncated'), 'the truncation field is omitted too');
   }
 
   /* ---- a TRUNCATED entry run buys no hops: the line advances only on reason 'done' ---- */
@@ -215,7 +305,8 @@ async function fireAndSettle(s, reply) {
     // the EXACT shape index.js injects, quoted so the two cannot drift apart unnoticed
     const advanceChain = (o) => chain.advance({
       agentId: o.agentId, text: o.text, originalText: o.originalText, signal: o.signal,
-      lineId: o.runsLine === true ? router.lineOfAgent(o.agentId) : null
+      lineId: o.runsLine === true ? router.lineOfAgent(o.agentId) : null,
+      runAgent: async (h) => { hopRuns.push(h.agentId); return { text: h.agentId + ' output' }; }
     });
 
     /* A PRE-EXISTING ROUTINE AT A DOCKED AGENT SPENDS EXACTLY ONE PROVIDER CALL. This is the money case:
@@ -242,6 +333,25 @@ async function fireAndSettle(s, reply) {
       A.eq(s.chainCalls[0].runsLine, true, 'the driver passes it through');
       A.eq(hopRuns, ['writer'], "a routine that BELONGS to the line runs that line's next stage");
       A.eq(s.getJob('j1').lastOutput, 'writer output', "and the line's answer is what the routine delivers");
+      const result = lastOf(s.events, 'cron.result');
+      A.ok(Array.isArray(result.workflowDecisions) && result.workflowDecisions.length > 0, 'the real chain decision reaches the caller-facing cron.result');
+      A.eq(result.workflowDecisions[0].kind, 'route', 'the real router route is visible to the structured consumer');
+    }
+
+    {
+      hopRuns.length = 0;
+      const budgetAdvanceChain = (o) => chain.advance({
+        agentId: o.agentId, text: o.text, originalText: o.originalText,
+        lineId: o.runsLine === true ? router.lineOfAgent(o.agentId) : null,
+        entryUsd: 0.01, limits: { maxUsdPerMessage: 0.01 },
+        runAgent: async (h) => { hopRuns.push(h.agentId); return { text: h.agentId + ' output' }; }
+      });
+      const s = setup({ advanceChain: budgetAdvanceChain, runsLine: true });
+      await fireAndSettle(s, 'raw findings about the thing');
+      const result = lastOf(s.events, 'cron.result');
+      A.eq(hopRuns.length, 0, 'the real chain budget stop prevents the selected route from executing');
+      A.ok(result.workflowDecisions.some(d => d.kind === 'route' && d.agent === 'writer'), 'the real budget-stopped chain still delivers its planned route decision');
+      A.eq(result.outcome, 'ok', 'the entry routine outcome remains distinct from the planned downstream route');
     }
 
     // a MARKED routine at an agent that crews NO dock: no line to run, and nothing downstream is bought

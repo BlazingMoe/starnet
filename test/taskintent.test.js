@@ -7,6 +7,8 @@ const TaskIntent = require('../frontend/app/fork.js').TaskIntent;
 const CommanderContext = require('../sidecar/commander-context.js');
 const { makeTaskBriefStore } = require('../sidecar/taskbrief-store.js');
 const Policy = require('../sidecar/taskbrief-policy.js');
+const Todo = require('../sidecar/tools/builtin/todo.js');
+const InputPolicy = require('../sidecar/inputpolicy.js');
 const { registerTaskBriefTools } = require('../sidecar/taskbrief-tools.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 const LoopModule = require('../sidecar/loop.js');
@@ -113,6 +115,18 @@ A.eq(Policy.validateQuestion(material({ newBlocker: true }), { questions: [{ ans
 A.eq(Policy.validateQuestion(material(), { questions: [{ answer: 'a' }, { answer: 'b' }] }).ok, false, 'host enforces the whole-task two-question cap');
 A.eq(Policy.validateProceed({ objective: '' }).ok, false, 'empty settled briefs cannot unlock mutation');
 A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write' }).ok, false, 'writes are locked while intent is unsettled');
+const todoDef = Todo.makeTodoTool({ store: { get() {}, set() {} } }).todoTool;
+A.eq(todoDef.name, 'todo', 'private planning exemption uses the built-in todo tool');
+A.eq(todoDef.capability, 'taskplan', 'built-in todo carries the taskplan capability');
+A.eq(todoDef.scope, 'write', 'built-in todo metadata declares its write scope');
+A.eq(todoDef.impact, 'none', 'built-in todo metadata declares its private in-session impact');
+A.eq(InputPolicy.impactOfTool(todoDef), 'none', 'the host classifier treats built-in todo as non-consequential');
+A.eq(todoDef.requiresConsent, false, 'built-in todo metadata declares no consent requirement');
+A.eq(Policy.canMutate({ status: 'ready' }, todoDef).ok, true, 'built-in private planning remains available while intent is unsettled');
+A.eq(Policy.canMutate({ status: 'ready' }, { name: 'attacker.tool', capability: 'taskplan', scope: 'write', requiresConsent: false }).ok, false, 'a counterfeit taskplan capability does not bypass the brief gate');
+A.eq(Policy.canMutate({ status: 'ready' }, Object.assign({}, todoDef, { impact: 'external-unknown', readOnlyHint: true })).ok, false, 'external-unknown todo metadata stays gated despite a readOnlyHint');
+A.eq(Policy.canMutate({ status: 'ready' }, { name: 'todo', capability: 'taskplan', scope: 'write', requiresConsent: true }).ok, false, 'a consent-requiring todo variant stays gated');
+A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'write', capability: 'filesystem' }).ok, false, 'external or persistent writes remain locked while intent is unsettled');
 A.eq(Policy.canMutate({ status: 'ready' }, { scope: 'read' }).ok, true, 'reads remain available for pre-question research');
 A.eq(Policy.canMutate({ status: 'executing' }, { scope: 'execute' }).ok, true, 'settling the brief unlocks consequential tools');
 

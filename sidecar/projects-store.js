@@ -45,7 +45,8 @@
       displayPath: r.displayPath != null ? r.displayPath : r.root,
       grantedAt: r.grantedAt != null ? r.grantedAt : null,
       lastTouchedAt: r.lastTouchedAt != null ? r.lastTouchedAt : null,
-      isGitRepo: !!r.isGitRepo
+      isGitRepo: !!r.isGitRepo,
+      lessonProjectId: (typeof r.lessonProjectId === 'string' && /^[A-Za-z0-9_-]{16,120}$/.test(r.lessonProjectId)) ? r.lessonProjectId : null
     });
 
     function snapshot() {
@@ -72,7 +73,8 @@
         displayPath: meta.displayPath != null ? String(meta.displayPath) : (prev && prev.displayPath != null ? prev.displayPath : key),
         grantedAt: prev && prev.grantedAt != null ? prev.grantedAt : (meta.grantedAt != null ? meta.grantedAt : at),
         lastTouchedAt: meta.lastTouchedAt != null ? meta.lastTouchedAt : at,
-        isGitRepo: meta.isGitRepo != null ? !!meta.isGitRepo : !!(prev && prev.isGitRepo)
+        isGitRepo: meta.isGitRepo != null ? !!meta.isGitRepo : !!(prev && prev.isGitRepo),
+        lessonProjectId: prev && typeof prev.lessonProjectId === 'string' ? prev.lessonProjectId : null
       };
       const nextRecords = records.slice();
       if (i < 0) nextRecords.push(nextRow); else nextRecords[i] = nextRow;
@@ -110,7 +112,37 @@
       return { ok: true };
     }
 
-    return { snapshot, upsert, touch, get, has, remove, roots };
+    // Explicit operator binding. Repeating an active bind is idempotent; after clear, binding creates
+    // a new identity so a removed scope can never be silently revived.
+    function bindLessonProject(key, createId, rotate) {
+      const i = indexOfRoot(key);
+      if (i < 0) return { ok: false, reason: 'unknown project' };
+      if (!rotate && typeof records[i].lessonProjectId === 'string' && records[i].lessonProjectId) return { ok: true, project: rowView(records[i]), unchanged: true };
+      if (typeof createId !== 'function') return { ok: false, reason: 'identity generator unavailable' };
+      if (!persist) return { ok: false, reason: 'durable project store unavailable' };
+      const id = String(createId() || '');
+      if (!/^[A-Za-z0-9_-]{16,120}$/.test(id)) return { ok: false, reason: 'invalid generated identity' };
+      if (id === records[i].lessonProjectId || records.some((r, n) => n !== i && r && r.lessonProjectId === id)) return { ok: false, reason: 'generated identity is already in use' };
+      const next = Object.assign({}, records[i], { lessonProjectId: id });
+      const nextRecords = records.slice(); nextRecords[i] = next;
+      try { persist(nextRecords.map(rowView)); } catch (_) { return { ok: false, reason: 'could not persist binding — unchanged' }; }
+      records[i] = next;
+      return { ok: true, project: rowView(next), unchanged: false };
+    }
+
+    function clearLessonProject(key) {
+      const i = indexOfRoot(key);
+      if (i < 0) return { ok: false, reason: 'unknown project' };
+      if (!records[i].lessonProjectId) return { ok: true, project: rowView(records[i]), unchanged: true };
+      if (!persist) return { ok: false, reason: 'durable project store unavailable' };
+      const next = Object.assign({}, records[i], { lessonProjectId: null });
+      const nextRecords = records.slice(); nextRecords[i] = next;
+      try { persist(nextRecords.map(rowView)); } catch (_) { return { ok: false, reason: 'could not persist clear — unchanged' }; }
+      records[i] = next;
+      return { ok: true, project: rowView(next), unchanged: false };
+    }
+
+    return { snapshot, upsert, touch, get, has, remove, roots, bindLessonProject, clearLessonProject };
   }
 
   return { makeProjectsStore };

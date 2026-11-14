@@ -91,6 +91,7 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
   // ---- 1. a due job fires exactly once; surface:'autonomous' + trigger:'schedule'; cron.fire carries the runId ----
   {
     const j = intervalJob('j1', 'every 1m');                  // armed nextRunAt = T0 + 60000
+    j.maxIters = 4;
     const s = setup([j], okRun());
     s.clock.set(T0 + 60000);                                  // now the interval is due
     const summary = s.driver.applyTick(s.clock.now());
@@ -98,6 +99,7 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.eq(s.runs.length, 1, 'runOnce called exactly once');
     A.eq(s.runs[0].surface, 'autonomous', 'fire passes surface:autonomous (the unattended-consent keystone)');
     A.eq(s.runs[0].trigger, 'schedule', 'fire passes trigger:schedule');
+    A.eq(s.runs[0].requestLimits, { maxIters: 4 }, 'scheduled fire forwards its durable per-routine iteration cap through the run-limits narrowing path');
     A.eq(s.runs[0].isTask, true, 'a scheduled run is a task');
     A.eq(s.runs[0].agentId, 'cron_j1', 'fire runs as the job agent');
     A.eq(s.runs[0].streamId, 'cron-' + s.runs[0].runId, 'fire passes streamId=cron-<runId> so the transcript is durable + surfaceable as a session');
@@ -108,6 +110,13 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     A.eq(countOf(s.events, 'cron.result'), 1, 'one cron.result after it settles');
     A.eq(firstOf(s.events, 'cron.result').outcome, 'ok', 'a normal reply -> outcome ok');
     A.eq(s.runs[0].station, undefined, 'no resolveStation dep -> station undefined (default office, pre-fix behavior)');
+  }
+
+  // A corrupt persisted cap cannot widen a run or produce an invalid request limit.
+  {
+    const j = intervalJob('bad-limit', 'every 1m'); j.maxIters = '999';
+    const s = setup([j], okRun()); s.clock.set(T0 + 60000); s.driver.applyTick(s.clock.now());
+    A.eq(s.runs[0].requestLimits, undefined, 'invalid persisted per-routine cap is ignored safely');
   }
 
   // ---- 1b. B5 parity: a fire passes the agent's per-bay station from resolveStation (null -> undefined) ----
@@ -242,7 +251,29 @@ const okRun = (text) => (o) => { o.emit('agent.run.start', { agentId: 'a', runId
     const summary = s.driver.applyTick(s.clock.now());
     A.eq(summary.fired, 0, 'beyond grace: nothing fires (no backlog burst)');
     A.eq(firstOf(s.events, 'cron.skipped').reason, 'caught-up', 'fast-forward emits caught-up');
+    A.eq(firstOf(s.events, 'cron.skipped').scheduledFor, T0, 'stale skip preserves the missed scheduled occurrence instant');
     A.ok(Date.parse(s.getJob('j1').nextRunAt) > s.clock.now(), 'nextRunAt fast-forwarded to a FUTURE occurrence');
+  }
+
+  // ---- 6b. explicit missed-run choices feed the same durable scheduler policy ----
+  {
+    const j = intervalJob('catch-up-once', 'every 10m');
+    j.nextRunAt = cron._internals.iso(T0); j.misfire = 'fire_once';
+    const s = setup([j], okRun(), { t0: T0 });
+    s.clock.set(T0 + 5000000);
+    const summary = s.driver.applyTick(s.clock.now());
+    A.eq(summary.fired, 1, 'explicit fire_once runs one stale occurrence after downtime');
+    A.eq(s.getJob('catch-up-once').misfire, 'fire_once', 'chosen policy remains durable on the scheduled job');
+    A.ok(Date.parse(s.getJob('catch-up-once').nextRunAt) > s.clock.now(), 'catch-up still advances directly to a future time');
+  }
+  {
+    const j = intervalJob('skip-stale', 'every 10m');
+    j.nextRunAt = cron._internals.iso(T0); j.misfire = 'skip';
+    const s = setup([j], okRun(), { t0: T0 });
+    s.clock.set(T0 + 5000000);
+    const summary = s.driver.applyTick(s.clock.now());
+    A.eq(summary.fired, 0, 'explicit skip policy drops an occurrence after downtime beyond its grace window');
+    A.eq(firstOf(s.events, 'cron.skipped').reason, 'caught-up', 'explicit stale skip retains the auditable skip event');
   }
 
   // ---- 7. a throwing run records lastStatus:error and does NOT stop the next job from firing ----

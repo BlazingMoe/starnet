@@ -312,6 +312,30 @@ async function readNdjson(res) {
     const listed = await (await fetch(B + '/api/connectors', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     A.ok((listed.connectors || []).some(c => c.id === 'demo' && c.tools && c.tools.indexOf('lookup') >= 0), '/api/connectors lists the discovered MCP tool');
 
+    // PR SWEEP ADMISSION: the real /api/run path must refuse a room with only the full-access GitHub connector.
+    // The local mock endpoint proves the configured full-access tool cannot trigger a provider request or MCP call.
+    const fullGithub = await fetch(B + '/api/connectors', {
+      method: 'POST', headers,
+      body: JSON.stringify({ id: 'github', label: 'GitHub', transport: 'http', url: mcp.url, token: 'github-full-mock-token' })
+    });
+    A.eq(fullGithub.status, 200, 'configured a local full-access GitHub connector fixture');
+    A.eq((await fullGithub.json()).state, 'up', 'full-access GitHub fixture connects to the local mock');
+    const providerCallsBeforeSweep = llm.requests.length;
+    const mcpCallsBeforeSweep = mcp.calls.length;
+    const blockedSweep = await fetch(B + '/api/run', {
+      method: 'POST', headers,
+      body: JSON.stringify({ key: 'sk-or-v1-mcp-fake', model: 'test/model', agentId: 'github-sweep-gate', isTask: true, recipeId: 'pr-sweep',
+        messages: [{ role: 'user', content: 'Review the open pull requests for acme/app.' }] })
+    });
+    A.eq(blockedSweep.status, 200, 'PR Sweep gate returns its normal event stream');
+    const blockedSweepEvents = await readNdjson(blockedSweep);
+    const blockedSweepError = blockedSweepEvents.find(e => e.name === 'agent.run.error');
+    A.ok(blockedSweepEvents.some(e => e.name === 'agent.run.start'), 'PR Sweep gate emits run start');
+    A.ok(blockedSweepError && /GitHub \(read-only\)/.test(blockedSweepError.payload.message) && /Connectors catalog/.test(blockedSweepError.payload.message), 'PR Sweep full-access-only refusal gives actionable read-only setup');
+    A.ok(blockedSweepEvents.some(e => e.name === 'agent.run.end' && e.payload.reason === 'error'), 'PR Sweep gate closes the run with an error terminal');
+    A.eq(llm.requests.length, providerCallsBeforeSweep, 'PR Sweep readiness refusal happens before any provider request');
+    A.eq(mcp.calls.length, mcpCallsBeforeSweep, 'PR Sweep readiness refusal makes no remote MCP call');
+
     // HARNESS SELF-KNOWLEDGE: plant all three mutable sources, then make a REAL /api/run call the
     // always-present station.inspect tool. The returned bytes must agree with the same live stores the
     // APIs above use — not a prompt summary or scripted fixture inside the tool.

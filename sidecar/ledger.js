@@ -8,8 +8,8 @@
    testable headlessly with an in-memory io. The host owns the atomic file append.
 
    makeLedger({ io, clock, dayMs? }) -> {
-     record({ runId, agentId, turns, usd, tokens }) -> entry,   // stamps ts, appends, returns it
-     recordStrict({ runId, agentId, turns, usd, tokens }) -> entry, // same, but append failure throws
+     record({ runId, agentId, turns, usd, tokens, recipeId? }) -> entry,   // stamps ts, appends, returns it
+     recordStrict({ runId, agentId, turns, usd, tokens, recipeId? }) -> entry, // same, but append failure throws
      all() -> entry[],            count() -> int,
      totalUsd() -> number,                                       // every recorded run, ever
      usdSince(ts) -> number,      usdForDay(now?) -> number,     // trailing `dayMs` window
@@ -28,6 +28,12 @@
   function num(v) { return (typeof v === 'number' && isFinite(v)) ? v : 0; }
   function str(v) { return v == null ? '' : String(v); }
   function modelName(v) { const s = str(v).trim(); return (s || UNKNOWN_MODEL).slice(0, 80); }
+  function recipeName(v) {
+    const s = str(v).trim();
+    // Recipe identifiers are runtime metadata, never copied from model output. Strip control characters and
+    // cap length so a malformed caller cannot turn the ledger or its read-only UI into an unbounded label.
+    return s.replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 120);
+  }
 
   function makeLedger(opts) {
     opts = opts || {};
@@ -57,6 +63,7 @@
         runId: str(e.runId), agentId: str(e.agentId),
         turns: num(e.turns), usd: num(e.usd), tokens: num(e.tokens),
         model: modelName(e.model),
+        recipeId: recipeName(e.recipeId),
         unmetered: !!e.unmetered,
         ts: num(e.ts) || clock.now()
       };
