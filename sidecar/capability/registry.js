@@ -317,7 +317,11 @@
       // image_generate is: it writes into the workspace. It rides the station's existing TTS ladder (the keyed
       // neural chain, then the free keyless Edge floor), so it needs no studio-specific credential — but it
       // does reach the network on the keyed legs. (see tools/builtin/voice.js)
-      { capId: 'studio', tool: 'voice_generate', scope: 'write', requiresConsent: true, network: true }
+      { capId: 'studio', tool: 'voice_generate', scope: 'write', requiresConsent: true, network: true },
+      // Local-only finishing and technical evidence. Edits write a new versioned WAV under consent;
+      // inspection reads bounded media bytes and never claims subjective or rights acceptance.
+      { capId: 'studio', tool: 'media.audio.edit', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'studio', tool: 'media.inspect', scope: 'read', requiresConsent: false, network: false }
     ],
     // JUKEBOX (Spotify): querying playback/library is consent-free (read); CONTROLLING playback is an outward
     // action on the user's account/device, so it is execute + consent-gated. The OAuth session (PKCE, no secret)

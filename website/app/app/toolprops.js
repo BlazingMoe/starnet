@@ -54,6 +54,8 @@ const ToolProps = (() => {
     // this particular read never leaves the machine.
     'connectors.list': 'dish',
     voice_generate: 'studio',   // the studio makes audio as well as images — same prop, same pulse
+    'media.audio.edit': 'studio',
+    'media.inspect': 'studio',
     recall_conversation: 'notebook',
     'widget.get': 'notebook',
     'widget.set': 'notebook'   // Widget definitions/readings share the notebook-object (memory) grant.

@@ -83,6 +83,7 @@ const { makeVisualAssetTools } = require('./tools/builtin/visual-assets.js');
 const { makeImageTools } = require('./tools/builtin/image.js');           // STUDIO: image_generate / image_analyze (OpenRouter multimodal)
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
 const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STUDIO: voice_generate — speech saved into the workspace as a playable clip
+const { makeMediaProductionTools } = require('./tools/builtin/media-production.js');
 const { makeSpotifyTools } = require('./tools/builtin/spotify.js');       // JUKEBOX: control/query the user's Spotify
 const { makeSpotifyStore } = require('./spotify/store.js');               // Spotify OAuth (PKCE) token store + auto-refresh
 const spotifyPkce = require('./spotify/pkce.js');                          // pure PKCE helpers (verifier/challenge/urls)
@@ -15619,6 +15620,9 @@ async function runOnce(o) {
   // workspace. It drives the SAME media-service ladder /api/tts does (keyed neural chain, then the
   // free keyless Edge floor), so it needs no voice-specific credential and a zero-key station can still record.
   makeVoiceTools({ synth: media.synthesizeForAgent, routeAvailable: media.voiceRouteAvailable, fsp, pathMod: path, root: WORKSPACES }).register(registry);
+  // Deterministic private finishing: bounded PCM16 WAV edits plus technical byte/container inspection.
+  // These tools never replace the lane's required rights review or human listening/playback.
+  makeMediaProductionTools({ fsp, pathMod: path, root: WORKSPACES, pathTrust: runPathTrust }).register(registry);
   // JUKEBOX (Spotify): registered every run, EXPOSED via a 'jukebox' object; no-op (clear error) until the user
   // connects Spotify in TOOLSETS. The OAuth session + auto-refresh live in the station-wide spotifyStore above.
   makeSpotifyTools({ store: spotifyStore }).register(registry);

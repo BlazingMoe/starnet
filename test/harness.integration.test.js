@@ -29,6 +29,7 @@ const { makeFiverrHandoffTools } = require('../sidecar/tools/builtin/fiverr-hand
 const { makeServiceStudioTools } = require('../sidecar/tools/builtin/service-studio.js');
 const { makeChannelContentTools } = require('../sidecar/tools/builtin/channel-content.js');
 const { makeVideoRenderTools } = require('../sidecar/tools/builtin/video-render.js');
+const { makeMediaProductionTools } = require('../sidecar/tools/builtin/media-production.js');
 const { makeYoutubeUploadTools } = require('../sidecar/tools/builtin/youtube-upload.js');
 const { makeWebsiteDemoTools } = require('../sidecar/tools/builtin/website-demo.js');
 const { makeCrmDemoTools } = require('../sidecar/tools/builtin/crm-demo.js');
@@ -133,6 +134,7 @@ const fixture = {
   makeServiceStudioTools().register(registry);
   makeChannelContentTools().register(registry);
   makeVideoRenderTools().register(registry);
+  makeMediaProductionTools({ fsp, pathMod: path, root: ROOT }).register(registry);
   makeYoutubeUploadTools().register(registry);
   makeCrmDemoTools().register(registry);
   makeWebsiteDemoTools().register(registry);
@@ -197,6 +199,7 @@ const fixture = {
   EXPECTED.push('channel.youtube.prepare', 'channel.youtube.initiate', 'channel.youtube.status', 'channel.youtube.upload', 'channel.youtube.verify');
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
+  for (const name of ['media.audio.edit', 'media.inspect']) A.ok(registry.get(name), 'studio media tool registered: ' + name);
 
   /* DEFERRAL IS ADVERTISING, NOT CAPABILITY: `resolved.tools` above is the full GRANT set and is what the gate
      reads, so it must still list every deferred tool. Only the wire list narrows. */
