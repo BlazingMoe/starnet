@@ -262,7 +262,19 @@ function makeMediaProductionTools(deps = {}) {
         await fsp.link(pending, output.abs);
         committed = true;
         try { await fsp.unlink(pending); } catch (_) { pendingCleanupRequired = true; }
-      } catch (e) { if (pendingCreated && !committed) { try { await fsp.unlink(pending); } catch (_) {} } throw e; }
+      } catch (e) {
+        if (pendingCreated && !committed) {
+          try { await fsp.unlink(pending); }
+          catch (cleanupError) {
+            const err = new Error('audio edit failed and pending cleanup also failed; manual reconciliation is required', { cause: e });
+            err.code = 'MEDIA_PENDING_CLEANUP_FAILED';
+            err.pendingPath = String(args.outputPath) + '.pending-' + digest.slice(0, 12);
+            err.cleanupCode = cleanupError && cleanupError.code ? cleanupError.code : 'UNKNOWN';
+            throw err;
+          }
+        }
+        throw e;
+      }
       const readback = await fsp.readFile(output.abs), actual = sha256(readback);
       if (actual !== digest || readback.length !== edited.buffer.length) throw new Error('audio write read-back verification failed');
       const technical = parseWav(readback, true);
