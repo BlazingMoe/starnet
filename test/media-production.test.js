@@ -23,7 +23,7 @@ function box(type, payload) {
   const b = Buffer.alloc(8 + payload.length); b.writeUInt32BE(b.length, 0); b.write(type, 4); payload.copy(b, 8); return b;
 }
 function fakeMp4() {
-  const ftyp = box('ftyp', Buffer.from('isom\0\0\0\1isom', 'latin1'));
+  const ftyp = box('ftyp', Buffer.from('isom\0\0\0\x01isom', 'latin1'));
   const mvhd = Buffer.alloc(100); mvhd.writeUInt32BE(1000, 12); mvhd.writeUInt32BE(2500, 16);
   const tkhd = Buffer.alloc(84); tkhd.writeUInt32BE(1920 * 65536, 76); tkhd.writeUInt32BE(1080 * 65536, 80);
   const hdlr = Buffer.alloc(24); hdlr.write('vide', 8);
