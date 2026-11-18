@@ -21017,7 +21017,7 @@ async function handleProjectReferenceRevoke(req, res) {
     for(const d of rows)for(const p of d.lessonProposals||[])if(p && p.memoryId===id && p.status==='revoked')match.push(p);
     if(match.length!==1)throw new Error('revoked project reference history is unavailable or ambiguous');
     await appendDeclinedRequired(agentId,match[0].lesson); // also reconciles a crash after the receipt commit
-    if(!result.duplicate)try { chanEmit('memory.forget',{agentId,id,reason:'project-reference-revoked'}); } catch(_) {}
+    if(!result.duplicate)try { chanEmit('memory.forget',{agentId,id,reason:'project-reference-revoked'}); } catch(e) { failNote('memory.project-reference.revoke.emit',e); }
     return json(200,result);
   } catch(e) { return json(409,{error:'project reference revoke unavailable: '+((e&&e.message)||e)}); }
 }
