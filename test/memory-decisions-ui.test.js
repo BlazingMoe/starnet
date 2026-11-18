@@ -31,8 +31,9 @@ const harness={api:{get:async url=>{pages.push(url); if (url.includes('agent=bro
     {outcomeEventId:'out-3',lesson:'candidate kept',status:'kept'},
     {outcomeEventId:'out-4',lesson:'candidate discarded',status:'discarded'},
     {outcomeEventId:'out-6',lesson:'candidate Keep recovery',status:'reviewing-kept'},
-    {outcomeEventId:'out-5',lesson:'legacy status',status:'other'}
-  ],lessonProposalsTotal:6};
+    {outcomeEventId:'out-5',lesson:'legacy status',status:'other'},
+    {outcomeEventId:'out-7',lesson:'candidate revoked',status:'revoked',revokedAt:102}
+  ],lessonProposalsTotal:7};
   const filler=Array.from({length:9},(_,i)=>({id:'fill-'+i,decision:'older fixture '+i,source:'model',trust:'unconfirmed',confidence:null,createdAt:99-i,uncertainty:'unknown',outcomeEvents:[],outcomeEventsTotal:0,lessonProposals:[],lessonProposalsTotal:0}));
   return {ok:true,agentId:'agent',records:[newest,...filler],total:11,offset:0,limit:10,hasMore:true};
 }}};
@@ -52,6 +53,7 @@ const api=sandbox.module.exports;
   A.ok(host.text.includes('KEEP IN PROGRESS · REVIEW RECEIPT RECOVERY MAY BE NEEDED'),'reviewing-kept remains visible as an in-progress recovery state');
   A.ok(host.text.includes('KEPT · REFERENCE ONLY'),'kept lessons are distinguished from verified facts');
   A.ok(host.text.includes('DISCARDED'),'discarded lesson candidates remain visible in the retrospective');
+  A.ok(host.text.includes('REVOKED · REMOVED FROM ACTIVE MEMORY'),'revoked project references remain visible as inactive audit history');
   A.ok(host.text.includes('REVIEW STATUS UNKNOWN'),'legacy/unsupported proposal status is not assumed kept');
   A.ok(!host.text.includes('Reading durable decision history…'),'successful first page removes the loading placeholder');
   A.ok(!status.textContent.includes('Reading newest'),'successful first page clears the loading status');
@@ -85,6 +87,7 @@ const api=sandbox.module.exports;
   A.ok(station.includes('MemoryDecisionHistory.load(a.id)'),'selected agent Memory Core mounts the retrospective using its own agent ID');
   A.ok(station.includes('STRUCTURED LESSON · UNVERIFIED') && station.includes('Positive examples:') && station.includes('Negative examples:'),'pending lesson review renders structured metadata and both examples as text');
   A.ok(station.includes("keep.textContent = 'Keep project reference only'") && station.includes("p.promotion.eligible === true") && station.includes("promotion:'project-reference-only'"),'project reference Keep requires eligible host projection and sends explicit promotion intent');
+  A.ok(station.includes("rec.projectReference === true") && station.includes("Confirm revoke & remove") && station.includes('memoryProjectReferenceRevoke'),'active project references expose only an explicit two-step revoke action');
   A.eq(stationMirror,station,'website station UI mirror includes the structured lesson review boundary');
   A.ok(index.includes('app/memorydecisions.js'),'the decision history component loads before the Memory Core owner');
   A.report('memory-decisions-ui.test');

@@ -7,7 +7,7 @@ const { projectValidation } = require('../tools/builtin/lesson-validation.js');
 
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
-const LESSON_STATES = new Set(['staging', 'pending', 'reviewing-kept', 'kept', 'discarded']);
+const LESSON_STATES = new Set(['staging', 'pending', 'reviewing-kept', 'kept', 'revoked', 'discarded']);
 // A decision can carry up to 40 outcome events with 12 references each; keep the outer page
 // intentionally smaller than decision.list so the complete nested audit evidence remains bounded.
 const HTTP_PAGE_MAX = 10;
@@ -88,6 +88,7 @@ function projectRecord(row, redact, now, agentId) {
       lesson: boundedText(proposal && proposal.lesson, MAX_TEXT, redact),
       status: LESSON_STATES.has(proposal && proposal.status) ? proposal.status : 'unknown',
       createdAt: timestamp(proposal && proposal.createdAt),
+      ...(proposal && proposal.status === 'revoked' && timestamp(proposal.revokedAt) != null ? {revokedAt:timestamp(proposal.revokedAt)} : {}),
       ...(projectSourceBinding(proposal && proposal.sourceProjectBinding) ? {sourceProjectBinding:projectSourceBinding(proposal.sourceProjectBinding)} : {}),
       ...(projectLessonContract(proposal && proposal.contract, redact) ? { contract: projectLessonContract(proposal.contract, redact) } : {})
     }))

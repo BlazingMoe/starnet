@@ -31,6 +31,7 @@
     if (status === 'pending') return 'AWAITING COMMANDER REVIEW';
     if (status === 'reviewing-kept') return 'KEEP IN PROGRESS · REVIEW RECEIPT RECOVERY MAY BE NEEDED';
     if (status === 'kept') return 'KEPT · REFERENCE ONLY';
+    if (status === 'revoked') return 'REVOKED · REMOVED FROM ACTIVE MEMORY';
     if (status === 'discarded') return 'DISCARDED';
     return 'REVIEW STATUS UNKNOWN';
   }

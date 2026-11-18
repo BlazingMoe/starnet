@@ -9534,6 +9534,7 @@ const ROUTES = [
   { m: 'GET', prefix: '/api/memory/records', h: serveMemoryRecords },
   { m: 'POST', exact: '/api/memory/pin', h: handleMemoryPin },
   { m: 'POST', exact: '/api/memory/edit', h: handleMemoryEdit },
+  { m: 'POST', exact: '/api/memory/project-reference/revoke', h: handleProjectReferenceRevoke },
   { m: 'POST', exact: '/api/memory/forget', h: handleMemoryForget },
   { m: 'GET', exact: '/api/memory/config', h: handleMemoryConfigGet },   // P1-10 memory controls
   { m: 'POST', exact: '/api/memory/config', h: handleMemoryConfigSet },
@@ -20735,12 +20736,18 @@ async function appendDeclined(agentId, text) {
   const t = String(text || '').trim();
   if (!t) return;
   try {
-    await notebookStore.update('declined:' + agentId, (stored) => {
-      const list = Array.isArray(stored) ? stored.slice() : [];
-      if (list.indexOf(t) < 0) { list.push(t); while (list.length > DECLINED_CAP) list.shift(); }
-      return list;
-    });
+    await appendDeclinedRequired(agentId, t);
   } catch (_) {}
+}
+async function appendDeclinedRequired(agentId, text) {
+  const t = String(text || '').trim();
+  if (!t) throw new Error('declined memory text required');
+  await notebookStore.update('declined:' + agentId, (stored) => {
+    if (stored !== undefined && !Array.isArray(stored)) throw new Error('malformed declined memory storage');
+    const list = Array.isArray(stored) ? stored.slice() : [];
+    if (list.indexOf(t) < 0) { list.push(t); while (list.length > DECLINED_CAP) list.shift(); }
+    return list;
+  });
 }
 
 async function handleMemoryTurnin(req, res) {
@@ -20961,6 +20968,8 @@ async function handleMemoryMutate(req, res, op) {
 }
 function handleMemoryPin(req, res) {
   return handleMemoryMutate(req, res, (list, body) => {
+    const rec = list.find(r => r && r.id === String(body.id));
+    if (rec && rec.lessonPromotion) return { found:true, error:'project references are immutable; revoke the reference instead' };
     const out = memcore.applyPin(list, String(body.id), !!body.pinned);
     out.extra = { pinned: !!body.pinned };
     return out;
@@ -20968,6 +20977,8 @@ function handleMemoryPin(req, res) {
 }
 function handleMemoryEdit(req, res) {
   return handleMemoryMutate(req, res, (list, body) => {
+    const rec = list.find(r => r && r.id === String(body.id));
+    if (rec && rec.lessonPromotion) return { found:true, error:'project references are immutable; revoke the reference instead' };
     const content = redact(String(body.content == null ? '' : body.content)).trim();   // §5.6: scrub secrets before persisting
     if (!content) return { found: false, error: 'edited memory cannot be empty' };
     return memcore.applyEdit(list, String(body.id), content);
@@ -20982,6 +20993,7 @@ function handleMemoryForget(req, res) {
     // delete, so the identical belief re-minted from a later run and the silent-save UX wrote it straight
     // back: the user's explicit Forget quietly un-deleted itself.
     const doomed = (Array.isArray(list) ? list : []).find(rec => rec && rec.id === id) || null;
+    if (doomed && doomed.lessonPromotion) return { found:true, error:'project references require the audited revoke action' };
     const out = memcore.applyForget(list, id);
     if (out.found && doomed) {
       out.declineText = doomed.content != null
@@ -20992,6 +21004,22 @@ function handleMemoryForget(req, res) {
     if (out.found) out.emit = { name: 'memory.forget', payload: { agentId, id: id, reason: String(body.reason || 'user') } };
     return out;
   });
+}
+async function handleProjectReferenceRevoke(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body=JSON.parse(await readBody(req,1<<16))||{}; } catch(e) { return json(400,{error:'bad json'}); }
+  const agentId=String(body.agentId||'agent'),id=String(body.id||'');
+  if(!isAgentId(agentId))return json(403,{error:'forbidden'});
+  if(!/^project_lesson_[a-f0-9]{32}$/.test(id))return json(400,{error:'project reference id required'});
+  try {
+    const result=await LessonPromotion.revoke({store:notebookStore,agentId,memoryId:id,clock:{now:()=>Date.now()}});
+    const rows=readDecisionRows(notebookStore,agentId),match=[];
+    for(const d of rows)for(const p of d.lessonProposals||[])if(p && p.memoryId===id && p.status==='revoked')match.push(p);
+    if(match.length!==1)throw new Error('revoked project reference history is unavailable or ambiguous');
+    await appendDeclinedRequired(agentId,match[0].lesson); // also reconciles a crash after the receipt commit
+    if(!result.duplicate)try { chanEmit('memory.forget',{agentId,id,reason:'project-reference-revoked'}); } catch(_) {}
+    return json(200,result);
+  } catch(e) { return json(409,{error:'project reference revoke unavailable: '+((e&&e.message)||e)}); }
 }
 /* ---- P1-10 MEMORY controls API. GET reports the live reflection config + a plain-English scope note (what the
    station may remember). POST persists { reflectEnabled?, reflectCooldownMs? } and applies LIVE (the reflect gate

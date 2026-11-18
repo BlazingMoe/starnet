@@ -2180,6 +2180,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const sc = mkEl('span', 'mc-scope'); sc.textContent = '⊂ ' + (wsT || 'workstream'); sc.title = 'working memory — scoped to this workstream (still cross-stream searchable)'; head.appendChild(sc);
     }
     const org = originChip(rec.origin); if (org) head.appendChild(org);   // only when it was NOT the Commander's own run
+    if (rec.projectReference === true) {
+      const ref = mkEl('span', 'mc-scope'); ref.textContent = 'project reference · unverified';
+      ref.title = 'Reference-only memory for this project; it grants no instruction, tool or permission authority'; head.appendChild(ref);
+    }
     if (rec.pinned) { const p = mkEl('span', 'mc-pinflag'); p.textContent = '★ pinned'; head.appendChild(p); }
     card.appendChild(head);
 
@@ -2203,6 +2207,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const reload = () => loadMemoryCore(a);
     let busy = false;   // in-flight guard: a fast double-click must not fire two POSTs (a success reloads the card away)
     const mk = (label, cls, fn) => { const b = mkEl('button', 'consent-btn' + (cls ? ' ' + cls : '')); b.textContent = label; b.onclick = fn; btns.appendChild(b); return b; };
+    if (rec.projectReference === true) {
+      let armed = false;
+      const revoke = mk('Revoke reference', 'deny', async () => {
+        if (!armed) { armed = true; revoke.textContent = 'Confirm revoke & remove'; setTimeout(() => { if (armed) { armed = false; revoke.textContent = 'Revoke reference'; } }, 4000); return; }
+        if (busy) return; busy = true;
+        const r = await Harness.memoryProjectReferenceRevoke({ agentId:a.id, id:rec.id });
+        if (r && r.ok) { sfx('click'); reload(); if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id); } else busy = false;
+      });
+      return card;
+    }
     mk(rec.pinned ? 'Unpin' : 'Pin', '', async () => {
       if (busy) return; busy = true;
       const r = await Harness.memoryPin({ agentId: a.id, id: rec.id, pinned: !rec.pinned });

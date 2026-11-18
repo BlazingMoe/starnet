@@ -1133,6 +1133,21 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.eq(promoted.status,200,'dedicated operator project Keep promotes current validated reference');A.eq(promoted.body.trust,'unverified','HTTP promotion remains unverified');A.eq(promoted.body.authority,'reference-only','HTTP promotion remains reference-only');
     const promotionRetry=await j('POST','/api/memory/turnin',promotionBody);A.eq(promotionRetry.status,200,'Keep retry reconciles after pending cleanup');A.eq(promotionRetry.body.id,promoted.body.id,'HTTP retry preserves deterministic notebook identity');A.eq(promotionRetry.body.duplicate,true,'HTTP retry is explicit');
     A.eq(promotionStore.get('notebook:promotion').length,1,'HTTP promotion creates at most one record');A.eq(promotionStore.get('decisions:promotion')[0].lessonProposals[0].status,'kept','HTTP promotion commits review receipt');
+    const projectedPromotion=await j('GET','/api/memory/records?agent=promotion');
+    A.eq(projectedPromotion.body.records[0].projectReference,true,'Memory Core marks project reference without exposing its binding');
+    A.eq((await j('POST','/api/memory/pin',{agentId:'promotion',id:promoted.body.id,pinned:true})).status,400,'generic pin cannot mutate project reference');
+    A.eq((await j('POST','/api/memory/edit',{agentId:'promotion',id:promoted.body.id,content:'changed'})).status,400,'generic edit cannot mutate project reference');
+    A.eq((await j('POST','/api/memory/forget',{agentId:'promotion',id:promoted.body.id})).status,400,'generic forget cannot bypass audited project-reference revoke');
+    const revokeNoTok=await fetch(B+'/api/memory/project-reference/revoke',{method:'POST',headers:{'Content-Type':'application/json',Origin:B},body:JSON.stringify({agentId:'promotion',id:promoted.body.id})});
+    A.eq(revokeNoTok.status,403,'project-reference revoke requires authenticated local mutation');
+    const revoked=await j('POST','/api/memory/project-reference/revoke',{agentId:'promotion',id:promoted.body.id});
+    A.eq(revoked.status,200,'explicit project-reference revoke succeeds');A.eq(revoked.body.removed,true,'revoke reports active row removal');
+    A.eq((await j('GET','/api/memory/records?agent=promotion')).body.records.length,0,'revoked project reference leaves active Memory Core');
+    const revokedHistory=await j('GET','/api/memory/decisions?agent=promotion');
+    A.eq(revokedHistory.body.records[0].lessonProposals[0].status,'revoked','read-only decision history retains revoked audit state');
+    A.ok((await j('GET','/api/memory/declined?agent=promotion')).body.declined.includes('Project reference only'),'revoked reference cannot be silently re-proposed');
+    const revokeRetry=await j('POST','/api/memory/project-reference/revoke',{agentId:'promotion',id:promoted.body.id});
+    A.eq(revokeRetry.status,200,'lost revoke response can be retried');A.eq(revokeRetry.body.duplicate,true,'revoke retry is idempotent');
 
     // ---- FORGET = NEVER AGAIN (2026-07-16 resurrect audit): Memory Core's Forget must be as durable as a
     //      veto/discard — the removed belief's text joins the SAME permanent declined denylist, or reflection

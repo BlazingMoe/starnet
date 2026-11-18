@@ -43,6 +43,16 @@ function memFs() {const files=new Map(),fds=new Map();let n=0;return {files,read
  for(const mutate of [rows=>{rows[0].decision='edited source';},rows=>{rows[0].lessonProposals[0].status='discarded';},rows=>{rows[0].lessonProposals[0].contract.version='v2';},rows=>{rows[0].sourceProjectBinding.id='opaque_project_id_0010';},rows=>{rows[0].lessonProposals[0].validations[0].evidence.cases[0].result='fail';},rows=>{rows[0].lessonProposals[0].promotionReceipt.projectId='other';}]){const rows=clone(committed);mutate(rows);await store.update('decisions:hero',()=>rows);await hidden({},'edited authoritative history');await fails(()=>P.promote(args()),'edited history cannot reconcile');}
  await store.update('decisions:hero',()=>clone(committed));await store.update('notebook:hero',()=>committedNotes.map(r=>({...r,body:'changed'})));await hidden({},'edited notebook row');await fails(()=>P.promote(args()),'edited notebook row cannot reconcile');
  await store.update('notebook:hero',()=>clone(committedNotes));now=Date.parse('2026-11-01T00:00:00Z');await hidden({},'recheck');await fails(()=>P.promote(args()),'recheck blocks retry');now=Date.parse('2026-12-01T00:00:00Z');await hidden({},'expiry');
+ await store.update('decisions:hero',()=>clone(committed));await store.update('notebook:hero',()=>clone(committedNotes));
+ now=Date.parse('2026-12-02T00:00:00Z');
+ let revoked=await P.revoke({store,agentId:'hero',memoryId:committedNotes[0].id,clock:{now:()=>now}});
+ A.eq(revoked.revocation,'project-reference','explicit operator action revokes project reference even after contract expiry');
+ A.eq(revoked.removed,true,'active notebook row is removed');A.eq(notes().length,0,'revoked reference is absent from active memory');
+ A.eq(receipt().status,'revoked','decision history retains terminal revoked state');A.eq(receipt().revocationReceipt.reason,'operator-project-reference-revoke','durable audit names bounded operator action');
+ await hidden({},'revoked');await fails(()=>P.promote(args()),'revoked reference cannot be promoted again');
+ revoked=await P.revoke({store,agentId:'hero',memoryId:committedNotes[0].id,clock:{now:()=>now+1}});A.eq(revoked.duplicate,true,'lost revoke response reconciles without a second mutation');
+ store=makeMemoryStore({fs,path,workspaces:'/promotion'});A.eq((await P.revoke({store,agentId:'hero',memoryId:committedNotes[0].id,clock:{now:()=>now+2}})).duplicate,true,'cold revoke retry reconciles');
+ await store.update('notebook:hero',()=>clone(committedNotes));await fails(()=>P.revoke({store,agentId:'hero',memoryId:committedNotes[0].id,clock:{now:()=>now+3}}),'revoked receipt refuses a resurrected active row');
  await reset();await fails(()=>P.promote({...args(),prop:{...prop,lessonContract:{...prop.lessonContract,version:'wrong'}}}),'wrong proposal contract rejected');A.eq(notes().length,0,'wrong version does not stage');
  await fails(()=>P.promote({...args(),agentId:'other'}),'wrong agent promotion rejected');
  const bad=clone(original);bad[0].lessonProposals[0].status='discarded';await store.update('decisions:hero',()=>bad);await fails(()=>P.promote(args()),'discard terminal before promotion');A.eq(notes().length,0,'discard stages nothing');

@@ -195,6 +195,7 @@ function makeDecisionTools(deps) {
           if (prior.lesson !== lesson || JSON.stringify(prior.contract || null) !== JSON.stringify(lessonContract)
             || JSON.stringify(prior.sourceProjectBinding || null) !== JSON.stringify(sourceProjectBinding)) throw new Error('this outcome already has a different lesson candidate');
           if (prior.status === 'discarded') throw new Error('this lesson candidate was discarded and cannot be proposed again');
+          if (prior.status === 'revoked') throw new Error('this lesson candidate was revoked and cannot be proposed again');
           if (prior.status === 'kept') throw new Error('this lesson candidate was already reviewed and kept');
           if (prior.status === 'pending') return undefined;
         } else { prior = { outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'staging', createdAt:Number(clock.now()) || 0 }; proposals.push(prior); }
@@ -218,7 +219,7 @@ function makeDecisionTools(deps) {
         const pi = proposals.findIndex(p => p && p.outcomeEventId === outcomeEventId);
         if (pi < 0) proposals.push({ outcomeEventId, lesson, ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'pending', createdAt:Number(clock.now()) || 0 });
         else if (proposals[pi].status === 'staging') proposals[pi] = Object.assign({}, proposals[pi], { ...(lessonContract ? {contract:lessonContract} : {}), ...(sourceProjectBinding ? {sourceProjectBinding} : {}), status:'pending' });
-        else if (proposals[pi].status === 'kept' || proposals[pi].status === 'discarded') return undefined;
+        else if (proposals[pi].status === 'kept' || proposals[pi].status === 'revoked' || proposals[pi].status === 'discarded') return undefined;
         rec.lessonProposals = proposals; list[i] = rec; return list;
       });
       return { content:'Queued an unverified lesson candidate for Memory Core review. No memory or skill was saved.', summary:'lesson awaiting review' };

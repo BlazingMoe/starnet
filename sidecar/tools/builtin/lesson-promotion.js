@@ -36,6 +36,30 @@ function checkReceipt(source,receipt) {
   if(!receipt || !Number.isFinite(receipt.promotedAt) || receipt.promotedAt<source.validatedAt || typeof receipt.runId!=='string' || !receipt.runId || typeof receipt.proposalId!=='string' || !receipt.proposalId || stable(receipt)!==stable(receiptFor(source,receipt.runId,receipt.proposalId,receipt.promotedAt)) || source.p.status!=='kept' || source.p.memoryId!==source.record.id || source.p.reviewedAt!==receipt.promotedAt)throw new Error('promotion receipt does not match source history');
   if(freshness(source.contract,receipt.promotedAt)!=='current')throw new Error('promotion receipt was stale');
 }
+function promotedSource(rows,agentId,memoryId) {
+  const hits=[];
+  for(const d of rows||[])for(const p of (d && d.lessonProposals)||[])if(p && p.promotionReceipt && p.promotionReceipt.memoryId===memoryId)hits.push({d,p});
+  if(hits.length!==1)throw new Error('project reference source missing or ambiguous');
+  const {d,p}=hits[0],c=p.contract;
+  if(!c || c.scope.type!=='project' || !['kept','revoked'].includes(p.status))throw new Error('project reference is not revocable');
+  const b={agentId,decisionId:d.id,outcomeEventId:p.outcomeEventId,version:c.version,scope:c.scope,sourceRefs:c.sourceRefs};
+  const source=inspect(rows,b,cleanLessonContract),history=audit(p,b,source.sourceDigest,source.sourceRefs),receipt=p.promotionReceipt;
+  const validation=history.filter(a=>a.evidence.validationId===receipt.validationId && a.inputDigest===receipt.inputDigest);
+  if(validation.length!==1)throw new Error('promotion validation receipt unavailable');
+  const identity={schemaVersion:1,agentId,decisionId:d.id,outcomeEventId:p.outcomeEventId,version:c.version,projectId:c.scope.id,sourceDigest:source.sourceDigest,validationId:validation[0].evidence.validationId,inputDigest:validation[0].inputDigest};
+  const id='project_lesson_'+crypto.createHash('sha256').update(stable(identity)).digest('hex').slice(0,32);
+  const record={id,kind:'lesson',title:'Project reference (unverified)',body:p.lesson,content:p.lesson,scope:'project',createdAt:p.createdAt,lessonContract:c,lessonPromotion:identity,...LABELS};
+  if(!Number.isFinite(receipt.promotedAt) || typeof receipt.runId!=='string' || !receipt.runId || receipt.runId.length>200 || typeof receipt.proposalId!=='string' || !receipt.proposalId || receipt.proposalId.length>200)throw new Error('malformed promotion receipt identity');
+  const expected={...identity,memoryId:id,runId:receipt.runId,proposalId:receipt.proposalId,promotedAt:receipt.promotedAt,...LABELS};
+  if(stable(receipt)!==stable(expected) || receipt.promotedAt<validation[0].recordedAt || freshness(c,receipt.promotedAt)!=='current' || p.memoryId!==id || p.reviewedAt!==receipt.promotedAt)throw new Error('promotion receipt does not match source history');
+  return {...source,identity,record,receipt};
+}
+function revocationFor(source,now) {
+  return {schemaVersion:1,memoryId:source.record.id,promotionDigest:crypto.createHash('sha256').update(stable(source.receipt)).digest('hex'),revokedAt:now,reason:'operator-project-reference-revoke'};
+}
+function checkRevocation(source,receipt) {
+  if(!receipt || !Number.isFinite(receipt.revokedAt) || receipt.revokedAt<source.receipt.promotedAt || stable(receipt)!==stable(revocationFor(source,receipt.revokedAt)))throw new Error('revocation receipt does not match promotion');
+}
 function isStructuredProposal(store,agentId,prop) {
   if(Object.prototype.hasOwnProperty.call(prop,'lessonContract'))return true;
   if(prop.proposalType!=='decision-lesson')return false;
@@ -85,6 +109,32 @@ async function promote({store,agentId,prop,runId,clock}) {
   });
   return {ok:true,id:saved.memoryId,kind:'lesson',promotion:PROMOTION,projectId:saved.projectId,duplicate,...LABELS};
 }
+async function revoke({store,agentId,memoryId,clock}) {
+  if(typeof agentId!=='string' || !/^[A-Za-z0-9_-]{1,40}$/.test(agentId) || typeof memoryId!=='string' || !/^project_lesson_[a-f0-9]{32}$/.test(memoryId))throw new Error('project reference identity required');
+  readDecisionRows(store,agentId);rowsFor(store,'notebook:'+agentId);
+  let saved,duplicate=false,removed=false;
+  await store.update('decisions:'+agentId,async rows=>{
+    const source=promotedSource(rows,agentId,memoryId);
+    if(source.p.status==='revoked') {
+      checkRevocation(source,source.p.revocationReceipt);
+      if(rowsFor(store,'notebook:'+agentId).some(r=>r && r.id===memoryId))throw new Error('revoked project reference is still active');
+      saved=source.p.revocationReceipt;duplicate=true;return undefined;
+    }
+    await store.update('notebook:'+agentId,stored=>{
+      if(stored!==undefined && !Array.isArray(stored))throw new Error('malformed notebook storage');
+      const list=stored||[],matches=list.filter(r=>r && r.id===memoryId);
+      if(matches.length>1 || (matches.length===1 && !sameRecord(matches[0],source.record)))throw new Error('project reference notebook row is conflicting or edited');
+      if(!matches.length)return undefined;
+      removed=true;return list.filter(r=>!r || r.id!==memoryId);
+    });
+    const now=clock.now();
+    if(!Number.isFinite(now) || now<source.receipt.promotedAt)throw new Error('revocation clock is stale');
+    saved=revocationFor(source,now);
+    const next={...source.p,status:'revoked',revokedAt:now,revocationReceipt:saved};
+    return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
+  });
+  return {ok:true,id:memoryId,revocation:'project-reference',removed,duplicate,revokedAt:saved.revokedAt,...LABELS};
+}
 function canRead(store,record,ctx) {
   try {
     const snap=ctx && ctx.lessonScopeSnapshot,mark=record && record.lessonPromotion;
@@ -95,4 +145,4 @@ function canRead(store,record,ctx) {
     return s.identity.projectId===snap.id && stored.length===1 && sameRecord(record,s.record) && sameRecord(stored[0],s.record);
   }catch(_){return false;}
 }
-module.exports={PROMOTION,promote,canRead,pendingPromotion,retryProposal,isStructuredProposal};
+module.exports={PROMOTION,promote,revoke,canRead,pendingPromotion,retryProposal,isStructuredProposal};
