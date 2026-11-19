@@ -46,6 +46,7 @@ const ToolProps = (() => {
     'crm.demo.generate': 'cabinet', // Pure synthetic CRM generation shares the verified export capability.
     'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
     'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
+    'economics.reconcile': 'cabinet', // Supplied transaction reconciliation is pure cabinet arithmetic.
     web_search: 'dish',
     web_fetch: 'dish',
     web_request: 'dish',   // calling a third-party API is a WEB reach — the dish is the prop that projects it

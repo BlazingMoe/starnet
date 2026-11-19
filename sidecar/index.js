@@ -64,7 +64,7 @@ const { makeCodeTools } = CodeMode;
 const { makeSkillTools } = require('./tools/builtin/skills.js');    // H4: the agent's reusable skill library tools
 const Todo = require('./tools/builtin/todo.js');
 const DeliverableTool = require('./tools/builtin/deliverable.js');   // deliverable_note — the agent NAMES its finished work (prose only; never status/crew)
-const { makeEconomicsTools } = require('./tools/builtin/economics.js'); // economics.calculate — exact bounded arithmetic over supplied scenario inputs
+const { makeEconomicsTools } = require('./tools/builtin/economics.js'); // economics.calculate/reconcile — bounded supplied-input arithmetic, no I/O
 const { makeWebsiteAuditTools } = require('./tools/builtin/website-audit.js');
 const { makeWebsiteLeadsTools } = require('./tools/builtin/website-leads.js');
 const { makeEtsyPodTools } = require('./tools/builtin/etsy-pod.js');
@@ -15571,7 +15571,7 @@ async function runOnce(o) {
     provider: makeShotstackStage({ fetch: globalThis.fetch, apiKey: ENV('SHOTSTACK_API_KEY') || '', clock: () => Date.now(), signal: ctx.signal }),
     writeVerified: runFsTools.writeVideoArtifact
   }) }).register(registry);
-  makeEconomicsTools().register(registry);   // exact single-currency arithmetic over supplied assumptions/estimates; cabinet-gated, no I/O
+  makeEconomicsTools().register(registry);   // exact single-currency scenario/reconciliation arithmetic; cabinet-gated, no I/O
   makeYoutubeUploadTools({ service: ctx => ({
     store: youtubeUploadStoreFor(ctx.agentId), clock: () => Date.now(),
     renderReceipt: id => videoRenderStoreFor(ctx.agentId).read(id),

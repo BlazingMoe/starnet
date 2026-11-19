@@ -97,6 +97,7 @@
       // Pure arithmetic over caller-supplied assumptions/estimates. Cabinet-gated because the business dossier
       // requires the same object as its verified artifact writers; this does not read or mutate files itself.
       { capId: 'cabinet', tool: 'economics.calculate', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'economics.reconcile', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fiverr.handoff.prepare', scope: 'read', requiresConsent: false, network: false },

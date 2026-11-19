@@ -1,5 +1,5 @@
-/* sidecar/tools/builtin/economics.js — exact arithmetic for one operator-supplied offer scenario.
-   This computes arithmetic over the caller's inputs. It does not establish that the inputs are complete,
+/* sidecar/tools/builtin/economics.js — exact arithmetic for supplied planning scenarios and actual-evidence imports.
+   This computes arithmetic over the caller's inputs without file I/O. It does not establish that inputs are complete,
    true, paid, tax-compliant, or representative of future results. */
 'use strict';
 (function (root, factory) {
@@ -15,6 +15,17 @@
   const MAX_SOURCE = 200;
   const MAX_LABEL = 80;
   const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const SHA256 = /^[a-f0-9]{64}$/;
+  const MAX_IMPORTS = 20;
+  const MAX_TRANSACTIONS = 1000;
+  const MAX_TIME_ENTRIES = 500;
+  const TRANSACTION_KINDS = new Set([
+    'sale_receipt', 'refund', 'platform_fee', 'payment_fee', 'generation_cost',
+    'render_cost', 'fulfilment_cost', 'acquisition_cost', 'reprint_cost',
+    'tax_withheld', 'reserve_hold', 'reserve_release', 'payout'
+  ]);
+  const TRANSACTION_STATUSES = new Set(['settled', 'pending', 'reversed']);
+  const TIME_CATEGORIES = new Set(['sales', 'production', 'support', 'revision']);
 
   function dateValid(value) {
     if (typeof value !== 'string') return false;
@@ -31,6 +42,21 @@
     const s = value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
     if ((required && !s) || s.length > max) throw new Error(field + ' must be ' + (required ? 'non-empty and ' : '') + 'at most ' + max + ' characters');
     return s;
+  }
+  function boundedId(value, field, nullable) {
+    if (nullable && value === null) return null;
+    const id = boundedText(value, 80, field, true);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(id)) throw new Error(field + ' must be a bounded stable identifier');
+    return id;
+  }
+  function utcTimestamp(value, field) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) throw new Error(field + ' must be a canonical UTC timestamp');
+    const parsed = new Date(0);
+    parsed.setTime(Date.parse(value));
+    if (!Number.isFinite(parsed.getTime())) throw new Error(field + ' must be a canonical UTC timestamp');
+    const expected = value.includes('.') ? parsed.toISOString() : parsed.toISOString().replace('.000Z', 'Z');
+    if (expected !== value) throw new Error(field + ' must be a canonical UTC timestamp');
+    return value;
   }
   function minorUnits(value, field) {
     if (typeof value !== 'string' || !/^(0|[1-9][0-9]{0,17})$/.test(value)) throw new Error(field + ' must be a non-negative integer minor-unit string of at most 18 digits');
@@ -117,6 +143,154 @@
     const abs = negative ? -minor : minor;
     return (negative ? '-' : '') + (abs / 100n).toString() + '.' + (abs % 100n).toString().padStart(2, '0');
   }
+  function signedContribution(row) {
+    const amount = BigInt(row.amountMinor);
+    if (row.kind === 'sale_receipt') return amount;
+    if (['refund', 'platform_fee', 'payment_fee', 'generation_cost', 'render_cost', 'fulfilment_cost', 'acquisition_cost', 'reprint_cost'].includes(row.kind)) return -amount;
+    return 0n;
+  }
+  function signedExpectedPayout(row) {
+    const amount = BigInt(row.amountMinor);
+    if (row.kind === 'sale_receipt' || row.kind === 'reserve_release') return amount;
+    if (['refund', 'platform_fee', 'payment_fee', 'tax_withheld', 'reserve_hold'].includes(row.kind)) return -amount;
+    return 0n;
+  }
+  function transactionRow(value, currency, field) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(field + ' must be an object');
+    const transactionId = boundedId(value.transactionId, field + '.transactionId', false);
+    const orderId = boundedId(value.orderId, field + '.orderId', true);
+    const settlementId = boundedId(value.settlementId, field + '.settlementId', true);
+    if (!TRANSACTION_KINDS.has(value.kind)) throw new Error(field + '.kind is unsupported');
+    if (!TRANSACTION_STATUSES.has(value.status)) throw new Error(field + '.status must be settled, pending, or reversed');
+    if (value.currency !== currency) throw new Error(field + '.currency must match reconciliation currency ' + currency);
+    const amountMinor = minorUnits(value.amountMinor, field + '.amountMinor').toString();
+    const occurredAt = utcTimestamp(value.occurredAt, field + '.occurredAt');
+    const evidenceRef = boundedText(value.evidenceRef, MAX_SOURCE, field + '.evidenceRef', true);
+    return { transactionId, orderId, settlementId, kind: value.kind, amountMinor, currency, occurredAt, status: value.status, evidenceRef };
+  }
+  function timeEntry(value, field) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(field + ' must be an object');
+    const entryId = boundedId(value.entryId, field + '.entryId', false);
+    const orderId = boundedId(value.orderId, field + '.orderId', true);
+    if (!TIME_CATEGORIES.has(value.category)) throw new Error(field + '.category must be sales, production, support, or revision');
+    if (!Number.isSafeInteger(value.minutes) || value.minutes < 0 || value.minutes > MAX_TIME_MINUTES) throw new Error(field + '.minutes must be an integer from 0 to ' + MAX_TIME_MINUTES);
+    const occurredAt = utcTimestamp(value.occurredAt, field + '.occurredAt');
+    const evidenceRef = boundedText(value.evidenceRef, MAX_SOURCE, field + '.evidenceRef', true);
+    return { entryId, orderId, category: value.category, minutes: value.minutes, occurredAt, evidenceRef };
+  }
+  function addKindTotals(target, row) {
+    const bucket = target[row.kind] || (target[row.kind] = 0n);
+    target[row.kind] = bucket + BigInt(row.amountMinor);
+  }
+  function decimalAmount(minor, currency) { return { minor: minor.toString(), amount: majorDecimal(minor), currency }; }
+  function reconcile(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('reconciliation must be an object');
+    const reconciliationId = boundedId(input.reconciliationId, 'reconciliationId', false);
+    const currency = boundedText(input.currency, 3, 'currency', true).toUpperCase();
+    if (!CURRENCIES.has(currency)) throw new Error('currency must be EUR, USD, or GBP (each supported with two minor-unit digits)');
+    if (!dateValid(input.asOf)) throw new Error('asOf must be a valid YYYY-MM-DD calendar date');
+    if (!Array.isArray(input.imports) || input.imports.length < 1 || input.imports.length > MAX_IMPORTS) throw new Error('imports must contain 1 to ' + MAX_IMPORTS + ' source batches');
+    if (input.timeEntries !== null && (!Array.isArray(input.timeEntries) || input.timeEntries.length > MAX_TIME_ENTRIES)) throw new Error('timeEntries must be null (unknown) or an array of at most ' + MAX_TIME_ENTRIES + ' entries');
+
+    const seenImports = new Set(), claimedFiles = new Map(), seenTransactions = new Map();
+    const accepted = [], duplicates = [], importSummaries = [];
+    let totalRows = 0;
+    for (let i = 0; i < input.imports.length; i++) {
+      const raw = input.imports[i], field = 'imports[' + i + ']';
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(field + ' must be an object');
+      const importId = boundedId(raw.importId, field + '.importId', false);
+      if (seenImports.has(importId)) throw new Error('importId values must be unique');
+      seenImports.add(importId);
+      const sourceSystem = boundedId(raw.sourceSystem, field + '.sourceSystem', false);
+      const accountScope = boundedId(raw.accountScope, field + '.accountScope', false);
+      if (typeof raw.sourceSha256 !== 'string' || !SHA256.test(raw.sourceSha256)) throw new Error(field + '.sourceSha256 must be lowercase SHA-256');
+      const sourceReceipt = boundedText(raw.sourceReceipt, MAX_SOURCE, field + '.sourceReceipt', true);
+      const importedAt = utcTimestamp(raw.importedAt, field + '.importedAt');
+      if (!Array.isArray(raw.transactions)) throw new Error(field + '.transactions must be an array');
+      totalRows += raw.transactions.length;
+      if (totalRows > MAX_TRANSACTIONS) throw new Error('transaction rows exceed ' + MAX_TRANSACTIONS);
+      const rows = raw.transactions.map((row, j) => transactionRow(row, currency, field + '.transactions[' + j + ']'));
+      const fileKey = sourceSystem + '\u0000' + accountScope + '\u0000' + raw.sourceSha256;
+      const fileClaim = JSON.stringify(rows);
+      if (claimedFiles.has(fileKey) && claimedFiles.get(fileKey) !== fileClaim) throw new Error('the same claimed source hash has conflicting normalized transactions');
+      claimedFiles.set(fileKey, fileClaim);
+      let acceptedCount = 0, duplicateCount = 0;
+      for (const row of rows) {
+        const key = sourceSystem + '\u0000' + accountScope + '\u0000' + row.transactionId;
+        const canonical = JSON.stringify(row);
+        if (seenTransactions.has(key)) {
+          const prior = seenTransactions.get(key);
+          if (prior.canonical !== canonical) throw new Error('conflicting duplicate transaction ' + row.transactionId + ' for ' + sourceSystem + '/' + accountScope);
+          duplicates.push({ importId, transactionId: row.transactionId, duplicateOfImportId: prior.importId, dedupeKey: sourceSystem + '/' + accountScope + '/' + row.transactionId });
+          duplicateCount++;
+          continue;
+        }
+        seenTransactions.set(key, { canonical, importId });
+        accepted.push({ importId, sourceSystem, accountScope, sourceSha256: raw.sourceSha256, ...row });
+        acceptedCount++;
+      }
+      importSummaries.push({ importId, sourceSystem, accountScope, sourceSha256: raw.sourceSha256, sourceReceipt, importedAt, rowCount: rows.length, acceptedCount, duplicateCount });
+    }
+
+    const settledKinds = {}, pendingKinds = {}, reversedKinds = {};
+    let settledContribution = 0n, pendingContribution = 0n;
+    const settlementGroups = new Map(), unassignedSettlementRows = [];
+    for (const row of accepted) {
+      const target = row.status === 'settled' ? settledKinds : row.status === 'pending' ? pendingKinds : reversedKinds;
+      addKindTotals(target, row);
+      if (row.status === 'settled') settledContribution += signedContribution(row);
+      if (row.status === 'pending') pendingContribution += signedContribution(row);
+      const affectsSettlement = row.kind === 'payout' || signedExpectedPayout(row) !== 0n;
+      if (!affectsSettlement || row.status === 'reversed') continue;
+      if (row.settlementId === null) { unassignedSettlementRows.push({ importId: row.importId, transactionId: row.transactionId, kind: row.kind, status: row.status }); continue; }
+      const group = settlementGroups.get(row.settlementId) || { settlementId: row.settlementId, expected: 0n, observed: 0n, expectedRows: 0, payoutRows: 0, pendingRows: 0 };
+      if (row.status === 'pending') group.pendingRows++;
+      else if (row.kind === 'payout') { group.observed += BigInt(row.amountMinor); group.payoutRows++; }
+      else { group.expected += signedExpectedPayout(row); group.expectedRows++; }
+      settlementGroups.set(row.settlementId, group);
+    }
+    const payoutReconciliation = Array.from(settlementGroups.values()).sort((a, b) => a.settlementId < b.settlementId ? -1 : a.settlementId > b.settlementId ? 1 : 0).map(group => {
+      const difference = group.observed - group.expected;
+      const status = group.pendingRows ? 'pending-components'
+        : group.expectedRows === 0 ? 'unattributed-payout'
+        : group.payoutRows === 0 ? 'missing-payout'
+        : difference === 0n ? 'matched' : 'mismatch';
+      return { settlementId: group.settlementId, status, expectedPayout: decimalAmount(group.expected, currency), observedPayout: decimalAmount(group.observed, currency), difference: decimalAmount(difference, currency), expectedRowCount: group.expectedRows, payoutRowCount: group.payoutRows, pendingRowCount: group.pendingRows };
+    });
+
+    const normalizedTime = [], duplicateTimeEntries = [], seenTime = new Map();
+    if (Array.isArray(input.timeEntries)) {
+      for (let i = 0; i < input.timeEntries.length; i++) {
+        const row = timeEntry(input.timeEntries[i], 'timeEntries[' + i + ']');
+        const canonical = JSON.stringify(row);
+        if (seenTime.has(row.entryId)) {
+          if (seenTime.get(row.entryId) !== canonical) throw new Error('conflicting duplicate time entry ' + row.entryId);
+          duplicateTimeEntries.push({ entryId: row.entryId });
+        } else { seenTime.set(row.entryId, canonical); normalizedTime.push(row); }
+      }
+    }
+    const totalMinutes = input.timeEntries === null ? null : normalizedTime.reduce((sum, row) => sum + row.minutes, 0);
+    const hourly = totalMinutes && totalMinutes > 0 ? roundHalfAwayFromZero(settledContribution * 60n, BigInt(totalMinutes)) : null;
+    const formatKinds = value => Object.fromEntries(Object.keys(value).sort().map(kind => [kind, decimalAmount(value[kind], currency)]));
+    return {
+      reconciliationId, currency, asOf: input.asOf,
+      evidenceStatus: 'operator-supplied-unverified',
+      importSummaries, acceptedTransactions: accepted, duplicateTransactions: duplicates,
+      transactionCounts: { supplied: totalRows, accepted: accepted.length, exactDuplicatesExcluded: duplicates.length, reversedExcludedFromContribution: accepted.filter(row => row.status === 'reversed').length },
+      categoryTotals: { settled: formatKinds(settledKinds), pending: formatKinds(pendingKinds), reversed: formatKinds(reversedKinds) },
+      settledContribution: decimalAmount(settledContribution, currency),
+      pendingContribution: decimalAmount(pendingContribution, currency),
+      timeEntries: input.timeEntries === null ? null : normalizedTime,
+      duplicateTimeEntries,
+      totalTimeMinutes: totalMinutes,
+      effectiveHourlyContribution: hourly === null ? null : { ...decimalAmount(hourly, currency), rounding: 'nearest minor unit, ties away from zero' },
+      effectiveHourlyAvailability: totalMinutes === null ? 'unavailable-unknown-time' : totalMinutes === 0 ? 'unavailable-zero-time' : 'available',
+      payoutReconciliation, unassignedSettlementRows,
+      coverage: 'supplied-rows-only-not-proof-of-ledger-completeness',
+      sourceHandling: 'Source hashes and receipts are operator claims; source files are not read, changed, or verified by this pure calculator.',
+      resultSemantics: 'Exact arithmetic over normalized operator-supplied transaction and time evidence. Exact duplicates are excluded; conflicts fail closed. This is not bank/platform verification, tax profit, payment authority, or proof that all transactions and costs were supplied.'
+    };
+  }
   function calculate(input) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('scenario must be an object');
     const scenarioId = boundedText(input.scenarioId, 80, 'scenarioId', true);
@@ -188,6 +362,26 @@
     }, additionalProperties: false },
     run: async args => ({ content: JSON.stringify(calculate(args)), summary: 'Offer economics calculated from supplied inputs' })
   };
-  function makeEconomicsTools() { return { economicsTool, register(reg) { reg.register(economicsTool); return reg; } }; }
-  return { makeEconomicsTools, calculate, CURRENCIES, STATUSES, _internals: { dateValid, minorUnits, roundHalfAwayFromZero, majorDecimal } };
+  const transactionSchema = { type: 'object', required: ['transactionId', 'orderId', 'settlementId', 'kind', 'amountMinor', 'currency', 'occurredAt', 'status', 'evidenceRef'], properties: {
+    transactionId: { type: 'string' }, orderId: { type: ['string', 'null'] }, settlementId: { type: ['string', 'null'] },
+    kind: { type: 'string', enum: Array.from(TRANSACTION_KINDS) }, amountMinor: { type: 'string' }, currency: { type: 'string', enum: ['EUR', 'USD', 'GBP'] },
+    occurredAt: { type: 'string' }, status: { type: 'string', enum: ['settled', 'pending', 'reversed'] }, evidenceRef: { type: 'string' }
+  }, additionalProperties: false };
+  const reconcileTool = {
+    name: 'economics.reconcile', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 5000,
+    description: 'Normalize and reconcile bounded operator-supplied transaction export batches without reading or changing source files. Every batch needs a stable source/account scope, lowercase SHA-256 claim, receipt and UTC import time. Rows use unique provider transaction IDs, explicit settled/pending/reversed status, non-negative integer minor units and one EUR/USD/GBP currency. Repeated exact rows are excluded; conflicting transaction IDs or conflicting rows under the same claimed source hash fail closed. Contribution, time evidence and payout settlement are separate. Hashes and receipts remain unverified operator evidence; results do not prove ledger completeness, payment, tax profit, platform state, or spending authority.',
+    schema: { type: 'object', required: ['reconciliationId', 'currency', 'asOf', 'imports', 'timeEntries'], properties: {
+      reconciliationId: { type: 'string' }, currency: { type: 'string', enum: ['EUR', 'USD', 'GBP'] }, asOf: { type: 'string' },
+      imports: { type: 'array', minItems: 1, maxItems: MAX_IMPORTS, items: { type: 'object', required: ['importId', 'sourceSystem', 'accountScope', 'sourceSha256', 'sourceReceipt', 'importedAt', 'transactions'], properties: {
+        importId: { type: 'string' }, sourceSystem: { type: 'string' }, accountScope: { type: 'string' }, sourceSha256: { type: 'string' }, sourceReceipt: { type: 'string' }, importedAt: { type: 'string' },
+        transactions: { type: 'array', items: transactionSchema }
+      }, additionalProperties: false } },
+      timeEntries: { type: ['array', 'null'], maxItems: MAX_TIME_ENTRIES, items: { type: 'object', required: ['entryId', 'orderId', 'category', 'minutes', 'occurredAt', 'evidenceRef'], properties: {
+        entryId: { type: 'string' }, orderId: { type: ['string', 'null'] }, category: { type: 'string', enum: ['sales', 'production', 'support', 'revision'] }, minutes: { type: 'integer' }, occurredAt: { type: 'string' }, evidenceRef: { type: 'string' }
+      }, additionalProperties: false } }
+    }, additionalProperties: false },
+    run: async args => ({ content: JSON.stringify(reconcile(args)), summary: 'Supplied transaction batches reconciled without source-file mutation' })
+  };
+  function makeEconomicsTools() { return { economicsTool, reconcileTool, register(reg) { reg.register(economicsTool); reg.register(reconcileTool); return reg; } }; }
+  return { makeEconomicsTools, calculate, reconcile, CURRENCIES, STATUSES, TRANSACTION_KINDS, _internals: { dateValid, utcTimestamp, minorUnits, roundHalfAwayFromZero, majorDecimal } };
 });

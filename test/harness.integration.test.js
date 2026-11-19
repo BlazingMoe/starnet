@@ -12,6 +12,7 @@ const fsp = require('fs/promises');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const zlib = require('node:zlib');
 const events = require('../shared/events.js');
 const { makeEmitter } = require('../shared/emitter.js');
@@ -43,7 +44,7 @@ const { makeWidgetTools } = require('../sidecar/tools/builtin/widgets.js');
 const { makeTodoTool } = require('../sidecar/tools/builtin/todo.js');
 const { makeDeliverableTool } = require('../sidecar/tools/builtin/deliverable.js');
 const { makeEconomicsTools } = require('../sidecar/tools/builtin/economics.js');
-const { calculate: calculateEconomics } = require('../sidecar/tools/builtin/economics.js');
+const { calculate: calculateEconomics, reconcile: reconcileEconomics } = require('../sidecar/tools/builtin/economics.js');
 const { makeRecallTool } = require('../sidecar/tools/builtin/recall.js');
 const { makeToolSearchTool } = require('../sidecar/tools/builtin/toolsearch.js');
 const { makeCodeTools } = require('../sidecar/tools/builtin/code.js');
@@ -194,7 +195,7 @@ const fixture = {
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.content.prepare', 'channel.render.finalize', 'channel.render.prepare', 'channel.render.reconcile', 'channel.render.submit', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'etsy.pod.prepare', 'fiverr.handoff.prepare', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'service.studio.prepare', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'website.leads.prepare', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.content.prepare', 'channel.render.finalize', 'channel.render.prepare', 'channel.render.reconcile', 'channel.render.submit', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'economics.reconcile', 'etsy.pod.prepare', 'fiverr.handoff.prepare', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'service.studio.prepare', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'website.leads.prepare', 'widget.get', 'widget.set'];
   EXPECTED.push('crm.demo.generate');
   EXPECTED.push('channel.youtube.prepare', 'channel.youtube.initiate', 'channel.youtube.status', 'channel.youtube.upload', 'channel.youtube.verify');
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
@@ -579,7 +580,8 @@ const fixture = {
       assumptions: 'EUR; synthetic operator estimate dated 2026-10-26; gross revenue EUR 250.00; platform fee EUR 10.00; materials EUR 55.00; refunds EUR 0.00; total time 180 minutes; separately supplied opening cash EUR 150.00, reserve EUR 50.00 and dated outflow/inflow assumptions through 2026-10-28',
       workspace: 'offer-fixture'
     });
-    A.ok(/NEVER do arithmetic in prose/.test(task) && /call economics\.calculate/.test(task), 'recipe directs supported arithmetic to the deterministic tool');
+    A.ok(/NEVER do arithmetic in prose/.test(task) && /call economics\.calculate/.test(task), 'recipe directs supported arithmetic to the deterministic planning tool');
+    A.ok(/call economics\.reconcile separately/.test(task) && /Never edit, replace, rename or write into source files/.test(task), 'recipe keeps supplied actual imports separate and immutable');
     const inputPath = path.join(ROOT, 'agent', 'offer-source.txt');
     const inputBytes = Buffer.from('Synthetic operator brief; immutable fixture input.');
     await fsp.writeFile(inputPath, inputBytes);
@@ -606,6 +608,22 @@ const fixture = {
       }
     };
     const expectedEconomics = calculateEconomics(econScenario);
+    const actualScenario = {
+      reconciliationId: 'synthetic-actual-1', currency: 'EUR', asOf: '2026-10-26',
+      imports: [{
+        importId: 'operator-export-1', sourceSystem: 'synthetic-marketplace', accountScope: 'fixture-shop',
+        sourceSha256: crypto.createHash('sha256').update(inputBytes).digest('hex'), sourceReceipt: 'immutable fixture input', importedAt: '2026-10-26T12:00:00Z',
+        transactions: [
+          { transactionId: 'sale-1', orderId: 'order-1', settlementId: 'settlement-1', kind: 'sale_receipt', amountMinor: '25000', currency: 'EUR', occurredAt: '2026-10-26T10:00:00Z', status: 'settled', evidenceRef: 'fixture row sale-1' },
+          { transactionId: 'fee-1', orderId: 'order-1', settlementId: 'settlement-1', kind: 'platform_fee', amountMinor: '1000', currency: 'EUR', occurredAt: '2026-10-26T10:00:00Z', status: 'settled', evidenceRef: 'fixture row fee-1' },
+          { transactionId: 'cost-1', orderId: 'order-1', settlementId: null, kind: 'fulfilment_cost', amountMinor: '5500', currency: 'EUR', occurredAt: '2026-10-26T10:01:00Z', status: 'settled', evidenceRef: 'fixture row cost-1' },
+          { transactionId: 'refund-1', orderId: 'order-1', settlementId: 'settlement-1', kind: 'refund', amountMinor: '0', currency: 'EUR', occurredAt: '2026-10-26T10:02:00Z', status: 'settled', evidenceRef: 'fixture row refund-1' },
+          { transactionId: 'payout-1', orderId: 'order-1', settlementId: 'settlement-1', kind: 'payout', amountMinor: '24000', currency: 'EUR', occurredAt: '2026-10-26T12:00:00Z', status: 'settled', evidenceRef: 'fixture row payout-1' }
+        ]
+      }],
+      timeEntries: [{ entryId: 'time-1', orderId: 'order-1', category: 'production', minutes: 180, occurredAt: '2026-10-26T11:00:00Z', evidenceRef: 'fixture timer' }]
+    };
+    const expectedActual = reconcileEconomics(actualScenario);
     const econRows = [
       ['gross revenue', expectedEconomics.categoryTotals.grossRevenue.amount, 'currency amount', 'EUR', 'estimate', '2026-10-26', 'synthetic operator fixture'],
       ['fees total', expectedEconomics.categoryTotals.fees.amount, 'currency amount', 'EUR', 'estimate', '2026-10-26', 'As calculated from supplied components; completeness not verified'],
@@ -615,7 +633,10 @@ const fixture = {
       ['effective hourly amount', expectedEconomics.effectiveHourlyAmount.value, 'currency amount', 'EUR', expectedEconomics.calculationStatus, '2026-10-26', expectedEconomics.effectiveHourlyAmount.rounding],
       ['liquidity closing balance', expectedEconomics.liquidity.closingBalanceMinor, 'minor units', 'EUR', expectedEconomics.liquidity.status, '2026-10-26', expectedEconomics.liquidity.caveat],
       ['liquidity reserve shortfall', expectedEconomics.liquidity.shortfallToReserveMinor, 'minor units', 'EUR', expectedEconomics.liquidity.status, expectedEconomics.liquidity.earliestShortfallDate, expectedEconomics.liquidity.caveat],
-      ['total time', '180', 'minutes', '', 'estimate', '2026-10-26', 'Synthetic operator fixture']
+      ['total time', '180', 'minutes', '', 'estimate', '2026-10-26', 'Synthetic operator fixture'],
+      ['actual settled contribution', expectedActual.settledContribution.amount, 'currency amount', 'EUR', expectedActual.evidenceStatus, '2026-10-26', expectedActual.coverage],
+      ['actual payout difference', expectedActual.payoutReconciliation[0].difference.amount, 'currency amount', 'EUR', expectedActual.evidenceStatus, '2026-10-26', expectedActual.resultSemantics],
+      ['actual supplied time', String(expectedActual.totalTimeMinutes), 'minutes', '', expectedActual.evidenceStatus, '2026-10-26', expectedActual.sourceHandling]
     ];
     const turns = [];
     const tool = (id, name, args) => turns.push([
@@ -624,6 +645,7 @@ const fixture = {
       { type: 'done', finishReason: 'tool_calls' }
     ]);
     tool('offer-calculate', 'economics_calculate', econScenario);
+    tool('offer-reconcile', 'economics_reconcile', actualScenario);
     for (const [name, content] of Object.entries(outputs)) tool('offer-write-' + name, 'fs_write', { path: 'offer-fixture/' + name, content });
     tool('offer-write-economics', 'fs_write_csv', {
       path: 'offer-fixture/economics.csv',
@@ -635,12 +657,13 @@ const fixture = {
     const dp = makeReplayProvider({ models: fixture.models, turns });
     const observedWrites = [];
     const offerArtifacts = makeArtifactCollector();
-    let calculationResult = null;
+    let calculationResult = null, reconciliationResult = null;
     const offerDispatch = async (call, ctx) => {
       const name = fromWire.get(call.name) || call.name;
       const args = call.args || {};
       const dispatched = await dispatch(call, ctx);
       if (name === 'economics.calculate') calculationResult = dispatched;
+      if (name === 'economics.reconcile') reconciliationResult = dispatched;
       if (name === 'fs.write' || name === 'fs.write_csv') {
         observedWrites.push({ name, args, result: dispatched });
         offerArtifacts.observe({ toolName: name, args, result: dispatched });
@@ -654,9 +677,9 @@ const fixture = {
     });
     A.eq(result.reason, 'done', 'offer dossier completes through the normal dispatcher');
     const actualCalls = offerSeq.filter(e => e.name === 'agent.tool_call').map(e => fromWire.get(e.payload.name) || e.payload.name);
-    A.eq(actualCalls, ['economics.calculate', 'fs.write', 'fs.write', 'fs.write', 'fs.write_csv', 'fs.read', 'fs.read', 'fs.read', 'fs.read'], 'calculator precedes exactly four approved artifact writes and four read-backs');
+    A.eq(actualCalls, ['economics.calculate', 'economics.reconcile', 'fs.write', 'fs.write', 'fs.write', 'fs.write_csv', 'fs.read', 'fs.read', 'fs.read', 'fs.read'], 'planning and actual arithmetic precede exactly four approved artifact writes and four read-backs');
     const results = offerSeq.filter(e => e.name === 'agent.tool_result').map(e => e.payload);
-    A.eq(results.length, 9, 'calculator and every dossier write/read have paired results');
+    A.eq(results.length, 10, 'both calculators and every dossier write/read have paired results');
     A.ok(results.every(r => r.isError === false), 'all offer dossier filesystem operations succeed');
     A.eq(observedWrites.length, 4, 'exactly four production writer calls return receipts');
     A.ok(observedWrites.every(x => x.result.receipt && x.result.receipt.state === 'read-back-verified' && x.result.receipt.path === x.args.path), 'each writer returns a matching read-back-verified receipt');
@@ -664,12 +687,16 @@ const fixture = {
     const csv = await fsp.readFile(path.join(ROOT, 'agent', 'offer-fixture', 'economics.csv'), 'utf8');
     A.ok(calculationResult && calculationResult.ok, 'production dispatcher calculates the supplied scenario before CSV creation');
     A.eq(JSON.parse(calculationResult.content), expectedEconomics, 'dispatcher returns every exact arithmetic field and caveat from calculator');
+    A.ok(reconciliationResult && reconciliationResult.ok, 'production dispatcher reconciles the supplied actual export before CSV creation');
+    A.eq(JSON.parse(reconciliationResult.content), expectedActual, 'dispatcher returns the complete bounded actual reconciliation and caveats');
     A.ok(csv.startsWith('metric,value,unit,currency,status,as_of,notes\r\n') && csv.includes('gross revenue,250.00,currency amount,EUR,estimate'), 'CSV retains operator-supplied scenario inputs');
     A.ok(csv.includes('net contribution,185.00,currency amount,EUR,assumption') && csv.includes('effective hourly amount,61.67,currency amount,EUR,assumption'), 'CSV rows agree with exact dispatcher arithmetic, conservative status, and documented rounding');
     A.ok(csv.includes('refunds total,0.00,currency amount,EUR,assumption'), 'refund summary retains the operator-supplied assumption status');
     A.ok(csv.includes('liquidity closing balance,11000,minor units,EUR,assumption') && csv.includes('liquidity reserve shortfall,1000,minor units,EUR,assumption'), 'CSV artifact retains returned liquidity values and assumption status');
     A.ok(csv.includes('only supplied assumptions within this explicit horizon') && csv.includes('spending authorization'), 'CSV artifact retains liquidity limitations verbatim');
     A.ok(csv.includes('total time,180,minutes,,estimate') && csv.includes('cannot prove that all costs'), 'time units and completeness caveat are retained in the ledger');
+    A.ok(csv.includes('actual settled contribution,185.00,currency amount,EUR,operator-supplied-unverified') && csv.includes('actual payout difference,0.00,currency amount,EUR,operator-supplied-unverified'), 'actual evidence is separately labelled and agrees with reconciliation');
+    A.ok(csv.includes('supplied-rows-only-not-proof-of-ledger-completeness') && csv.includes('not bank/platform verification'), 'actual ledger retains coverage and verification limits');
     const artifactRows = offerArtifacts.list().sort((a, b) => a.path.localeCompare(b.path));
     A.eq(artifactRows.map(x => x.path), ['offer-fixture/economics.csv', 'offer-fixture/offer.md', 'offer-fixture/pilot-plan.md', 'offer-fixture/rights-and-policy.md'], 'actual artifact collector lists all four dossier files');
     for (const item of artifactRows) A.eq(item.bytes, (await fsp.readFile(path.join(ROOT, 'agent', item.path))).length, 'collector artifact byte count matches verified file: ' + item.path);

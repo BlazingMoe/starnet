@@ -24,6 +24,32 @@ const scenarioDate = asOf => {
   for (const group of [s.fees, s.costs, s.refunds]) for (const row of group) row.asOf = asOf;
   return s;
 };
+const tx = (transactionId, kind, amountMinor, overrides = {}) => ({
+  transactionId, orderId: 'order-1', settlementId: 'settlement-1', kind, amountMinor,
+  currency: 'EUR', occurredAt: '2026-11-19T10:00:00Z', status: 'settled', evidenceRef: 'operator export row ' + transactionId,
+  ...overrides
+});
+const reconcileFixture = overrides => {
+  const rows = [
+    tx('sale-1', 'sale_receipt', '10000'), tx('platform-1', 'platform_fee', '1000'),
+    tx('payment-1', 'payment_fee', '300'), tx('tax-1', 'tax_withheld', '500'),
+    tx('cost-1', 'fulfilment_cost', '2500', { settlementId: null }),
+    tx('payout-1', 'payout', '8200'),
+    tx('refund-pending', 'refund', '1000', { settlementId: 'settlement-2', status: 'pending' }),
+    tx('reversed-sale', 'sale_receipt', '999', { settlementId: null, status: 'reversed' })
+  ];
+  const source = { importId: 'import-a', sourceSystem: 'marketplace', accountScope: 'shop-a', sourceSha256: 'a'.repeat(64), sourceReceipt: 'operator-selected export A', importedAt: '2026-11-19T12:00:00Z', transactions: rows };
+  return {
+    reconciliationId: 'reconcile-1', currency: 'EUR', asOf: '2026-11-19',
+    imports: [source, { ...source, importId: 'import-b' }],
+    timeEntries: [
+      { entryId: 'time-sales', orderId: 'order-1', category: 'sales', minutes: 60, occurredAt: '2026-11-19T09:00:00Z', evidenceRef: 'operator timer A' },
+      { entryId: 'time-production', orderId: 'order-1', category: 'production', minutes: 30, occurredAt: '2026-11-19T09:30:00Z', evidenceRef: 'operator timer B' },
+      { entryId: 'time-sales', orderId: 'order-1', category: 'sales', minutes: 60, occurredAt: '2026-11-19T09:00:00Z', evidenceRef: 'operator timer A' }
+    ],
+    ...overrides
+  };
+};
 const throws = (fn, re, label) => { let err; try { fn(); } catch (e) { err = e; } A.ok(err && re.test(err.message), label + (err ? ' (' + err.message + ')' : ' (did not throw)')); };
 
 (async () => {
@@ -129,6 +155,67 @@ const throws = (fn, re, label) => { let err; try { fn(); } catch (e) { err = e; 
 
   A.eq(cashResult.liquidity.calculationStatus, 'estimate', 'available liquidity retains estimate status');
   throws(() => Economics.calculate(scenario({ liquidity: null })), /must be an object/, 'explicit null liquidity object is rejected');
+
+  const actual = Economics.reconcile(reconcileFixture({}));
+  A.eq(actual.evidenceStatus, 'operator-supplied-unverified', 'actual rows retain unverified evidence status');
+  A.eq(actual.transactionCounts, { supplied: 16, accepted: 8, exactDuplicatesExcluded: 8, reversedExcludedFromContribution: 1 }, 'a repeated exact source export is deduplicated without losing its receipt');
+  A.eq(actual.importSummaries.map(x => [x.importId, x.acceptedCount, x.duplicateCount]), [['import-a', 8, 0], ['import-b', 0, 8]], 'each import reports accepted and duplicate row counts');
+  A.eq(actual.settledContribution, { minor: '6200', amount: '62.00', currency: 'EUR' }, 'settled contribution excludes payout, tax and reversed rows');
+  A.eq(actual.pendingContribution.minor, '-1000', 'pending contribution is separate from settled contribution');
+  A.eq(actual.categoryTotals.reversed.sale_receipt.minor, '999', 'reversed evidence remains visible but excluded from contribution');
+  A.eq(actual.payoutReconciliation[0].status, 'matched', 'settled payout matches supplied receipt, fee, tax and payout rows');
+  A.eq(actual.payoutReconciliation[0].expectedPayout.minor, '8200', 'expected payout arithmetic is exact');
+  A.eq(actual.payoutReconciliation[0].difference.minor, '0', 'matched payout difference is zero');
+  A.eq(actual.payoutReconciliation[1].status, 'pending-components', 'pending settlement components never become a missing-payout claim');
+  A.eq(actual.totalTimeMinutes, 90, 'exact duplicate time rows are excluded');
+  A.eq(actual.duplicateTimeEntries, [{ entryId: 'time-sales' }], 'time duplicate receipt is visible');
+  A.eq(actual.effectiveHourlyContribution.amount, '41.33', 'actual hourly contribution uses settled rows and deduplicated supplied time');
+  A.eq(actual.coverage, 'supplied-rows-only-not-proof-of-ledger-completeness', 'matched rows do not claim ledger completeness');
+  A.ok(/not read, changed, or verified/.test(actual.sourceHandling), 'pure reconciliation states its source-file boundary');
+  const crossScope = reconcileFixture({});
+  crossScope.imports[1] = { ...crossScope.imports[1], accountScope: 'shop-b' };
+  A.eq(Economics.reconcile(crossScope).transactionCounts, { supplied: 16, accepted: 16, exactDuplicatesExcluded: 0, reversedExcludedFromContribution: 2 }, 'identical IDs from a different account scope are not silently merged');
+  const original = reconcileFixture({});
+  const before = JSON.stringify(original);
+  Economics.reconcile(original);
+  A.eq(JSON.stringify(original), before, 'reconciliation does not mutate operator-supplied imports or time evidence');
+
+  const noTime = Economics.reconcile(reconcileFixture({ timeEntries: null }));
+  A.eq(noTime.totalTimeMinutes, null, 'unknown time remains distinct from zero');
+  A.eq(noTime.effectiveHourlyAvailability, 'unavailable-unknown-time', 'unknown time blocks hourly arithmetic');
+  const zeroTimeActual = Economics.reconcile(reconcileFixture({ timeEntries: [] }));
+  A.eq(zeroTimeActual.effectiveHourlyAvailability, 'unavailable-zero-time', 'explicitly supplied zero time is labelled separately');
+  const missingPayoutInput = reconcileFixture({});
+  missingPayoutInput.imports = [missingPayoutInput.imports[0]];
+  missingPayoutInput.imports[0].transactions = missingPayoutInput.imports[0].transactions.filter(row => row.kind !== 'payout');
+  A.eq(Economics.reconcile(missingPayoutInput).payoutReconciliation[0].status, 'missing-payout', 'expected settlement without supplied payout is flagged');
+  const payoutOnly = reconcileFixture({});
+  payoutOnly.imports = [{ ...payoutOnly.imports[0], transactions: [tx('payout-only', 'payout', '10')] }];
+  A.eq(Economics.reconcile(payoutOnly).payoutReconciliation[0].status, 'unattributed-payout', 'payout without supplied expected components is not called matched');
+  const unassigned = reconcileFixture({});
+  unassigned.imports = [{ ...unassigned.imports[0], transactions: [tx('sale-unassigned', 'sale_receipt', '10', { settlementId: null })] }];
+  A.eq(unassigned.imports[0].transactions.length, 1, 'unassigned fixture is explicit');
+  A.eq(Economics.reconcile(unassigned).unassignedSettlementRows[0].transactionId, 'sale-unassigned', 'settlement-affecting row without settlement ID remains unresolved');
+
+  const conflictingTransaction = reconcileFixture({});
+  conflictingTransaction.imports[1] = { ...conflictingTransaction.imports[1], sourceSha256: 'b'.repeat(64), transactions: conflictingTransaction.imports[1].transactions.map((row, i) => i === 0 ? { ...row, amountMinor: '10001' } : row) };
+  throws(() => Economics.reconcile(conflictingTransaction), /conflicting duplicate transaction/, 'same scoped transaction ID with changed content fails closed');
+  const conflictingHash = reconcileFixture({});
+  conflictingHash.imports[1] = { ...conflictingHash.imports[1], transactions: conflictingHash.imports[1].transactions.slice(0, 1) };
+  throws(() => Economics.reconcile(conflictingHash), /same claimed source hash has conflicting/, 'same claimed source hash cannot describe different rows');
+  const conflictingTime = reconcileFixture({});
+  conflictingTime.timeEntries[2] = { ...conflictingTime.timeEntries[2], minutes: 61 };
+  throws(() => Economics.reconcile(conflictingTime), /conflicting duplicate time entry/, 'changed duplicate time row fails closed');
+  throws(() => Economics.reconcile(reconcileFixture({ imports: [] })), /1 to 20/, 'empty import list is rejected');
+  const badHash = reconcileFixture({}); badHash.imports[0] = { ...badHash.imports[0], sourceSha256: 'A'.repeat(64) };
+  throws(() => Economics.reconcile(badHash), /lowercase SHA-256/, 'noncanonical source hash is rejected');
+  const badUtc = reconcileFixture({}); badUtc.imports[0].transactions[0] = { ...badUtc.imports[0].transactions[0], occurredAt: '2026-11-19T11:00:00+01:00' };
+  throws(() => Economics.reconcile(badUtc), /canonical UTC/, 'noncanonical transaction timestamp is rejected');
+  const mixedActual = reconcileFixture({}); mixedActual.imports[0].transactions[0] = { ...mixedActual.imports[0].transactions[0], currency: 'USD' };
+  throws(() => Economics.reconcile(mixedActual), /must match reconciliation currency/, 'mixed actual transaction currencies are rejected');
+  const negativeActual = reconcileFixture({}); negativeActual.imports[0].transactions[0] = { ...negativeActual.imports[0].transactions[0], amountMinor: '-1' };
+  throws(() => Economics.reconcile(negativeActual), /non-negative integer/, 'actual deductions use explicit kinds rather than negative money');
+
   const registry = makeRegistry();
   Economics.makeEconomicsTools().register(registry);
   const call = { id: 'econ-1', name: 'economics.calculate', args: scenario({}), argsRaw: JSON.stringify(scenario({})), parseError: null };
@@ -142,12 +229,20 @@ const throws = (fn, re, label) => { let err; try { fn(); } catch (e) { err = e; 
   A.eq(JSON.parse(liquidDispatch.content).liquidity.closingBalanceMinor, '999', 'production dispatcher exposes the optional liquidity result');
   const schemaDenied = await registry.dispatch({ ...call, args: scenario({ currency: 'CAD' }), argsRaw: JSON.stringify(scenario({ currency: 'CAD' })) }, { canUse: () => ({ ok: true }) });
   A.eq(schemaDenied.isError, true, 'schema gate rejects unsupported enum before calculator');
+  const reconcileArgs = reconcileFixture({});
+  const reconcileCall = { id: 'econ-reconcile-1', name: 'economics.reconcile', args: reconcileArgs, argsRaw: JSON.stringify(reconcileArgs), parseError: null };
+  const reconciled = await registry.dispatch(reconcileCall, { canUse: () => ({ ok: true }) });
+  A.eq(reconciled.ok, true, 'valid reconciliation passes the production dispatcher');
+  A.eq(JSON.parse(reconciled.content).settledContribution.minor, '6200', 'dispatcher returns exact reconciled contribution');
 
   const station = objects => ({ agents: { ag: { id: 'ag', room: 'r' } }, rooms: { r: { id: 'r', objects: objects.map(objectType => ({ objectType })) } } });
   const cabinetReach = resolveTools('ag', station(['computer', 'cabinet']));
   A.ok(cabinetReach.tools.includes('economics.calculate'), 'cabinet capability resolves calculator');
   A.eq(cabinetReach.approvalRules['economics.calculate'], { requiresConsent: false, scope: 'read', network: false }, 'tool metadata is pure local read with no consent or network');
+  A.ok(cabinetReach.tools.includes('economics.reconcile'), 'cabinet capability resolves reconciliation');
+  A.eq(cabinetReach.approvalRules['economics.reconcile'], { requiresConsent: false, scope: 'read', network: false }, 'reconciliation metadata is pure local read with no consent or network');
   A.ok(!resolveTools('ag', station(['computer'])).tools.includes('economics.calculate'), 'calculator is unavailable without cabinet');
+  A.ok(!resolveTools('ag', station(['computer'])).tools.includes('economics.reconcile'), 'reconciliation is unavailable without cabinet');
   A.ok(!resolveTools('ag', station(['computer', 'cabinet']), undefined, { disabledCaps: ['cabinet'] }).tools.includes('economics.calculate'), 'cabinet kill-switch removes calculator access');
   A.report('offer-economics');
 })().catch(e => { console.error(e); process.exitCode = 1; });
