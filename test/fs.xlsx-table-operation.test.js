@@ -73,7 +73,7 @@ async function main() {
   const capDenied = await registry.dispatch({ name: 'fs.xlsx_table_operation', args: { ...rect, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } } }, { ...capability(['computer']), agentId: 'agent' });
   A.ok(!capDenied.ok && /capability denied/.test(capDenied.content), 'real registry denies XLSX operation without cabinet capability');
   const schemaDenied = await registry.dispatch({ name: 'fs.xlsx_table_operation', args: { path: 'source.xlsx', sheetIndex: 0, startRow: 1, rowCount: 5, startCol: 1, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } } }, { ...capability(['computer', 'cabinet']), agentId: 'agent' });
-  A.ok(!schemaDenied.ok && /invalid arguments/.test(schemaDenied.content), 'real registry validates required rectangle coordinates before tool execution');
+  A.ok(!schemaDenied.ok && /invalid explicit XLSX rectangle coordinate/.test(schemaDenied.content), 'real registry dispatch refuses incomplete alternative rectangle coordinates before source loading');
   const writeDenied = await registry.dispatch({ name: 'fs.write_csv', args: { path: 'denied.csv', columns: ['x'], rows: [['y']] } }, { ...capability(['computer', 'cabinet']), agentId: 'agent', consent: async () => ({ allow: false, reason: 'fixture denial' }) });
   A.ok(!writeDenied.ok && /consent denied/.test(writeDenied.content), 'real registry denies output write without consent');
   A.ok(!fs.existsSync(path.join(agentRoot, 'denied.csv')), 'denied output write creates no file');
