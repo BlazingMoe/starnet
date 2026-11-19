@@ -192,16 +192,16 @@ function makeEffectTool({store,clock,redact}) {
       await store.update('decisions:'+agentId,rows=>{
         const source=promotedSource(rows,agentId,memoryId);
         if(source.p.status!=='kept' || source.identity.projectId!==snapshot.id)throw new Error('active project reference in current project required');
-        const active=rowsFor(store,'notebook:'+agentId).filter(r=>r && r.id===memoryId);
-        if(active.length!==1 || !sameRecord(active[0],source.record))throw new Error('active project reference notebook row unavailable or edited');
+        const activeRows=rowsFor(store,'notebook:'+agentId).filter(r=>r && r.id===memoryId);
+        if(activeRows.length!==1 || !sameRecord(activeRows[0],source.record))throw new Error('active project reference notebook row unavailable or edited');
         if(source.d.id===applicationDecisionId)throw new Error('effect must use a later application decision');
         const history=verifyEffects(rows,source),app=decisionAndEvents(rows,applicationDecisionId,beforeEventId,afterEventId,source.identity.projectId),prior=history.find(e=>e.effectId===input.effectId);
-        const active=source.renewalState.active;
+        const activeContract=source.renewalState.active;
         if(prior) {const bound=typeof prior.contractVersion==='string',state=bound?source.renewalState.history.find(x=>x.contract.version===prior.contractVersion):source.renewalState.history[0];if(!state || stable(prior)!==stable(effectFor(source,app,input,prior.recordedAt,state,bound)))throw new Error('effectId already belongs to a different measurement');saved=prior;duplicate=true;return undefined;}
-        if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<active.activeAt || app.b.createdAt<active.activeAt || freshness(active.contract,app.a.createdAt)!=='current')throw new Error('application did not occur while the project reference contract was current');
+        if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<activeContract.activeAt || app.b.createdAt<activeContract.activeAt || freshness(activeContract.contract,app.a.createdAt)!=='current')throw new Error('application did not occur while the project reference contract was current');
         if(history.length>=MAX_EFFECTS)throw new Error('lesson effect history full');
         const now=clock.now();if(!Number.isFinite(now) || now<app.a.createdAt || now<source.receipt.promotedAt)throw new Error('effect clock is stale');
-        saved=effectFor(source,app,input,now,active,true);const effects=[...history,saved];if(Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('lesson effect history byte limit reached');const next={...source.p,effects};
+        saved=effectFor(source,app,input,now,activeContract,true);const effects=[...history,saved];if(Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('lesson effect history byte limit reached');const next={...source.p,effects};
         return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
       });
       return {content:JSON.stringify({effectId:saved.effectId,memoryId:saved.memoryId,delta:saved.delta,improved:saved.improved,duplicate,...LABELS}),summary:'unverified project lesson effect recorded'};
