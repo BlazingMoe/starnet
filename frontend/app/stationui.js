@@ -2049,7 +2049,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '\nSource refs: ' + (c.sourceRefs || []).join(', ') + ' · uncertainty: ' + (c.uncertainty || 'unknown') +
         '\nRecheck: ' + (c.recheckAt || 'unknown') + ' · expires: ' + (c.expiresAt || 'unknown') +
         '\nPositive examples: ' + (c.positiveExamples || []).join(' · ') + '\nNegative examples: ' + (c.negativeExamples || []).join(' · ') +
-        '\nKeep unavailable until scoped validation/promotion is supported.';
+        '\nKeep requires current passed project-scoped validation; customer/global Keep and Edit remain blocked.';
       card.appendChild(contract);
     }
     const meta = mkEl('div', 'mc-meta');

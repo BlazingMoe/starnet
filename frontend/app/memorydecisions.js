@@ -77,6 +77,18 @@
         candidateHead.textContent = 'LESSON CANDIDATE · ' + lessonStatus(proposal.status) + ' · outcome ' + text(proposal.outcomeEventId, 'unknown');
         candidate.appendChild(candidateHead);
         const candidateBody = el('div', 'mc-body'); candidateBody.textContent = text(proposal.lesson, '(candidate text unavailable)'); candidate.appendChild(candidateBody);
+        const effects = Array.isArray(proposal.lessonEffects) ? proposal.lessonEffects : [];
+        if (effects.length || proposal.lessonEffectsTotal > 0) {
+          line(candidate, 'MEASURED REUSE CLAIMS', String(proposal.lessonEffectsTotal || effects.length) + (proposal.lessonEffectsTruncated ? ' · only latest claims shown' : '') + ' · UNVERIFIED');
+          effects.forEach(effect => {
+            const box = el('div', 'mc-decision-outcome');
+            const before = effect.before == null ? 'unknown' : String(effect.before), after = effect.after == null ? 'unknown' : String(effect.after), unit = text(effect.unit, 'unit unknown');
+            line(box, 'MEASURED CORRECTION · UNVERIFIED', text(effect.metric, 'metric unknown') + ': ' + before + ' → ' + after + ' ' + unit + ' · desired ' + text(effect.desiredDirection, 'unknown') + ' · ' + (effect.improved === true ? 'IMPROVED' : effect.improved === false ? 'NOT IMPROVED' : 'RESULT UNKNOWN'));
+            line(box, 'APPLICATION LINK', text(effect.applicationDecisionId, 'decision unknown') + ' · before ' + text(effect.beforeEventId, 'unknown') + ' · after ' + text(effect.afterEventId, 'unknown'));
+            if (effect.evidenceRefs && effect.evidenceRefs.length) line(box, 'EVIDENCE REFERENCES', effect.evidenceRefs.join(' · '));
+            candidate.appendChild(box);
+          });
+        } else if (proposal.lessonEffectsUnavailable) line(candidate, 'MEASURED REUSE CLAIMS', 'stored effect history unavailable');
         card.appendChild(candidate);
       });
     }

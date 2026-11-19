@@ -4,6 +4,7 @@
 const { cleanLessonContract, PAGE_DEFAULT, PAGE_MAX, MAX_RECORDS, MAX_OUTCOME_EVENTS, MAX_TEXT, MAX_ITEMS } = require('../tools/builtin/decisions.js');
 
 const { projectValidation } = require('../tools/builtin/lesson-validation.js');
+const { projectEffects } = require('../tools/builtin/lesson-promotion.js');
 
 const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const HOST_PROJECT_ID_RE = /^[A-Za-z0-9_-]{16,120}$/;
@@ -84,6 +85,7 @@ function projectRecord(row, redact, now, agentId) {
     lessonProposalsTruncated: proposals.length > MAX_OUTCOME_EVENTS,
     lessonProposals: proposals.slice(-MAX_OUTCOME_EVENTS).reverse().map(proposal => ({
       ...projectValidation(proposal, redact, now, row, agentId, cleanLessonContract),
+      ...projectEffects(proposal, redact),
       outcomeEventId: boundedText(proposal && proposal.outcomeEventId, 120, redact),
       lesson: boundedText(proposal && proposal.lesson, MAX_TEXT, redact),
       status: LESSON_STATES.has(proposal && proposal.status) ? proposal.status : 'unknown',

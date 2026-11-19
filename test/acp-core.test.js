@@ -354,6 +354,7 @@ function harness(opts) {
     A.eq(K('shell.exec'), 'execute', 'shell.exec -> execute');
     A.eq(K('verify.run'), 'execute', 'verify.run -> execute');
     A.eq(K('notebook.write'), 'think', 'notebook.* -> think');
+    A.eq(K('decision.lesson_effect'), 'edit', 'measured lesson reuse is an explicit decision-history edit');
     A.eq(K('mcp__github__x'), 'other', 'a connector tool -> other');
     A.eq(K('brand.new.tool'), 'other', 'an unknown tool falls back to other, never to a wrong claim');
     /* browser.test_* drives StarNet's OWN synthetic UI harness — it EXECUTES locally, it does not fetch the

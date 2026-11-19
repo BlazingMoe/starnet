@@ -28,7 +28,7 @@ const harness={api:{get:async url=>{pages.push(url); if (url.includes('agent=bro
   const newest={id:'newer',decision:'<img src=x onerror=alert(1)>',alternatives:['A'],evidenceRefs:['ref:1'],confidence:null,uncertainty:'model says unknown',createdAt:100,source:'model',trust:'unconfirmed',outcomeStatus:'recorded',outcomeEvents:[{eventId:'out-1',outcome:'unverified result',evidenceRefs:['run:1'],createdAt:101,source:'model',trust:'unconfirmed'}],outcomeEventsTotal:1,lessonProposals:[
     {outcomeEventId:'out-1',lesson:'candidate staged',status:'staging'},
     {outcomeEventId:'out-2',lesson:'candidate pending',status:'pending'},
-    {outcomeEventId:'out-3',lesson:'candidate kept',status:'kept'},
+    {outcomeEventId:'out-3',lesson:'candidate kept',status:'kept',lessonEffectsTotal:1,lessonEffects:[{effectId:'fx',applicationDecisionId:'decision_apply',beforeEventId:'before',afterEventId:'after',metric:'corrections',unit:'count',before:3,after:1,delta:-2,desiredDirection:'decrease',improved:true,evidenceRefs:['measure:before','measure:after'],trust:'unverified',authority:'reference-only'}]},
     {outcomeEventId:'out-4',lesson:'candidate discarded',status:'discarded'},
     {outcomeEventId:'out-6',lesson:'candidate Keep recovery',status:'reviewing-kept'},
     {outcomeEventId:'out-5',lesson:'legacy status',status:'other'},
@@ -54,6 +54,7 @@ const api=sandbox.module.exports;
   A.ok(host.text.includes('KEPT · REFERENCE ONLY'),'kept lessons are distinguished from verified facts');
   A.ok(host.text.includes('DISCARDED'),'discarded lesson candidates remain visible in the retrospective');
   A.ok(host.text.includes('REVOKED · REMOVED FROM ACTIVE MEMORY'),'revoked project references remain visible as inactive audit history');
+  A.ok(host.text.includes('MEASURED CORRECTION · UNVERIFIED') && host.text.includes('corrections: 3 → 1 count') && host.text.includes('IMPROVED'),'before/after reuse evidence is visible without claiming verification');
   A.ok(host.text.includes('REVIEW STATUS UNKNOWN'),'legacy/unsupported proposal status is not assumed kept');
   A.ok(!host.text.includes('Reading durable decision history…'),'successful first page removes the loading placeholder');
   A.ok(!status.textContent.includes('Reading newest'),'successful first page clears the loading status');

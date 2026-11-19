@@ -5,6 +5,8 @@ const {readDecisionRows,cleanLessonContract}=require('./decisions.js');
 const {inspect,audit,freshness,stable}=require('./lesson-validation.js');
 const LABELS={trust:'unverified',authority:'reference-only'};
 const PROMOTION='project-reference-only';
+const MAX_EFFECTS=12;
+const MAX_EFFECT_BYTES=32768;
 function rowsFor(store,key) {
   const r=store.readKey(key);
   if(r.status==='absent' && !r.quarantined)return [];
@@ -59,6 +61,85 @@ function revocationFor(source,now) {
 }
 function checkRevocation(source,receipt) {
   if(!receipt || !Number.isFinite(receipt.revokedAt) || receipt.revokedAt<source.receipt.promotedAt || stable(receipt)!==stable(revocationFor(source,receipt.revokedAt)))throw new Error('revocation receipt does not match promotion');
+}
+function shortText(value,name,max) {
+  if(typeof value!=='string')throw new Error(name+' must be a string');
+  const out=value.trim();if(!out || out.length>max)throw new Error(name+' must be 1-'+max+' characters');return out;
+}
+function number(value,name) {
+  if(typeof value!=='number' || !Number.isFinite(value) || Math.abs(value)>1e12)throw new Error(name+' must be a finite bounded number');return value;
+}
+function projectSnapshot(ctx) {
+  const s=ctx && ctx.lessonScopeSnapshot;
+  if(!s || s.schemaVersion!==1 || s.type!=='project' || typeof s.id!=='string' || !/^[A-Za-z0-9_-]{16,120}$/.test(s.id))throw new Error('current project context required');
+  return s;
+}
+function decisionAndEvents(rows,id,beforeId,afterId,projectId) {
+  const ds=rows.filter(d=>d && d.id===id);if(ds.length!==1)throw new Error('application decision missing or ambiguous');
+  const d=ds[0],binding=d.sourceProjectBinding;
+  if(!binding || binding.schemaVersion!==1 || binding.type!=='project' || binding.id!==projectId || d.source!=='model' || d.trust!=='unconfirmed' || !Array.isArray(d.outcomeEvents))throw new Error('application decision project provenance does not match lesson');
+  const before=d.outcomeEvents.filter(e=>e && e.eventId===beforeId),after=d.outcomeEvents.filter(e=>e && e.eventId===afterId);
+  if(beforeId===afterId || before.length!==1 || after.length!==1)throw new Error('distinct before and after outcome events required');
+  const b=before[0],a=after[0];
+  if(b.source!=='model' || b.trust!=='unconfirmed' || a.source!=='model' || a.trust!=='unconfirmed' || !Number.isFinite(b.createdAt) || !Number.isFinite(a.createdAt) || a.createdAt<b.createdAt)throw new Error('application outcome chronology or provenance is invalid');
+  const evidence=[...new Set([...(Array.isArray(b.evidenceRefs)?b.evidenceRefs:[]),...(Array.isArray(a.evidenceRefs)?a.evidenceRefs:[])])];
+  if(!evidence.length || evidence.length>24 || evidence.some(x=>typeof x!=='string' || !x || x.length>1000))throw new Error('measured effect requires bounded before/after evidence references');
+  return {d,b,a,evidence};
+}
+function effectFor(source,app,input,recordedAt) {
+  const delta=input.after-input.before,improved=input.desiredDirection==='increase'?delta>0:delta<0;
+  return {schemaVersion:1,effectId:input.effectId,memoryId:source.record.id,projectId:source.identity.projectId,applicationDecisionId:app.d.id,beforeEventId:app.b.eventId,afterEventId:app.a.eventId,metric:input.metric,unit:input.unit,before:input.before,after:input.after,desiredDirection:input.desiredDirection,delta,improved,evidenceRefs:app.evidence,recordedAt,promotionDigest:crypto.createHash('sha256').update(stable(source.receipt)).digest('hex'),...LABELS};
+}
+function verifyEffects(rows,source) {
+  const effects=source.p.effects;
+  if(effects===undefined)return [];
+  if(!Array.isArray(effects) || effects.length>MAX_EFFECTS || Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('malformed lesson effect history');
+  const ids=new Set();
+  for(const e of effects) {
+    if(!e || ids.has(e.effectId) || !Number.isFinite(e.recordedAt) || e.recordedAt<source.receipt.promotedAt)throw new Error('malformed lesson effect identity or chronology');
+    const input={effectId:shortText(e.effectId,'stored effectId',120),metric:shortText(e.metric,'stored metric',80),unit:shortText(e.unit,'stored unit',40),before:number(e.before,'stored before'),after:number(e.after,'stored after'),desiredDirection:e.desiredDirection};
+    if(!['increase','decrease'].includes(input.desiredDirection))throw new Error('malformed stored effect direction');
+    const app=decisionAndEvents(rows,e.applicationDecisionId,e.beforeEventId,e.afterEventId,source.identity.projectId),expected=effectFor(source,app,input,e.recordedAt);
+    if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<source.receipt.promotedAt || app.b.createdAt<source.receipt.promotedAt || freshness(source.contract,app.a.createdAt)!=='current')throw new Error('stored lesson effect application is outside the active contract');
+    if(stable(e)!==stable(expected))throw new Error('lesson effect no longer matches authoritative history');
+    ids.add(e.effectId);
+  }
+  return effects;
+}
+function makeEffectTool({store,clock,redact}) {
+  const clean=(v,n,max)=>{if(typeof v!=='string')throw new Error(n+' must be a string');return shortText(String(redact(v)),n,max);};
+  return {name:'decision.lesson_effect',capability:'memory',scope:'write',requiresConsent:false,
+    description:'Record an unverified before/after measurement for use of one active project lesson. It links existing decision outcome IDs and evidence references; it never grants trust, permissions, renewal, or automatic promotion.',
+    schema:{type:'object',additionalProperties:false,required:['effectId','memoryId','applicationDecisionId','beforeEventId','afterEventId','metric','unit','before','after','desiredDirection'],properties:{effectId:{type:'string',maxLength:120},memoryId:{type:'string'},applicationDecisionId:{type:'string'},beforeEventId:{type:'string'},afterEventId:{type:'string'},metric:{type:'string',maxLength:80},unit:{type:'string',maxLength:40},before:{type:'number'},after:{type:'number'},desiredDirection:{enum:['increase','decrease']}}},
+    run:async(args,ctx)=>{
+      const agentId=ctx && ctx.agentId || 'agent',snapshot=projectSnapshot(ctx),input={effectId:clean(args.effectId,'effectId',120),metric:clean(args.metric,'metric',80),unit:clean(args.unit,'unit',40),before:number(args.before,'before'),after:number(args.after,'after'),desiredDirection:String(args.desiredDirection||'')};
+      if(!/^[A-Za-z0-9_-]{1,40}$/.test(agentId))throw new Error('bounded agent identity required');
+      if(!/^[A-Za-z0-9._:-]{1,120}$/.test(input.effectId) || !['increase','decrease'].includes(input.desiredDirection))throw new Error('bounded effect identity and desiredDirection required');
+      const memoryId=clean(args.memoryId,'memoryId',80),applicationDecisionId=clean(args.applicationDecisionId,'applicationDecisionId',120),beforeEventId=clean(args.beforeEventId,'beforeEventId',120),afterEventId=clean(args.afterEventId,'afterEventId',120);
+      let saved,duplicate=false;
+      await store.update('decisions:'+agentId,rows=>{
+        const source=promotedSource(rows,agentId,memoryId);
+        if(source.p.status!=='kept' || source.identity.projectId!==snapshot.id)throw new Error('active project reference in current project required');
+        const active=rowsFor(store,'notebook:'+agentId).filter(r=>r && r.id===memoryId);
+        if(active.length!==1 || !sameRecord(active[0],source.record))throw new Error('active project reference notebook row unavailable or edited');
+        if(source.d.id===applicationDecisionId)throw new Error('effect must use a later application decision');
+        const history=verifyEffects(rows,source),app=decisionAndEvents(rows,applicationDecisionId,beforeEventId,afterEventId,source.identity.projectId),prior=history.find(e=>e.effectId===input.effectId);
+        if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<source.receipt.promotedAt || app.b.createdAt<source.receipt.promotedAt || freshness(source.contract,app.a.createdAt)!=='current')throw new Error('application did not occur while the project reference contract was current');
+        if(prior) {if(stable(prior)!==stable(effectFor(source,app,input,prior.recordedAt)))throw new Error('effectId already belongs to a different measurement');saved=prior;duplicate=true;return undefined;}
+        if(history.length>=MAX_EFFECTS)throw new Error('lesson effect history full');
+        const now=clock.now();if(!Number.isFinite(now) || now<app.a.createdAt || now<source.receipt.promotedAt)throw new Error('effect clock is stale');
+        saved=effectFor(source,app,input,now);const effects=[...history,saved];if(Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('lesson effect history byte limit reached');const next={...source.p,effects};
+        return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
+      });
+      return {content:JSON.stringify({effectId:saved.effectId,memoryId:saved.memoryId,delta:saved.delta,improved:saved.improved,duplicate,...LABELS}),summary:'unverified project lesson effect recorded'};
+    }};
+}
+function projectEffects(p,redact) {
+  if(!p || p.effects===undefined)return {};
+  if(!Array.isArray(p.effects))return {lessonEffectsUnavailable:true};
+  const clip=(v,n)=>typeof v==='string'?String(redact(v)).slice(0,n):'';
+  const effects=p.effects.slice(-MAX_EFFECTS).reverse().map(e=>({effectId:clip(e&&e.effectId,120),applicationDecisionId:clip(e&&e.applicationDecisionId,120),beforeEventId:clip(e&&e.beforeEventId,120),afterEventId:clip(e&&e.afterEventId,120),metric:clip(e&&e.metric,80),unit:clip(e&&e.unit,40),before:e&&Number.isFinite(e.before)?e.before:null,after:e&&Number.isFinite(e.after)?e.after:null,delta:e&&Number.isFinite(e.delta)?e.delta:null,desiredDirection:e&&['increase','decrease'].includes(e.desiredDirection)?e.desiredDirection:'unknown',improved:e&&typeof e.improved==='boolean'?e.improved:null,evidenceRefs:Array.isArray(e&&e.evidenceRefs)?e.evidenceRefs.slice(0,24).map(x=>clip(x,1000)):[],recordedAt:e&&Number.isFinite(e.recordedAt)?e.recordedAt:null,trust:'unverified',authority:'reference-only'}));
+  return {lessonEffectsTotal:p.effects.length,lessonEffectsTruncated:p.effects.length>MAX_EFFECTS,lessonEffects:effects};
 }
 function isStructuredProposal(store,agentId,prop) {
   if(Object.prototype.hasOwnProperty.call(prop,'lessonContract'))return true;
@@ -145,4 +226,4 @@ function canRead(store,record,ctx) {
     return s.identity.projectId===snap.id && stored.length===1 && sameRecord(record,s.record) && sameRecord(stored[0],s.record);
   }catch(_){return false;}
 }
-module.exports={PROMOTION,promote,revoke,canRead,pendingPromotion,retryProposal,isStructuredProposal};
+module.exports={PROMOTION,promote,revoke,canRead,pendingPromotion,retryProposal,isStructuredProposal,makeEffectTool,projectEffects,MAX_EFFECTS,MAX_EFFECT_BYTES};

@@ -15595,6 +15595,7 @@ async function runOnce(o) {
   makeWebsiteDemoTools().register(registry); // pure bounded template; filesystem export remains consent-gated fs.write
   makeNotebookTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, rank, eligibleMemoryRecords, canReadStructuredLesson:canReadProjectLesson, nextTrust: memcore.nextTrust, findSimilar: memcore.findSimilar }).register(registry);   // §5.6: scrub secrets at the write boundary; rank: explicit read shares auto-recall's relevance order; nextTrust: notebook.feedback rating fold; findSimilar: near-dupe guard so the same belief can't accumulate in N phrasings
   makeDecisionTools({ store: notebookStore, clock: { now: () => Date.now() }, redact, proposeLesson: queueDecisionLessonCandidate }).register(registry);   // structured untrusted decision history: same durable store, excluded from notebook recall
+  registry.register(LessonPromotion.makeEffectTool({ store:notebookStore, clock:{now:()=>Date.now()}, redact })); // measured reuse evidence remains unverified/reference-only
   widgetTools.register(registry);   // WIDGET RAILS Phase 2: widget.set — agent-fed rail readouts (memory capability: sandboxed local write, no consent, no network)
   makeRecallTool({ transcriptStore }).register(registry);   // H1.3: recall_conversation — agent searches its own past dialogue (transcriptstore); joins the NOTEBOOK (memory) capability
   makeSkillTools({
