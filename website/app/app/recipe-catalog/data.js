@@ -61,7 +61,7 @@
       id: 'chart-it', name: 'Chart It', emoji: '▧', tagline: 'The right chart, honestly scaled',
       accent: '#b790c0',
       blurb: 'Picks the chart that fits the question and builds it — no truncated axes, no invented precision.',
-      tags: { code: 0.6, general: 0.4 },
+      tags: { research: 0.6, general: 0.4 },
       params: [
         { key: 'data', label: 'The data', type: 'file', placeholder: 'the file to chart' },
         { key: 'question', label: 'What you want to show', placeholder: 'the point the chart should make', required: false, default: 'whatever the data most clearly shows' }
