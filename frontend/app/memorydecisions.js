@@ -82,7 +82,7 @@
           line(candidate, 'CONTRACT RENEWALS', String(proposal.lessonRenewalsTotal || renewals.length) + (proposal.lessonRenewalsTruncated ? ' · only latest renewals shown' : '') + ' · UNVERIFIED');
           renewals.forEach(renewal => {
             const box = el('div', 'mc-decision-outcome');
-            line(box, 'RENEWAL · ' + text(renewal.status, 'unknown').toUpperCase(), text(renewal.priorVersion, 'unknown') + ' → ' + text(renewal.contractVersion, 'unknown') + ' · evidence ' + text(renewal.result, 'unknown'));
+            line(box, 'RENEWAL · ' + text(renewal.status, 'unknown').toUpperCase(), text(renewal.priorVersion, 'unknown') + ' → ' + text(renewal.contractVersion, 'unknown') + ' · evidence ' + text(renewal.result, 'unknown').toUpperCase());
             line(box, 'VALIDITY', 'recheck ' + text(renewal.recheckAt, 'unknown') + ' · expires ' + text(renewal.expiresAt, 'unknown'));
             line(box, 'VALIDATION ID', renewal.validationId);
             candidate.appendChild(box);
