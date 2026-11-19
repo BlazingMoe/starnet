@@ -471,20 +471,20 @@
     // parts, and serializes every string as inlineStr so formula-looking text remains inert.
     const writeXlsxTool = {
       name: 'fs.write_xlsx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
-      description: 'Write a bounded simple XLSX table to the current project or private workspace. Supply column names and rows of cells (string, finite number, boolean, or null). Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows, 64 columns, 64000 total cells, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
+      description: 'Write a bounded simple XLSX table to the current project or private workspace. Supply column names, rows of cells (string, finite number, boolean, or null), and optionally a valid 1-31 character Excel sheetName. The header row is frozen and filterable. Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows, 64 columns, 64000 total cells, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
       schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
-        path: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
+        path: { type: 'string' }, sheetName: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
         rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
-      } },
+      }, additionalProperties: false },
       run: async (args, ctx) => {
         if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
         if (!/\.xlsx$/i.test(args.path)) throw new Error('path must end in .xlsx');
-        const data = createXlsxTable(args.columns, args.rows, WRITE_BYTES);
+        const data = createXlsxTable(args.columns, args.rows, WRITE_BYTES, { sheetName: args.sheetName });
         const writeArgs = { path: args.path };
         writeArgs[WRITE_BUFFER] = data;
         const written = await writeTool.run(writeArgs, ctx);
         return Object.assign({}, written, {
-          content: 'Structured XLSX: ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. Strings are inert inline text; no formulas were written.\n' + written.content,
+          content: 'Structured XLSX: sheet ' + JSON.stringify(args.sheetName === undefined ? 'Data' : args.sheetName) + ', ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. The header is frozen and filterable; strings are inert inline text and no formulas were written.\n' + written.content,
           summary: 'wrote XLSX ' + args.path + ' (' + kb(data.length) + ')'
         });
       }

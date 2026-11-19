@@ -43,7 +43,7 @@ function independentlyReadStoredZip(buf) {
     A.ok(reg.get('fs.write_xlsx'), 'XLSX writer is registered');
     A.eq(reg.get('fs.write_xlsx').requiresConsent, true, 'XLSX writer declares consent requirement');
     const lines = 'first\r\nsecond\nthird\rline';
-    const data = { path: 'tables/summary.xlsx', columns: ['Name', 'Amount', 'Ready', 'Empty', 'Formula text', 'Escape-like', 'Line breaks', 'Control'], rows: [['Møe & Co', 42.5, true, null, '=1+1', '_x0041_', lines, 'control:\u0001'], ['<literal>', -2, false, null, ' =SUM(A1:A2)', '_x000A_', 'tabs\tstay', null]] };
+    const data = { path: 'tables/summary.xlsx', sheetName: 'Findings & Review', columns: ['Name', 'Amount', 'Ready', 'Empty', 'Formula text', 'Escape-like', 'Line breaks', 'Control'], rows: [['Møe & Co', 42.5, true, null, '=1+1', '_x0041_', lines, 'control:\u0001'], ['<literal>', -2, false, null, ' =SUM(A1:A2)', '_x000A_', 'tabs\tstay', null]] };
     const result = await tools.writeXlsxTool.run(data, ctx);
     A.eq(result.receipt.state, 'read-back-verified', 'writer returns exact read-back verification');
     A.eq(result.receipt.path, data.path, 'receipt identifies the written path');
@@ -54,7 +54,10 @@ function independentlyReadStoredZip(buf) {
     const sourceBefore = fs.readFileSync(sourcePath);
     const parts = independentlyReadStoredZip(bytes);
     A.eq(Array.from(parts.keys()), ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/worksheets/sheet1.xml'], 'archive contains only the five minimal OOXML parts');
+    A.ok(parts.get('xl/workbook.xml').includes('name="Findings &amp; Review"'), 'validated custom sheet name is XML-escaped in workbook metadata');
     const sheet = parts.get('xl/worksheets/sheet1.xml');
+    A.ok(sheet.includes('<dimension ref="A1:H3"/>') && sheet.includes('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>') && sheet.includes('<autoFilter ref="A1:H3"/>'), 'worksheet declares its exact table range with a frozen filterable header');
+    A.eq(doc.xlsxSheets(bytes)[0].name, 'Findings & Review', 'existing XLSX sheet discovery returns the custom name');
     A.ok(sheet.includes('t="inlineStr"><is><t xml:space="preserve">=1+1</t>'), 'formula-looking string stays inline text');
     A.ok(sheet.includes('_x005F_x0041_') && sheet.includes('_x0001_') && !sheet.includes('\u0001'), 'OOXML escape-like strings and XML-illegal controls are encoded safely');
     A.ok(sheet.includes('<c r="B2"><v>42.5</v></c>') && sheet.includes('<c r="C2" t="b"><v>1</v></c>'), 'numbers and booleans use native cell types');
@@ -79,7 +82,12 @@ function independentlyReadStoredZip(buf) {
       [{ columns: ['x'], rows: [['\udc00']] }, 'lone low surrogate'],
       [{ columns: ['x'], rows: [['x'.repeat(8193)]] }, 'overlong cell'],
       [{ columns: ['x'], rows: Array.from({ length: 1001 }, () => ['x']) }, 'row limit'],
-      [{ columns: ['x'.repeat(8193)], rows: [] }, 'overlong heading']
+      [{ columns: ['x'.repeat(8193)], rows: [] }, 'overlong heading'],
+      [{ sheetName: ' ', columns: ['x'], rows: [] }, 'blank sheet name'],
+      [{ sheetName: 'x'.repeat(32), columns: ['x'], rows: [] }, 'long sheet name'],
+      [{ sheetName: 'bad/name', columns: ['x'], rows: [] }, 'forbidden sheet-name character'],
+      [{ sheetName: "'quoted", columns: ['x'], rows: [] }, 'leading sheet-name apostrophe'],
+      [{ sheetName: '\ud800', columns: ['x'], rows: [] }, 'malformed sheet-name Unicode']
     ];
     for (const [table, label] of invalid) {
       let failed = false;

@@ -425,7 +425,7 @@ const fixture = {
     const findingRows=[['Higher amount','rows 1-3','North 10; South cached 20','South is higher in the observed fixture','medium because its cache is unverified']];
     tool('xlsx-report','fs_write',{path:'analysis/xlsx-fixture/report.md',content:report});
     tool('xlsx-read-report','fs_read',{path:'analysis/xlsx-fixture/report.md'});
-    tool('xlsx-findings','fs_write_xlsx',{path:'analysis/xlsx-fixture/findings.xlsx',columns:findingColumns,rows:findingRows});
+    tool('xlsx-findings','fs_write_xlsx',{path:'analysis/xlsx-fixture/findings.xlsx',sheetName:'Findings',columns:findingColumns,rows:findingRows});
     tool('xlsx-findings-sheets','fs_xlsx_sheets',{path:'analysis/xlsx-fixture/findings.xlsx'});
     tool('xlsx-read-findings','fs_read_xlsx_range',{path:'analysis/xlsx-fixture/findings.xlsx',sheetIndex:0,startRow:1,rowCount:2,startCol:1,colCount:5});
     turns.push([{type:'text',delta:'Workbook pages reviewed; report and requested XLSX findings workbook saved and read back.'},{type:'done',finishReason:'stop'}]);
@@ -445,6 +445,7 @@ const fixture = {
     A.eq(await fsp.readFile(path.join(ROOT,'agent','analysis','xlsx-fixture','report.md'),'utf8'),report,'XLSX recipe report is saved exactly');
     A.eq(results[6].result.receipt.state,'read-back-verified','requested XLSX findings write has exact byte read-back verification');
     A.eq(results[6].result.receipt.path,'analysis/xlsx-fixture/findings.xlsx','verified workbook receipt identifies the requested artifact');
+    A.eq(JSON.parse(results[7].result.content).sheets[0].name,'Findings','written workbook sheet discovery returns the explicit safe worksheet name');
     const findingsReadback=JSON.parse(results[8].result.content);
     A.eq(findingsReadback.rows[0].cells.map(c=>c.value),findingColumns,'read-back workbook contains the expected headers');
     A.eq(findingsReadback.rows[1].cells.map(c=>c.value),findingRows[0],'read-back workbook contains the expected finding');

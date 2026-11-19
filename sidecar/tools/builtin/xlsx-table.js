@@ -65,8 +65,14 @@ function zipStore(files) {
   return Buffer.concat([...locals, ...centrals, end]);
 }
 
-function createXlsxTable(columns, rows, maxBytes) {
+function createXlsxTable(columns, rows, maxBytes, options) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('write byte limit must be a positive safe integer');
+  options = options || {};
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'sheetName')) throw new Error('XLSX options contain unsupported fields');
+  const sheetName = options.sheetName === undefined ? 'Data' : options.sheetName;
+  if (typeof sheetName !== 'string' || !sheetName.trim() || sheetName.length > 31) throw new Error('sheetName must contain 1-31 non-blank characters');
+  validateUnicode(sheetName, 'sheetName');
+  if (/[\u0000-\u001f\ufffe\uffff\[\]:*?\\/]/.test(sheetName) || /^'|'$/.test(sheetName)) throw new Error('sheetName contains characters Excel does not allow');
   if (!Array.isArray(columns) || columns.length < 1 || columns.length > 64) throw new Error('columns must contain 1-64 names');
   if (!Array.isArray(rows) || rows.length > 1000) throw new Error('rows must contain at most 1000 records');
   if ((rows.length + 1) * columns.length > 64000) throw new Error('table exceeds 64000 cells');
@@ -97,12 +103,14 @@ function createXlsxTable(columns, rows, maxBytes) {
   const staticFiles = [
     { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
     { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
-    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + xmlText(sheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
     { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
     { name: names[4], data: '' }
   ];
-  const sheetPrefix = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
-  const sheetSuffix = '</sheetData></worksheet>';
+  const lastCell = colName(columns.length) + (rows.length + 1);
+  const tableRef = 'A1:' + lastCell;
+  const sheetPrefix = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="' + tableRef + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>';
+  const sheetSuffix = '</sheetData><autoFilter ref="' + tableRef + '"/></worksheet>';
   // Account for every fixed XML byte and every local/central ZIP header before formatting any cells.
   const archiveOverhead = 22 + names.reduce((n, name) => n + 30 + 46 + Buffer.byteLength(name, 'utf8') * 2, 0);
   const staticBytes = archiveOverhead + Buffer.byteLength(sheetPrefix + sheetSuffix, 'utf8')
