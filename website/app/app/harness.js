@@ -1077,6 +1077,7 @@ const Harness = (() => {
   const memoryPin = o => memoryMutate('pin', o);
   const memoryEdit = o => memoryMutate('edit', o);
   const memoryForget = o => memoryMutate('forget', o);
+  const memoryProjectReferenceRenew = o => memoryMutate('project-reference/renew', o);
   const memoryProjectReferenceRevoke = o => memoryMutate('project-reference/revoke', o);
   // observability: the permanent declined reject-list (what reflection will never re-propose). [] on any failure.
   async function memoryDeclined(agentId) {
@@ -1248,7 +1249,7 @@ const Harness = (() => {
     getKey, setKey, setKeyPool, validateAndSetKeyPool, keyPoolSize, storeChannelToken, getModel, setModel, getProv, setProv, getBaseUrl, setBaseUrl, getReasoningEffort, setReasoningEffort, normalizeReasoningEffort, init, configured, refreshCreditsConfigured, hasStoredCredential, setDesktopConfigured,
     listModels, probeProvider, validateAndSetKey, priceOf, contextLimitOf, contextState, chat, cancel, haltAll, consent, consentAck, consentAnswer, summonAck, notebook,
     runRecoveries, prepareAutomaticRecovery, resolveRunRecovery, prepareReviewedRecovery,
-    memoryProposals, memoryTurnin, memoryVeto, memoryReset, memoryRecords, memoryDeclined, memoryRestore, memoryPending, memoryPin, memoryEdit, memoryForget, memoryProjectReferenceRevoke,
+    memoryProposals, memoryTurnin, memoryVeto, memoryReset, memoryRecords, memoryDeclined, memoryRestore, memoryPending, memoryPin, memoryEdit, memoryForget, memoryProjectReferenceRenew, memoryProjectReferenceRevoke,
     studyProposals,
     threadProposals, threadTurnin,
     agentSkills, agentSkillsRead, agentSkillManage, agentSkillAllow,

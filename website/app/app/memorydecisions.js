@@ -77,6 +77,17 @@
         candidateHead.textContent = 'LESSON CANDIDATE · ' + lessonStatus(proposal.status) + ' · outcome ' + text(proposal.outcomeEventId, 'unknown');
         candidate.appendChild(candidateHead);
         const candidateBody = el('div', 'mc-body'); candidateBody.textContent = text(proposal.lesson, '(candidate text unavailable)'); candidate.appendChild(candidateBody);
+        const renewals = Array.isArray(proposal.lessonRenewals) ? proposal.lessonRenewals : [];
+        if (renewals.length || proposal.lessonRenewalsTotal > 0) {
+          line(candidate, 'CONTRACT RENEWALS', String(proposal.lessonRenewalsTotal || renewals.length) + (proposal.lessonRenewalsTruncated ? ' · only latest renewals shown' : '') + ' · UNVERIFIED');
+          renewals.forEach(renewal => {
+            const box = el('div', 'mc-decision-outcome');
+            line(box, 'RENEWAL · ' + text(renewal.status, 'unknown').toUpperCase(), text(renewal.priorVersion, 'unknown') + ' → ' + text(renewal.contractVersion, 'unknown') + ' · evidence ' + text(renewal.result, 'unknown'));
+            line(box, 'VALIDITY', 'recheck ' + text(renewal.recheckAt, 'unknown') + ' · expires ' + text(renewal.expiresAt, 'unknown'));
+            line(box, 'VALIDATION ID', renewal.validationId);
+            candidate.appendChild(box);
+          });
+        } else if (proposal.lessonRenewalsUnavailable) line(candidate, 'CONTRACT RENEWALS', 'stored renewal history unavailable');
         const effects = Array.isArray(proposal.lessonEffects) ? proposal.lessonEffects : [];
         if (effects.length || proposal.lessonEffectsTotal > 0) {
           line(candidate, 'MEASURED REUSE CLAIMS', String(proposal.lessonEffectsTotal || effects.length) + (proposal.lessonEffectsTruncated ? ' · only latest claims shown' : '') + ' · UNVERIFIED');

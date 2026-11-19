@@ -28,7 +28,7 @@ const harness={api:{get:async url=>{pages.push(url); if (url.includes('agent=bro
   const newest={id:'newer',decision:'<img src=x onerror=alert(1)>',alternatives:['A'],evidenceRefs:['ref:1'],confidence:null,uncertainty:'model says unknown',createdAt:100,source:'model',trust:'unconfirmed',outcomeStatus:'recorded',outcomeEvents:[{eventId:'out-1',outcome:'unverified result',evidenceRefs:['run:1'],createdAt:101,source:'model',trust:'unconfirmed'}],outcomeEventsTotal:1,lessonProposals:[
     {outcomeEventId:'out-1',lesson:'candidate staged',status:'staging'},
     {outcomeEventId:'out-2',lesson:'candidate pending',status:'pending'},
-    {outcomeEventId:'out-3',lesson:'candidate kept',status:'kept',lessonEffectsTotal:1,lessonEffects:[{effectId:'fx',applicationDecisionId:'decision_apply',beforeEventId:'before',afterEventId:'after',metric:'corrections',unit:'count',before:3,after:1,delta:-2,desiredDirection:'decrease',improved:true,evidenceRefs:['measure:before','measure:after'],trust:'unverified',authority:'reference-only'}]},
+    {outcomeEventId:'out-3',lesson:'candidate kept',status:'kept',lessonRenewalsTotal:1,lessonRenewals:[{renewalId:'renew-v2',priorVersion:'v1',contractVersion:'v2',recheckAt:'2099-01-01',expiresAt:'2099-02-01',validationId:'validation-v2',result:'evidence-passed',status:'pending',trust:'unverified',authority:'reference-only'}],lessonEffectsTotal:1,lessonEffects:[{effectId:'fx',applicationDecisionId:'decision_apply',beforeEventId:'before',afterEventId:'after',metric:'corrections',unit:'count',before:3,after:1,delta:-2,desiredDirection:'decrease',improved:true,evidenceRefs:['measure:before','measure:after'],trust:'unverified',authority:'reference-only'}]},
     {outcomeEventId:'out-4',lesson:'candidate discarded',status:'discarded'},
     {outcomeEventId:'out-6',lesson:'candidate Keep recovery',status:'reviewing-kept'},
     {outcomeEventId:'out-5',lesson:'legacy status',status:'other'},
@@ -55,6 +55,7 @@ const api=sandbox.module.exports;
   A.ok(host.text.includes('DISCARDED'),'discarded lesson candidates remain visible in the retrospective');
   A.ok(host.text.includes('REVOKED · REMOVED FROM ACTIVE MEMORY'),'revoked project references remain visible as inactive audit history');
   A.ok(host.text.includes('MEASURED CORRECTION · UNVERIFIED') && host.text.includes('corrections: 3 → 1 count') && host.text.includes('IMPROVED'),'before/after reuse evidence is visible without claiming verification');
+  A.ok(host.text.includes('CONTRACT RENEWALS') && host.text.includes('v1 → v2') && host.text.includes('EVIDENCE-PASSED'),'renewal version chain and unverified evidence result are visible');
   A.ok(host.text.includes('REVIEW STATUS UNKNOWN'),'legacy/unsupported proposal status is not assumed kept');
   A.ok(!host.text.includes('Reading durable decision history…'),'successful first page removes the loading placeholder');
   A.ok(!status.textContent.includes('Reading newest'),'successful first page clears the loading status');
@@ -89,6 +90,7 @@ const api=sandbox.module.exports;
   A.ok(station.includes('STRUCTURED LESSON · UNVERIFIED') && station.includes('Positive examples:') && station.includes('Negative examples:'),'pending lesson review renders structured metadata and both examples as text');
   A.ok(station.includes("keep.textContent = 'Keep project reference only'") && station.includes("p.promotion.eligible === true") && station.includes("promotion:'project-reference-only'"),'project reference Keep requires eligible host projection and sends explicit promotion intent');
   A.ok(station.includes("rec.projectReference === true") && station.includes("Confirm revoke & remove") && station.includes('memoryProjectReferenceRevoke'),'active project references expose only an explicit two-step revoke action');
+  A.ok(station.includes('Confirm activate ') && station.includes('memoryProjectReferenceRenew') && station.includes('rec.renewalPending.eligible === true'),'active project references require an explicit two-step renewal acceptance');
   A.eq(stationMirror,station,'website station UI mirror includes the structured lesson review boundary');
   A.ok(index.includes('app/memorydecisions.js'),'the decision history component loads before the Memory Core owner');
   A.report('memory-decisions-ui.test');

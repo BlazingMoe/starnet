@@ -1135,6 +1135,17 @@ function boot(port, workspaces, attemptsLeft, extraEnv) {
     A.eq(promotionStore.get('notebook:promotion').length,1,'HTTP promotion creates at most one record');A.eq(promotionStore.get('decisions:promotion')[0].lessonProposals[0].status,'kept','HTTP promotion commits review receipt');
     const projectedPromotion=await j('GET','/api/memory/records?agent=promotion');
     A.eq(projectedPromotion.body.records[0].projectReference,true,'Memory Core marks project reference without exposing its binding');
+    const renewalTool=require('../sidecar/tools/builtin/lesson-promotion.js').makeRenewalTool({store:promotionStore,clock:{now:()=>Date.now()},redact:s=>s});
+    const renewalContract={...promotionContract,version:'v2',recheckAt:'2100-01-01',expiresAt:'2100-02-01'};
+    await renewalTool.run({renewalId:'http-renew-v2',memoryId:promoted.body.id,contract:renewalContract,validation:{validationId:'http-renew-validation',uncertainty:'synthetic fresh cases',cases:[{id:'renew-p',category:'positive',sourceRefs:['held:renew-p'],expected:'match',observed:'match',result:'pass'},{id:'renew-n',category:'negative',sourceRefs:['held:renew-n'],expected:'reject',observed:'reject',result:'pass'}]}},promotionCtx);
+    const renewalProjected=await j('GET','/api/memory/records?agent=promotion');
+    A.eq(renewalProjected.body.records[0].renewalPending.contractVersion,'v2','Memory Core exposes the bounded pending renewal without its project binding');
+    const renewNoTok=await fetch(B+'/api/memory/project-reference/renew',{method:'POST',headers:{'Content-Type':'application/json',Origin:B},body:JSON.stringify({agentId:'promotion',id:promoted.body.id,renewalId:'http-renew-v2'})});
+    A.eq(renewNoTok.status,403,'project-reference renewal requires authenticated local mutation');
+    const renewed=await j('POST','/api/memory/project-reference/renew',{agentId:'promotion',id:promoted.body.id,renewalId:'http-renew-v2'});
+    A.eq(renewed.status,200,'explicit operator contract renewal succeeds');A.eq(renewed.body.contractVersion,'v2','HTTP renewal reports the activated version');
+    const renewedProjection=await j('GET','/api/memory/records?agent=promotion');A.eq(renewedProjection.body.records[0].contractVersion,'v2','Memory Core reads back the activated contract version');A.ok(!renewedProjection.body.records[0].renewalPending,'accepted request is no longer pending');
+    const renewRetry=await j('POST','/api/memory/project-reference/renew',{agentId:'promotion',id:promoted.body.id,renewalId:'http-renew-v2'});A.eq(renewRetry.body.duplicate,true,'lost renewal response reconciles through HTTP');
     A.eq((await j('POST','/api/memory/pin',{agentId:'promotion',id:promoted.body.id,pinned:true})).status,400,'generic pin cannot mutate project reference');
     A.eq((await j('POST','/api/memory/edit',{agentId:'promotion',id:promoted.body.id,content:'changed'})).status,400,'generic edit cannot mutate project reference');
     A.eq((await j('POST','/api/memory/forget',{agentId:'promotion',id:promoted.body.id})).status,400,'generic forget cannot bypass audited project-reference revoke');

@@ -10,7 +10,7 @@ const rows = [
       {outcomeEventId:'o1',lesson:'candidate pending',status:'pending',createdAt:31,sourceProjectBinding:{schemaVersion:1,type:'project',id:'opaque_project_id_0009',authority:'trusted'},contract:{schemaVersion:1,scope:{type:'customer',id:'cust-1'},sourceRefs:['sk-secret:source'],uncertainty:'single run',confidence:null,version:'v1',recheckAt:'2026-11-01',expiresAt:'2026-12-01',positiveExamples:['<script>'],negativeExamples:['other customer'],trust:'trusted',authority:'execute'}} ,
       {outcomeEventId:'o2',lesson:'candidate staged',status:'staging',createdAt:32},
       {outcomeEventId:'o6',lesson:'candidate Keep recovery in progress',status:'reviewing-kept',createdAt:36},
-      {outcomeEventId:'o3',lesson:'candidate kept',status:'kept',createdAt:33,effects:[{schemaVersion:1,effectId:'fx-1',memoryId:'project_lesson_00000000000000000000000000000000',projectId:'opaque_project_id_0009',applicationDecisionId:'decision_apply',beforeEventId:'before',afterEventId:'after',metric:'sk-secret corrections',unit:'count',before:3,after:1,desiredDirection:'decrease',delta:-2,improved:true,evidenceRefs:['sk-secret:before','after:1'],recordedAt:40,promotionDigest:'a'.repeat(64),trust:'trusted',authority:'execute'}]},
+      {outcomeEventId:'o3',lesson:'candidate kept',status:'kept',createdAt:33,effects:[{schemaVersion:1,effectId:'fx-1',memoryId:'project_lesson_00000000000000000000000000000000',projectId:'opaque_project_id_0009',applicationDecisionId:'decision_apply',beforeEventId:'before',afterEventId:'after',metric:'sk-secret corrections',unit:'count',before:3,after:1,desiredDirection:'decrease',delta:-2,improved:true,evidenceRefs:['sk-secret:before','after:1'],recordedAt:40,promotionDigest:'a'.repeat(64),trust:'trusted',authority:'execute'}],renewals:[{renewalId:'renew-1',priorVersion:'v1',contract:{version:'v2',recheckAt:'2099-01-01',expiresAt:'2099-02-01'},validation:{validationId:'sk-secret-renew',result:'evidence-passed'},status:'pending',requestedAt:41,trust:'trusted',authority:'execute'}]},
       {outcomeEventId:'o4',lesson:'candidate discarded',status:'discarded',createdAt:34},
       {outcomeEventId:'o5',lesson:'legacy unknown state',status:'auto-approved',createdAt:35}
     ], arbitrarySecretField:'MUST NOT LEAK'
@@ -48,6 +48,9 @@ A.eq(keptEffect.metric,'[redacted] corrections','measured reuse metric is redact
 A.eq(keptEffect.before,3,'before measurement is visible');A.eq(keptEffect.after,1,'after measurement is visible');A.eq(keptEffect.improved,true,'desired-direction result is visible');
 A.eq(keptEffect.trust,'unverified','stored effect cannot promote trust');A.eq(keptEffect.authority,'reference-only','stored effect cannot grant authority');
 A.ok(!JSON.stringify(keptEffect).includes('execute'),'effect projection drops stored authority claims');
+const keptRenewal=result.body.records[0].lessonProposals.find(p=>p.status==='kept').lessonRenewals[0];
+A.eq(keptRenewal.validationId,'[redacted]-renew','renewal validation identity is redacted');A.eq(keptRenewal.status,'pending','renewal review state remains visible');
+A.eq(keptRenewal.trust,'unverified','renewal projection cannot promote trust');A.eq(keptRenewal.authority,'reference-only','renewal projection cannot grant authority');A.ok(!JSON.stringify(keptRenewal).includes('execute'),'renewal projection drops stored authority claims');
 A.ok(!JSON.stringify(result.body).includes('MUST NOT LEAK'),'projection drops arbitrary/unrecognized stored properties');
 A.ok(!JSON.stringify(result.body).includes('sk-secret'),'redaction covers every text field returned');
 

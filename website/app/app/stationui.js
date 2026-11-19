@@ -2198,6 +2198,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const used = mkEl('span', 'mc-used');
     used.textContent = rec.useCount ? ('used ' + rec.useCount + '×') : 'never recalled';
     meta.appendChild(used);
+    if (rec.projectReference === true) {
+      const contract = mkEl('span', 'mc-prov');
+      contract.textContent = 'contract ' + (rec.contractVersion || 'unknown') + ' · ' + (rec.contractFreshness || 'unknown') + ' · recheck ' + (rec.contractRecheckAt || 'unknown') + ' · expires ' + (rec.contractExpiresAt || 'unknown');
+      meta.appendChild(contract);
+    }
     const pct = Math.max(0, Math.min(100, Math.round((rec.trust || 0) * 100)));
     const trust = mkEl('span', 'mc-trust', 'trust <span class="mc-trk"><span class="mc-fill" style="width:' + pct + '%;"></span></span>');   // numeric pct only — safe
     meta.appendChild(trust);
@@ -2208,6 +2213,16 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let busy = false;   // in-flight guard: a fast double-click must not fire two POSTs (a success reloads the card away)
     const mk = (label, cls, fn) => { const b = mkEl('button', 'consent-btn' + (cls ? ' ' + cls : '')); b.textContent = label; b.onclick = fn; btns.appendChild(b); return b; };
     if (rec.projectReference === true) {
+      if (rec.renewalPending && rec.renewalPending.eligible === true) {
+        let renewalArmed = false;
+        const renew = mk('Review renewal ' + rec.renewalPending.contractVersion, '', async () => {
+          if (!renewalArmed) { renewalArmed = true; renew.textContent = 'Confirm activate ' + rec.renewalPending.contractVersion; setTimeout(() => { if (renewalArmed) { renewalArmed = false; renew.textContent = 'Review renewal ' + rec.renewalPending.contractVersion; } }, 4000); return; }
+          if (busy) return; busy = true;
+          const r = await Harness.memoryProjectReferenceRenew({ agentId:a.id, id:rec.id, renewalId:rec.renewalPending.renewalId });
+          if (r && r.ok) { sfx('click'); reload(); if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id); } else busy = false;
+        });
+        renew.title = 'Activate this passed, unverified reference-only contract version; no permissions or broader scope are added';
+      }
       let armed = false;
       const revoke = mk('Revoke reference', 'deny', async () => {
         if (!armed) { armed = true; revoke.textContent = 'Confirm revoke & remove'; setTimeout(() => { if (armed) { armed = false; revoke.textContent = 'Revoke reference'; } }, 4000); return; }

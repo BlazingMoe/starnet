@@ -7,6 +7,8 @@ const LABELS={trust:'unverified',authority:'reference-only'};
 const PROMOTION='project-reference-only';
 const MAX_EFFECTS=12;
 const MAX_EFFECT_BYTES=32768;
+const MAX_RENEWALS=8;
+const MAX_RENEWAL_BYTES=32768;
 function rowsFor(store,key) {
   const r=store.readKey(key);
   if(r.status==='absent' && !r.quarantined)return [];
@@ -54,10 +56,13 @@ function promotedSource(rows,agentId,memoryId) {
   if(!Number.isFinite(receipt.promotedAt) || typeof receipt.runId!=='string' || !receipt.runId || receipt.runId.length>200 || typeof receipt.proposalId!=='string' || !receipt.proposalId || receipt.proposalId.length>200)throw new Error('malformed promotion receipt identity');
   const expected={...identity,memoryId:id,runId:receipt.runId,proposalId:receipt.proposalId,promotedAt:receipt.promotedAt,...LABELS};
   if(stable(receipt)!==stable(expected) || receipt.promotedAt<validation[0].recordedAt || freshness(c,receipt.promotedAt)!=='current' || p.memoryId!==id || p.reviewedAt!==receipt.promotedAt)throw new Error('promotion receipt does not match source history');
-  return {...source,identity,record,receipt};
+  const base={...source,identity,record,receipt},renewalState=verifyRenewals(base),active=renewalState.active;
+  const activeRecord=active.renewalId?{...record,lessonContract:active.contract,lessonPromotion:{...identity,contractVersion:active.contract.version,renewalId:active.renewalId}}:record;
+  return {...base,baseContract:source.contract,contract:active.contract,record:activeRecord,renewalState,activeAt:active.activeAt,activationDigest:active.activationDigest};
 }
 function revocationFor(source,now) {
-  return {schemaVersion:1,memoryId:source.record.id,promotionDigest:crypto.createHash('sha256').update(stable(source.receipt)).digest('hex'),revokedAt:now,reason:'operator-project-reference-revoke'};
+  const renewed=source.renewalState&&source.renewalState.active&&source.renewalState.active.renewalId;
+  return {schemaVersion:1,memoryId:source.record.id,promotionDigest:digest(source.receipt),...(renewed?{activeContractVersion:source.contract.version,activationDigest:source.activationDigest}:{}),revokedAt:now,reason:'operator-project-reference-revoke'};
 }
 function checkRevocation(source,receipt) {
   if(!receipt || !Number.isFinite(receipt.revokedAt) || receipt.revokedAt<source.receipt.promotedAt || stable(receipt)!==stable(revocationFor(source,receipt.revokedAt)))throw new Error('revocation receipt does not match promotion');
@@ -74,6 +79,70 @@ function projectSnapshot(ctx) {
   if(!s || s.schemaVersion!==1 || s.type!=='project' || typeof s.id!=='string' || !/^[A-Za-z0-9_-]{16,120}$/.test(s.id))throw new Error('current project context required');
   return s;
 }
+function digest(value) {return crypto.createHash('sha256').update(stable(value)).digest('hex');}
+function exactKeys(value,keys,name) {
+  if(!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(k=>!keys.includes(k)) || keys.some(k=>!Object.prototype.hasOwnProperty.call(value,k)))throw new Error(name+' has missing or unsupported fields');
+}
+function renewalEvidence(value,redact) {
+  if(!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(k=>!['validationId','uncertainty','cases','result'].includes(k)) || !['validationId','uncertainty','cases'].every(k=>Object.prototype.hasOwnProperty.call(value,k)))throw new Error('renewal validation has missing or unsupported fields');
+  const clean=v=>{if(typeof v!=='string')throw new Error('renewal evidence must be text');return shortText(String(redact(v)),'renewal evidence',1000);},validationId=typeof value.validationId==='string'?shortText(String(redact(value.validationId)),'validationId',120):'',uncertainty=clean(value.uncertainty);
+  if(!/^[A-Za-z0-9._:-]{1,120}$/.test(validationId) || !Array.isArray(value.cases) || value.cases.length<2 || value.cases.length>12)throw new Error('renewal requires a bounded validation identity and 2-12 cases');
+  const ids=new Set(),categories=new Set(),refs=new Set();
+  const cases=value.cases.map(c=>{
+    exactKeys(c,['id','category','sourceRefs','expected','observed','result'],'renewal case');
+    if(typeof c.id!=='string')throw new Error('renewal case id must be text');
+    const id=shortText(String(redact(c.id)),'renewal case id',120),category=String(c.category||''),result=String(c.result||'');
+    if(ids.has(id) || !['positive','negative'].includes(category) || !['pass','fail'].includes(result) || !Array.isArray(c.sourceRefs) || !c.sourceRefs.length || c.sourceRefs.length>12)throw new Error('renewal validation cases are malformed');
+    ids.add(id);categories.add(category);
+    const sourceRefs=c.sourceRefs.map(x=>clean(x));
+    for(const ref of sourceRefs) {if(refs.has(ref))throw new Error('renewal held-out evidence references must be unique');refs.add(ref);}
+    return {id,category,sourceRefs,expected:clean(c.expected),observed:clean(c.observed),result};
+  });
+  if(categories.size!==2)throw new Error('renewal requires positive and negative held-out cases');
+  const result=cases.every(c=>c.result==='pass')?'evidence-passed':'evidence-failed';
+  if(Object.prototype.hasOwnProperty.call(value,'result') && value.result!==result)throw new Error('renewal validation result does not match cases');
+  return {validationId,uncertainty,cases,result};
+}
+function renewalRequest(source,input,requestedAt,prior) {
+  const base={schemaVersion:1,renewalId:input.renewalId,memoryId:source.record.id,priorVersion:prior.contract.version,contract:input.contract,validation:input.validation,requestedAt,priorActivationDigest:prior.activationDigest,...LABELS};
+  return {...base,requestDigest:digest(base),status:input.validation.result==='evidence-passed'?'pending':'evidence-failed'};
+}
+function renewalReceipt(entry,acceptedAt) {
+  return {schemaVersion:1,renewalId:entry.renewalId,memoryId:entry.memoryId,priorActivationDigest:entry.priorActivationDigest,requestDigest:entry.requestDigest,contractVersion:entry.contract.version,acceptedAt,...LABELS};
+}
+function verifyRenewals(source) {
+  const renewals=source.p.renewals;
+  const baseState={contract:source.contract,activeAt:source.receipt.promotedAt,activationDigest:digest(source.receipt),renewalId:null};
+  const history=[baseState];
+  if(renewals===undefined)return {renewals:[],history,active:baseState,pending:null};
+  if(!Array.isArray(renewals) || renewals.length>MAX_RENEWALS || Buffer.byteLength(stable(renewals),'utf8')>MAX_RENEWAL_BYTES)throw new Error('malformed renewal history');
+  const ids=new Set(),versions=new Set([source.contract.version]),validationIds=new Set(),usedRefs=new Set([...source.contract.sourceRefs]);
+  for(const audit of (Array.isArray(source.p.validations)?source.p.validations:[])){if(audit&&audit.evidence&&typeof audit.evidence.validationId==='string')validationIds.add(audit.evidence.validationId);for(const c of (audit&&audit.evidence&&Array.isArray(audit.evidence.cases)?audit.evidence.cases:[]))for(const ref of (Array.isArray(c.sourceRefs)?c.sourceRefs:[]))usedRefs.add(ref);}
+  let active=baseState,pending=null,last=-1;
+  for(const entry of renewals) {
+    if(!entry || ids.has(entry.renewalId) || !Number.isFinite(entry.requestedAt) || entry.requestedAt<active.activeAt || entry.requestedAt<last)throw new Error('malformed renewal identity or chronology');
+    const {trust,authority,...rawContract}=entry.contract||{},contract=cleanLessonContract(rawContract,s=>s);
+    if(stable(contract)!==stable(entry.contract) || contract.scope.type!=='project' || stable(contract.scope)!==stable(source.contract.scope) || stable(contract.sourceRefs)!==stable(source.contract.sourceRefs) || versions.has(contract.version) || contract.recheckAt<=active.contract.recheckAt || contract.expiresAt<=active.contract.expiresAt || freshness(contract,entry.requestedAt)!=='current')throw new Error('renewal contract must advance the same project reference');
+    const validation=renewalEvidence(entry.validation,s=>s);
+    if(validationIds.has(validation.validationId))throw new Error('renewal validation identity must be unique');
+    for(const c of validation.cases)for(const ref of c.sourceRefs){if(usedRefs.has(ref))throw new Error('renewal held-out evidence must be fresh');usedRefs.add(ref);}
+    const expected=renewalRequest(source,{renewalId:entry.renewalId,contract,validation},entry.requestedAt,active);
+    if(entry.status==='evidence-failed') {
+      if(validation.result!=='evidence-failed' || stable(entry)!==stable(expected))throw new Error('malformed failed renewal audit');
+    } else if(entry.status==='pending') {
+      if(validation.result!=='evidence-passed' || pending || stable(entry)!==stable(expected))throw new Error('malformed pending renewal');
+      pending=entry;
+    } else if(entry.status==='accepted') {
+      if(validation.result!=='evidence-passed' || !entry.acceptanceReceipt || !Number.isFinite(entry.acceptedAt) || entry.acceptedAt<entry.requestedAt || freshness(contract,entry.acceptedAt)!=='current')throw new Error('malformed accepted renewal');
+      const base={...expected,status:'accepted',acceptedAt:entry.acceptedAt,acceptanceReceipt:renewalReceipt(expected,entry.acceptedAt)};
+      if(stable(entry)!==stable(base))throw new Error('renewal acceptance receipt does not match request');
+      active={contract,activeAt:entry.acceptedAt,activationDigest:digest(entry.acceptanceReceipt),renewalId:entry.renewalId};history.push(active);
+    } else throw new Error('unsupported renewal state');
+    ids.add(entry.renewalId);versions.add(contract.version);validationIds.add(validation.validationId);last=entry.requestedAt;
+    if(pending && entry!==pending)throw new Error('pending renewal must be the latest entry');
+  }
+  return {renewals,history,active,pending};
+}
 function decisionAndEvents(rows,id,beforeId,afterId,projectId) {
   const ds=rows.filter(d=>d && d.id===id);if(ds.length!==1)throw new Error('application decision missing or ambiguous');
   const d=ds[0],binding=d.sourceProjectBinding;
@@ -86,9 +155,10 @@ function decisionAndEvents(rows,id,beforeId,afterId,projectId) {
   if(!evidence.length || evidence.length>24 || evidence.some(x=>typeof x!=='string' || !x || x.length>1000))throw new Error('measured effect requires bounded before/after evidence references');
   return {d,b,a,evidence};
 }
-function effectFor(source,app,input,recordedAt) {
+function effectFor(source,app,input,recordedAt,contractState,bindContract=true) {
   const delta=input.after-input.before,improved=input.desiredDirection==='increase'?delta>0:delta<0;
-  return {schemaVersion:1,effectId:input.effectId,memoryId:source.record.id,projectId:source.identity.projectId,applicationDecisionId:app.d.id,beforeEventId:app.b.eventId,afterEventId:app.a.eventId,metric:input.metric,unit:input.unit,before:input.before,after:input.after,desiredDirection:input.desiredDirection,delta,improved,evidenceRefs:app.evidence,recordedAt,promotionDigest:crypto.createHash('sha256').update(stable(source.receipt)).digest('hex'),...LABELS};
+  const state=contractState||source.renewalState.active;
+  return {schemaVersion:1,effectId:input.effectId,memoryId:source.record.id,projectId:source.identity.projectId,applicationDecisionId:app.d.id,beforeEventId:app.b.eventId,afterEventId:app.a.eventId,metric:input.metric,unit:input.unit,before:input.before,after:input.after,desiredDirection:input.desiredDirection,delta,improved,evidenceRefs:app.evidence,recordedAt,promotionDigest:digest(source.receipt),...(bindContract?{contractVersion:state.contract.version,contractDigest:digest(state.contract),activationDigest:state.activationDigest}:{}),...LABELS};
 }
 function verifyEffects(rows,source) {
   const effects=source.p.effects;
@@ -99,8 +169,10 @@ function verifyEffects(rows,source) {
     if(!e || ids.has(e.effectId) || !Number.isFinite(e.recordedAt) || e.recordedAt<source.receipt.promotedAt)throw new Error('malformed lesson effect identity or chronology');
     const input={effectId:shortText(e.effectId,'stored effectId',120),metric:shortText(e.metric,'stored metric',80),unit:shortText(e.unit,'stored unit',40),before:number(e.before,'stored before'),after:number(e.after,'stored after'),desiredDirection:e.desiredDirection};
     if(!['increase','decrease'].includes(input.desiredDirection))throw new Error('malformed stored effect direction');
-    const app=decisionAndEvents(rows,e.applicationDecisionId,e.beforeEventId,e.afterEventId,source.identity.projectId),expected=effectFor(source,app,input,e.recordedAt);
-    if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<source.receipt.promotedAt || app.b.createdAt<source.receipt.promotedAt || freshness(source.contract,app.a.createdAt)!=='current')throw new Error('stored lesson effect application is outside the active contract');
+    const app=decisionAndEvents(rows,e.applicationDecisionId,e.beforeEventId,e.afterEventId,source.identity.projectId),bound=typeof e.contractVersion==='string',states=source.renewalState.history.filter(x=>x.contract.version===(bound?e.contractVersion:source.baseContract.version));
+    if(states.length!==1)throw new Error('stored lesson effect contract version is unavailable');
+    const state=states[0],expected=effectFor(source,app,input,e.recordedAt,state,bound);
+    if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<state.activeAt || app.b.createdAt<state.activeAt || freshness(state.contract,app.a.createdAt)!=='current')throw new Error('stored lesson effect application is outside its active contract');
     if(stable(e)!==stable(expected))throw new Error('lesson effect no longer matches authoritative history');
     ids.add(e.effectId);
   }
@@ -124,15 +196,105 @@ function makeEffectTool({store,clock,redact}) {
         if(active.length!==1 || !sameRecord(active[0],source.record))throw new Error('active project reference notebook row unavailable or edited');
         if(source.d.id===applicationDecisionId)throw new Error('effect must use a later application decision');
         const history=verifyEffects(rows,source),app=decisionAndEvents(rows,applicationDecisionId,beforeEventId,afterEventId,source.identity.projectId),prior=history.find(e=>e.effectId===input.effectId);
-        if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<source.receipt.promotedAt || app.b.createdAt<source.receipt.promotedAt || freshness(source.contract,app.a.createdAt)!=='current')throw new Error('application did not occur while the project reference contract was current');
-        if(prior) {if(stable(prior)!==stable(effectFor(source,app,input,prior.recordedAt)))throw new Error('effectId already belongs to a different measurement');saved=prior;duplicate=true;return undefined;}
+        const active=source.renewalState.active;
+        if(prior) {const bound=typeof prior.contractVersion==='string',state=bound?source.renewalState.history.find(x=>x.contract.version===prior.contractVersion):source.renewalState.history[0];if(!state || stable(prior)!==stable(effectFor(source,app,input,prior.recordedAt,state,bound)))throw new Error('effectId already belongs to a different measurement');saved=prior;duplicate=true;return undefined;}
+        if(!Number.isFinite(app.d.createdAt) || app.d.createdAt<active.activeAt || app.b.createdAt<active.activeAt || freshness(active.contract,app.a.createdAt)!=='current')throw new Error('application did not occur while the project reference contract was current');
         if(history.length>=MAX_EFFECTS)throw new Error('lesson effect history full');
         const now=clock.now();if(!Number.isFinite(now) || now<app.a.createdAt || now<source.receipt.promotedAt)throw new Error('effect clock is stale');
-        saved=effectFor(source,app,input,now);const effects=[...history,saved];if(Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('lesson effect history byte limit reached');const next={...source.p,effects};
+        saved=effectFor(source,app,input,now,active,true);const effects=[...history,saved];if(Buffer.byteLength(stable(effects),'utf8')>MAX_EFFECT_BYTES)throw new Error('lesson effect history byte limit reached');const next={...source.p,effects};
         return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
       });
       return {content:JSON.stringify({effectId:saved.effectId,memoryId:saved.memoryId,delta:saved.delta,improved:saved.improved,duplicate,...LABELS}),summary:'unverified project lesson effect recorded'};
     }};
+}
+function sameRenewalRequest(source,entry,input) {
+  const prior=source.renewalState.history.find(x=>x.contract.version===entry.priorVersion);
+  if(!prior)return false;
+  const expected=renewalRequest(source,input,entry.requestedAt,prior),keys=Object.keys(expected).filter(k=>k!=='status');
+  return keys.every(k=>stable(entry[k])===stable(expected[k]));
+}
+function makeRenewalTool({store,clock,redact}) {
+  return {name:'decision.lesson_renew',capability:'memory',scope:'write',requiresConsent:false,
+    description:'Stage a new version of one active project-reference contract with fresh positive and negative held-out evidence. This is an unverified renewal request only; activation requires an explicit operator action in Memory Core.',
+    schema:{type:'object',additionalProperties:false,required:['renewalId','memoryId','contract','validation'],properties:{renewalId:{type:'string',maxLength:120},memoryId:{type:'string'},contract:{type:'object'},validation:{type:'object',additionalProperties:false,required:['validationId','uncertainty','cases'],properties:{validationId:{type:'string',maxLength:120},uncertainty:{type:'string',maxLength:1000},cases:{type:'array',minItems:2,maxItems:12,items:{type:'object',additionalProperties:false,required:['id','category','sourceRefs','expected','observed','result'],properties:{id:{type:'string',maxLength:120},category:{enum:['positive','negative']},sourceRefs:{type:'array',minItems:1,maxItems:12,items:{type:'string',maxLength:1000}},expected:{type:'string',maxLength:1000},observed:{type:'string',maxLength:1000},result:{enum:['pass','fail']}}}}}}}},
+    run:async(args,ctx)=>{
+      if(!args || typeof args.renewalId!=='string' || typeof args.memoryId!=='string')throw new Error('renewalId and memoryId must be strings');
+      const agentId=ctx&&ctx.agentId||'agent',snapshot=projectSnapshot(ctx),renewalId=shortText(String(redact(args.renewalId)),'renewalId',120),memoryId=shortText(String(redact(args.memoryId)),'memoryId',80);
+      if(!/^[A-Za-z0-9_-]{1,40}$/.test(agentId) || !/^[A-Za-z0-9._:-]{1,120}$/.test(renewalId) || !/^project_lesson_[a-f0-9]{32}$/.test(memoryId))throw new Error('bounded renewal, agent and project-reference identities required');
+      const contract=cleanLessonContract(args.contract,redact),validation=renewalEvidence(args.validation,redact),input={renewalId,contract,validation};
+      if(contract.scope.type!=='project' || contract.scope.id!==snapshot.id)throw new Error('renewal contract must match the live project');
+      let saved,duplicate=false;
+      await store.update('decisions:'+agentId,rows=>{
+        const source=promotedSource(rows,agentId,memoryId);
+        if(source.p.status!=='kept' || source.identity.projectId!==snapshot.id)throw new Error('active project reference in current project required');
+        const activeRows=rowsFor(store,'notebook:'+agentId).filter(r=>r&&r.id===memoryId);
+        if(activeRows.length!==1 || !sameRecord(activeRows[0],source.record))throw new Error('active project reference notebook row unavailable or edited');
+        const prior=source.renewalState.renewals.find(x=>x.renewalId===renewalId);
+        if(prior) {
+          if(!sameRenewalRequest(source,prior,input))throw new Error('renewalId already belongs to a different request');
+          saved=prior;duplicate=true;return undefined;
+        }
+        if(source.renewalState.pending)throw new Error('an operator renewal review is already pending');
+        if(source.renewalState.renewals.length>=MAX_RENEWALS)throw new Error('renewal history full');
+        const now=clock.now();if(!Number.isFinite(now) || now<source.activeAt)throw new Error('renewal clock is stale');
+        saved=renewalRequest(source,input,now,source.renewalState.active);
+        const renewals=[...source.renewalState.renewals,saved],next={...source.p,renewals};
+        verifyRenewals({...source,contract:source.baseContract,p:next});
+        if(Buffer.byteLength(stable(renewals),'utf8')>MAX_RENEWAL_BYTES)throw new Error('renewal history byte limit reached');
+        return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
+      });
+      return {content:JSON.stringify({renewalId:saved.renewalId,memoryId:saved.memoryId,status:saved.status,contractVersion:saved.contract.version,duplicate,...LABELS}),summary:saved.status==='pending'?'project lesson renewal awaiting operator review':'failed renewal evidence retained'};
+    }};
+}
+function renewedRecord(source,active) {
+  return {...source.record,lessonContract:active.contract,lessonPromotion:{...source.identity,contractVersion:active.contract.version,renewalId:active.renewalId}};
+}
+async function renew({store,agentId,memoryId,renewalId,clock}) {
+  if(typeof agentId!=='string' || !/^[A-Za-z0-9_-]{1,40}$/.test(agentId) || typeof memoryId!=='string' || !/^project_lesson_[a-f0-9]{32}$/.test(memoryId) || typeof renewalId!=='string' || !/^[A-Za-z0-9._:-]{1,120}$/.test(renewalId))throw new Error('project renewal identity required');
+  readDecisionRows(store,agentId);rowsFor(store,'notebook:'+agentId);
+  let saved,duplicate=false;
+  await store.update('decisions:'+agentId,async rows=>{
+    const source=promotedSource(rows,agentId,memoryId),entry=source.renewalState.renewals.find(x=>x.renewalId===renewalId);
+    if(!entry)throw new Error('renewal request unavailable');
+    if(entry.status==='accepted') {
+      const matches=rowsFor(store,'notebook:'+agentId).filter(r=>r&&r.id===memoryId);
+      if(matches.length!==1 || !sameRecord(matches[0],source.record))throw new Error('renewed project reference notebook row unavailable or edited');
+      saved=entry.acceptanceReceipt;duplicate=true;return undefined;
+    }
+    if(entry.status!=='pending' || entry.validation.result!=='evidence-passed')throw new Error('renewal requires pending passed evidence');
+    const now=clock.now();if(!Number.isFinite(now) || now<entry.requestedAt || freshness(entry.contract,now)!=='current')throw new Error('renewal request is stale or expired');
+    const accepted={...entry,status:'accepted',acceptedAt:now,acceptanceReceipt:renewalReceipt(entry,now)};
+    const renewals=source.renewalState.renewals.map(x=>x===entry?accepted:x),next={...source.p,renewals};
+    const state=verifyRenewals({...source,contract:source.baseContract,p:next}),nextRecord=renewedRecord(source,state.active);
+    await store.update('notebook:'+agentId,stored=>{
+      if(stored!==undefined && !Array.isArray(stored))throw new Error('malformed notebook storage');
+      const list=stored||[],matches=list.filter(r=>r&&r.id===memoryId);
+      if(matches.length!==1)throw new Error('active project reference notebook row missing or ambiguous');
+      if(sameRecord(matches[0],nextRecord))return undefined;
+      if(!sameRecord(matches[0],source.record))throw new Error('project reference notebook row is conflicting or edited');
+      const staged={...nextRecord,...(Object.prototype.hasOwnProperty.call(matches[0],'lastUsedAt')?{lastUsedAt:matches[0].lastUsedAt}:{}),...(Object.prototype.hasOwnProperty.call(matches[0],'useCount')?{useCount:matches[0].useCount}:{})};
+      return list.map(r=>r===matches[0]?staged:r);
+    });
+    saved=accepted.acceptanceReceipt;
+    return rows.map(d=>d===source.d?{...d,lessonProposals:d.lessonProposals.map(p=>p===source.p?next:p)}:d);
+  });
+  return {ok:true,id:memoryId,renewalId,contractVersion:saved.contractVersion,renewedAt:saved.acceptedAt,duplicate,...LABELS};
+}
+function projectReferenceState(store,agentId,record,now) {
+  try {
+    const source=promotedSource(readDecisionRows(store,agentId),agentId,record&&record.id);
+    const pending=source.renewalState.pending;
+    const staged=pending&&renewedRecord(source,{contract:pending.contract,renewalId:pending.renewalId});
+    if(source.p.status!=='kept' || (!sameRecord(record,source.record) && !(staged&&sameRecord(record,staged))))throw new Error('active row mismatch');
+    return {contractVersion:source.contract.version,contractRecheckAt:source.contract.recheckAt,contractExpiresAt:source.contract.expiresAt,contractFreshness:freshness(source.contract,now),...(pending?{renewalPending:{renewalId:pending.renewalId,contractVersion:pending.contract.version,recheckAt:pending.contract.recheckAt,expiresAt:pending.contract.expiresAt,requestedAt:pending.requestedAt,eligible:pending.validation.result==='evidence-passed',trust:'unverified',authority:'reference-only'}}:{})};
+  }catch(_){return {contractFreshness:'unavailable'};}
+}
+function projectRenewals(p,redact) {
+  if(!p || p.renewals===undefined)return {};
+  if(!Array.isArray(p.renewals))return {lessonRenewalsUnavailable:true};
+  const clip=(v,n)=>typeof v==='string'?String(redact(v)).slice(0,n):'';
+  const rows=p.renewals.slice(-MAX_RENEWALS).reverse().map(r=>({renewalId:clip(r&&r.renewalId,120),priorVersion:clip(r&&r.priorVersion,80),contractVersion:clip(r&&r.contract&&r.contract.version,80),recheckAt:clip(r&&r.contract&&r.contract.recheckAt,10),expiresAt:clip(r&&r.contract&&r.contract.expiresAt,10),validationId:clip(r&&r.validation&&r.validation.validationId,120),result:r&&r.validation&&['evidence-passed','evidence-failed'].includes(r.validation.result)?r.validation.result:'unknown',status:r&&['pending','accepted','evidence-failed'].includes(r.status)?r.status:'unknown',requestedAt:r&&Number.isFinite(r.requestedAt)?r.requestedAt:null,acceptedAt:r&&Number.isFinite(r.acceptedAt)?r.acceptedAt:null,trust:'unverified',authority:'reference-only'}));
+  return {lessonRenewalsTotal:p.renewals.length,lessonRenewalsTruncated:p.renewals.length>MAX_RENEWALS,lessonRenewals:rows};
 }
 function projectEffects(p,redact) {
   if(!p || p.effects===undefined)return {};
@@ -220,10 +382,9 @@ function canRead(store,record,ctx) {
   try {
     const snap=ctx && ctx.lessonScopeSnapshot,mark=record && record.lessonPromotion;
     if(!snap || snap.schemaVersion!==1 || snap.type!=='project' || !/^[A-Za-z0-9_-]{16,120}$/.test(snap.id) || !mark || mark.agentId!==ctx.agentId || mark.projectId!==snap.id)return false;
-    const s=candidate(readDecisionRows(store,ctx.agentId),ctx.agentId,mark.decisionId,mark.outcomeEventId,ctx.now);
-    checkReceipt(s,s.p.promotionReceipt);
+    const s=promotedSource(readDecisionRows(store,ctx.agentId),ctx.agentId,record.id);
     const stored=rowsFor(store,'notebook:'+ctx.agentId).filter(r=>r && r.id===s.record.id);
-    return s.identity.projectId===snap.id && stored.length===1 && sameRecord(record,s.record) && sameRecord(stored[0],s.record);
+    return s.identity.projectId===snap.id && freshness(s.contract,ctx.now)==='current' && stored.length===1 && sameRecord(record,s.record) && sameRecord(stored[0],s.record);
   }catch(_){return false;}
 }
-module.exports={PROMOTION,promote,revoke,canRead,pendingPromotion,retryProposal,isStructuredProposal,makeEffectTool,projectEffects,MAX_EFFECTS,MAX_EFFECT_BYTES};
+module.exports={PROMOTION,promote,revoke,renew,canRead,pendingPromotion,retryProposal,isStructuredProposal,makeEffectTool,makeRenewalTool,projectEffects,projectRenewals,projectReferenceState,MAX_EFFECTS,MAX_EFFECT_BYTES,MAX_RENEWALS,MAX_RENEWAL_BYTES};
