@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
-const { createXlsxTable, _internals } = require('../sidecar/tools/builtin/xlsx-table.js');
+const { createXlsxTable, createXlsxWorkbook, _internals } = require('../sidecar/tools/builtin/xlsx-table.js');
 const { makeDocExtract } = require('../sidecar/tools/builtin/docextract.js');
 const { makeRegistry } = require('../sidecar/tools/registry.js');
 const { resolveTools } = require('../sidecar/capability/resolve.js');
@@ -50,6 +50,24 @@ async function main() {
   A.eq(result.source.sha256.length, 64, 'source identity includes digest');
   A.eq(result.source.bytes, before.length, 'source identity includes byte size');
   A.eq(await fsp.readFile(path.join(agentRoot, 'source.xlsx')), before, 'source workbook bytes are unchanged');
+  const batchBytes=createXlsxWorkbook([
+    {sheetName:'Orders',columns:['region','amount'],rows:[['A',3],['A',6],['B',5],['B',1]]},
+    {sheetName:'Support',columns:['channel','minutes'],rows:[['email',20],['chat',15],['email',10]]}
+  ],1<<20);
+  await fsp.writeFile(path.join(agentRoot,'batch.xlsx'),batchBytes);
+  const batch=JSON.parse((await tools.xlsxTableOperationTool.run({path:'batch.xlsx',selections:[
+    {selectionId:'orders-by-region',sheetIndex:0,startRow:1,rowCount:5,startCol:1,colCount:2,operations:[{type:'group',by:'region',column:'amount',aggregate:'sum'},{type:'sort',column:'sum_amount',mode:'numeric',direction:'desc'}]},
+    {selectionId:'support-by-channel',sheetIndex:1,startRow:1,rowCount:4,startCol:1,colCount:2,operation:{type:'group',by:'channel',column:'minutes',aggregate:'sum'}}
+  ]},ctx)).content);
+  A.eq([batch.scope,batch.workbookScope,batch.selectedCells],['explicit_selected_xlsx_rectangles_only','not_whole_workbook',18],'batch result states exact selected-cell scope without whole-workbook claim');
+  A.eq(batch.selections.map(selection=>selection.selectionId),['orders-by-region','support-by-channel'],'batch preserves stable selection identities and supplied order');
+  A.eq(batch.selections[0].result.rows,[['A','9'],['B','6']],'first sheet uses its independent group-sort pipeline');
+  A.eq(batch.selections[1].result.rows,[['chat','15'],['email','30']],'second sheet uses its independent group pipeline');
+  A.eq(batch.selections.map(selection=>selection.result.provenance.selected.sheet),['Orders','Support'],'each batch result retains exact worksheet provenance');
+  A.eq(batch.source.sha256.length,64,'batch exposes one shared stable source digest');
+  A.eq(await fsp.readFile(path.join(agentRoot,'batch.xlsx')),batchBytes,'batch operation leaves multi-sheet source unchanged');
+  const batchDispatched=await registry.dispatch({name:'fs.xlsx_table_operation',args:{path:'batch.xlsx',selections:[{selectionId:'orders',sheetIndex:0,startRow:1,rowCount:5,startCol:1,colCount:2,operation:{type:'sort',column:'amount',mode:'numeric',direction:'desc'}}]}},{...capability(['computer','cabinet']),agentId:'agent'});
+  A.ok(batchDispatched.ok&&JSON.parse(batchDispatched.content).selections[0].result.rows[0][1]==='6','real registry schema and dispatch admit the bounded batch shape');
   const dispatched = await registry.dispatch({ name: 'fs.xlsx_table_operation', args: { ...rect, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } } }, { ...capability(['computer', 'cabinet']), agentId: 'agent' });
   A.ok(dispatched.ok && JSON.parse(dispatched.content).rows[0][1] === '1', 'real registry dispatch runs XLSX operation with resolved cabinet capability');
   const capDenied = await registry.dispatch({ name: 'fs.xlsx_table_operation', args: { ...rect, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } } }, { ...capability(['computer']), agentId: 'agent' });
@@ -73,6 +91,7 @@ async function main() {
   const archiveForSheet = sheet => _internals.zipStore(files.map(file => file.name === 'xl/worksheets/sheet1.xml' ? { ...file, data: sheet } : file));
   await fsp.writeFile(path.join(agentRoot, 'formula.xlsx'), _internals.zipStore(files));
   await fail(tools.xlsxTableOperationTool.run({ path: 'formula.xlsx', sheetIndex: 0, startRow: 1, rowCount: 2, startCol: 1, colCount: 2, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } }, ctx), /formula cells/, 'formula with cached result');
+  await fail(tools.xlsxTableOperationTool.run({path:'formula.xlsx',selections:[{selectionId:'formula-range',sheetIndex:0,startRow:1,rowCount:2,startCol:1,colCount:2,operation:{type:'sort',column:'amount',mode:'numeric',direction:'asc'}}]},ctx),/formula cells/,'formula in one batch selection refuses the whole call');
   const sparseSheet = '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
     '<row r="1"><c r="A1" t="inlineStr"><is><t>outside header</t></is></c><c r="D1"><v>900</v></c></row>' +
     '<row r="2"><c r="A2" t="inlineStr"><is><t>ignored</t></is></c><c r="B2" t="inlineStr"><is><t>region</t></is></c><c r="C2" t="inlineStr"><is><t>amount</t></is></c><c r="D2"><v>901</v></c></row>' +
@@ -107,6 +126,11 @@ async function main() {
   await fail(tools.xlsxTableOperationTool.run({ ...rect }, ctx), /exactly one/, 'missing operation');
   await fail(tools.xlsxTableOperationTool.run({ ...rect, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }, operations: [{ type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }] }, ctx), /exactly one/, 'both operation forms');
   await fail(tools.xlsxTableOperationTool.run({ ...rect, operations: Array(9).fill({ type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' }) }, ctx), /1 to 8/, 'pipeline above step limit');
+  const smallSelection={sheetIndex:0,startRow:1,rowCount:2,startCol:1,colCount:1,operation:{type:'sort',column:'region',mode:'text',direction:'asc'}};
+  await fail(tools.xlsxTableOperationTool.run({path:'source.xlsx',selections:[{selectionId:'same',...smallSelection},{selectionId:'same',...smallSelection}]},ctx),/selectionId must be unique/,'duplicate batch selection identity');
+  await fail(tools.xlsxTableOperationTool.run({path:'source.xlsx',selections:[{selectionId:'bad id',...smallSelection}]},ctx),/selectionId must use/,'invalid batch selection identity');
+  await fail(tools.xlsxTableOperationTool.run({path:'source.xlsx',sheetIndex:0,selections:[{selectionId:'one',...smallSelection}]},ctx),/cannot be combined/,'mixed batch and top-level rectangle');
+  await fail(tools.xlsxTableOperationTool.run({path:'source.xlsx',selections:Array.from({length:3},(_,i)=>({selectionId:'large-'+i,sheetIndex:0,startRow:1,rowCount:100,startCol:1,colCount:64,operation:{type:'sort',column:'region',mode:'text',direction:'asc'}}))},ctx),/12800 total selected cells/,'aggregate batch cell ceiling');
   const aborted = new AbortController(); aborted.abort();
   await fail(tools.xlsxTableOperationTool.run({ ...rect, operation: { type: 'sort', column: 'amount', mode: 'numeric', direction: 'asc' } }, { ...ctx, signal: aborted.signal }), /cancelled/, 'aborted XLSX operation');
   const afterLoadAbort = new AbortController(), abortingFsp = Object.create(fsp);

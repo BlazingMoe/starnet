@@ -824,25 +824,24 @@
         return {content:JSON.stringify(result),summary:'XLSX range '+result.sheet+'!'+result.range.startRow+':'+result.range.endRow+(outputTruncated?' (partial: output limit)':'')};
       }
     };
-    const xlsxTableOperationTool = {
-      name:'fs.xlsx_table_operation', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
-      description:'Apply 1-8 filter/sort/group steps to an explicitly selected XLSX rectangle. Required coordinates: zero-based sheetIndex and one-based startRow/startCol plus rowCount/colCount; the first selected row is the header. Reads only that rectangle (max 100 rows by 64 columns) from a jailed, stable XLSX snapshot (max 16 MiB archive and 16 MiB expanded per ZIP entry). Formulas, error/date/unsupported cells, empty or duplicate headers, and credential-pattern-redacted values refuse the operation. Numeric values stay raw OOXML text; date formats and number formats are not inferred. Output provenance identifies the selected rectangle only and whether results cover the full rectangle data rows or a filtered subset; it never describes the workbook as a whole. The source is not modified.',
-      schema:{type:'object',required:['path','sheetIndex','startRow','rowCount','startCol','colCount'],anyOf:[{required:['operation']},{required:['operations']}],properties:{
-        path:{type:'string',maxLength:512},sheetIndex:{type:'number',minimum:0},startRow:{type:'number',minimum:1,maximum:1048576},rowCount:{type:'number',minimum:2,maximum:100},startCol:{type:'number',minimum:1,maximum:16384},colCount:{type:'number',minimum:1,maximum:64},
-        operation:tableOperationTool.schema.properties.operation,
-        operations:tableOperationTool.schema.properties.operations
-      }},
-      run:async(args,ctx)=>{
-        if(ctx&&ctx.signal&&ctx.signal.aborted) throw new Error('XLSX table operation cancelled');
-        const hasSingle=Object.prototype.hasOwnProperty.call(args,'operation'),hasPipeline=Object.prototype.hasOwnProperty.call(args,'operations');
-        if(hasSingle===hasPipeline) throw new Error('supply exactly one of operation or operations');
-        const operations=hasSingle?[args.operation]:args.operations;
-        if(!Array.isArray(operations)||operations.length<1||operations.length>8) throw new Error('operations must contain 1 to 8 steps');
-        for(const [key,min,max] of [['sheetIndex',0,9999],['startRow',1,1048576],['rowCount',2,100],['startCol',1,16384],['colCount',1,64]]) if(!Number.isSafeInteger(args[key])||args[key]<min||args[key]>max) throw new Error('invalid explicit XLSX rectangle coordinate: '+key);
-        if(args.startRow+args.rowCount-1>1048576||args.startCol+args.colCount-1>16384) throw new Error('selected XLSX rectangle exceeds worksheet bounds');
-        const loaded=await loadXlsx(args,ctx);
-        if(ctx&&ctx.signal&&ctx.signal.aborted) throw new Error('XLSX table operation cancelled');
-        const selected=docExtract.xlsxRange(loaded.raw,args), grid=selected.rows.map(row=>row.cells);
+    const xlsxSelectionSchema={type:'object',required:['selectionId','sheetIndex','startRow','rowCount','startCol','colCount'],anyOf:[{required:['operation']},{required:['operations']}],properties:{
+      selectionId:{type:'string',minLength:1,maxLength:64},sheetIndex:{type:'number',minimum:0},startRow:{type:'number',minimum:1,maximum:1048576},rowCount:{type:'number',minimum:2,maximum:100},startCol:{type:'number',minimum:1,maximum:16384},colCount:{type:'number',minimum:1,maximum:64},
+      operation:tableOperationTool.schema.properties.operation,operations:tableOperationTool.schema.properties.operations
+    },additionalProperties:false};
+    const xlsxOperations=args=>{
+      const hasSingle=Object.prototype.hasOwnProperty.call(args,'operation'),hasPipeline=Object.prototype.hasOwnProperty.call(args,'operations');
+      if(hasSingle===hasPipeline) throw new Error('supply exactly one of operation or operations');
+      const operations=hasSingle?[args.operation]:args.operations;
+      if(!Array.isArray(operations)||operations.length<1||operations.length>8) throw new Error('operations must contain 1 to 8 steps');
+      return operations;
+    };
+    const validateXlsxRectangle=args=>{
+      for(const [key,min,max] of [['sheetIndex',0,9999],['startRow',1,1048576],['rowCount',2,100],['startCol',1,16384],['colCount',1,64]]) if(!Number.isSafeInteger(args[key])||args[key]<min||args[key]>max) throw new Error('invalid explicit XLSX rectangle coordinate: '+key);
+      if(args.startRow+args.rowCount-1>1048576||args.startCol+args.colCount-1>16384) throw new Error('selected XLSX rectangle exceeds worksheet bounds');
+    };
+    const runXlsxSelection=(loaded,args)=>{
+      validateXlsxRectangle(args);
+      const operations=xlsxOperations(args),selected=docExtract.xlsxRange(loaded.raw,args),grid=selected.rows.map(row=>row.cells);
         const safeCell=(cell,header=false)=>{
           if(cell.valueType==null&&cell.value==null&&cell.formula==null) { if(header) throw new Error('XLSX table operation requires nonempty headers'); return ''; }
           if(cell.formula!==null) throw new Error('XLSX table operation refuses formula cells, including cached formula values');
@@ -855,15 +854,47 @@
           if(header&&safe.trim()==='') throw new Error('XLSX table operation requires nonempty headers');
           return header?safe.trim():safe;
         };
-        const headers=grid[0].map(cell=>safeCell(cell,true));
-        if(new Set(headers).size!==headers.length) throw new Error('XLSX table operation requires unique, unambiguous headers');
-        const rows=grid.slice(1).map(row=>row.map(cell=>safeCell(cell,false)));
-        const result=runTablePipeline(headers,rows,operations);
-        result.numericSemantics='Finite IEEE-754 binary64 parsing by the shared table-operation core; raw XLSX numeric text may be rounded during arithmetic, and date/number formatting is not inferred.';
-        result.sourceRows=rows.length;
-        result.resultScope=result.filtered?'selected_range_filtered_subset':'selected_range_all_data_rows';
-        result.provenance={scope:'explicit_selected_xlsx_rectangle_only',workbookScope:'not_whole_workbook',filteredRangeSubset:result.filtered,selected:{sheetIndex:selected.sheetIndex,sheet:redact(String(selected.sheet)).slice(0,256),startRow:selected.range.startRow,endRow:selected.range.endRow,startCol:selected.range.startCol,endCol:selected.range.endCol,rowCount:args.rowCount,columnCount:args.colCount,headerRow:selected.range.startRow,dataRows:rows.length},steps:result.steps};
-        result.source=loaded.source;
+      const headers=grid[0].map(cell=>safeCell(cell,true));
+      if(new Set(headers).size!==headers.length) throw new Error('XLSX table operation requires unique, unambiguous headers');
+      const rows=grid.slice(1).map(row=>row.map(cell=>safeCell(cell,false))),result=runTablePipeline(headers,rows,operations);
+      result.numericSemantics='Finite IEEE-754 binary64 parsing by the shared table-operation core; raw XLSX numeric text may be rounded during arithmetic, and date/number formatting is not inferred.';
+      result.sourceRows=rows.length;
+      result.resultScope=result.filtered?'selected_range_filtered_subset':'selected_range_all_data_rows';
+      result.provenance={scope:'explicit_selected_xlsx_rectangle_only',workbookScope:'not_whole_workbook',filteredRangeSubset:result.filtered,selected:{sheetIndex:selected.sheetIndex,sheet:redact(String(selected.sheet)).slice(0,256),startRow:selected.range.startRow,endRow:selected.range.endRow,startCol:selected.range.startCol,endCol:selected.range.endCol,rowCount:args.rowCount,columnCount:args.colCount,headerRow:selected.range.startRow,dataRows:rows.length},steps:result.steps};
+      return result;
+    };
+    const xlsxTableOperationTool = {
+      name:'fs.xlsx_table_operation', capability:'cabinet', scope:'read', readOnly:true, requiresConsent:false, timeoutMs:30000,
+      description:'Apply 1-8 filter/sort/group steps to one explicitly selected XLSX rectangle, or process 1-8 independently identified rectangles from one stable workbook snapshot through selections. Each rectangle uses zero-based sheetIndex and one-based startRow/startCol plus rowCount/colCount; its first row is the header. A rectangle is at most 100 rows by 64 columns and a batch at most 12800 selected cells. The jailed source snapshot is at most 16 MiB with the same expanded-entry ceiling. Formulas, error/date/unsupported cells, empty or duplicate headers, and credential-pattern-redacted values refuse the whole call. Numeric values stay raw OOXML text; formats are not inferred. Provenance is exact per rectangle and never claims whole-workbook coverage. The source is not modified.',
+      schema:{type:'object',required:['path'],anyOf:[{required:['sheetIndex','startRow','rowCount','startCol','colCount','operation']},{required:['sheetIndex','startRow','rowCount','startCol','colCount','operations']},{required:['selections']}],properties:{
+        path:{type:'string',maxLength:512},sheetIndex:{type:'number',minimum:0},startRow:{type:'number',minimum:1,maximum:1048576},rowCount:{type:'number',minimum:2,maximum:100},startCol:{type:'number',minimum:1,maximum:16384},colCount:{type:'number',minimum:1,maximum:64},
+        operation:tableOperationTool.schema.properties.operation,operations:tableOperationTool.schema.properties.operations,
+        selections:{type:'array',minItems:1,maxItems:8,items:xlsxSelectionSchema}
+      },additionalProperties:false},
+      run:async(args,ctx)=>{
+        if(ctx&&ctx.signal&&ctx.signal.aborted) throw new Error('XLSX table operation cancelled');
+        const batch=Object.prototype.hasOwnProperty.call(args,'selections'),legacyKeys=['sheetIndex','startRow','rowCount','startCol','colCount','operation','operations']; let selectedCells=0;
+        if(batch&&legacyKeys.some(key=>Object.prototype.hasOwnProperty.call(args,key))) throw new Error('selections cannot be combined with a top-level rectangle or operations');
+        if(batch){
+          if(!Array.isArray(args.selections)||args.selections.length<1||args.selections.length>8) throw new Error('selections must contain 1 to 8 rectangles');
+          const ids=new Set();
+          for(const selection of args.selections){
+            if(!selection||typeof selection!=='object'||Array.isArray(selection)||Object.keys(selection).some(key=>!['selectionId','sheetIndex','startRow','rowCount','startCol','colCount','operation','operations'].includes(key))) throw new Error('selection contains unsupported fields');
+            if(typeof selection.selectionId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(selection.selectionId)) throw new Error('selectionId must use 1-64 ASCII letters, numbers, dot, underscore, or hyphen');
+            if(ids.has(selection.selectionId)) throw new Error('selectionId must be unique'); ids.add(selection.selectionId);
+            validateXlsxRectangle(selection); xlsxOperations(selection); selectedCells+=selection.rowCount*selection.colCount;
+          }
+          if(selectedCells>12800) throw new Error('selections exceed 12800 total selected cells');
+        } else { validateXlsxRectangle(args); xlsxOperations(args); }
+        const loaded=await loadXlsx(args,ctx);
+        if(ctx&&ctx.signal&&ctx.signal.aborted) throw new Error('XLSX table operation cancelled');
+        if(batch){
+          const result={source:loaded.source,scope:'explicit_selected_xlsx_rectangles_only',workbookScope:'not_whole_workbook',selectedCells,selections:args.selections.map(selection=>({selectionId:selection.selectionId,result:runXlsxSelection(loaded,selection)}))};
+          const content=JSON.stringify(result);
+          if(Buffer.byteLength(content,'utf8')>256*1024) throw new Error('XLSX table result exceeds the 256 KiB response limit');
+          return {content,summary:'XLSX batch table pipelines: '+result.selections.length+' selection(s) from one source snapshot'};
+        }
+        const result=runXlsxSelection(loaded,args); result.source=loaded.source;
         const content=JSON.stringify(result);
         if(Buffer.byteLength(content,'utf8')>256*1024) throw new Error('XLSX table result exceeds the 256 KiB response limit');
         return {content,summary:'Selected XLSX range table pipeline ('+result.steps.map(step=>step.type).join(' → ')+'): '+result.rows.length+' row(s)'};
