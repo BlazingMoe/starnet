@@ -6,7 +6,7 @@
    at run end, so the RUNS panel / end-of-run recap can honestly answer "what did this run make?".
 
    What it detects (from REAL tool result shapes — see sidecar/tools/builtin/fs.js + image.js):
-     fs.write / fs.write_csv / fs.write_xlsx / fs.write_docx / fs.append / fs.edit -> { kind:'file', path, bytes? }
+     fs.write / fs.write_csv / fs.write_xlsx / fs.write_docx / fs.write_svg_chart / fs.append / fs.edit -> verified file/image artifacts
                                         (structured writers require their verified mutation receipt for exact bytes)
      fs.patch                        -> { kind:'file',  path } per written file (paths parsed from the V4A
                                         envelope headers args.patch carries — the tool result names no paths)
@@ -168,6 +168,12 @@
           if (!receipt || receipt.state !== 'read-back-verified' || receipt.path !== args.path
               || !Number.isFinite(receipt.verifiedBytes) || receipt.verifiedBytes < 0) return;
           return addFile('file', args.path, receipt.verifiedBytes);
+        }
+        if (name === 'fs.write_svg_chart') {
+          const receipt = r.receipt || r.mutationReceipt;
+          if (!receipt || receipt.state !== 'read-back-verified' || receipt.path !== args.path
+              || !Number.isFinite(receipt.verifiedBytes) || receipt.verifiedBytes < 1) return;
+          return addFile('image', args.path, receipt.verifiedBytes);
         }
         if (name === 'fs.write_dossier_sources') {
           const receipt = r.receipt || r.mutationReceipt;

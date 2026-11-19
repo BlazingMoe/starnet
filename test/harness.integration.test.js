@@ -191,11 +191,12 @@ const fixture = {
   consent.grant('session', { name: 'fs.write_csv' }, registry.get('fs.write_csv'));
   consent.grant('session', { name: 'fs.write_xlsx' }, registry.get('fs.write_xlsx'));
   consent.grant('session', { name: 'fs.write_docx' }, registry.get('fs.write_docx'));
+  consent.grant('session', { name: 'fs.write_svg_chart' }, registry.get('fs.write_svg_chart'));
   consent.grant('session', { name: 'fs.write_dossier_sources' }, registry.get('fs.write_dossier_sources'));
   const capCtx = makeCapCtx(resolved, { emit, consent, timeoutMs: 5000 });
 
   // ---- DRIFT GUARDS (these alone would have caught both default-path showstoppers) ----
-  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.content.prepare', 'channel.render.finalize', 'channel.render.prepare', 'channel.render.reconcile', 'channel.render.submit', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'economics.reconcile', 'etsy.pod.prepare', 'fiverr.handoff.prepare', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'service.studio.prepare', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'website.leads.prepare', 'widget.get', 'widget.set'];
+  const EXPECTED = ['browser.attach', 'browser.back', 'browser.click', 'browser.console', 'browser.detach', 'browser.dialog', 'browser.drag', 'browser.emulate', 'browser.eval', 'browser.find', 'browser.forward', 'browser.get_text', 'browser.hover', 'browser.inspect', 'browser.intercept', 'browser.login', 'browser.navigate', 'browser.network', 'browser.pdf', 'browser.press', 'browser.screenshot', 'browser.scroll', 'browser.select', 'browser.snapshot', 'browser.tab_close', 'browser.tab_select', 'browser.tabs', 'browser.type', 'browser.upload', 'browser.viewport', 'browser.vision', 'browser.wait', 'channel.content.prepare', 'channel.render.finalize', 'channel.render.prepare', 'channel.render.reconcile', 'channel.render.submit', 'channel.send', 'channel.targets', 'code.run', 'connectors.list', 'deliverable_note', 'economics.calculate', 'economics.reconcile', 'etsy.pod.prepare', 'fiverr.handoff.prepare', 'fs.append', 'fs.edit', 'fs.list', 'fs.patch', 'fs.profile_csv', 'fs.read', 'fs.read_csv_rows', 'fs.read_xlsx_range', 'fs.search', 'fs.table_operation', 'fs.write', 'fs.write_csv', 'fs.write_docx', 'fs.write_dossier_sources', 'fs.write_svg_chart', 'fs.write_xlsx', 'fs.xlsx_sheets', 'fs.xlsx_table_operation', 'notebook.feedback', 'notebook.read', 'notebook.write', 'quest.update', 'recall_conversation', 'routine.notepad', 'service.studio.prepare', 'skill.list', 'skill.manage', 'skill.view', 'skill.write', 'station.inspect', 'todo', 'tool.search', 'web_fetch', 'web_request', 'web_search', 'website.audit.pack', 'website.demo.generate', 'website.leads.prepare', 'widget.get', 'widget.set'];
   EXPECTED.push('crm.demo.generate');
   EXPECTED.push('channel.youtube.prepare', 'channel.youtube.initiate', 'channel.youtube.status', 'channel.youtube.upload', 'channel.youtube.verify');
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
@@ -497,17 +498,25 @@ const fixture = {
   A.eq(deniedXlsx.isError, true, 'un-granted structured XLSX mutation default-denies');
   const deniedDocx = await dispatch({ name: 'fs_write_docx', args: { path: 'unsanctioned.docx', title:'Denied', blocks:[{type:'paragraph',text:'never write'}] } }, denyCtx);
   A.eq(deniedDocx.isError, true, 'un-granted structured DOCX mutation default-denies');
+  const deniedChart = await dispatch({ name: 'fs_write_svg_chart', args: { path:'unsanctioned.svg', title:'Denied', categories:['A'], series:[{name:'Value',values:[1]}] } }, denyCtx);
+  A.eq(deniedChart.isError, true, 'un-granted SVG chart mutation default-denies');
   let csvWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.csv')); } catch (e) { csvWrote = false; }
   A.ok(!csvWrote, 'the denied CSV mutation never touched disk');
   let xlsxWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.xlsx')); } catch (e) { xlsxWrote = false; }
   A.ok(!xlsxWrote, 'the denied XLSX mutation never touched disk');
   let docxWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.docx')); } catch (e) { docxWrote = false; }
   A.ok(!docxWrote, 'the denied DOCX mutation never touched disk');
+  let chartWrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.svg')); } catch (e) { chartWrote = false; }
+  A.ok(!chartWrote, 'the denied SVG chart mutation never touched disk');
   const grantedXlsx = await dispatch({ name: 'fs_write_xlsx', args: { path: 'analysis/approved.xlsx', columns: ['x'], rows: [['consented']] } }, capCtx);
   A.eq(grantedXlsx.isError, false, 'session-granted XLSX mutation succeeds through the real capability/consent boundary');
   A.eq(grantedXlsx.receipt.state, 'read-back-verified', 'granted XLSX write retains the verified mutation receipt');
   A.ok((await fsp.stat(path.join(ROOT, 'agent', 'analysis', 'approved.xlsx'))).size === grantedXlsx.receipt.verifiedBytes,
     'granted XLSX lands inside the agent workspace with the receipted byte count');
+  const grantedChart = await dispatch({ name:'fs_write_svg_chart', args:{path:'analysis/approved.svg',title:'Approved chart',categories:['A','B'],series:[{name:'Value',values:[1,2]}]} }, capCtx);
+  A.eq(grantedChart.isError, false, 'session-granted SVG chart succeeds through the real capability/consent boundary');
+  A.eq(grantedChart.receipt.state, 'read-back-verified', 'granted SVG chart retains the verified mutation receipt');
+  A.ok((await fsp.readFile(path.join(ROOT,'agent','analysis','approved.svg'),'utf8')).includes('data-axis="zero"'),'granted chart bytes contain the mandatory zero baseline');
   A.eq(denied.summary, 'denied', 'denial surfaced as a consent denial, not a crash');
   A.ok(/silence is not consent/.test(denied.content), 'denial carries the silence-is-not-consent reason');
   let wrote = true; try { await fsp.access(path.join(ROOT, 'agent', 'unsanctioned.md')); } catch (e) { wrote = false; }

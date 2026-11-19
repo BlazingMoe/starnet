@@ -25,6 +25,7 @@
   const { runTablePipeline } = require('./table-operation.js');
   const { createXlsxTable, createXlsxWorkbook } = require('./xlsx-table.js');
   const { createDocxReport } = require('./docx-report.js');
+  const { createSvgBarChart } = require('./svg-chart.js');
   const { note: failNote } = require('../../failopen.js');
 
   function safeAgentId(id) {
@@ -511,6 +512,24 @@
         const writeArgs={path:args.path}; writeArgs[WRITE_BUFFER]=data;
         const written=await writeTool.run(writeArgs,ctx);
         return Object.assign({},written,{content:'Structured DOCX report: '+args.blocks.length+' blocks. Text and bounded tables are editable Word content with basic paragraph/table styling.\n'+written.content,summary:'wrote DOCX '+args.path+' ('+kb(data.length)+')'});
+      }
+    };
+
+    const writeSvgChartTool = {
+      name: 'fs.write_svg_chart', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
+      description: 'Write one bounded static grouped bar chart as a new SVG artifact. Supply a title, optional yLabel, 1-20 unique category labels and 1-4 uniquely named numeric series with one finite value per category. Values are limited to ±1000000000000. The fixed 1200×675 chart always includes zero, uses a fixed colorblind-conscious palette, carries accessible title/data text and has no scripts, links, animation, foreign objects or external resources. Labels may be visually shortened while full labels remain in SVG title/description text. This is a presentation of supplied values, not evidence that they are complete, accurate or causal. Uses the existing consent-gated jailed verified filesystem write and returns an exact byte receipt.',
+      schema: { type:'object', required:['path','title','categories','series'], properties:{
+        path:{type:'string'}, title:{type:'string'}, yLabel:{type:'string'}, categories:{type:'array',minItems:1,maxItems:20,items:{type:'string'}},
+        series:{type:'array',minItems:1,maxItems:4,items:{type:'object',required:['name','values'],properties:{name:{type:'string'},values:{type:'array',minItems:1,maxItems:20,items:{type:'number'}}},additionalProperties:false}}
+      }, additionalProperties:false },
+      run: async (args,ctx) => {
+        if(!args||typeof args.path!=='string'||!args.path.trim()) throw new Error('path must be a non-empty string');
+        if(Object.keys(args).some(key=>!['path','title','yLabel','categories','series'].includes(key))) throw new Error('SVG chart request contains unsupported fields');
+        if(!/\.svg$/i.test(args.path)) throw new Error('path must end in .svg');
+        const data=createSvgBarChart({title:args.title,yLabel:args.yLabel,categories:args.categories,series:args.series},WRITE_BYTES);
+        const writeArgs={path:args.path}; writeArgs[WRITE_BUFFER]=data;
+        const written=await writeTool.run(writeArgs,ctx);
+        return Object.assign({},written,{content:'Static grouped SVG bar chart: '+args.categories.length+' categories and '+args.series.length+' series. The zero baseline is visible; supplied values were not independently verified.\n'+written.content,summary:'wrote SVG chart '+args.path+' ('+kb(data.length)+')'});
       }
     };
 
@@ -1454,9 +1473,9 @@
     };
 
     return {
-      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool, writeVideoArtifact, readVideoArtifact,
+      writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, writeSvgChartTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool, writeVideoArtifact, readVideoArtifact,
       _internals: { resolveInside, workspaceRoot, safeAgentId, walk, collectFiles, globToRe, pathInside, parsePatch, fuzzyFindAndReplace },
-      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
+      register(reg) { [writeTool, writeCsvTool, writeXlsxTool, writeDocxTool, writeSvgChartTool, dossierSourcesTool, readTool, profileCsvTool, readCsvRowsTool, tableOperationTool, xlsxSheetsTool, xlsxRangeTool, xlsxTableOperationTool, listTool, appendTool, editTool, patchTool, searchTool].forEach(t => reg.register(t)); return reg; }
     };
   }
 

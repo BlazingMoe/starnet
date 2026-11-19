@@ -26,6 +26,10 @@ A.ok(explainData && /fixed sizing, merged cells and formulas are unsupported[\s\
 const dossier = builtins.find(r => r.id === 'decision-dossier');
 A.ok(dossier && /fs\.write_dossier_sources[\s\S]*does not establish semantic support or truth/i.test(dossier.task), 'Decision Dossier requires host-validated receipts and disclaims semantic proof');
 A.ok(dossier && /reference_checked[\s\S]*truncated[\s\S]*blocked[\s\S]*unverifiable/i.test(dossier.task), 'Decision Dossier maps evidence states explicitly');
+const chartIt = builtins.find(r => r.id === 'chart-it');
+A.ok(chartIt && /fs\.write_svg_chart[\s\S]*1-20 unique categories[\s\S]*1-4 uniquely named numeric series/.test(chartIt.task), 'Chart It uses the bounded typed SVG bar-chart writer');
+A.ok(chartIt && /visible zero baseline[\s\S]*do not use the tool for time-series interpolation, scatter, pie, stacked, dual-axis or truncated-axis claims/.test(chartIt.task), 'Chart It states the honest supported chart boundary');
+A.ok(chartIt && /matching read-back-verified receipt[\s\S]*read both files back immediately/.test(chartIt.task), 'Chart It requires verified chart and caption read-back');
 
 const seen = {};
 for (const b of builtins) {
