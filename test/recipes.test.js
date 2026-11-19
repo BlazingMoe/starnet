@@ -21,6 +21,8 @@ const explainData = builtins.find(r => r.id === 'data-explain');
 A.ok(explainData && /explicitly asks for a Word\/DOCX report[\s\S]*fs\.write_docx/.test(explainData.task), 'Explain This Data selects DOCX only for an explicit Word request');
 A.ok(explainData && /Save exactly one report format[\s\S]*Do not create both report files/.test(explainData.task), 'Explain This Data makes Markdown and DOCX reports mutually exclusive');
 A.ok(explainData && /matching read-back-verified fs\.write_docx receipt[\s\S]*read report\.docx with fs\.read/.test(explainData.task), 'DOCX recipe path requires verified write receipt and text read-back');
+A.ok(explainData && /table block is allowed only with 1-12 nonempty string column labels[\s\S]*at most 200 rows/.test(explainData.task), 'DOCX recipe exposes bounded editable table support');
+A.ok(explainData && /fixed sizing, merged cells and formulas are unsupported[\s\S]*images, macros, external links and embedded objects remain unsupported/.test(explainData.task), 'DOCX recipe states table and active-content limits');
 const dossier = builtins.find(r => r.id === 'decision-dossier');
 A.ok(dossier && /fs\.write_dossier_sources[\s\S]*does not establish semantic support or truth/i.test(dossier.task), 'Decision Dossier requires host-validated receipts and disclaims semantic proof');
 A.ok(dossier && /reference_checked[\s\S]*truncated[\s\S]*blocked[\s\S]*unverifiable/i.test(dossier.task), 'Decision Dossier maps evidence states explicitly');

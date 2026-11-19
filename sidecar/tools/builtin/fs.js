@@ -492,17 +492,17 @@
 
     const writeDocxTool = {
       name: 'fs.write_docx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
-      description: 'Write a bounded editable plain Word report. Supply a title and up to 300 blocks of type heading, paragraph, or bullet, each with text. The document uses simple black Calibri title, heading and body styles with explicit page dimensions; line breaks and tabs are preserved. It does not preserve existing Word layouts or support tables, images, macros, external links, formulas, or embedded objects. Text is inert and XML-escaped. Uses the consent-gated verified filesystem write and returns a read-back byte receipt.',
+      description: 'Write a bounded editable Word report. Supply a title and up to 300 blocks: heading, paragraph, or bullet blocks carry text; table blocks carry 1-12 nonempty column labels and up to 200 exact-width string rows, with at most 2500 table cells across the document including headers. The document uses simple black Calibri styles, explicit page dimensions, bordered auto-fit tables and shaded header cells; line breaks and tabs are preserved. It does not preserve existing Word layouts or support images, macros, external links, formulas, merged cells, fixed column sizing, or embedded objects. Text and table cells are inert and XML-escaped. Uses the consent-gated verified filesystem write and returns a read-back byte receipt.',
       schema: { type: 'object', required: ['path','title','blocks'], properties: {
-        path: { type:'string' }, title:{type:'string'}, blocks:{type:'array',maxItems:300,items:{type:'object',required:['type','text'],properties:{type:{enum:['heading','paragraph','bullet']},text:{type:'string'}}}}
-      } },
+        path: { type:'string' }, title:{type:'string'}, blocks:{type:'array',maxItems:300,items:{type:'object',required:['type'],properties:{type:{enum:['heading','paragraph','bullet','table']},text:{type:'string'},columns:{type:'array',minItems:1,maxItems:12,items:{type:'string'}},rows:{type:'array',maxItems:200,items:{type:'array',minItems:1,maxItems:12,items:{type:'string'}}}},additionalProperties:false}}
+      }, additionalProperties:false },
       run: async (args,ctx) => {
         if(!args||typeof args.path!=='string'||!args.path.trim())throw new Error('path must be a non-empty string');
         if(!/\.docx$/i.test(args.path))throw new Error('path must end in .docx');
         const data=createDocxReport({title:args.title,blocks:args.blocks},WRITE_BYTES);
         const writeArgs={path:args.path}; writeArgs[WRITE_BUFFER]=data;
         const written=await writeTool.run(writeArgs,ctx);
-        return Object.assign({},written,{content:'Structured DOCX report: '+args.blocks.length+' blocks. Text is editable plain Word content with basic paragraph styles only.\n'+written.content,summary:'wrote DOCX '+args.path+' ('+kb(data.length)+')'});
+        return Object.assign({},written,{content:'Structured DOCX report: '+args.blocks.length+' blocks. Text and bounded tables are editable Word content with basic paragraph/table styling.\n'+written.content,summary:'wrote DOCX '+args.path+' ('+kb(data.length)+')'});
       }
     };
 

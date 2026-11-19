@@ -46,12 +46,39 @@ function createDocxReport(doc, maxBytes) {
   const para=(s,style)=>'<w:p><w:pPr><w:pStyle w:val="'+style+'"/></w:pPr>'+textRuns(s)+'</w:p>';
   const accepted=[];
   function encodedLength(s,style){return Buffer.byteLength('<w:p><w:pPr><w:pStyle w:val="'+style+'"/></w:pPr>','utf8')+textRunBytes(s)+Buffer.byteLength('</w:p>','utf8');}
-  let bodyBytes=encodedLength(title,'Title');
+  function tableXml(columns, rows) {
+    if(!Array.isArray(columns)||columns.length<1||columns.length>12)throw new Error('table columns must contain 1 to 12 items');
+    if(!Array.isArray(rows)||rows.length>200)throw new Error('table rows must contain at most 200 items');
+    const headers=columns.map((value,index)=>{
+      const header=text(value,'table column '+(index+1));
+      if(!header.trim())throw new Error('table column '+(index+1)+' must not be empty');
+      if(header.length>200)throw new Error('table column '+(index+1)+' exceeds 200 characters');
+      return header;
+    });
+    const normalized=rows.map((row,rowIndex)=>{
+      if(!Array.isArray(row)||row.length!==headers.length)throw new Error('table row '+(rowIndex+1)+' must contain exactly '+headers.length+' cells');
+      return row.map((value,columnIndex)=>text(value,'table row '+(rowIndex+1)+' cell '+(columnIndex+1)));
+    });
+    const width=Math.max(1,Math.floor(10080/headers.length));
+    const grid='<w:tblGrid>'+headers.map(()=>'<w:gridCol w:w="'+width+'"/>').join('')+'</w:tblGrid>';
+    const borders='<w:tblBorders><w:top w:val="single" w:sz="4" w:color="808080"/><w:left w:val="single" w:sz="4" w:color="808080"/><w:bottom w:val="single" w:sz="4" w:color="808080"/><w:right w:val="single" w:sz="4" w:color="808080"/><w:insideH w:val="single" w:sz="4" w:color="B7B7B7"/><w:insideV w:val="single" w:sz="4" w:color="B7B7B7"/></w:tblBorders>';
+    const cell=(value,header)=>'<w:tc><w:tcPr><w:tcW w:w="'+width+'" w:type="dxa"/>'+(header?'<w:shd w:val="clear" w:color="auto" w:fill="D9EAF7"/>':'')+'</w:tcPr><w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr>'+textRuns(value)+'</w:p></w:tc>';
+    const row=(values,header)=>'<w:tr>'+values.map(value=>cell(value,header)).join('')+'</w:tr>';
+    return '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblLayout w:type="autofit"/>'+borders+'<w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr>'+grid+row(headers,true)+normalized.map(values=>row(values,false)).join('')+'</w:tbl>';
+  }
+  let bodyBytes=encodedLength(title,'Title'),tableCells=0;
   for(let i=0;i<doc.blocks.length;i++){
-    const b=doc.blocks[i]; if(!b||typeof b!=='object'||!['heading','paragraph','bullet'].includes(b.type))throw new Error('block '+(i+1)+' type must be heading, paragraph, or bullet');
+    const b=doc.blocks[i]; if(!b||typeof b!=='object'||!['heading','paragraph','bullet','table'].includes(b.type))throw new Error('block '+(i+1)+' type must be heading, paragraph, bullet, or table');
+    if(b.type==='table'){
+      if(Object.keys(b).some(key=>!['type','columns','rows'].includes(key)))throw new Error('table block '+(i+1)+' contains unsupported fields');
+      const cells=Array.isArray(b.columns)&&Array.isArray(b.rows)?b.columns.length*(b.rows.length+1):0;
+      if(tableCells+cells>2500)throw new Error('document tables exceed 2500 total cells including headers');
+      const xml=tableXml(b.columns,b.rows); tableCells+=cells; bodyBytes+=Buffer.byteLength(xml,'utf8'); accepted.push({xml}); continue;
+    }
+    if(Object.keys(b).some(key=>!['type','text'].includes(key)))throw new Error('text block '+(i+1)+' contains unsupported fields');
     const value=text(b.text,'block '+(i+1)+' text');
     const rendered=b.type==='bullet'?'\u2022 '+value:value, style=b.type==='heading'?'Heading1':'Normal';
-    bodyBytes+=encodedLength(rendered,style); accepted.push({text:rendered,style});
+    bodyBytes+=encodedLength(rendered,style); accepted.push({text:rendered,style,xml:null});
   }
   const files=[
     {name:'[Content_Types].xml',data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'},
@@ -66,7 +93,7 @@ function createDocxReport(doc, maxBytes) {
   const section='<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
   const fixed='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+section+'</w:body></w:document>';
   if(overhead+staticBytes+Buffer.byteLength(fixed,'utf8')+bodyBytes>maxBytes)throw new Error('DOCX file too large: serialized document exceeds '+maxBytes+' bytes');
-  const body=[para(title,'Title'),...accepted.map(b=>para(b.text,b.style))];
+  const body=[para(title,'Title'),...accepted.map(b=>b.xml||para(b.text,b.style))];
   files[2].data='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+body.join('')+section+'</w:body></w:document>';
   const out=_internals.zipStore(files);
   if(out.length>maxBytes)throw new Error('DOCX file too large ('+out.length+' > '+maxBytes+' bytes)');

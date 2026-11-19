@@ -470,7 +470,7 @@ const fixture = {
     tool('docx-profile','fs_profile_csv',{path:'survey-docx.csv',delimiter:',',hasHeader:true});
     tool('docx-rows','fs_read_csv_rows',{path:'survey-docx.csv',delimiter:',',hasHeader:true,offset:0,limit:20});
     tool('docx-output-folder','fs_list',{path:'analysis'});
-    const blocks=[{type:'heading',text:'Finding'},{type:'paragraph',text:'South has the higher observed amount: 20 versus North at 10.'},{type:'paragraph',text:'The source contains two data rows.'}];
+    const blocks=[{type:'heading',text:'Finding'},{type:'paragraph',text:'South has the higher observed amount.'},{type:'table',columns:['Region','Observed amount'],rows:[['North','10'],['South','20']]},{type:'paragraph',text:'The source contains two data rows.'}];
     tool('docx-report','fs_write_docx',{path:'analysis/docx-fixture/report.docx',title:'Regional amount findings',blocks});
     tool('docx-read-report','fs_read',{path:'analysis/docx-fixture/report.docx'});
     turns.push([{type:'text',delta:'The requested Word report was saved and its extracted text verified.'},{type:'done',finishReason:'stop'}]);
@@ -482,7 +482,7 @@ const fixture = {
     A.eq(await fsp.readFile(source),csv,'DOCX recipe leaves source bytes unchanged');
     A.ok(!fs.existsSync(path.join(ROOT,'agent','analysis','docx-fixture','report.md')),'explicit DOCX request does not also create the default markdown report');
     A.eq(results[3].result.receipt.state,'read-back-verified','DOCX recipe write carries an exact verified receipt');
-    A.ok(results[4].result.content.includes('South has the higher observed amount'),'recipe fs.read returns DOCX report text after write');
+    A.ok(results[4].result.content.includes('South has the higher observed amount')&&results[4].result.content.includes('Observed amount')&&results[4].result.content.includes('North')&&results[4].result.content.includes('20'),'recipe fs.read returns DOCX paragraph and table text after write');
   }
 
   // ---- P1.5 default-deny: an UN-granted mutation under an autonomous surface is denied, body never runs ----
