@@ -70,6 +70,18 @@ function independentlyReadStoredZip(buf) {
     A.eq(parsed.rows[1].cells[6].value, lines, 'CR and LF line breaks round-trip');
     A.eq(parsed.rows[1].cells[7].value, 'control:\u0001', 'OOXML-escaped XML control characters round-trip');
 
+    const multiData={path:'tables/multi.xlsx',sheets:[
+      {sheetName:'Findings',columns:['Finding','Confidence'],rows:[['Higher amount','medium']]},
+      {sheetName:'Evidence & Notes',columns:['Source','Observed'],rows:[['rows 1-3','North 10; South 20'],['formula text','=1+1']]}
+    ]};
+    const multiResult=await tools.writeXlsxTool.run(multiData,ctx),multiBytes=fs.readFileSync(path.join(ROOT,'xlsxfixture',multiData.path)),multiParts=independentlyReadStoredZip(multiBytes);
+    A.eq(multiResult.receipt.state,'read-back-verified','multi-sheet workbook returns exact read-back verification');
+    A.eq(Array.from(multiParts.keys()),['[Content_Types].xml','_rels/.rels','xl/workbook.xml','xl/_rels/workbook.xml.rels','xl/worksheets/sheet1.xml','xl/worksheets/sheet2.xml'],'multi-sheet archive contains only required workbook and worksheet parts');
+    A.eq(doc.xlsxSheets(multiBytes).map(sheet=>sheet.name),['Findings','Evidence & Notes'],'existing sheet discovery returns both requested worksheet names in order');
+    A.eq(doc.xlsxRange(multiBytes,{sheetIndex:0,startRow:1,rowCount:2,startCol:1,colCount:2}).rows[1].cells.map(cell=>cell.value),['Higher amount','medium'],'first worksheet values read back exactly');
+    A.eq(doc.xlsxRange(multiBytes,{sheetIndex:1,startRow:1,rowCount:3,startCol:1,colCount:2}).rows[2].cells.map(cell=>cell.value),['formula text','=1+1'],'second worksheet formula-looking text remains inert and readable');
+    A.ok(multiParts.get('xl/worksheets/sheet1.xml').includes('<autoFilter ref="A1:B2"/>')&&multiParts.get('xl/worksheets/sheet2.xml').includes('<autoFilter ref="A1:B3"/>'),'each worksheet has its own exact frozen filter range');
+
     const before = bytes.length;
     const invalid = [
       [{ columns: [], rows: [] }, 'no columns'],
@@ -87,7 +99,12 @@ function independentlyReadStoredZip(buf) {
       [{ sheetName: 'x'.repeat(32), columns: ['x'], rows: [] }, 'long sheet name'],
       [{ sheetName: 'bad/name', columns: ['x'], rows: [] }, 'forbidden sheet-name character'],
       [{ sheetName: "'quoted", columns: ['x'], rows: [] }, 'leading sheet-name apostrophe'],
-      [{ sheetName: '\ud800', columns: ['x'], rows: [] }, 'malformed sheet-name Unicode']
+      [{ sheetName: '\ud800', columns: ['x'], rows: [] }, 'malformed sheet-name Unicode'],
+      [{ sheets: [] }, 'empty sheet list'],
+      [{ sheets: Array.from({length:9},(_,i)=>({sheetName:'s'+i,columns:['x'],rows:[]})) }, 'sheet-count limit'],
+      [{ sheets: [{sheetName:'Data',columns:['x'],rows:[]},{sheetName:'data',columns:['y'],rows:[]} ] }, 'case-insensitive duplicate sheet name'],
+      [{ sheets: [{sheetName:'Data',columns:['x'],rows:[]}], columns:['x'], rows:[] }, 'mixed legacy and multi-sheet shapes'],
+      [{ sheets: Array.from({length:2},(_,si)=>({sheetName:'s'+si,columns:Array.from({length:64},(_,i)=>'c'+i),rows:Array.from({length:500},()=>Array(64).fill('x'))})) }, 'workbook total-cell limit']
     ];
     for (const [table, label] of invalid) {
       let failed = false;

@@ -1,4 +1,4 @@
-/* Minimal, dependency-free XLSX table serializer. Values are emitted as inline strings,
+/* Minimal, dependency-free XLSX workbook serializer. Values are emitted as inline strings,
    numeric cells, booleans, or absent cells; formulas, macros, links and styles are absent. */
 'use strict';
 
@@ -65,17 +65,16 @@ function zipStore(files) {
   return Buffer.concat([...locals, ...centrals, end]);
 }
 
-function createXlsxTable(columns, rows, maxBytes, options) {
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('write byte limit must be a positive safe integer');
-  options = options || {};
-  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'sheetName')) throw new Error('XLSX options contain unsupported fields');
-  const sheetName = options.sheetName === undefined ? 'Data' : options.sheetName;
-  if (typeof sheetName !== 'string' || !sheetName.trim() || sheetName.length > 31) throw new Error('sheetName must contain 1-31 non-blank characters');
-  validateUnicode(sheetName, 'sheetName');
-  if (/[\u0000-\u001f\ufffe\uffff\[\]:*?\\/]/.test(sheetName) || /^'|'$/.test(sheetName)) throw new Error('sheetName contains characters Excel does not allow');
-  if (!Array.isArray(columns) || columns.length < 1 || columns.length > 64) throw new Error('columns must contain 1-64 names');
-  if (!Array.isArray(rows) || rows.length > 1000) throw new Error('rows must contain at most 1000 records');
-  if ((rows.length + 1) * columns.length > 64000) throw new Error('table exceeds 64000 cells');
+function normalizeSheet(input, index) {
+  const label = 'sheet ' + (index + 1);
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['sheetName', 'columns', 'rows'].includes(key))) throw new Error(label + ' contains unsupported fields');
+  const sheetName = input.sheetName;
+  if (typeof sheetName !== 'string' || !sheetName.trim() || sheetName.length > 31) throw new Error(label + ' sheetName must contain 1-31 non-blank characters');
+  validateUnicode(sheetName, label + ' sheetName');
+  if (/[\u0000-\u001f\ufffe\uffff\[\]:*?\\/]/.test(sheetName) || /^'|'$/.test(sheetName)) throw new Error(label + ' sheetName contains characters Excel does not allow');
+  const columns = input.columns, rows = input.rows;
+  if (!Array.isArray(columns) || columns.length < 1 || columns.length > 64) throw new Error(label + ' columns must contain 1-64 names');
+  if (!Array.isArray(rows) || rows.length > 1000) throw new Error(label + ' rows must contain at most 1000 records');
   const MAX_CELL = 8192;
   const cleanText = (value, label) => {
     if (typeof value !== 'string') throw new Error(label + ' must be a string');
@@ -84,60 +83,84 @@ function createXlsxTable(columns, rows, maxBytes, options) {
     if (/[\ufffe\uffff]/.test(value)) throw new Error(label + ' contains an unsupported XML character');
     return value;
   };
-  columns.forEach((v, i) => cleanText(v, 'column ' + (i + 1)));
+  columns.forEach((v, i) => cleanText(v, label + ' column ' + (i + 1)));
   rows.forEach((row, i) => {
-    if (!Array.isArray(row) || row.length !== columns.length) throw new Error('row ' + (i + 1) + ' must contain exactly ' + columns.length + ' cells');
+    if (!Array.isArray(row) || row.length !== columns.length) throw new Error(label + ' row ' + (i + 1) + ' must contain exactly ' + columns.length + ' cells');
     row.forEach((v, j) => {
-      if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') throw new Error('invalid cell at row ' + (i + 1) + ', column ' + (j + 1) + ': use string, finite number, boolean, or null');
-      if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('non-finite number at row ' + (i + 1) + ', column ' + (j + 1));
-      if (typeof v === 'string') cleanText(v, 'cell at row ' + (i + 1) + ', column ' + (j + 1));
+      if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') throw new Error('invalid cell at ' + label + ' row ' + (i + 1) + ', column ' + (j + 1) + ': use string, finite number, boolean, or null');
+      if (typeof v === 'number' && !Number.isFinite(v)) throw new Error('non-finite number at ' + label + ' row ' + (i + 1) + ', column ' + (j + 1));
+      if (typeof v === 'string') cleanText(v, 'cell at ' + label + ' row ' + (i + 1) + ', column ' + (j + 1));
     });
   });
+  return { sheetName, columns, rows, cellCount: (rows.length + 1) * columns.length };
+}
+
+function createXlsxWorkbook(sheets, maxBytes) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error('write byte limit must be a positive safe integer');
+  if (!Array.isArray(sheets) || sheets.length < 1 || sheets.length > 8) throw new Error('sheets must contain 1-8 tables');
+  const normalized = sheets.map(normalizeSheet), seenNames = new Set();
+  let totalCells = 0;
+  normalized.forEach((sheet, index) => {
+    const key = sheet.sheetName.toLowerCase();
+    if (seenNames.has(key)) throw new Error('sheet ' + (index + 1) + ' sheetName duplicates another sheet');
+    seenNames.add(key); totalCells += sheet.cellCount;
+  });
+  if (totalCells > 64000) throw new Error('workbook exceeds 64000 total cells including headers');
   const cell = (value, ref) => {
     if (value === null) return '';
     if (typeof value === 'string') return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xmlText(value) + '</t></is></c>';
     if (typeof value === 'boolean') return '<c r="' + ref + '" t="b"><v>' + (value ? '1' : '0') + '</v></c>';
     return '<c r="' + ref + '"><v>' + String(value) + '</v></c>';
   };
-  const names = ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/worksheets/sheet1.xml'];
+  const worksheetNames = normalized.map((_, index) => 'xl/worksheets/sheet' + (index + 1) + '.xml');
+  const names = ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels'].concat(worksheetNames);
+  const worksheetOverrides = normalized.map((_, index) => '<Override PartName="/xl/worksheets/sheet' + (index + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('');
+  const workbookSheets = normalized.map((sheet, index) => '<sheet name="' + xmlText(sheet.sheetName) + '" sheetId="' + (index + 1) + '" r:id="rId' + (index + 1) + '"/>').join('');
+  const workbookRels = normalized.map((_, index) => '<Relationship Id="rId' + (index + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (index + 1) + '.xml"/>').join('');
   const staticFiles = [
-    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + worksheetOverrides + '</Types>' },
     { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
-    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + xmlText(sheetName) + '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
-    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
-    { name: names[4], data: '' }
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + workbookSheets + '</sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + workbookRels + '</Relationships>' }
   ];
-  const lastCell = colName(columns.length) + (rows.length + 1);
-  const tableRef = 'A1:' + lastCell;
-  const sheetPrefix = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="' + tableRef + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>';
-  const sheetSuffix = '</sheetData><autoFilter ref="' + tableRef + '"/></worksheet>';
+  const sheetParts = normalized.map(sheet => {
+    const tableRef = 'A1:' + colName(sheet.columns.length) + (sheet.rows.length + 1);
+    return {
+      prefix: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="' + tableRef + '"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetData>',
+      suffix: '</sheetData><autoFilter ref="' + tableRef + '"/></worksheet>'
+    };
+  });
   // Account for every fixed XML byte and every local/central ZIP header before formatting any cells.
   const archiveOverhead = 22 + names.reduce((n, name) => n + 30 + 46 + Buffer.byteLength(name, 'utf8') * 2, 0);
-  const staticBytes = archiveOverhead + Buffer.byteLength(sheetPrefix + sheetSuffix, 'utf8')
-    + staticFiles.slice(0, 4).reduce((n, f) => n + Buffer.byteLength(f.data, 'utf8'), 0);
+  const staticBytes = archiveOverhead + sheetParts.reduce((n, part) => n + Buffer.byteLength(part.prefix + part.suffix, 'utf8'), 0)
+    + staticFiles.reduce((n, f) => n + Buffer.byteLength(f.data, 'utf8'), 0);
   let bodyBytes = 0;
-  const sheetRows = [];
-  for (let ri = 0; ri < rows.length + 1; ri++) {
-    const row = ri === 0 ? columns : rows[ri - 1];
-    const cells = [];
-    let rowBytes = Buffer.byteLength('<row r="' + (ri + 1) + '"></row>', 'utf8');
-    for (let ci = 0; ci < row.length; ci++) {
-      const serialized = cell(row[ci], colName(ci + 1) + (ri + 1));
-      rowBytes += Buffer.byteLength(serialized, 'utf8');
-      if (staticBytes + bodyBytes + rowBytes > maxBytes) {
-        throw new Error('XLSX file too large: serialized table exceeds ' + maxBytes + ' bytes');
+  const worksheetFiles = normalized.map((sheet, sheetIndex) => {
+    const sheetRows = [];
+    for (let ri = 0; ri < sheet.rows.length + 1; ri++) {
+      const row = ri === 0 ? sheet.columns : sheet.rows[ri - 1], cells = [];
+      let rowBytes = Buffer.byteLength('<row r="' + (ri + 1) + '"></row>', 'utf8');
+      for (let ci = 0; ci < row.length; ci++) {
+        const serialized = cell(row[ci], colName(ci + 1) + (ri + 1));
+        rowBytes += Buffer.byteLength(serialized, 'utf8');
+        if (staticBytes + bodyBytes + rowBytes > maxBytes) throw new Error('XLSX file too large: serialized workbook exceeds ' + maxBytes + ' bytes');
+        cells.push(serialized);
       }
-      cells.push(serialized);
+      bodyBytes += rowBytes;
+      sheetRows.push('<row r="' + (ri + 1) + '">' + cells.join('') + '</row>');
     }
-    bodyBytes += rowBytes;
-    sheetRows.push('<row r="' + (ri + 1) + '">' + cells.join('') + '</row>');
-  }
-  const files = staticFiles.slice(0, 4).concat({
-    name: names[4], data: sheetPrefix + sheetRows.join('') + sheetSuffix
+    return { name: worksheetNames[sheetIndex], data: sheetParts[sheetIndex].prefix + sheetRows.join('') + sheetParts[sheetIndex].suffix };
   });
+  const files = staticFiles.concat(worksheetFiles);
   const out = zipStore(files);
   if (out.length > maxBytes) throw new Error('XLSX file too large (' + out.length + ' > ' + maxBytes + ' bytes)');
   return out;
 }
 
-module.exports = { createXlsxTable, _internals: { crc32, zipStore, colName } };
+function createXlsxTable(columns, rows, maxBytes, options) {
+  options = options || {};
+  if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'sheetName')) throw new Error('XLSX options contain unsupported fields');
+  return createXlsxWorkbook([{ sheetName: options.sheetName === undefined ? 'Data' : options.sheetName, columns, rows }], maxBytes);
+}
+
+module.exports = { createXlsxTable, createXlsxWorkbook, _internals: { crc32, zipStore, colName } };

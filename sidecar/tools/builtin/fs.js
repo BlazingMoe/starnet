@@ -23,7 +23,7 @@
   const { StringDecoder } = require('node:string_decoder');
   const { createCsvProfiler } = require('./csv-profile.js');
   const { runTablePipeline } = require('./table-operation.js');
-  const { createXlsxTable } = require('./xlsx-table.js');
+  const { createXlsxTable, createXlsxWorkbook } = require('./xlsx-table.js');
   const { createDocxReport } = require('./docx-report.js');
   const { note: failNote } = require('../../failopen.js');
 
@@ -471,20 +471,28 @@
     // parts, and serializes every string as inlineStr so formula-looking text remains inert.
     const writeXlsxTool = {
       name: 'fs.write_xlsx', capability: 'cabinet', scope: 'write', requiresConsent: true, timeoutMs: 10000,
-      description: 'Write a bounded simple XLSX table to the current project or private workspace. Supply column names, rows of cells (string, finite number, boolean, or null), and optionally a valid 1-31 character Excel sheetName. The header row is frozen and filterable. Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows, 64 columns, 64000 total cells, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
-      schema: { type: 'object', required: ['path', 'columns', 'rows'], properties: {
+      description: 'Write a bounded simple XLSX workbook to the current project or private workspace. Use legacy columns/rows with an optional sheetName for one table, or supply 1-8 sheets with a unique valid 1-31 character sheetName plus columns and rows each. Every header row is frozen and filterable. Strings, including formula-looking strings, are stored as inert inline text; numbers and booleans keep their cell types. Maximum 1000 rows and 64 columns per sheet, 64000 total cells across the workbook including headers, 8192 characters per text cell, and the configured write byte limit. No formulas, macros, external links, styles or charts. Uses the consent-gated verified filesystem write and returns its byte receipt.',
+      schema: { type: 'object', required: ['path'], properties: {
         path: { type: 'string' }, sheetName: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
-        rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+        rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } },
+        sheets: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'object', required: ['sheetName','columns','rows'], properties: {
+          sheetName: { type: 'string' }, columns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 64 },
+          rows: { type: 'array', maxItems: 1000, items: { type: 'array', minItems: 1, maxItems: 64, items: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'null' }] } } }
+        }, additionalProperties: false } }
       }, additionalProperties: false },
       run: async (args, ctx) => {
         if (!args || typeof args.path !== 'string' || !args.path.trim()) throw new Error('path must be a non-empty string');
         if (!/\.xlsx$/i.test(args.path)) throw new Error('path must end in .xlsx');
-        const data = createXlsxTable(args.columns, args.rows, WRITE_BYTES, { sheetName: args.sheetName });
+        const multi = args.sheets !== undefined;
+        if (multi && (args.sheetName !== undefined || args.columns !== undefined || args.rows !== undefined)) throw new Error('sheets cannot be combined with sheetName, columns, or rows');
+        if (!multi && (args.columns === undefined || args.rows === undefined)) throw new Error('columns and rows are required when sheets is not supplied');
+        const data = multi ? createXlsxWorkbook(args.sheets, WRITE_BYTES) : createXlsxTable(args.columns, args.rows, WRITE_BYTES, { sheetName: args.sheetName });
+        const exportedSheets = multi ? args.sheets : [{ sheetName: args.sheetName === undefined ? 'Data' : args.sheetName, columns: args.columns, rows: args.rows }];
         const writeArgs = { path: args.path };
         writeArgs[WRITE_BUFFER] = data;
         const written = await writeTool.run(writeArgs, ctx);
         return Object.assign({}, written, {
-          content: 'Structured XLSX: sheet ' + JSON.stringify(args.sheetName === undefined ? 'Data' : args.sheetName) + ', ' + args.columns.length + ' columns, ' + args.rows.length + ' data rows. The header is frozen and filterable; strings are inert inline text and no formulas were written.\n' + written.content,
+          content: 'Structured XLSX: ' + exportedSheets.length + ' sheet(s), ' + exportedSheets.reduce((n, sheet) => n + sheet.rows.length, 0) + ' total data rows. Every header is frozen and filterable; strings are inert inline text and no formulas were written. Sheet names: ' + exportedSheets.map(sheet => JSON.stringify(sheet.sheetName)).join(', ') + '.\n' + written.content,
           summary: 'wrote XLSX ' + args.path + ' (' + kb(data.length) + ')'
         });
       }
