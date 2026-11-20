@@ -20,6 +20,18 @@
       service: 'Sorgfältige Arbeiten rund ums Zuhause – vom ersten Gespräch bis zum Abschluss',
       items: [['Reparaturen', 'Kleine Ausbesserungen und praktische Verbesserungen.', 'Angebot anfragen'], ['Holz & Einbau', 'Regale, Leisten und passende Details nach Maß.', 'Angebot anfragen'], ['Erneuerung', 'Eine stimmige Auffrischung für Raum oder Eingangsbereich.', 'Angebot anfragen']],
       phases: [['01', 'Aufmaß', 'Der fiktive Ablauf beginnt mit einem klar abgegrenzten Musterbedarf.'], ['02', 'Planung', 'Raster und Maße ordnen die Idee in nachvollziehbare Schritte.'], ['03', 'Umsetzung', 'Die abstrakte Konstruktion fügt sich kontrolliert zu einem Ganzen.'], ['04', 'Übergabe', 'Der Abschluss hält offene Punkte und den nächsten Musterschritt sichtbar.']]
+    },
+    hospitality: {
+      label: 'Café & Küche', name: 'Mohn & Morgen', tagline: 'Ein Tisch. Ein Moment. Ganz in Ruhe.',
+      service: 'Ein warmes, übersichtliches Gastronomie-Konzept mit erfundenem Angebot',
+      items: [['Früher Tisch', 'Ein fiktiver Start mit kleinen, saisonal gedachten Mustergerichten.', 'Musterkarte'], ['Mittagszeit', 'Eine kurze Beispielauswahl für einen klaren Tagesrhythmus.', 'Musterkarte'], ['Kaffee & Gebäck', 'Erfundene Begleiter für einen ruhigen Nachmittag.', 'Musterkarte']],
+      phases: [['01', 'Ankommen', 'Farbe, Raum und Rhythmus öffnen die fiktive Atmosphäre.'], ['02', 'Auswählen', 'Die Musterkarte ordnet wenige klare Möglichkeiten statt Überfluss.'], ['03', 'Genießen', 'Formen und Wärme verdichten sich zu einem eigenständigen Moment.'], ['04', 'Wiederkommen', 'Der Abschluss führt ohne echte Reservierung zurück zu den Informationen.']]
+    },
+    creative: {
+      label: 'Kreativstudio', name: 'Formfalter Studio', tagline: 'Ideen bekommen eine klare Form.',
+      service: 'Ein präzises, eigenständiges Muster für kreative Projektarbeit',
+      items: [['Richtung', 'Ein erfundener Startpunkt für Positionierung und visuelle Sprache.', 'Projekt anfragen'], ['System', 'Beispielhafte Bausteine für konsistente digitale Anwendungen.', 'Projekt anfragen'], ['Übergabe', 'Ein Muster für geordnete Dateien, Regeln und nächste Schritte.', 'Projekt anfragen']],
+      phases: [['01', 'Entdecken', 'Ein fiktiver Projektkern wird aus Kontext und Ziel herausgeschält.'], ['02', 'Verdichten', 'Typografie, Farbe und Raster finden eine gemeinsame Richtung.'], ['03', 'Systematisieren', 'Aus einzelnen Formen entsteht ein wiederverwendbares Muster.'], ['04', 'Übergeben', 'Die Erzählung endet bei einem klaren, überprüfbaren Ergebnis.']]
     }
   });
   function text(value, fallback, limit) {
@@ -32,7 +44,7 @@
     input = input || {};
     if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['industry', 'businessName', 'tagline', 'location', 'presentation'].includes(key))) throw new Error('Unsupported demo input');
     const industry = input.industry;
-    if (!Object.prototype.hasOwnProperty.call(INDUSTRIES, industry)) throw new Error('Choose salon or trades');
+    if (!Object.prototype.hasOwnProperty.call(INDUSTRIES, industry)) throw new Error('Choose a supported fictional industry');
     const base = INDUSTRIES[industry];
     const name = escapeHtml(text(input.businessName, base.name, MAX_NAME));
     const tagline = escapeHtml(text(input.tagline, base.tagline, MAX_TAGLINE));
@@ -67,12 +79,12 @@ ${motionProgress}${motionStory}
     return { files: { 'index.html': html, 'README.md': readme }, industry, presentation, limits: { externalRequests: false, submission: false, storage: false, motion: premium ? 'progressive-local' : 'none' } };
   }
   const schema = { type: 'object', required: ['industry'], properties: {
-    industry: { type: 'string', enum: ['salon', 'trades'] },
+    industry: { type: 'string', enum: ['salon', 'trades', 'hospitality', 'creative'] },
     businessName: { type: 'string', maxLength: MAX_NAME }, tagline: { type: 'string', maxLength: MAX_TAGLINE }, location: { type: 'string', maxLength: MAX_LOCATION },
     presentation: { type: 'string', enum: ['editorial', 'premium-motion'] }
   }, additionalProperties: false };
   const tool = { name: 'website.demo.generate', capability: 'cabinet', scope: 'read', requiresConsent: false, timeoutMs: 5000,
-    description: 'Generate a bounded standalone fictional salon or home-services website demo and provenance README, optionally with progressive local premium motion. Pure: no filesystem, network, storage, or submission. Returns fixed filenames index.html and README.md; use normal consent-gated fs.write for each file and fs.read for readback.', schema,
+    description: 'Generate a bounded standalone fictional salon, home-services, hospitality, or creative-studio website demo and provenance README, optionally with progressive local premium motion. Pure: no filesystem, network, storage, or submission. Returns fixed filenames index.html and README.md; use normal consent-gated fs.write for each file and fs.read for readback.', schema,
     run: async args => ({ content: JSON.stringify(generate(args)), summary: 'Fictional website demo generated; no files written' }) };
   function makeWebsiteDemoTools() { return { tool, register(reg) { reg.register(tool); return reg; } }; }
   return { generate, makeWebsiteDemoTools, INDUSTRIES, _internals: { escapeHtml } };

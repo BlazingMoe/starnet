@@ -44,6 +44,12 @@ const events = require('../shared/events.js');
   A.ok(/Ohne JavaScript oder bei reduzierter Bewegung/.test(premium.files['README.md']), 'premium README documents the stable fallback');
   A.ok(!/https?:\/\//i.test(premiumHtml) && !/fetch\(|XMLHttpRequest|localStorage|sessionStorage/.test(premiumHtml), 'premium mode adds no external request or browser storage path');
   A.throws(() => Demo.generate({ industry: 'salon', presentation: 'cinematic' }), 'unknown presentation fails closed');
+  const hospitality = Demo.generate({ industry: 'hospitality', presentation: 'premium-motion' });
+  const creative = Demo.generate({ industry: 'creative', presentation: 'premium-motion' });
+  A.ok(/Mohn &amp; Morgen/.test(hospitality.files['index.html']) && /Ankommen/.test(hospitality.files['index.html']) && /Wiederkommen/.test(hospitality.files['index.html']), 'hospitality direction has its own invented identity and motion story');
+  A.ok(/Formfalter Studio/.test(creative.files['index.html']) && /Entdecken/.test(creative.files['index.html']) && /Systematisieren/.test(creative.files['index.html']), 'creative direction has its own invented identity and motion story');
+  A.ok(hospitality.files['index.html'] !== creative.files['index.html'], 'additional industries are distinct complete outputs rather than relabelled copies');
+  for (const pack of [hospitality, creative]) A.ok(!/https?:\/\//i.test(pack.files['index.html']) && /MUSTERIDENTITÄT/.test(pack.files['index.html']), 'every added direction remains local and visibly fictional');
   const mdInjection = Demo.generate({ industry: 'salon', businessName: 'Demo [link](https://example.test)' }).files['README.md'];
   A.ok(!/\]\(https?:\/\//.test(mdInjection), 'README escapes Markdown link input so fields cannot add external content');
 

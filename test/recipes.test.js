@@ -32,6 +32,7 @@ A.ok(chartIt && /visible zero baseline[\s\S]*do not use the tool for time-series
 A.ok(chartIt && /matching read-back-verified receipt[\s\S]*read both files back immediately/.test(chartIt.task), 'Chart It requires verified chart and caption read-back');
 const fictionalWebsite = builtins.find(r => r.id === 'fictional-website-demo');
 A.ok(fictionalWebsite && fictionalWebsite.params.some(p => p.key === 'presentation' && p.default === 'premium-motion'), 'fictional website demo exposes premium motion as an explicit presentation choice');
+A.eq(fictionalWebsite && fictionalWebsite.params.find(p => p.key === 'industry').options, ['salon', 'trades', 'hospitality', 'creative'], 'fictional website demo exposes four bounded original industry directions');
 A.eq(fictionalWebsite && fictionalWebsite.skills, ['premium-web-motion', 'web-design-quality', 'plan'], 'fictional website demo points to the premium motion and quality skills');
 A.ok(fictionalWebsite && /CSS\/SVG-Scroll-Erzählung[\s\S]*No-JavaScript-[\s\S]*Reduced-Motion-Fallback/.test(fictionalWebsite.task), 'premium website recipe requires a local progressive fallback');
 A.ok(fictionalWebsite && /fs\.write[\s\S]*fs\.read[\s\S]*nicht veröffentlichen/.test(fictionalWebsite.task), 'premium website export preserves verified write/readback and no-publication boundaries');

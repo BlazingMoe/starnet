@@ -194,7 +194,7 @@
       blurb: 'Erstellt ein eigenständiges, klar fiktives Demo für lokale Dienste mit simuliertem Formular und verifiziertem Export.',
       tags: { general: 0.6, code: 0.4 },
       params: [
-        { key: 'industry', label: 'Demo-Branche', type: 'choice', options: ['salon', 'trades'], default: 'salon' },
+        { key: 'industry', label: 'Demo-Branche', type: 'choice', options: ['salon', 'trades', 'hospitality', 'creative'], default: 'salon' },
         { key: 'presentation', label: 'Darstellung', type: 'choice', options: ['premium-motion', 'editorial'], default: 'premium-motion' },
         { key: 'businessName', label: 'Erfundener Geschäftsname', placeholder: 'freiwillig; leer lassen für den Vorlagen-Namen', required: false, default: '' },
         { key: 'tagline', label: 'Erfundener kurzer Leitsatz', placeholder: 'freiwillig; leer lassen für den Vorlagen-Text', required: false, default: '' },
