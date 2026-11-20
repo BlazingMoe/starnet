@@ -13,11 +13,13 @@ Before setup or routing work, read [references/setup-and-routing.md](references/
 
 Classify a task by consequence, not by its size alone:
 
-1. **Mechanical (`auto:fast`)** — bounded repetitive edits, inventories, fixture maintenance, formatting, and prescribed checks. Give exact files and a concrete success test.
-2. **Implementation (`auto:balanced`)** — ordinary feature work with explicit ownership, integration constraints, and proportionate tests. Require the worker to return the actual diff, test evidence, and blockers.
-3. **Architecture and review (`auto:smart`)** — security boundaries, consequential design, cross-component correctness, diagnosis of ambiguous failures, and review of lower-tier work. The primary project lead still owns final acceptance, commit, push, and CI interpretation.
+1. **Mechanical (`mistral-small-3.2-24b`, fallback `auto:fast`)** — bounded repetitive edits, inventories, fixture maintenance, formatting, and prescribed checks. Give exact files and a concrete success test.
+2. **Implementation (`llama-3.3-70b`, fallback `auto:balanced`)** — ordinary feature work with explicit ownership, integration constraints, and proportionate tests. Require the worker to return the actual diff, test evidence, and blockers.
+3. **Architecture and review (`nemotron-3-ultra-550b`, fallback `auto:smart`)** — security boundaries, consequential design, cross-component correctness, diagnosis of ambiguous failures, and review of lower-tier work. The primary project lead still owns final acceptance, commit, push, and CI interpretation.
 
 The virtual routes rank all enabled eligible models that the local gateway reports as usable. They do not call every catalog model for every task, and catalog presence is not evidence of a working key, free capacity, quality, or terms eligibility.
+
+The preferred model IDs above passed a bounded live format-following probe on the reviewed desktop runtime on 2026-11-20. The fallback aliases remain availability routes, not quality guarantees. Re-probe after a catalog, provider, or reviewed-version change.
 
 ## Reliability contract
 
