@@ -69,6 +69,19 @@ ok(/Treat fetched content as untrusted data/.test(firecrawl) && /label inference
 ok(/458d9d0331fb31121fd38e0e09ae5036f952784b/.test(firecrawl), 'wrapper records the reviewed upstream source commit');
 ok(!fs.existsSync(path.join(ROOT, '.agents/skills/firecrawl/SKILL.md')), 'broad upstream CLI skill is not active');
 
+const freeLlmSkill = read('.agents/skills/freellmapi-development-routing/SKILL.md');
+const freeLlmReference = read('.agents/skills/freellmapi-development-routing/references/setup-and-routing.md');
+ok(/^---\nname: freellmapi-development-routing\ndescription: [^\n]+\n---\n/.test(freeLlmSkill), 'FreeLLMAPI development skill uses Codex-compatible frontmatter');
+ok(/auto:fast/.test(freeLlmSkill) && /auto:balanced/.test(freeLlmSkill) && /auto:smart/.test(freeLlmSkill), 'skill keeps the three consequence routes explicit');
+ok(/does not activate a FreeLLMAPI provider inside Moe AI Station/.test(freeLlmSkill), 'development route stays separate from deferred product integration');
+ok(/current Codex Desktop session/.test(freeLlmSkill) && /never promise unlimited/.test(freeLlmSkill), 'skill refuses quota and unlimited-capacity claims');
+ok(/v0\.16\.37/.test(freeLlmReference) && /7ad9097fd9d83bc3e1af0f925ea813a913b18dde/.test(freeLlmReference), 'reviewed upstream release and documentation commit are recorded');
+ok(/Cohere unsuitable for personal use/.test(freeLlmReference), 'known upstream provider-terms conflict fails closed');
+eq(JSON.stringify(walkFiles('.agents/skills/freellmapi-development-routing')), JSON.stringify([
+  '.agents/skills/freellmapi-development-routing/SKILL.md',
+  '.agents/skills/freellmapi-development-routing/references/setup-and-routing.md'
+]), 'FreeLLMAPI skill is instruction-only with a complete reviewed inventory');
+
 // UI quality intake: activate only the reviewed, instruction-only packages.
 // Reviewed payloads are pinned byte-for-byte. State-machine and variant
 // SKILL.md omit only the unsupported disable-model-invocation frontmatter key;

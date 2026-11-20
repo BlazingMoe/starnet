@@ -140,6 +140,8 @@
     "qa:soak:release": "node scripts/qa/soak.mjs --minutes=720",
     "qa:soak:scale": "node scripts/qa/soak.mjs --minutes=10 --routines=50 --max-parallel=8 --restart-every=4 --outage-seconds=150",
     "certify:providers": "node scripts/provider-certify.mjs",
+    "freellmapi:plan": "node scripts/freellmapi-development.mjs --json",
+    "freellmapi:check": "node scripts/freellmapi-development.mjs --probe --json",
     "serve": "node scripts/serve-ui-only.js",
     "serve:ui-only": "node scripts/serve-ui-only.js",
     "tauri": "tauri",
