@@ -156,6 +156,17 @@ const { makeSkillPrefs } = require('../sidecar/skills/prefs.js');
   A.ok(/Only when explicitly requested/.test(by['product-interface-quality'].body) && /prevent live requests or account mutations/.test(by['product-interface-quality'].body) && /only after their choice/.test(by['product-interface-quality'].body), 'state and variant work requires a request, mock isolation and a user choice');
   A.ok(/read-only unless fixes were requested/.test(by['interface-content-quality'].body) && /Do not fetch refs/.test(by['interface-content-quality'].body) && /not reviewed from not verified/.test(by['interface-content-quality'].body), 'local review preserves scope, coverage and external authority boundaries');
 
+  const premiumMotion = by['premium-web-motion'];
+  A.ok(premiumMotion, 'premium web motion is discovered from the bundled library');
+  A.eq(premiumMotion.requires, ['cabinet'], 'premium web motion uses the existing verified website export capability');
+  A.eq(premiumMotion.default, false, 'premium web motion remains opt-in');
+  A.ok(!C.isAvailable(premiumMotion, []) && C.isAvailable(premiumMotion, ['cabinet']), 'premium web motion is unavailable without its cabinet capability');
+  A.ok(premiumMotion.body.length < 4500, 'premium web motion stays a compact native adapter');
+  A.ok(/one deterministic local `0\.\.1`/.test(premiumMotion.body) && /prefers-reduced-motion/.test(premiumMotion.body) && /Reverse scroll/.test(premiumMotion.body), 'premium web motion requires deterministic reversible accessible scenes');
+  A.ok(/no browser, network, package-install/.test(premiumMotion.body) && /do not publish, deploy, contact anyone/.test(premiumMotion.body), 'premium web motion grants no new external authority');
+  A.eq(C.compose([premiumMotion], { overrides: {}, placedTypes: ['cabinet'] }), '', 'opt-in premium motion spends no prompt budget by default');
+  A.ok(C.compose([premiumMotion], { overrides: { 'premium-web-motion': true }, placedTypes: ['cabinet'] }).includes(premiumMotion.body), 'enabled premium motion composes intact with the required capability');
+
   // budget invariant: with the FULL expanded catalog default-on AND every object placed, compose HONORS the 12k
   // budget — it omit-flags the overflow instead of silently truncating (the growth from 9->28 recipes is exactly
   // why almost every port ships default:false; forcing them ALL on must degrade gracefully, never blow the window).
