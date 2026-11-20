@@ -74,7 +74,7 @@ const freeLlmReference = read('.agents/skills/freellmapi-development-routing/ref
 ok(/^---\nname: freellmapi-development-routing\ndescription: [^\n]+\n---\n/.test(freeLlmSkill), 'FreeLLMAPI development skill uses Codex-compatible frontmatter');
 ok(/auto:fast/.test(freeLlmSkill) && /auto:balanced/.test(freeLlmSkill) && /auto:smart/.test(freeLlmSkill), 'skill keeps the three consequence routes explicit');
 ok(/does not activate a FreeLLMAPI provider inside Moe AI Station/.test(freeLlmSkill), 'development route stays separate from deferred product integration');
-ok(/current Codex Desktop session/.test(freeLlmSkill) && /never promise unlimited/.test(freeLlmSkill), 'skill refuses quota and unlimited-capacity claims');
+ok(/current Codex Desktop session/.test(freeLlmSkill) && /never promise unlimited/i.test(freeLlmSkill), 'skill refuses quota and unlimited-capacity claims');
 ok(/v0\.16\.37/.test(freeLlmReference) && /7ad9097fd9d83bc3e1af0f925ea813a913b18dde/.test(freeLlmReference), 'reviewed upstream release and documentation commit are recorded');
 ok(/Cohere unsuitable for personal use/.test(freeLlmReference), 'known upstream provider-terms conflict fails closed');
 eq(JSON.stringify(walkFiles('.agents/skills/freellmapi-development-routing')), JSON.stringify([
