@@ -97,7 +97,7 @@ A.ok(prSweep.includes('list_pull_requests') && prSweep.includes('pull_request_re
 A.ok(prSweep.includes('method=get_status') && prSweep.includes('method=get_check_runs') && prSweep.includes('combined commit status') && prSweep.includes('individual check runs'), 'PR Sweep requests bounded status and check evidence without conflating the two');
 A.ok(prSweep.includes('Require the catalog connector named GitHub (read-only)') && prSweep.includes('Connectors catalog') && prSweep.includes('Never substitute the full-access GitHub connector'), 'PR Sweep requires the read-only connector and explains setup instead of falling back to full access');
 A.ok(prSweep.includes('Use only list_pull_requests and pull_request_read'), 'PR Sweep limits remote calls to the required read tools');
-A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && prSweep.includes('read both back'), 'PR Sweep saves and verifies local review artifacts');
+A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && /read both(?: files)? back/i.test(prSweep), 'PR Sweep saves and verifies local review artifacts');
 A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
 A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
 A.ok(prSweep.includes('get_files with page=1') && prSweep.includes('get_check_runs with page=1') && prSweep.includes('perPage no greater than 50'), 'PR Sweep explicitly bounds paged detail and check reads');
