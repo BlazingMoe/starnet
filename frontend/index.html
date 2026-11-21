@@ -199,6 +199,7 @@
                 <button class="prov tail" data-prov="fireworks" aria-pressed="false">FIREWORKS</button>
                 <button class="prov tail" data-prov="perplexity" aria-pressed="false">PERPLEXITY</button>
                 <button class="prov tail" data-prov="cerebras" aria-pressed="false">CEREBRAS</button>
+                <button class="prov prov-free tail" data-prov="freellmapi" aria-pressed="false">FREELLMAPI <span class="prov-tag">LOCAL GATEWAY</span></button>
                 <button class="prov tail" data-prov="custom" aria-pressed="false">CUSTOM</button>
                 <!-- label is COMPUTED by setProviderRowExpanded() from the live .prov.tail count — never hardcoded -->
                 <button type="button" id="prov-more" class="prov-more" aria-expanded="false">＋ MORE</button>
@@ -211,6 +212,13 @@
 
             <div id="base-url-block" class="hidden">
               <input id="in-base-url" type="text" placeholder="https://your-host.example/v1" autocomplete="off" spellcheck="false">
+            </div>
+
+            <div id="freellmapi-block" class="hidden">
+              <div class="codex-signin">
+                <div class="codex-status">LOCAL GATEWAY · EXTERNAL ROUTING POSSIBLE</div>
+                <div class="dim hint">StarNet sends prompts only to FreeLLMAPI on this computer, but FreeLLMAPI may forward them to external model providers. Do not send secrets or private data. Free access, model availability and upstream cost are not guaranteed. Selecting this provider and saving its unified key is explicit opt-in; switch provider or clear the key to disconnect.</div>
+              </div>
             </div>
 
             <div id="codex-block" class="hidden">

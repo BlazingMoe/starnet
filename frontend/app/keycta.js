@@ -23,6 +23,7 @@ const KeyCTA = (() => {
     if (p === 'codex' || p === 'openai-codex') return 'codex';
     if (p === 'grok' || p === 'grok-oauth' || p === 'supergrok') return 'grok';
     if (p === 'kimi' || p === 'moonshot' || p === 'kimi-for-coding') return 'kimi';
+    if (p === 'freellmapi' || p === 'free-llm-api' || p === 'free-llm-api-local') return 'freellmapi';
     if (p === 'ollama' || p === 'ollama-local') return 'ollama';
     if (p === 'custom' || p === 'openai-compatible' || p === 'local' || p === 'vllm' || p === 'lmstudio') return 'custom';
     return p;

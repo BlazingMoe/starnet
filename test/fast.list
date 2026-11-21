@@ -741,6 +741,7 @@ test/free-path-ollama.test.js
 test/process-fault.test.js
 test/tier-model-catalog.test.js
 test/freellmapi-development.test.js
+test/freellmapi-provider.test.js
 test/crash-ledger.test.js
 test/workview.test.js
 test/direct-work-launch.test.js

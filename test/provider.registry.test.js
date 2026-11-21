@@ -17,9 +17,11 @@ module.exports = (async () => {
   A.ok(ids.indexOf('kimi') >= 0, 'kimi (OAuth) is registered');
   A.ok(ids.indexOf('ollama') >= 0, 'ollama is registered');
   A.ok(ids.indexOf('custom') >= 0, 'custom is registered');
+  A.ok(ids.indexOf('freellmapi') >= 0, 'FreeLLMAPI is registered');
 
   A.eq(factory.normalizeProviderId('openai-codex', ''), 'codex', 'codex alias normalizes');
   A.eq(factory.normalizeProviderId('openai-compatible', ''), 'custom', 'custom alias normalizes');
+  A.eq(factory.normalizeProviderId('free-llm-api', ''), 'freellmapi', 'FreeLLMAPI alias normalizes');
   A.eq(factory.normalizeProviderId('claude', ''), 'anthropic', 'anthropic alias normalizes');
   A.eq(factory.normalizeProviderId('google-ai', ''), 'gemini', 'gemini alias normalizes');
   // 'grok' is now the OAuth (subscription) Grok id; the API-key Grok keeps 'x-ai'/'xai'.
@@ -41,6 +43,7 @@ module.exports = (async () => {
     A.eq(factory.providerRequiresKey(id), true, id + ' requires a key');
   });
   A.eq(factory.providerRequiresKey('ollama'), false, 'ollama is keyless');
+  A.eq(factory.providerRequiresKey('freellmapi'), true, 'FreeLLMAPI requires its unified key');
   A.eq(factory.providerRequiresBaseUrl('custom'), true, 'custom requires a base URL');
 
   const profiles = factory.listProviderProfiles();
@@ -54,9 +57,19 @@ module.exports = (async () => {
   A.ok(together && together.baseUrl === 'https://api.together.ai/v1', 'Together profile uses its current official base URL');
   const perplexity = profiles.find(p => p.id === 'perplexity');
   A.ok(perplexity && perplexity.baseUrl === 'https://api.perplexity.ai', 'Perplexity profile uses Sonar base URL');
+  const freeLlmApi = profiles.find(p => p.id === 'freellmapi');
+  A.ok(freeLlmApi && freeLlmApi.baseUrl === 'http://127.0.0.1:31415/v1', 'FreeLLMAPI is pinned to its loopback endpoint');
+  A.eq(freeLlmApi.lockedBaseUrl, true, 'FreeLLMAPI public profile exposes the endpoint lock');
+  A.eq(freeLlmApi.unmetered, false, 'FreeLLMAPI stays metered-but-unpriced because an upstream may charge');
 
   const p = factory.selectProvider({ provider: 'ollama', fetch: async () => new Response(JSON.stringify({ data: [] }), { status: 200 }) });
   A.ok(p && typeof p.stream === 'function' && typeof p.listModels === 'function', 'factory returns an adapter for OpenAI-compatible profiles');
+  const freeLocal = factory.selectProvider({ provider: 'freellmapi', key: 'unified-test-key', fetch: async () => new Response(JSON.stringify({ data: [] }), { status: 200 }) });
+  A.ok(freeLocal && typeof freeLocal.stream === 'function' && typeof freeLocal.listModels === 'function', 'factory returns the shared adapter for FreeLLMAPI');
+  let freeOverrideError = null;
+  try { factory.selectProvider({ provider: 'freellmapi', key: 'K', baseUrl: 'https://example.invalid/v1', fetch: async () => new Response('', { status: 200 }) }); }
+  catch (e) { freeOverrideError = e; }
+  A.ok(freeOverrideError && /fixed local endpoint/i.test(String(freeOverrideError.message)), 'FreeLLMAPI rejects base URL overrides');
   for (const id of ['xai', 'groq', 'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras']) {
     const hosted = factory.selectProvider({ provider: id, fetch: async () => new Response(JSON.stringify({ data: [] }), { status: 200 }) });
     A.ok(hosted && typeof hosted.stream === 'function' && typeof hosted.listModels === 'function', 'factory returns OpenAI-compatible adapter for ' + id);

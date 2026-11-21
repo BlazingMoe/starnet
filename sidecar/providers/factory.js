@@ -43,13 +43,19 @@
     const profile = registry.getProviderProfile(id);
     if (!profile) throw new Error('unknown provider: ' + (opts.provider || ''));
     if (rateLimits && typeof opts.fetch === 'function') opts = Object.assign({}, opts, { fetch: rateLimits.wrapFetch(id, opts.fetch) });
+    const canonicalBase = String(profile.baseUrl || '').replace(/\/+$/, '');
+    const requestedBase = String(opts.baseUrl || '').replace(/\/+$/, '');
+    if (profile.lockedBaseUrl && requestedBase && requestedBase !== canonicalBase) {
+      throw new Error('provider ' + id + ' uses a fixed local endpoint; base URL overrides are not allowed');
+    }
+    const baseUrl = profile.lockedBaseUrl ? profile.baseUrl : (opts.baseUrl || profile.baseUrl);
 
     if (profile.adapter === 'codex') {
       return codex.makeCodexProvider({
         fetch: opts.fetch,
         token: opts.token,
         renewToken: opts.renewToken,   // optional 401-recovery seam — the host's force-refresh (see codex.js header)
-        baseUrl: opts.baseUrl || profile.baseUrl,
+        baseUrl: baseUrl,
         reasoningEffort: opts.reasoningEffort
       });
     }
@@ -58,7 +64,7 @@
         fetch: opts.fetch,
         clock: opts.clock,
         key: opts.key,
-        baseUrl: opts.baseUrl || profile.baseUrl,
+        baseUrl: baseUrl,
         referer: opts.referer,
         reasoningEffort: opts.reasoningEffort
       });
@@ -72,7 +78,7 @@
       // which silently rerouted an unlinked starnet run — credential included — to OpenAI and produced that
       // vendor's "invalid model ID"; 2026-08-25 stranded-user incident). Refuse HERE, where the provider id
       // is known, so the error names the actual remedy instead of a generic construction failure.
-      if (!(opts.baseUrl || profile.baseUrl)) {
+      if (!baseUrl) {
         throw new Error(id === 'starnet'
           ? 'STARNET is not linked on this station — link it in SETTINGS to run on credits (relink if you recently unlinked or reinstalled)'
           : 'provider ' + id + ' has no endpoint configured (base URL missing)');
@@ -88,7 +94,7 @@
         // openai-compatible providers keep the generic label (their recovery door is the key field either way).
         label: isDeviceOAuth ? (profile.name || profile.id) : undefined,
         key: isDeviceOAuth ? (opts.token || opts.key) : opts.key,
-        baseUrl: opts.baseUrl || profile.baseUrl,
+        baseUrl: baseUrl,
         chatPath: profile.chatPath,
         modelsPath: profile.modelsPath,
         reasoningEffort: opts.reasoningEffort,
@@ -113,7 +119,7 @@
         fetch: opts.fetch,
         clock: opts.clock,
         key: opts.key,
-        baseUrl: opts.baseUrl || profile.baseUrl,
+        baseUrl: baseUrl,
         reasoningEffort: opts.reasoningEffort
       });
     }
@@ -122,7 +128,7 @@
         fetch: opts.fetch,
         clock: opts.clock,
         key: opts.key,
-        baseUrl: opts.baseUrl || profile.baseUrl,
+        baseUrl: baseUrl,
         reasoningEffort: opts.reasoningEffort
       });
     }

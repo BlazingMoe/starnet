@@ -4060,6 +4060,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { id: 'fireworks',     name: 'FIREWORKS',         endpoint: 'api.fireworks.ai/inference/v1', blurb: 'Fireworks API', live: true },
     { id: 'perplexity',    name: 'PERPLEXITY',        endpoint: 'api.perplexity.ai',          blurb: 'Sonar API', live: true },
     { id: 'cerebras',      name: 'CEREBRAS',          endpoint: 'api.cerebras.ai/v1',         blurb: 'Cerebras API', live: true },
+    { id: 'freellmapi',    name: 'FREELLMAPI',        endpoint: '127.0.0.1:31415/v1',         blurb: 'local gateway · external routing possible', live: true },
     { id: 'ollama',        name: 'OLLAMA',            endpoint: '127.0.0.1:11434/v1',         blurb: 'local models', live: true },
     { id: 'custom',        name: 'CUSTOM',            endpoint: 'any /v1 base URL',           blurb: 'bring your endpoint', live: true }
   ];
@@ -4265,7 +4266,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const h = H(); if (!h) return;
     for (const p of PROVIDERS) {
       const credentialSaved = !!(h.hasStoredCredential && h.hasStoredCredential(p.id));
-      const endpointConfigured = p.id === 'ollama' || (p.id === 'custom' && !!(h.getBaseUrl && h.getBaseUrl(p.id)));
+      const endpointConfigured = p.id === 'ollama' || p.id === 'freellmapi' || (p.id === 'custom' && !!(h.getBaseUrl && h.getBaseUrl(p.id)));
       if ((credentialSaved || endpointConfigured || p.id === activeProv()) && providerHealth[p.id] === undefined) refreshProviderHealth(p.id);
     }
   }
@@ -4338,7 +4339,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const codexDead = isOAuthProvider(p.id) && oauthExpiredFor(p.id);
       const h = H();
       const credentialSaved = isOAuthProvider(p.id) ? (ks.length > 0 && !codexDead) : !!(h && h.hasStoredCredential && h.hasStoredCredential(p.id));
-      const endpointConfigured = p.id === 'ollama' || (p.id === 'custom' && !!(h && h.getBaseUrl && h.getBaseUrl(p.id)));
+      const endpointConfigured = p.id === 'ollama' || p.id === 'freellmapi' || (p.id === 'custom' && !!(h && h.getBaseUrl && h.getBaseUrl(p.id)));
       const configured = credentialSaved || endpointConfigured;
       const health = providerHealth[p.id];
       // ACTIVE is reserved for a selected model whose endpoint and credential (when applicable) were proven by

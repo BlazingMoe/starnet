@@ -733,6 +733,7 @@ const App = (() => {
       fireworks: 'FIREWORKS',
       perplexity: 'PERPLEXITY',
       cerebras: 'CEREBRAS',
+      freellmapi: 'FREELLMAPI',
       starnet: 'STARNET MANAGED',
       ollama: 'OLLAMA',
       custom: 'CUSTOM'
@@ -757,6 +758,7 @@ const App = (() => {
     if (p === 'fireworks' || p === 'fireworks-ai') return 'fireworks';
     if (p === 'perplexity' || p === 'pplx' || p === 'sonar') return 'perplexity';
     if (p === 'cerebras') return 'cerebras';
+    if (p === 'freellmapi' || p === 'free-llm-api' || p === 'free-llm-api-local') return 'freellmapi';
     // managed credits — its bearer is the linked device token, never a key the user pastes
     if (p === 'starnet' || p === 'starnet-cloud' || p === 'managed') return 'starnet';
     if (p === 'ollama' || p === 'ollama-local') return 'ollama';
@@ -788,6 +790,7 @@ const App = (() => {
     if (p === 'fireworks') return 'Fireworks API key';
     if (p === 'perplexity') return 'pplx-...  -  perplexity.ai/settings/api';
     if (p === 'cerebras') return 'Cerebras API key';
+    if (p === 'freellmapi') return 'FreeLLMAPI unified key — local dashboard';
     if (p === 'custom') return 'optional API key for this endpoint';
     return 'sk-or-...  -  openrouter.ai/keys';
   }
@@ -807,6 +810,7 @@ const App = (() => {
       fireworks: 'https://fireworks.ai/account/api-keys',
       perplexity: 'https://www.perplexity.ai/settings/api',
       cerebras: 'https://cloud.cerebras.ai',
+      freellmapi: 'http://127.0.0.1:31415/keys',
       // not a key page: managed credits are obtained by LINKING a station in the STORE
       starnet: 'https://account.starnetos.com',
       openrouter: 'https://openrouter.ai/keys'
@@ -1500,6 +1504,7 @@ const App = (() => {
     fireworks: ['accounts/fireworks/models/deepseek-v3p1', 'accounts/fireworks/models/kimi-k2p5', 'accounts/fireworks/models/llama-v3p3-70b-instruct'],
     perplexity: ['sonar-pro', 'sonar', 'sonar-reasoning-pro'],
     cerebras: ['llama-4-scout-17b-16e-instruct', 'llama3.1-8b', 'qwen-3-coder-480b'],
+    freellmapi: ['auto:balanced'],
     ollama: ['llama3.1', 'qwen2.5-coder', 'mistral'],
     openrouter: ['gpt-5.5', 'anthropic/claude-sonnet-4.6', 'anthropic/claude-opus-4.8', 'openai/gpt-5', 'google/gemini-2.5-pro']
   });
@@ -1881,6 +1886,7 @@ const App = (() => {
     const isOAuth = isOAuthProviderId(pickedProvider);
     const keyBlock = el('key-block'), keyInput = el('in-key');
     const baseBlock = el('base-url-block'), baseInput = el('in-base-url');
+    const freeLlmBlock = el('freellmapi-block');
     const configured = !!(Harness.configured && Harness.configured(pickedProvider));
     keyBlock.classList.toggle('hidden', !providerUsesKeyBox(pickedProvider));
     if (keyInput) {
@@ -1888,6 +1894,7 @@ const App = (() => {
       keyInput.placeholder = providerKeyPlaceholder(pickedProvider, configured && !keyInput.value);
     }
     if (baseBlock) baseBlock.classList.toggle('hidden', !providerNeedsBaseUrl(pickedProvider));
+    if (freeLlmBlock) freeLlmBlock.classList.toggle('hidden', pickedProvider !== 'freellmapi');
     if (baseInput) {
       baseInput.value = (Harness.getBaseUrl && Harness.getBaseUrl(pickedProvider)) || '';
       baseInput.onchange = () => {

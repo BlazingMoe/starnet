@@ -307,6 +307,7 @@ const Harness = (() => {
     if (p === 'fireworks' || p === 'fireworks-ai') return 'fireworks';
     if (p === 'perplexity' || p === 'pplx' || p === 'sonar') return 'perplexity';
     if (p === 'cerebras') return 'cerebras';
+    if (p === 'freellmapi' || p === 'free-llm-api' || p === 'free-llm-api-local') return 'freellmapi';
     // managed credits — bearer is the linked device token (mirrors app.js + registry.js aliases)
     if (p === 'starnet' || p === 'starnet-cloud' || p === 'managed') return 'starnet';
     if (p === 'ollama' || p === 'ollama-local') return 'ollama';
@@ -617,7 +618,7 @@ const Harness = (() => {
     const p = normalizeProviderId(provider || getProv());
     const baseUrl = getBaseUrl(p) || '';
     const credentialSaved = hasStoredCredential(p);
-    const endpointConfigured = p === 'ollama' || (p === 'custom' && !!baseUrl);
+    const endpointConfigured = p === 'ollama' || p === 'freellmapi' || (p === 'custom' && !!baseUrl);
     const selected = p === getProv();
     const fallback = { provider: p, credentialSaved, endpointConfigured, reachable: false, catalogAvailable: false, credentialVerified: false, selected, error: 'station unreachable' };
     if (p === 'custom' && !endpointConfigured) return Object.assign({}, fallback, { error: 'endpoint not configured' });
