@@ -146,6 +146,24 @@ async function runCase(mode) {
         A.eq(rejectedReadExtra, true, 'both: non-paged detail methods reject extra pagination arguments');
         A.eq(rejectedPullNumber, true, 'both: invalid pull request numbers are rejected at dispatch');
         A.eq(connectorCalls.length, 0, 'both: rejected operations never reach the connector');
+
+        const budgeted = PrSweepPolicy.selectTools(manager, objects, allDefs);
+        const budgetList = budgeted.tools.find(d => d.name === 'mcp__github-readonly__list_pull_requests');
+        const budgetRead = budgeted.tools.find(d => d.name === 'mcp__github-readonly__pull_request_read');
+        await budgetList.run({ owner: 'acme', repo: 'app', state: 'open', page: 1, perPage: 10 });
+        await budgetRead.run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get' });
+        let rejectedSecondList = false, rejectedSecondCandidate = false, rejectedDuplicateMethod = false;
+        try { await budgetList.run({ owner: 'acme', repo: 'app', state: 'open', page: 1, perPage: 10 }); }
+        catch (_) { rejectedSecondList = true; }
+        try { await budgetRead.run({ owner: 'acme', repo: 'app', pullNumber: 18, method: 'get_diff' }); }
+        catch (_) { rejectedSecondCandidate = true; }
+        try { await budgetRead.run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get' }); }
+        catch (_) { rejectedDuplicateMethod = true; }
+        A.eq(rejectedSecondList, true, 'both: a run cannot repeat the bounded PR listing');
+        A.eq(rejectedSecondCandidate, true, 'both: a run cannot switch to a second PR after selecting its dossier candidate');
+        A.eq(rejectedDuplicateMethod, true, 'both: a run cannot repeat an evidence method');
+        A.eq(connectorCalls.length, 2, 'both: only the successful list and first candidate read reached the connector');
+        connectorCalls.length = 0;
       }
       A.ok(allDefs.some(d => /^mcp__github__/.test(d.name)) ? mode !== 'both' || githubDefs.every(d => !/^mcp__github__/.test(d.name)) : true, mode + ': full-access tools are excluded even when both connectors are configured');
       for (const def of githubDefs) registry.register(def, { provenance: 'connector' });
@@ -257,6 +275,12 @@ PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its metadata, file list,
     if (mode === 'diff-unavailable') {
       A.ok(/PARTIAL \/ UNVERIFIED/.test(report) && /diff request failed/.test(report), 'diff-error: report preserves the missing evidence rather than guessing');
       A.ok(/unknown/.test(csv), 'diff-error: CSV marks confidence unknown');
+      const beforeRetry = connectorCalls.length;
+      let rejectedDiffRetry = false;
+      try { await githubDefs.find(d => d.name === 'mcp__github-readonly__pull_request_read').run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_diff' }); }
+      catch (_) { rejectedDiffRetry = true; }
+      A.eq(rejectedDiffRetry, true, 'diff-error: a failed evidence call is preserved rather than retried');
+      A.eq(connectorCalls.length, beforeRetry, 'diff-error: rejected retry never reaches GitHub');
     }    A.ok(!seen.some(e => e.name === 'agent.run.error'), mode + ': no run-level failure');
     A.ok(githubDefs.every(d => /mcp__github-readonly__/.test(d.name)), mode + ': remote access stays in the MCP connector boundary');
     A.eq(connectorCalls.map(c => c.name), ['list_pull_requests', 'pull_request_read', 'pull_request_read', 'pull_request_read', 'pull_request_read', 'pull_request_read'], mode + ': connector dispatch performs only bounded list/detail/files/diff/status/check reads and no remote write');

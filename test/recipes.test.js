@@ -101,6 +101,7 @@ A.ok(prSweep.includes('review.md') && prSweep.includes('findings.csv') && /read 
 A.ok(prSweep.includes('fs.list') && prSweep.includes('unused run-specific subfolder') && prSweep.includes('never reuse or overwrite'), 'PR Sweep checks existing reports and requires a fresh folder');
 A.ok(prSweep.includes('page=1') && prSweep.includes('perPage=10') && prSweep.includes('do not call the result a complete sweep'), 'PR Sweep states its first-page limit instead of implying full coverage');
 A.ok(prSweep.includes('get_files with page=1') && prSweep.includes('get_check_runs with page=1') && prSweep.includes('perPage no greater than 50'), 'PR Sweep explicitly bounds paged detail and check reads');
+A.ok(prSweep.includes('call list_pull_requests exactly once') && prSweep.includes('single highest-risk candidate') && prSweep.includes('Attempt each evidence method only once'), 'PR Sweep declares its one-list, one-PR, one-attempt evidence budget');
 A.ok(prSweep.includes('PARTIAL/UNVERIFIED') && prSweep.includes('never comment, approve') && prSweep.includes('dispatch or rerun workflows') && prSweep.includes('modify GitHub'), 'PR Sweep preserves evidence limits and forbids remote mutations');
 A.ok(prSweep.includes('acme/app') && prSweep.includes('github-pr-review') && !/[{}](?:scope|workspace)/.test(prSweep), 'PR Sweep launch resolves repository and output-workspace inputs');
 

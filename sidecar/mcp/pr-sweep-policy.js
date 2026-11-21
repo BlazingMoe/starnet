@@ -59,6 +59,10 @@ function selectTools(connectors, objects, defs) {
   const ready = readiness(connectors, objects);
   if (!ready.ok) return { ...ready, tools: [] };
   const tools = [];
+  let listAttempted = false;
+  let listSucceeded = false;
+  let selectedPullNumber = null;
+  const attemptedMethods = new Set();
   for (const candidate of defs || []) {
     if (!ALLOWED.has(candidate && candidate.name) || candidate.readOnly !== true || typeof candidate.run !== 'function') continue;
     let def = candidate;
@@ -72,7 +76,11 @@ function selectTools(connectors, objects, defs) {
           || args.state !== 'open' || !firstPage(args, 10)) {
           throw new Error('PR Sweep allows only the first page of open pull requests, limited to 10 results.');
         }
-        return run(args, ctx);
+        if (listAttempted) throw new Error('PR Sweep performs the bounded open-pull-request listing only once per run.');
+        listAttempted = true;
+        const result = await run(args, ctx);
+        listSucceeded = !!result && result.isError !== true;
+        return result;
       } });
     } else if (toolName === 'pull_request_read') {
       const run = def.run;
@@ -87,6 +95,11 @@ function selectTools(connectors, objects, defs) {
           || (PAGED_READ_METHODS.has(method) && !firstPage(args, MAX_READ_PAGE_SIZE))) {
           throw new Error('PR Sweep allows only bounded pull_request_read methods get, get_diff, get_files, get_status, and get_check_runs; paged reads require page 1 and at most 50 results.');
         }
+        if (!listSucceeded) throw new Error('PR Sweep requires one successful bounded open-pull-request listing before reading a candidate.');
+        if (selectedPullNumber == null) selectedPullNumber = args.pullNumber;
+        if (selectedPullNumber !== args.pullNumber) throw new Error('PR Sweep reads evidence for only one selected pull request per run.');
+        if (attemptedMethods.has(method)) throw new Error('PR Sweep attempts each evidence method at most once per run; preserve a failed result as an evidence gap.');
+        attemptedMethods.add(method);
         return run(args, ctx);
       } });
     }
