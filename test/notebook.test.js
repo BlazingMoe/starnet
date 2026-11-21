@@ -5,6 +5,7 @@
 'use strict';
 const A = require('./_assert.js');
 const events = require('../shared/events.js');
+const path = require('path');
 const { makeEmitter } = require('../shared/emitter.js');
 const { makeReplayProvider } = require('../sidecar/providers/replay.js');
 const { makeCostEngine } = require('../sidecar/cost.js');
@@ -14,7 +15,8 @@ const { makeRegistry } = require('../sidecar/tools/registry.js');
 const { resolveTools } = require('../sidecar/capability/resolve.js');
 const { canAgentUse, makeCapCtx } = require('../sidecar/capability/capGate.js');
 const { makeNotebookTools } = require('../sidecar/tools/builtin/notebook.js');
-const { redact, rank } = require('../sidecar/context.js');
+const { makeMemoryStore } = require('../sidecar/memory-store.js');
+const { redact, rank, eligibleMemoryRecords } = require('../sidecar/context.js');
 
 function memStore() { const m = {}; return { get: k => m[k], set: (k, v) => { m[k] = v; } }; }
 function station(objs) {
@@ -93,6 +95,54 @@ const dcall = (name, args) => ({ id: 'c', name, args, argsRaw: JSON.stringify(ar
     await reg2.dispatch(dcall('notebook.write', { title: 'two', body: 'deploy b' }), { agentId: 'ag' });
     const r2 = await reg2.dispatch(dcall('notebook.read', { query: 'deploy' }), { agentId: 'ag' });
     A.ok(r2.content.indexOf('one') < r2.content.indexOf('two'), 'no ranker injected: falls back to store order, still returns matches');
+  }
+
+  // Structured lesson candidates stay visible in storage/operator review but are excluded from model reads.
+  {
+    const store = memStore(); const reg = makeRegistry();
+    const rows = [
+      { id:'lesson_1', title:'Customer policy', body:'PRIVATE candidate from customer A', kind:'lesson', lessonContract:{schemaVersion:1,scope:{type:'customer',id:'A'},expiresAt:'2099-01-01'}, approved:true, scope:'global', pinned:true },
+      { id:'lesson_2', title:'Broken', body:'PRIVATE corrupt candidate', kind:'lesson', lessonContract:null },
+      { id:'lesson_3', title:'Imported', body:'PRIVATE imported candidate', kind:'lesson', lessonSource:{contract:{scope:{type:'project',id:'elsewhere'}}} },
+      { id:'lesson_4', title:'Missing kind', body:'PRIVATE missing kind candidate', lessonContract:undefined },
+      { id:'lesson_5', title:'Forged kind', body:'PRIVATE forged kind candidate', kind:'note', lessonContract:{scope:{type:'global'},approved:true} },
+      { id:'lesson_6', title:'Nested source', body:'PRIVATE nested source candidate', lessonSource:{contract:null} },
+      { id:'ordinary', title:'Ordinary', body:'generic contract remains visible', kind:'fact', contract:{tag:'ordinary'} },
+      { id:'note_1', title:'Legacy lesson', body:'legacy unstructured lesson', kind:'lesson' }
+    ];
+    store.set('notebook:ag', rows);
+    makeNotebookTools({ store, clock:makeClock(1000), rank, eligibleMemoryRecords }).register(reg);
+    const all = await reg.dispatch(dcall('notebook.read', {}), { agentId:'ag' });
+    A.ok(!/PRIVATE/.test(all.content), 'queryless notebook.read withholds all structured candidate text');
+    A.ok(/legacy unstructured lesson/.test(all.content), 'legacy unstructured lesson remains visible');
+    const query = await reg.dispatch(dcall('notebook.read', {query:'customer'}), {agentId:'ag'});
+    A.ok(!/PRIVATE/.test(query.content), 'query notebook.read cannot select structured candidate text');
+    A.eq(store.get('notebook:ag'), rows, 'quarantine does not mutate or delete stored records');
+
+    // Standalone notebook path has no injected context helper/ranker. It must make the same decision,
+    // including an all-candidate match returning empty text rather than candidate content.
+    const fallbackStore = memStore(); fallbackStore.set('notebook:ag', rows);
+    const fallbackReg = makeRegistry(); makeNotebookTools({store:fallbackStore,clock:makeClock(1000)}).register(fallbackReg);
+    const fallbackAll = await fallbackReg.dispatch(dcall('notebook.read',{}),{agentId:'ag'});
+    A.ok(!/PRIVATE/.test(fallbackAll.content), 'standalone fallback withholds missing-kind, forged-kind, and nested structured metadata');
+    A.ok(/generic contract remains visible/.test(fallbackAll.content), 'standalone fallback preserves nonlesson generic contracts');
+    A.eq(fallbackAll.content, all.content, 'standalone fallback and injected central helper have identical output');
+    const fallbackMatch = await fallbackReg.dispatch(dcall('notebook.read',{query:'customer'}),{agentId:'ag'});
+    A.ok(/No notes match/.test(fallbackMatch.content) && !/PRIVATE/.test(fallbackMatch.content), 'all-structured query matches produce no candidate text');
+    A.eq(fallbackMatch.content, query.content, 'standalone fallback and central helper agree on all-structured query miss');
+
+    // Reopen actual serialized notebook state with a fresh makeMemoryStore, then read through the
+    // standalone tool fallback to prove cold persistence cannot bypass the quarantine.
+    const files = new Map();
+    const fs = { readFileSync(file) { if (!files.has(file)) { const e = new Error('missing'); e.code='ENOENT'; throw e; } return files.get(file); }, writeFileSync(file,data) { files.set(file,String(data)); }, mkdirSync() {} };
+    const writeDurable = (deps,file,data) => deps.fs.writeFileSync(file,data);
+    const cold1 = makeMemoryStore({fs,path,workspaces:'/memory-test',writeDurable});
+    cold1.set('notebook:ag', rows.filter(r => r.id !== 'lesson_4')); // JSON cannot retain an own property whose value is undefined.
+    const cold2 = makeMemoryStore({fs,path,workspaces:'/memory-test',writeDurable});
+    const coldReg = makeRegistry(); makeNotebookTools({store:cold2,clock:makeClock(1000)}).register(coldReg);
+    const coldRead = await coldReg.dispatch(dcall('notebook.read',{}),{agentId:'ag'});
+    A.ok(!/PRIVATE/.test(coldRead.content), 'cold makeMemoryStore reconstruction keeps structured candidate text quarantined');
+    A.ok(/generic contract remains visible/.test(coldRead.content), 'cold read retains ordinary record content');
   }
 
   // ============ A1c. notebook.feedback — fact_feedback parity with the reference harness (trust nudge, asymmetric, no content change) ============

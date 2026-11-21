@@ -545,6 +545,38 @@ const onLine = (plan, aid, extra) => Object.assign({ lineId: P.lineOf(plan, aid)
   A.eq(plan.chains.triage.next, ['coder', 'writer'], 'both branches are reachable from the triage dock');
   A.eq(P.chainNext(plan, 'triage', onLine(plan, 'triage', { tag: 'code' })), 'coder', "a 'code' result takes the routed lane");
   A.eq(P.chainNext(plan, 'triage', onLine(plan, 'triage', { tag: 'prose' })), 'writer', 'anything else takes the default lane');
+  const routed = P.chainStep(plan, 'triage', onLine(plan, 'triage', { tag: 'code' }));
+  A.eq(routed.decisions[0].kind, 'filter', 'chainStep exposes the authoritative filter decision');
+  A.eq(routed.decisions[0].outcome, 'route', 'configured matching route is identified');
+  A.eq(routed.decisions[0].lane, 'N', 'the selected lane is included');
+  A.ok(!Object.prototype.hasOwnProperty.call(routed.decisions[0], 'tag'), 'work classification text is not copied into the decision');
+  const defaulted = P.chainStep(plan, 'triage', onLine(plan, 'triage', { tag: 'prose' }));
+  A.eq(defaulted.decisions[0].outcome, 'default', 'unmatched tag uses and records the configured default');
+
+  const fallbackPlan = P.compileRoutingPlan(geo(
+    [{ id: 'bA', t: 'bay', x: 0, y: 2, w: 1, h: 1, agentId: 'triage' },
+     { id: 'f', t: 'filter', x: 3, y: 2, w: 1, h: 1, routes: { code: 'N' } },
+     { id: 'bC', t: 'bay', x: 5, y: 0, w: 1, h: 1, agentId: 'coder' }],
+    [belt(1, 2, 'E'), belt(2, 2, 'E'), belt(3, 2, 'E'), belt(3, 1, 'E'), belt(4, 1, 'E')]
+  ));
+  const fallback = P.chainStep(fallbackPlan, 'triage', onLine(fallbackPlan, 'triage', { tag: 'other-secret-tag' }));
+  A.eq(fallback.decisions[0].outcome, 'fallback', 'missing default preserves first-lane fallback and reports it');
+}
+
+/* a filter decision remains inspectable when its selected lane dead-ends, while chainStep keeps returning null */
+{
+  const plan = P.compileRoutingPlan(geo(
+    [{ id: 'a', t: 'bay', x: 0, y: 2, w: 1, h: 1, agentId: 'triage' },
+     { id: 'f', t: 'filter', x: 3, y: 2, w: 1, h: 1, routes: { code: 'N' }, def: 'S' },
+     { id: 'c', t: 'bay', x: 5, y: 0, w: 1, h: 1, agentId: 'coder' }],
+    [belt(1, 2, 'E'), belt(2, 2, 'E'), belt(3, 2, 'E'), belt(3, 1, 'E'), belt(4, 1, 'E'), belt(3, 3, 'E')]
+  ));
+  const trace = {};
+  const terminal = P.chainStep(plan, 'triage', onLine(plan, 'triage', { tag: 'other' }), () => 0, trace);
+  A.eq(terminal, null, 'dead-end routing keeps chainStep terminal/null semantics');
+  A.eq(trace.decisions[0].kind, 'filter', 'optional trace collector retains a decision before the null terminal');
+  A.eq(trace.decisions[0].outcome, 'default', 'the dead-end decision remains truthful');
+  A.ok(Array.isArray(trace.decisions) && trace.decisions.length <= 32, 'the null-terminal collector stays bounded');
 }
 
 /* ---- a SPLIT downstream of a dock round-robins: ONE output crate is ONE downstream run, never a fan-out ---- */
@@ -564,6 +596,10 @@ const onLine = (plan, aid, extra) => Object.assign({ lineId: P.lineOf(plan, aid)
   A.eq(P.chainNext(plan, 'lead', onLine(plan, 'lead'), pick), 'w2', 'first handoff takes lane 0');
   A.eq(P.chainNext(plan, 'lead', onLine(plan, 'lead'), pick), 'w1', 'the next handoff spreads to lane 1');
   A.eq(P.chainNext(plan, 'lead', onLine(plan, 'lead'), pick), 'w2', 'and it round-robins back — one crate, one downstream run');
+  const selected = P.chainStep(plan, 'lead', onLine(plan, 'lead'), () => 0);
+  A.eq(selected.decisions[0].kind, 'split', 'single-lane split decision is exposed');
+  A.eq(selected.decisions[0].outcome, 'selected', 'single-lane split remains a selection, not a fan-out');
+  A.eq(selected.decisions[0].lane, 'S', 'the same selected split lane is reported');
 }
 
 /* ---- a HANDOFF lane renders ENERGIZED: it carries real crates and buys real runs ---- */

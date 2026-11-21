@@ -22,7 +22,9 @@ const path = require('path');
 const vm = require('vm');
 
 const SRC = path.join(__dirname, '..', 'frontend', 'app', 'harness.js');
-const source = fs.readFileSync(SRC, 'utf8');
+// The source slicer uses LF anchors; normalize checked-out CRLF files to keep its function
+// boundaries stable on Windows and Unix worktrees.
+const source = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n');
 
 /* ---------- slice the real bodies out of harness.js ---------- */
 
@@ -96,7 +98,7 @@ const OPUS_VIA_OR = {
 
 // every provider ModelDock warms; only anthropic is configured here
 const ALL_PROVIDERS = ['openrouter', 'openai', 'anthropic', 'gemini', 'codex', 'grok', 'kimi', 'xai',
-  'groq', 'mistral', 'deepseek', 'together', 'cerebras', 'fireworks', 'perplexity', 'ollama', 'custom'];
+  'groq', 'mistral', 'deepseek', 'together', 'cerebras', 'fireworks', 'perplexity', 'freellmapi', 'ollama', 'custom'];
 
 (async () => {
   /* 1. the ACTIVE provider's catalog warms and is readable */

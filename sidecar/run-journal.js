@@ -12,6 +12,7 @@ const crypto = require('crypto');
 
 const VERSION = 1;
 const MAX_STRING = 200000;
+const MAX_ARRAY = 1000;
 // New callers stamp prepared intents with this marker. Its presence proves the caller also owns the separate
 // durable `tool_dispatch` boundary. Legacy intents have no such proof and must remain fail-closed: before this
 // protocol existed, an intent was written immediately before registry.dispatch and could already represent an
@@ -36,7 +37,13 @@ function isSecretKey(key) {
   return /^(?:password|passwd|passphrase|token|secret|api_key|authorization|cookie|credentials?|private_key)$/.test(norm)
     || /(?:^|_)(?:password|passwd|passphrase|token|secret|api_key|authorization|cookie|credentials?|private_key)(?:_|$)/.test(norm);
 }
-function cloneSafe(value, redact, depth, key) {
+function hasHostReceiptIdentity(receipt) {
+  return !!receipt && typeof receipt === 'object'
+    && /^[a-f0-9]{32}$/.test(String(receipt.id || ''))
+    && ((receipt.state === 'fetched' && /^[a-f0-9]{64}$/.test(String(receipt.textSha256 || '')))
+      || receipt.state === 'blocked');
+}
+function cloneSafe(value, redact, depth, key, hostReceiptFieldsDepth) {
   if (depth > 20) return '[depth limit]';
   // Credential containers are as sensitive as credential scalars. Check the key before branching on value type.
   if (key && isSecretKey(key)) return '[redacted]';
@@ -50,17 +57,48 @@ function cloneSafe(value, redact, depth, key) {
       } catch (_) {}
     }
     let out = value.slice(0, MAX_STRING);
-    try { out = String(redact(out)); } catch (_) {}
+    // Only exact typed identity fields on the trusted top-level tool_result receipt seam
+    // retain their canonical hex. Every other receipt property still receives normal redaction.
+    const opaqueId = depth === hostReceiptFieldsDepth && key === 'id' && /^[a-f0-9]{32}$/.test(out);
+    const excerptDigest = depth === hostReceiptFieldsDepth && key === 'textSha256' && /^[a-f0-9]{64}$/.test(out);
+    if (!opaqueId && !excerptDigest) { try { out = String(redact(out)); } catch (_) {} }
     return out.slice(0, MAX_STRING);
   }
   if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (Array.isArray(value)) return value.slice(0, 1000).map(v => cloneSafe(v, redact, depth + 1, key));
+  if (Array.isArray(value)) return value.slice(0, MAX_ARRAY).map(v => cloneSafe(v, redact, depth + 1, key, hostReceiptFieldsDepth));
   if (typeof value === 'object') {
     const out = {};
-    for (const k of Object.keys(value).slice(0, 200)) out[k] = cloneSafe(value[k], redact, depth + 1, k);
+    for (const k of Object.keys(value).slice(0, 200)) out[k] = cloneSafe(value[k], redact, depth + 1, k,
+      k === 'sourceReceipt' && depth === 0 && hostReceiptFieldsDepth === 2 && hasHostReceiptIdentity(value.sourceReceipt)
+        ? hostReceiptFieldsDepth
+        : (depth === 1 && hostReceiptFieldsDepth === 2 ? hostReceiptFieldsDepth : null));
     return out;
   }
   return String(value);
+}
+
+// Delta tracking adapted from androoAGI/starnet 3ae8e440; corruption remains fail-closed.
+const SIG_OBJ = {}, SIG_ARR = {}, SIG_END = {}, SIG_DEEP = {};
+function leafSignature(value, out, depth) {
+  if (value === null || typeof value !== 'object') { out.push(value); return out; }
+  // cloneSafe stops serializing at its depth limit (a message sits two levels below the payload root), so nothing
+  // deeper can change the journaled bytes; the reference still pins identity conservatively.
+  if (depth > 20) { out.push(SIG_DEEP, value); return out; }
+  if (Array.isArray(value)) {
+    out.push(SIG_ARR, value.length);
+    for (let i = 0; i < value.length; i++) leafSignature(value[i], out, depth + 1);
+  } else {
+    const keys = Object.keys(value);
+    out.push(SIG_OBJ, keys.length);
+    for (const k of keys) { out.push(k); leafSignature(value[k], out, depth + 1); }
+  }
+  out.push(SIG_END);
+  return out;
+}
+function sameSignature(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+  return true;
 }
 
 function runFileName(runId) {
@@ -144,7 +182,7 @@ function makeFsIo(opts) {
   };
 }
 
-function parseRecords(raw) {
+function parseRecords(raw, expectedRunId) {
   const records = [];
   let prev = '', corrupt = false;
   const lines = String(raw || '').split(/\r?\n/);
@@ -152,7 +190,10 @@ function parseRecords(raw) {
     if (!line.trim()) continue;
     let r;
     try { r = JSON.parse(line); } catch (_) { corrupt = true; break; }
-    if (!r || r.v !== VERSION || r.seq !== records.length + 1 || r.prev !== prev || r.hash !== hashRecord(r)) {
+    if (!r || typeof r.runId !== 'string' || !r.runId
+        || (expectedRunId != null && r.runId !== expectedRunId)
+        || (records.length && r.runId !== records[0].runId)
+        || r.v !== VERSION || r.seq !== records.length + 1 || r.prev !== prev || r.hash !== hashRecord(r)) {
       corrupt = true; break;
     }
     records.push(r); prev = r.hash;
@@ -169,13 +210,27 @@ function analyze(records, corrupt) {
   const recoveryAttempts = [];
   let baseCheckpoint = null;
   let latestCheckpoint = null;
+  let runCreated = null;
   let resolution = null;
   let finishPayload = null;
   let continuation = null;
   for (const r of records) {
     if (r.type === 'checkpoint') {
       if (r.payload && r.payload.phase === 'initial' && !baseCheckpoint) baseCheckpoint = r.payload;
-      else latestCheckpoint = r.payload;
+      else {
+        latestCheckpoint = r.payload;
+        runCreated = Array.isArray(r.payload && r.payload.messages) ? r.payload.messages.slice() : [];
+      }
+    }
+    if (r.type === 'checkpoint_delta') {
+      const p = r.payload;
+      if (!p || !Number.isSafeInteger(p.from) || !runCreated || p.from !== runCreated.length || !Array.isArray(p.messages)) {
+        corrupt = true;
+      } else {
+        runCreated.push(...p.messages);
+        latestCheckpoint = Object.assign({}, p, { messages: runCreated });
+        delete latestCheckpoint.from;
+      }
     }
     if (r.type === 'tool_intent' && r.payload && r.payload.callId) intents.set(String(r.payload.callId), r.payload);
     if (r.type === 'tool_dispatch' && r.payload && r.payload.callId) dispatched.set(String(r.payload.callId), r.payload);
@@ -220,6 +275,12 @@ function analyze(records, corrupt) {
   }
   const terminal = finishPayload !== null;
   const transcriptAck = !!(terminal && finishPayload.transcriptAck === true);
+  if (latestCheckpoint && Object.prototype.hasOwnProperty.call(latestCheckpoint, 'checkpointMessageCount')) {
+    const count = latestCheckpoint.checkpointMessageCount;
+    if (!Number.isSafeInteger(count) || count < 0 || !runCreated || count !== runCreated.length) corrupt = true;
+    latestCheckpoint = Object.assign({}, latestCheckpoint);
+    delete latestCheckpoint.checkpointMessageCount;
+  }
   let checkpoint = latestCheckpoint || baseCheckpoint || (first && first.type === 'begin' ? first.payload : {});
   if (baseCheckpoint && latestCheckpoint) {
     checkpoint = Object.assign({}, latestCheckpoint, {
@@ -252,6 +313,44 @@ function resolutionError(message) {
   const e = new Error(message); e.code = 'RUN_RESOLUTION_CONFLICT'; return e;
 }
 
+// Select only complete, dispatched web_fetch results whose host receipt is bound to
+// the journal's run, agent and exact call. Shared by runtime and tests so the
+// manifest writer never has a weaker parallel interpretation of journal state.
+function selectSourceReceipts(state, runId, agentId) {
+  runId = String(runId || ''); agentId = String(agentId || '');
+  if (!state || state.corrupt || state.runId !== runId || !runId
+      || !state.meta || String(state.meta.agentId || '') !== agentId || !agentId
+      || !Array.isArray(state.completed)) throw new Error('source receipt journal is corrupt, incomplete or mismatched');
+  const receipts = [], ids = new Set();
+  for (const row of state.completed) {
+    if (!row || !row.intent || row.intent.name !== 'web_fetch') continue;
+    const result = row.result || {};
+    if (!result.sourceReceipt) continue;
+    const receipt = result.sourceReceipt;
+    let safeDisplayUrl = false;
+    try {
+      const url = new URL(receipt.requestedUrlDisplay);
+      safeDisplayUrl = ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
+    } catch (_) { safeDisplayUrl = false; }
+    if (!row.dispatch || result.ok !== true || result.isError !== false
+        || receipt.runId !== runId || receipt.agentId !== agentId
+        || receipt.callId !== String(row.intent.callId || '')
+        || !/^[a-f0-9]{32}$/.test(String(receipt.id || '')) || ids.has(receipt.id)
+        || !safeDisplayUrl || !Number.isFinite(Date.parse(receipt.fetchedAt || ''))) {
+      throw new Error('source receipt journal contains an invalid or incomplete fetch receipt');
+    }
+    if ((receipt.state === 'fetched' && (!/^[a-f0-9]{64}$/.test(String(receipt.textSha256 || ''))
+          || !['jina', 'direct', 'browser'].includes(receipt.method) || typeof receipt.truncated !== 'boolean'))
+        || (receipt.state === 'blocked' && (receipt.method !== 'transport'
+          || typeof receipt.blockedReason !== 'string' || receipt.blockedReason.length > 120))
+        || !['fetched', 'blocked'].includes(receipt.state)) {
+      throw new Error('source receipt journal contains an invalid or incomplete fetch receipt');
+    }
+    ids.add(receipt.id); receipts.push(receipt);
+  }
+  return receipts;
+}
+
 function makeRunJournal(opts) {
   opts = opts || {};
   const io = opts.io || makeFsIo(opts);
@@ -259,21 +358,81 @@ function makeRunJournal(opts) {
   const now = opts.clock && typeof opts.clock.now === 'function' ? () => opts.clock.now() : () => 0;
   const redact = typeof opts.redact === 'function' ? opts.redact : s => s;
   const live = new Map();
+  const trackers = new Map();
+  const dispatchedWebFetches = new Set();
 
-  function record(runId, type, payload, fresh) {
+  // Adapted from upstream 3ae8e4405: cold writers must adopt the durable chain before appending.
+  // Keep damaged history untouched here; only the existing explicit recovery path may repair it.
+  function adopt(runId) {
+    let raw;
+    try { raw = io.read(runId); }
+    catch (e) { if (e && e.code === 'ENOENT') return; throw e; }
+    if (raw == null || raw === '') return;
+    const parsed = parseRecords(raw);
+    if (parsed.corrupt || !parsed.records.length) throw new Error('run journal is not append-safe');
+    if (parsed.records.some(r => r.runId !== runId)) throw new Error('run journal identity does not match its file');
+    // A complete final JSON record may lack its newline; separate it durably before writing the next one.
+    if (!String(raw).endsWith('\n')) io.append(runId, '');
+    const last = parsed.records[parsed.records.length - 1];
+    live.set(runId, { seq: last.seq, hash: last.hash });
+  }
+
+  function record(runId, type, payload, fresh, trustTopLevelSourceReceipt) {
     runId = String(runId || '');
     if (!runId) throw new Error('run journal runId is required');
+    if (!fresh && !live.has(runId)) adopt(runId);
     const prior = live.get(runId) || { seq: 0, hash: '' };
-    const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0), prev: prior.hash };
+    const receiptEligible = type === 'tool_result' && trustTopLevelSourceReceipt === true
+      && payload && hasHostReceiptIdentity(payload.sourceReceipt);
+    const r = { v: VERSION, runId, seq: prior.seq + 1, ts: now(), type, payload: cloneSafe(payload || {}, redact, 0, undefined, receiptEligible ? 2 : null), prev: prior.hash };
     r.hash = hashRecord(r);
     const line = JSON.stringify(r);
-    if (fresh) io.create(runId, line); else io.append(runId, line);
+    try { if (fresh) io.create(runId, line); else io.append(runId, line); }
+    catch (e) {
+      // A failed write/fsync may still have changed disk. Never retry from an assumed chain position.
+      live.delete(runId);
+      trackers.delete(runId);
+      throw e;
+    }
     live.set(runId, { seq: r.seq, hash: r.hash });
     return r;
   }
 
+  function checkpointMessages(runId, payload) {
+    runId = String(runId || '');
+    payload = payload || {};
+    const list = Array.isArray(payload.messages) ? payload.messages.slice() : [];
+    const head = Object.assign({}, payload);
+    delete head.messages; delete head.from;
+    head.checkpointMessageCount = list.length;
+    const sigs = list.map(m => leafSignature(m, [], 0));
+    const t = trackers.get(runId);
+    let from = -1;
+    if (t && t.objs.length <= list.length) {
+      from = t.objs.length;
+      for (let i = 0; i < t.objs.length; i++) {
+        if (list[i] !== t.objs[i] || !sameSignature(sigs[i], t.sigs[i])) { from = -1; break; }
+      }
+    }
+    // Any failure part-way leaves the on-disk reconstruction unknown to the tracker: drop it so the next
+    // checkpoint re-anchors with a full snapshot instead of a delta whose `from` would not match.
+    trackers.delete(runId);
+    let last = null;
+    let at = from;
+    if (from < 0) {
+      last = record(runId, 'checkpoint', Object.assign({}, head, { messages: list.slice(0, MAX_ARRAY) }));
+      at = Math.min(MAX_ARRAY, list.length);
+    }
+    while (last === null || at < list.length) {
+      last = record(runId, 'checkpoint_delta', Object.assign({}, head, { from: at, messages: list.slice(at, at + MAX_ARRAY) }));
+      at = Math.min(at + MAX_ARRAY, list.length);
+    }
+    trackers.set(runId, { objs: list, sigs });
+    return last;
+  }
+
   function inspect(runId) {
-    const p = parseRecords(io.read(runId));
+    const p = parseRecords(io.read(runId), String(runId || ''));
     return analyze(p.records, p.corrupt);
   }
 
@@ -290,21 +449,34 @@ function makeRunJournal(opts) {
         state.quarantinedTo = io.quarantine(file);
       }
     } catch (e) { state.repairError = String((e && e.message) || e); }
-    if (state.runId && parsed.records.length) {
-      const last = parsed.records[parsed.records.length - 1];
-      live.set(state.runId, { seq: last.seq, hash: last.hash });
-    }
+    // Inspection/repair does not establish append safety (repair may fail or a final newline may be absent).
+    // The next writer must re-read the actual file through adopt(), including on this same instance.
+    if (state.runId) { live.delete(state.runId); trackers.delete(state.runId); }
     return state;
   }
 
   return {
     begin(meta) { return record(meta && meta.runId, 'begin', meta, true); },
-    checkpoint(runId, payload) { return record(runId, 'checkpoint', payload); },
+    checkpoint(runId, payload) { trackers.delete(String(runId || '')); return record(runId, 'checkpoint', payload); },
+    checkpointMessages,
     recoveryAttempt(runId, payload) { return record(runId, 'recovery_attempt', payload); },
     toolIntent(runId, payload) { return record(runId, 'tool_intent', payload); },
-    toolDispatch(runId, payload) { return record(runId, 'tool_dispatch', payload); },
-    toolResult(runId, payload) { return record(runId, 'tool_result', payload); },
-    finish(runId, payload) { return record(runId, 'finish', payload); },
+    toolDispatch(runId, payload) {
+      const r = record(runId, 'tool_dispatch', payload);
+      if (payload && payload.name === 'web_fetch' && payload.callId) dispatchedWebFetches.add(String(runId) + '\n' + String(payload.callId));
+      return r;
+    },
+    toolResult(runId, payload) {
+      let trustedFetchReceipt = false;
+      const receipt = payload && payload.sourceReceipt;
+      const key = String(runId || '') + '\n' + String((payload && payload.callId) || '');
+      trustedFetchReceipt = dispatchedWebFetches.has(key) && hasHostReceiptIdentity(receipt)
+        && receipt.callId === String(payload.callId || '') && receipt.runId === String(runId || '')
+        && !!receipt.agentId && payload.ok === true && payload.isError === false;
+      try { return record(runId, 'tool_result', payload, false, trustedFetchReceipt); }
+      finally { dispatchedWebFetches.delete(key); }
+    },
+    finish(runId, payload) { trackers.delete(String(runId || '')); return record(runId, 'finish', payload); },
     resolve(runId, payload) {
       payload = payload || {};
       const state = inspect(runId);
@@ -402,8 +574,9 @@ function makeRunJournal(opts) {
     remove(runId) {
       let state;
       try { state = inspect(runId); } catch (_) { return false; }
-      if (!state || state.status !== 'finished') return false;
+      if (!state || state.corrupt || state.status !== 'finished') return false;
       live.delete(String(runId || ''));
+      trackers.delete(String(runId || ''));
       io.remove(runId);
       return true;
     },
@@ -425,4 +598,4 @@ function makeRunJournal(opts) {
   };
 }
 
-module.exports = { makeRunJournal, makeFsIo, DISPATCH_BOUNDARY_MODEL, _internals: { parseRecords, analyze, hashRecord, runFileName, cloneSafe, writeAll } };
+module.exports = { makeRunJournal, makeFsIo, selectSourceReceipts, DISPATCH_BOUNDARY_MODEL, _internals: { parseRecords, analyze, hashRecord, runFileName, cloneSafe, writeAll } };

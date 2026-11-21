@@ -1,9 +1,9 @@
 /* sidecar/tools/builtin/web.js — the WEB capability: web_search(query) and web_fetch(url).
-   Zero extra API keys for the MVP. Node 18+ (global fetch). No deps.
+   Zero extra API keys for the MVP. Node 18.17+. Runtime dependency: undici, staged with the desktop runtime.
 
    makeWebTools(deps?) -> { searchTool, fetchTool, register(registry),
                             webSearch(query,opts), webFetch(url,opts) }   // raw fns exported for reuse/testing
-     deps.fetchImpl  : (url, init) => Promise<Response>   // injectable for tests; defaults to global fetch
+     deps.fetchImpl  : (url, init) => Promise<Response>   // injectable for tests; defaults to undici.fetch
      deps.openrouter : { apiKey, model } | null           // enables the OpenRouter search/fetch FALLBACK
      deps.userAgent  : override UA string
 
@@ -33,10 +33,12 @@
   else { root.SK = root.SK || {}; root.SK.tools = root.SK.tools || {}; (root.SK.tools.builtin = root.SK.tools.builtin || {}).web = api; }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function (fence) {
   'use strict';
+  const crypto = require('node:crypto');
 
   const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
                      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
   const FETCH_MAX_CHARS   = 6000;   // web_fetch truncation
+  const net = require('node:net');
   /* RAW-BODY CEILING, applied BEFORE anything parses the response.
      htmlToText is a chain of lazy `[\s\S]*?` replaces — quadratic in the input — and the clamp to
      FETCH_MAX_CHARS ran AFTER it. Measured on a page of repeated "<script>": 64KB -> 55ms, 256KB -> 880ms,
@@ -255,9 +257,8 @@
       throw new Error('refusing to fetch private/loopback/intranet host: ' + h);
     return u;
   }
-  // DNS-rebinding guard: resolve a NAME and refuse if any address is private. Injectable + best-effort.
-  // A proven ENOTFOUND is preserved for web_fetch to report immediately; transient resolver failures are
-  // still left for fetch to surface because they are not proof that the domain is absent.
+  // Resolve every candidate and fail closed when no public destination can be verified.
+  // Ported from upstream 7bab4b448. The returned address is pinned to the socket below.
   function nodeLookup(host) { const dns = require('node:dns'); return dns.promises.lookup(host, { all: true }); }
   async function assertResolvedSafe(u, lookup) {
     if (!lookup) return;
@@ -272,16 +273,14 @@
       e.code = 'ENOTFOUND';
       throw e;
     }
-    let addrs;
-    try { addrs = await lookup(u.hostname); }
-    catch (e) {
-      if (e && e.code === 'ENOTFOUND') throw e;
-      return;
-    }
-    for (const a of (addrs || [])) {
+    const addrs = await lookup(u.hostname);
+    if (!Array.isArray(addrs) || !addrs.length) throw new Error('no verified DNS address for ' + h);
+    for (const a of addrs) {
       const ip = (a && a.address) || '';
+      if (!net.isIP(ip)) throw new Error('resolver returned an invalid IP address for ' + h);
       if (isPrivateV4(ip) || isPrivateV6(ip)) throw new Error('refusing: ' + u.hostname + ' resolves to private address ' + ip);
     }
+    return addrs[0];
   }
 
   // ---------- HTML -> readable text (web_fetch fallback) ----------
@@ -420,7 +419,10 @@
 
   function makeWebTools(deps) {
     deps = deps || {};
-    const rawFetch = deps.fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+    // Production supplies wall time; standalone fixtures use a deterministic epoch.
+    const sourceReceiptNow = typeof deps.sourceReceiptNow === 'function' ? deps.sourceReceiptNow : () => 0;
+    const undici = require('undici');
+    const rawFetch = deps.fetchImpl || undici.fetch;
     if (!rawFetch) throw new Error('web.js requires global fetch (Node 18+) or deps.fetchImpl');
     const politeness = deps.politeness || makePoliteScheduler({
       wait: deps.politeWait, minGapMs: deps.politeMinGapMs,
@@ -432,6 +434,24 @@
     const or = deps.openrouter || null;
     // DNS-rebinding guard resolver: default to real Node DNS; pass deps.lookup:null to disable (tests).
     const doLookup = ('lookup' in deps) ? deps.lookup : nodeLookup;
+    const makePinnedAgent = deps.agentFactory || (options => new undici.Agent(options));
+    // Reuse upstream's per-hop dispatcher: the URL retains its Host/TLS identity,
+    // while the socket uses only the verified address, with no second DNS lookup.
+    async function fetchPinned(u, init) {
+      const address = await assertResolvedSafe(u, doLookup);
+      const dispatcher = address ? makePinnedAgent({ connect: {
+        lookup(hostname, options, callback) {
+          if (options && options.all) callback(null, [{ address: address.address, family: net.isIP(address.address) }]);
+          else callback(null, address.address, net.isIP(address.address));
+        }
+      } }) : null;
+      try {
+        const r = await doFetch(u.href, dispatcher ? Object.assign({}, init, { dispatcher }) : init);
+        return { status: r.status, ct: r.headers.get('content-type') || '', loc: r.headers.get('location') || '', body: await readBodyBounded(r) };
+      } finally {
+        if (dispatcher) await dispatcher.close();
+      }
+    }
     // web_request needs the RUN's surface (host authority — never taken from tool args) and a resolver for
     // the Commander's stored keys. Default: no keys and the strict surface, so an unwired caller can only
     // make UNAUTHENTICATED requests rather than silently gaining credentials it was never handed.
@@ -585,9 +605,9 @@
     async function directFetch(u0, parent) {
       let u = u0;
       for (let hop = 0; hop < 6; hop++) {
-        const res = await withTimeout(signal => doFetch(u.href, {
+        const res = await withTimeout(signal => fetchPinned(u, {
           headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' }, redirect: 'manual', signal
-        }).then(async r => ({ status: r.status, ct: r.headers.get('content-type') || '', loc: r.headers.get('location') || '', body: await readBodyBounded(r) })), FETCH_TIMEOUT_MS, parent);
+        }), FETCH_TIMEOUT_MS, parent);
         if (res.status >= 300 && res.status < 400 && res.loc) {
           const next = assertSafeUrl(new URL(res.loc, u.href).href);   // re-validate the redirect target
           await assertResolvedSafe(next, doLookup);
@@ -750,26 +770,59 @@
             const r = await reader.fetchText(args.url, { signal: ctx && ctx.signal });
             if (r && r.ok) {
               const text = clamp(r.text, FETCH_MAX_CHARS);
+              const safeText = typeof deps.redact === 'function' ? String(deps.redact(text)) : text;
+              const safeFullText = text === r.text ? null : (typeof deps.redact === 'function' ? String(deps.redact(r.text)) : r.text);
+              const sourceReceipt = makeSourceReceipt(args.url, { text: safeText, fullText: safeFullText, source: 'browser' }, ctx);
               return {
-                content: fenceExternal(text, 'page text from ' + (r.url || args.url) + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
-                fullContent: text === r.text ? undefined : fenceExternal(r.text, 'page text from ' + (r.url || args.url) + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
-                summary: text.length + ' chars via browser'
+                content: fenceExternal(safeText + '\n[source receipt: ' + sourceReceipt.id + '; fetched excerpt only; see saved manifest for details]', 'page text from ' + sourceReceipt.requestedUrlDisplay + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')'),
+                fullContent: safeFullText ? fenceExternal(safeFullText, 'page text from ' + sourceReceipt.requestedUrlDisplay + ' (read via the station browser' + (s ? ' after http ' + s : '') + ')') : undefined,
+                summary: safeText.length + ' chars via browser', sourceReceipt
               };
             }
             const soft2 = softFetchAnswer(e, args.url);
-            if (soft2) return {
+            if (soft2) {
+              const receipt = makeSourceReceipt(args.url, null, ctx, soft2.summary);
+              return {
               content: soft2.content + ' (The station\'s own browser also tried and was refused'
-                + (r && r.reason === 'challenge' ? ' — the site is holding a verification wall' : '') + '.)',
-              summary: soft2.summary
-            };
+                + (r && r.reason === 'challenge' ? ' — the site is holding a verification wall' : '') + '.)\n[source receipt: ' + receipt.id + '; blocked transport result]',
+              summary: soft2.summary, sourceReceipt: receipt
+              };
+            }
           }
           const soft = softFetchAnswer(e, args.url);   // the web ANSWERED (403/404/throttle/…) → ok result
-          if (soft) return soft;
+          if (soft) {
+            const receipt = makeSourceReceipt(args.url, null, ctx, soft.summary);
+            return Object.assign({}, soft, { content: soft.content + '\n[source receipt: ' + receipt.id + '; blocked transport result]', sourceReceipt: receipt });
+          }
           throw e;                                     // genuine fault (timeout/abort/SSRF/bad URL) → isError
         }
-        return { content: fenceExternal(out.text, 'page text from ' + out.url), fullContent: out.fullText ? fenceExternal(out.fullText, 'page text from ' + out.url) : undefined, summary: out.text.length + ' chars via ' + out.source };
+        const safeText = typeof deps.redact === 'function' ? String(deps.redact(out.text)) : out.text;
+        const safeFullText = out.fullText && (typeof deps.redact === 'function' ? String(deps.redact(out.fullText)) : out.fullText);
+        const sourceReceipt = makeSourceReceipt(args.url, Object.assign({}, out, { text: safeText, fullText: safeFullText }), ctx);
+        return { content: fenceExternal(safeText + '\n[source receipt: ' + sourceReceipt.id + '; fetched excerpt only; see saved manifest for details]', 'page text from ' + sourceReceipt.requestedUrlDisplay), fullContent: safeFullText ? fenceExternal(safeFullText, 'page text from ' + sourceReceipt.requestedUrlDisplay) : undefined, summary: safeText.length + ' chars via ' + out.source, sourceReceipt };
       }
     };
+
+    function makeSourceReceipt(requestedUrl, fetched, ctx, blockedReason) {
+      const id = typeof deps.sourceReceiptId === 'function' ? String(deps.sourceReceiptId()) : crypto.randomBytes(16).toString('hex');
+      let displayUrl = '';
+      try {
+        const safe = new URL(requestedUrl); safe.username = ''; safe.password = ''; safe.search = ''; safe.hash = '';
+        const redactedUrl = typeof deps.redact === 'function' ? String(deps.redact(safe.href)) : safe.href;
+        const finalSafe = new URL(redactedUrl); finalSafe.username = ''; finalSafe.password = ''; finalSafe.search = ''; finalSafe.hash = ''; displayUrl = finalSafe.href.slice(0, 2048);
+      } catch (_) { displayUrl = ''; }
+      if (blockedReason) return {
+        id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
+        callId: String((ctx && ctx.callId) || ''), state: 'blocked', requestedUrlDisplay: displayUrl,
+        method: 'transport', fetchedAt: new Date(sourceReceiptNow()).toISOString(), blockedReason: String(blockedReason).slice(0, 120)
+      };
+      return {
+        id, runId: String((ctx && ctx.runId) || ''), agentId: String((ctx && ctx.agentId) || ''),
+        callId: String((ctx && ctx.callId) || ''), state: 'fetched', requestedUrlDisplay: displayUrl,
+        method: fetched.source, fetchedAt: new Date(sourceReceiptNow()).toISOString(), truncated: !!fetched.fullText,
+        textSha256: crypto.createHash('sha256').update(String(fetched.text)).digest('hex')
+      };
+    }
 
     /* ---------- web_request: call a third-party REST API with the Commander's key ----------
        WHY THIS EXISTS: before it, nothing in StarNet could send a custom header. web_fetch's whole schema
@@ -1008,9 +1061,9 @@
           const sendHeaders = hop === 0 || originOf(target) === firstOrigin
             ? headers
             : Object.keys(headers).reduce((o, k) => (isCredential(k) ? o : (o[k] = headers[k], o)), {});
-          res = await withTimeout(signal => doFetch(target.href, {
+          res = await withTimeout(signal => fetchPinned(target, {
             method, headers: sendHeaders, body: hasBody ? bodyPayload : undefined, redirect: 'manual', signal
-          }).then(async r => ({ status: r.status, ct: r.headers.get('content-type') || '', loc: r.headers.get('location') || '', body: await readBodyBounded(r) })), FETCH_TIMEOUT_MS, ctx && ctx.signal);
+          }), FETCH_TIMEOUT_MS, ctx && ctx.signal);
           if (res.status >= 300 && res.status < 400 && res.loc) {
             const next = assertSafeUrl(new URL(res.loc, target.href).href);
             await assertResolvedSafe(next, doLookup);

@@ -8,12 +8,14 @@ const P = require('../frontend/app/projects.js');
 const fs = require('fs');
 const path = require('path');
 const appSrc = fs.readFileSync(path.join(__dirname, '../frontend/app/app.js'), 'utf8');
+const hostSrc = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8');
 
 /* ---------- basename: win32 + posix, trailing separators ignored ---------- */
 A.eq(P.basename('C:\\Users\\me\\project'), 'project', 'win32 basename');
 A.eq(P.basename('/home/me/proj'), 'proj', 'posix basename');
 A.eq(P.basename('/home/me/proj/'), 'proj', 'trailing slash ignored');
 A.eq(P.basename('C:\\Users\\me\\proj\\'), 'proj', 'trailing backslash ignored');
+A.eq(P.toRows([{ root:'/p', blessed:true, lessonProjectId:'opaque_project_id_0001' }])[0].lessonProjectId, 'opaque_project_id_0001', 'operator binding metadata reaches the rail row');
 A.eq(P.basename(''), '', 'empty path -> empty basename');
 
 /* ---------- relTime: the SAME compact vocabulary as the sessions rail ---------- */
@@ -118,6 +120,10 @@ A.ok(/r\.blessed[\s\S]{0,220}\/api\/permissions\/revoke/.test(removeProject),
   'removing a blessed project uses the standing-grant revoke endpoint');
 A.ok(/!r\.blessed[\s\S]{0,260}\/api\/projects\/forget/.test(removeProject),
   'forgetting a revoked project uses the project metadata forget endpoint');
+A.ok(/\/api\/projects\/lesson-binding/.test(appSrc) && /Bind for lesson proposals/.test(appSrc) && /does not approve or enable any lesson/.test(appSrc),
+  'Projects rail exposes explicit binding and makes clear that binding never approves a lesson');
+A.ok(/POST', exact: '\/api\/projects\/lesson-binding'/.test(hostSrc) && /projectsStore\.bindLessonProject\(root, \(\) => crypto\.randomUUID\(\)\)/.test(hostSrc)
+  && /lesson scope fields are host managed/.test(hostSrc), 'host binding route creates its own ID and rejects request scope authority');
 A.ok(/trust revoked for/.test(removeProject) && /forgot/.test(removeProject),
   'success telemetry distinguishes trust revocation from an actually forgotten project');
 

@@ -1,0 +1,60 @@
+{
+  "schema": "moe-ai-station.product-claims.v1",
+  "product": "Moe AI Station",
+  "usageTarget": "private-starnet-fork",
+  "publicReleaseReady": false,
+  "claims": [
+    {
+      "id": "local-first-agent-harness",
+      "status": "inherited-verified",
+      "claim": "The application runs its agent harness locally and can use user-selected model providers."
+    },
+    {
+      "id": "hierarchical-agent-organization",
+      "status": "verified-by-ci",
+      "claim": "Commander, Manager, Specialist, and Worker organization roles can govern typed delegation without granting tool permissions."
+    },
+    {
+      "id": "managed-delegation",
+      "status": "verified-by-ci",
+      "claim": "Consequential delegated tasks can use task contracts, deterministic acceptance checks, bounded revisions, and optional independent audit."
+    },
+    {
+      "id": "control-mode-read-only-observability",
+      "status": "verified-by-ci",
+      "claim": "Control Mode exposes evidence-backed read-only agent, memory-provenance, approval, action, cost, and provider-signal surfaces without inventing unavailable runtime state."
+    },
+    {
+      "id": "permission-boundary-preserved",
+      "status": "verified-by-ci",
+      "claim": "Derivative orchestration does not bypass the inherited capability, consent, permission, or E-STOP boundaries."
+    },
+    {
+      "id": "starnet-subsystem-reuse",
+      "status": "design-boundary",
+      "claim": "Private Moe AI Station development prefers reusing compatible StarNet runtime, tools, providers, permissions, workflows, memory, channels, MCP, UI and other proven subsystems instead of replacing them without functional need."
+    },
+    {
+      "id": "upstream-update-isolation",
+      "status": "verified-by-ci",
+      "claim": "The private fork does not automatically consume StarNet upstream release artifacts through the detached updater path."
+    },
+    {
+      "id": "own-signed-update-channel",
+      "status": "out-of-scope-private-use",
+      "claim": "A separately signed Moe AI Station public update channel is not required for the private-use target."
+    },
+    {
+      "id": "independent-branding",
+      "status": "out-of-scope-private-use",
+      "claim": "Full independent branding is not required for the private-use target; redistribution remains outside scope."
+    },
+    {
+      "id": "data-path-migration",
+      "status": "out-of-scope-private-use",
+      "claim": "A forced application-identifier/data-path migration is not required for the private-use target and should not risk existing compatible state without a functional reason."
+    }
+  ],
+  "releaseBlockers": [],
+  "distributionNote": "Public redistribution is not a project goal. If that goal changes, branding, licensing, signing/update provenance and app-identity migration must be reassessed before distribution."
+}

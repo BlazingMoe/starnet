@@ -7,9 +7,23 @@ const fs = require('fs');
 const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
 
-const m = /function checkpointsEnabledFromEnv\(raw\) \{[\s\S]*?\n\}\n/.exec(src);
+function extractCheckpointsEnabled(source) {
+  return /^function checkpointsEnabledFromEnv\(raw\) \{[\s\S]*?^\}/m.exec(source);
+}
+
+const m = extractCheckpointsEnabled(src);
 A.ok(m, 'index.js defines checkpointsEnabledFromEnv');
-const enabled = new Function(m[0] + 'return checkpointsEnabledFromEnv;')();
+const extracted = m && m[0];
+const lfSource = src.replace(/\r\n|\r/g, '\n');
+const crlfSource = lfSource.replace(/\n/g, '\r\n');
+const lines = lfSource.split('\n');
+const mixedSource = lines.map((line, i) => line + (i < lines.length - 1 ? (i % 2 ? '\r\n' : '\n') : '')).join('');
+for (const [label, variant] of [['LF', lfSource], ['CRLF', crlfSource], ['mixed LF/CRLF', mixedSource]]) {
+  const variantMatch = extractCheckpointsEnabled(variant);
+  A.ok(variantMatch, `checkpoint function extraction works with ${label} line endings`);
+  A.eq(variantMatch && variantMatch[0].replace(/\r\n|\r/g, '\n'), extracted && extracted.replace(/\r\n|\r/g, '\n'), `checkpoint extraction is bounded with ${label} line endings`);
+}
+const enabled = new Function(extracted + '\nreturn checkpointsEnabledFromEnv;')();
 A.eq(enabled(undefined), true, 'no env var → checkpoints ON');
 A.eq(enabled(''), true, 'empty env var → ON');
 A.eq(enabled('1'), true, '1 → ON');

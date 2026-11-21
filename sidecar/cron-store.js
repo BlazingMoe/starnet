@@ -58,7 +58,7 @@
   const iso = cron._internals.iso;            // ms(arg) -> ISO; deterministic (no zero-arg new Date)
 
   // fields a user may edit via updateJob. `id`, timestamps, run-state and counters are NOT editable here.
-  const EDITABLE = ['name', 'prompt', 'agentId', 'model', 'provider', 'deliver', 'skills', 'script', 'scriptTimeoutMs', 'workdir', 'contextFrom', 'monitorMode', 'misfire', 'unattendedGrants', 'noAgent', 'enabledToolsets', 'attachToSession', 'origin', 'runsLine'];
+  const EDITABLE = ['name', 'prompt', 'agentId', 'model', 'provider', 'deliver', 'skills', 'script', 'scriptTimeoutMs', 'workdir', 'contextFrom', 'monitorMode', 'misfire', 'maxIters', 'maxCostUsd', 'unattendedGrants', 'noAgent', 'enabledToolsets', 'attachToSession', 'origin', 'runsLine'];
 
   /* UNATTENDED CAPABILITY GRANT (2026-07-25) — the capability families the Commander explicitly approved for
      THIS routine to use with nobody watching. Default EMPTY: a routine grants nothing extra unless the user
@@ -86,6 +86,10 @@
   // null = derive the default from the schedule (cron/slow-interval -> fire_once, fast interval -> skip;
   // see cron.misfirePolicy). Normalized here so a bogus patch value can never persist an unknown policy.
   function normMisfire(v) { return (v === 'skip' || v === 'fire_once') ? v : null; }
+  // Optional per-routine tool-turn cap. The API validates new writes; missing or invalid stored values are
+  // represented as null and therefore inherit the station's normal run-limit behavior.
+  function normMaxIters(v) { return Number.isSafeInteger(v) && v > 0 ? v : null; }
+  function normMaxCostUsd(v) { return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null; }
   function normList(v, max, re) {
     if (!Array.isArray(v)) return [];
     const out = [];
@@ -162,6 +166,9 @@
       retryCount: 0,
       // misfire policy for a recurring job (see normMisfire above). null -> schedule-derived default.
       misfire: normMisfire(spec.misfire),
+      maxIters: normMaxIters(spec.maxIters),
+      // Optional per-entry-run spend ceiling. Invalid legacy values inherit normal station behavior.
+      maxCostUsd: normMaxCostUsd(spec.maxCostUsd),
       // DELIVERY OUTCOME (2026-07-15 audit): the last channel-notification attempt for this job's runs —
       // separate from the run's own success so a routine that WORKED but whose ping DIED is visible
       // (previously the send rejection was swallowed and the failure left no trace anywhere). Additive:
@@ -256,6 +263,8 @@
       const next = Object.assign({}, job);
       for (const k of EDITABLE) if (Object.prototype.hasOwnProperty.call(patch, k)) next[k] = patch[k];
       if (Object.prototype.hasOwnProperty.call(patch, 'misfire')) next.misfire = normMisfire(patch.misfire);
+      if (Object.prototype.hasOwnProperty.call(patch, 'maxIters')) next.maxIters = normMaxIters(patch.maxIters);
+      if (Object.prototype.hasOwnProperty.call(patch, 'maxCostUsd')) next.maxCostUsd = normMaxCostUsd(patch.maxCostUsd);
       // re-normalize through the whitelist: the EDITABLE loop above copies the RAW patch value, so without this
       // a patch could persist an ungrantable capability name (same trap misfire guards against).
       if (Object.prototype.hasOwnProperty.call(patch, 'unattendedGrants')) next.unattendedGrants = normGrants(patch.unattendedGrants);

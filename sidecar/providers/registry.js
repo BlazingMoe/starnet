@@ -17,7 +17,7 @@
   //   wireReasoningEffort — endpoint documents the `reasoning_effort` chat-completions param.
   //   priceFamily — prices.js list-rate table to price runs with when /models carries no pricing block
   //                 (openai/xai/groq/mistral/deepseek/together/fireworks). Absent = honestly unpriced (ollama,
-  //                 custom, perplexity, cerebras) — the loop's unpriced-token ceiling is the seatbelt there.
+  //                 custom, perplexity, cerebras, freellmapi) — the loop's unpriced-token ceiling is the seatbelt there.
   //   wireStreamOptions: false — endpoint does not accept `stream_options` (usage still arrives:
   //     these providers report usage in the stream by default).
   //   connectTimeoutMs — provider-specific response-header ceiling for endpoints whose cold start can
@@ -483,6 +483,34 @@
       order: 44
     },
     {
+      id: 'freellmapi',
+      aliases: ['free-llm-api', 'free-llm-api-local'],
+      name: 'FreeLLMAPI',
+      label: 'FREELLMAPI',
+      endpoint: '127.0.0.1:31415/v1',
+      blurb: 'local gateway to user-selected upstream models',
+      live: true,
+      adapter: 'openai-compatible',
+      apiMode: 'chat_completions',
+      authType: 'api_key',
+      keyRequired: true,
+      keyEnv: ['FREELLMAPI_KEY'],
+      modelsRequireAuth: true,
+      // Unlike CUSTOM this endpoint is not caller-configurable. The gateway may forward prompts to external
+      // providers, but an untrusted run cannot turn this dedicated profile into an arbitrary-URL fetch seam.
+      baseUrl: 'http://127.0.0.1:31415/v1',
+      lockedBaseUrl: true,
+      modelsPath: '/models',
+      defaultReasoningEffort: 'none',
+      // The gateway can route to free OR user-configured paid upstreams. Metered-but-unpriced keeps the
+      // existing unknown-cost ceiling active instead of promising zero cost or fabricating a price.
+      unmetered: false,
+      credentialPool: false,
+      supportsTools: null,
+      supportsReasoning: null,
+      order: 55
+    },
+    {
       id: 'ollama',
       aliases: ['ollama-local'],
       name: 'Ollama',
@@ -597,6 +625,7 @@
       baseUrl: profile.baseUrl || '',
       baseUrlEnv: (profile.baseUrlEnv || []).slice(),
       requiresBaseUrl: !!profile.requiresBaseUrl,
+      lockedBaseUrl: !!profile.lockedBaseUrl,
       defaultReasoningEffort: profile.defaultReasoningEffort || 'medium',
       unmetered: !!profile.unmetered,
       supportsTools: profile.supportsTools,

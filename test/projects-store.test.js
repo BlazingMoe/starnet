@@ -99,4 +99,44 @@ function fakeStore() {
   ok(ps.remove('C:/never').ok === true, 'removing an absent root is a no-op success');
 }
 
+// Explicit bindings survive cold hydration, are idempotent, and clear/rebind rotates the opaque identity.
+{
+  const persisted = []; let ids = ['opaque_project_id_0001', 'opaque_project_id_0002'];
+  const records = [{ root:'C:/bound', displayPath:'C:/bound', grantedAt:1, isGitRepo:true }];
+  const ps = makeProjectsStore({ records, persist: rows => { persisted.splice(0, persisted.length, ...rows.map(r => Object.assign({}, r))); }, now:() => 2 });
+  const first = ps.bindLessonProject('C:/bound', () => ids.shift());
+  const same = ps.bindLessonProject('C:/bound', () => 'should_not_be_used_0000');
+  ok(first.ok && first.project.lessonProjectId === 'opaque_project_id_0001', 'explicit bind stores generated opaque identity');
+  ok(same.unchanged && same.project.lessonProjectId === first.project.lessonProjectId, 'repeat bind is idempotent');
+  const cold = makeProjectsStore({ records:persisted, persist: rows => { persisted.splice(0, persisted.length, ...rows.map(r => Object.assign({}, r))); } });
+  ok(cold.get('C:/bound').lessonProjectId === first.project.lessonProjectId, 'binding survives cold store hydration');
+  const snapA = Object.freeze({ type:'project', id:cold.get('C:/bound').lessonProjectId });
+  ok(cold.clearLessonProject('C:/bound').ok && cold.get('C:/bound').lessonProjectId === null, 'clear invalidates future binding');
+  ok(snapA.id === first.project.lessonProjectId, 'in-flight snapshot remains immutable after clear');
+  const rebound = cold.bindLessonProject('C:/bound', () => ids.shift());
+  ok(rebound.ok && rebound.project.lessonProjectId === 'opaque_project_id_0002' && rebound.project.lessonProjectId !== snapA.id, 'rebind after clear creates a fresh identity');
+  const rotated = cold.bindLessonProject('C:/bound', () => 'opaque_project_id_0003', true);
+  ok(rotated.ok && rotated.project.lessonProjectId === 'opaque_project_id_0003' && rotated.project.lessonProjectId !== rebound.project.lessonProjectId, 'explicit rebind atomically rotates an existing identity');
+  const other = cold.upsert('C:/other', {});
+  const otherBind = cold.bindLessonProject('C:/other', () => 'opaque_project_id_0004');
+  const runA = Object.freeze({ type:'project', id:rotated.project.lessonProjectId });
+  const runB = Object.freeze({ type:'project', id:otherBind.project.lessonProjectId });
+  ok(other.ok && otherBind.ok && runA.id !== runB.id, 'concurrent project snapshots remain distinct and independent');
+  ok(cold.bindLessonProject('C:/other', () => rotated.project.lessonProjectId, true).ok === false, 'duplicate cross-project identities are rejected');
+  ok(cold.bindLessonProject('C:/unknown', () => 'opaque_project_id_0003').ok === false, 'unknown/unblessed project cannot be bound');
+}
+{
+  let fail = false; const records = [{ root:'C:/stable', lessonProjectId:'opaque_project_id_existing' }];
+  const ps = makeProjectsStore({ records, persist:() => { if (fail) throw new Error('disk full'); }, now:() => 1 });
+  fail = true;
+  const cleared = ps.clearLessonProject('C:/stable');
+  ok(!cleared.ok && ps.get('C:/stable').lessonProjectId === 'opaque_project_id_existing', 'persistence failure retains previous binding');
+  const rebound = ps.bindLessonProject('C:/stable', () => 'opaque_project_id_replacement', true);
+  ok(!rebound.ok && ps.get('C:/stable').lessonProjectId === 'opaque_project_id_existing', 'failed explicit rebind retains previous identity');
+}
+{
+  const ps = makeProjectsStore({ records:[{ root:'C:/unpersisted' }] });
+  ok(ps.bindLessonProject('C:/unpersisted', () => 'opaque_project_id_0005').ok === false, 'binding fails closed without a durable persistence sink');
+}
+
 console.log('projects-store.test.js OK —', n, 'assertions');

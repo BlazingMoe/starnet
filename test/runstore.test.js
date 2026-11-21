@@ -98,6 +98,10 @@ const clock = { now: () => clk };
   A.eq(s.list('a')[0].recipeId, 'morning-brief', 'list surfaces recipeId (the outcome-loop join key)');
   A.eq(s.record({ runId: 'rp2', agentId: 'a' }).recipeId, '', 'a non-recipe run -> empty recipeId (old rows fail-open)');
   A.eq(s.record({ runId: 'rp3', agentId: 'a', recipeId: 'x'.repeat(200) }).recipeId.length, 60, 'recipeId is clamped to 60 chars');
+  A.eq(s.record({ runId:'rs1', agentId:'a', lessonScopeSnapshot:{ schemaVersion:1, type:'project', id:'opaque_project_id_0001' } }).lessonScopeSnapshot,
+    { schemaVersion:1, type:'project', id:'opaque_project_id_0001' }, 'project scope snapshot is stored in a bounded shape');
+  A.eq(s.record({ runId:'rs2', agentId:'a', lessonScopeSnapshot:{ schemaVersion:1, type:'customer', id:'forged_customer_id_0001', admin:true } }).lessonScopeSnapshot,
+    null, 'unknown or forged scope snapshot shape is discarded');
 }
 
 // ---- H. model identity is durable; subscription runs are explicitly unmetered ----

@@ -86,6 +86,8 @@ function rig(floor, script, opts) {
     A.eq(R.timers.length, 0, 'a barrier that fills in-call never arms a timeout');
     A.eq(R.c._barrier.size(), 0, 'the barrier is cleared on release');
     A.ok(R.events.indexOf('workitem.placed:D') > R.events.indexOf('workitem.delivered:B'), 'the D crate is placed only after B delivered');
+    A.ok(res.decisions.some(d => d.kind === 'split' && d.outcome === 'fanout' && d.agents.join(',') === 'A,B'), 'trace records entry fan-out in stable branch order');
+    A.ok(res.decisions.some(d => d.kind === 'join' && d.outcome === 'released'), 'trace records the released join');
   }
 
   /* ---- entering through B instead (the split round-robined the other way) joins the same way ---- */
@@ -112,6 +114,7 @@ function rig(floor, script, opts) {
     const res = await p;
     A.eq(res.stopped, null, 'a timed-out join still runs the line on (' + res.stopped + ')');
     A.eq(res.text, 'synth from partial', 'D ran on the partial set');
+    A.ok(res.decisions.some(d => d.kind === 'join' && d.outcome === 'partial-timeout'), 'trace distinguishes a partial timeout release');
     A.ok(/JOINED OUTPUT — 2 of 3 branches delivered/.test(R.log[1].text), 'the merged crate says 2 of 3');
     A.ok(/PARTIAL: 1 branch never delivered before the joiner timed out \(lane 3\)/.test(R.log[1].text), 'and is MARKED partial, naming the missing lane');
     A.eq(R.c._barrier.size(), 0, 'the barrier is cleared after the timeout');
@@ -174,6 +177,7 @@ function rig(floor, script, opts) {
     A.eq(R.log[6].agentId, 'publisher');
     A.ok(!/\[LOOP/.test(R.log[6].text), 'the done-lane handoff carries no loop marker');
     A.eq(res.hops.length, 7, 'seven hops bought — more than the 6-stage cap, because loop passes are bounded by max, not by the stage cap');
+    A.eq(res.decisions.filter(d => d.kind === 'loop').map(d => d.outcome).join(','), 'back,back,back,done', 'loop trace records each back and final done decision in order');
   }
 
   /* ---- THE STRANDED-USER FLOOR (2026-08-22): the loop's done lane goes straight to OUTBOX (no publisher dock).
@@ -262,10 +266,30 @@ function rig(floor, script, opts) {
       'two passes round the gate, then the FIXER — not the publisher');
     A.eq(res.text, 'salvaged by the fixer', 'the escalation dock has the last word');
     A.ok(res.loopExhausted, 'the run is still marked exhausted (honest telemetry)');
+    A.ok(res.decisions.some(d => d.kind === 'loop' && d.outcome === 'exhausted-escalation'), 'trace records exhaustion routing to escalation');
+    A.ok(res.decisions.some(d => d.kind === 'loop' && d.outcome === 'escalation-target' && d.agent === 'fixer'), 'trace identifies the selected escalation target');
     const fixerTurn = R.log[R.log.length - 1];
     A.eq(fixerTurn.agentId, 'fixer');
     A.ok(/\[LOOP — escalated: 2 passes round the gate at 12,4 without VERDICT: approved — handed to the escalation lane\]/.test(fixerTurn.text),
       'the fixer\'s handoff says exactly why it has the crate');
+  }
+
+  /* ---- done-lane filter decision rides the same step that selected its downstream dock ---- */
+  {
+    const floor = loopFloor({ maxIter: 1 });
+    floor.props.push({ id: 'done-filter', t: 'filter', x: 13, y: 4, w: 1, h: 1, routes: { code: 'N' }, def: 'E' });
+    floor.props.push({ id: 'done-code', t: 'bay', x: 30, y: 0, w: 2, h: 2, agentId: 'coder' });
+    floor.belts.push(belt(13, 3, 'N'), belt(13, 2, 'N'), belt(13, 1, 'N'), belt(13, 0, 'E'));
+    for (let x = 14; x < 30; x++) floor.belts.push(belt(x, 0, 'E'));
+    const R = rig(floor, {
+      drafter: { text: 'draft code', usd: 0.01 },
+      reviewer: { text: 'review code', usd: 0.01 },
+      coder: { text: 'coded answer', usd: 0.01 },
+      publisher: { text: 'wrong lane', usd: 0.01 }
+    }, { getTag: () => 'code' });
+    const res = await R.c.advance({ agentId: 'reviewer', text: 'review code', originalText: 'write code', lineId: R.lineId, runId: 'run-loop-filter' });
+    A.eq(res.hops.map(h => h.agentId).join(','), 'drafter,reviewer,coder', 'the existing loop and done-lane route are unchanged');
+    A.ok(res.decisions.some(d => d.kind === 'filter' && d.outcome === 'route' && d.lane === 'N'), 'executor includes the filter outcome used to select the loop done target');
   }
   /* the SAME floor with the verdict PASSING never touches the fixer */
   {

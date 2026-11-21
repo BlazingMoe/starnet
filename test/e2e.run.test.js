@@ -21,7 +21,10 @@ function startMockOpenRouter() {
     const server = http.createServer((req, res) => {
       if (req.url.indexOf('/models') >= 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ data: [{ id: 'test/model', context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] }] }));
+        res.end(JSON.stringify({ data: [
+          { id: 'test/model', context_length: 8000, pricing: { prompt: '0', completion: '0' }, supported_parameters: ['tools'] },
+          { id: 'test/priced', context_length: 8000, pricing: { prompt: '0.001', completion: '0.001' }, supported_parameters: ['tools'] }
+        ] }));
         return;
       }
       if (req.url.indexOf('/chat/completions') >= 0) {
@@ -49,12 +52,18 @@ function startMockOpenRouter() {
           }
           // KABOOM sentinel: a hard non-retryable provider failure (401 auth) whose message carries a
           // distinctive needle — used to provoke a REAL recorded run error for the diagnostics-tail tests.
-          if (body.indexOf('KABOOM') >= 0) {
+          if (body.indexOf('KABOOM') >= 0 && body.indexOf('SCHEDCAP-E2E') < 0) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'KABOOM-DIAG-NEEDLE: mock provider rejected this run', code: 401 } }));
             return;
           }
           res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+          // A model that keeps requesting a harmless read proves host-level request ceilings.
+          if (body.indexOf('LIMITLOOP') >= 0) {
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'limit_read', type: 'function', function: { name: 'tool_search', arguments: '{"query":"fs.read"}' } }] } }] }) + '\n\n');
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 8, completion_tokens: 8, total_tokens: 16 } }) + '\n\n');
+            res.write('data: [DONE]\n\n'); res.end(); return;
+          }
           // DOMAINSTOP sentinel: one exact-host fetch; terminal evidence leaves only a final report turn.
           if (body.indexOf('DOMAINSTOP') >= 0) {
             const hasToolResult = !!(parsed && (parsed.messages || []).some(m => m && m.role === 'tool'));
@@ -127,7 +136,7 @@ function boot(port, env, attemptsLeft) {
     let out = '', settled = false;
     const onData = d => {
       out += d.toString();
-      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port }); }
+      if (!settled && out.indexOf('http://' + HOST + ':' + port) >= 0) { settled = true; resolve({ child, port, getOutput: () => out }); }
       else if (!settled && /already in use/i.test(out)) { settled = true; try { child.kill(); } catch (_) {}
         if (attemptsLeft > 0) resolve(boot(port + 1, env, attemptsLeft - 1)); else reject(new Error('no free port')); }
     };
@@ -141,9 +150,10 @@ function boot(port, env, attemptsLeft) {
   const mock = await startMockOpenRouter();
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-e2e-'));
   const env = { SKYNET_WORKSPACES: ws, SKYNET_OPENROUTER_BASE: mock.base, SKYNET_STREAM_KA_MS: '40' };   // fast heartbeat so the KA test observes it in ms, not 20s
-  const { child, port } = await boot(8840 + (process.pid % 50), env, 20);
+  const { child, port, getOutput } = await boot(8840 + (process.pid % 50), env, 20);
   const B = 'http://' + HOST + ':' + port;
   try {
+    A.ok(!getOutput().includes('managed-task-history.read'), 'managed task history initializes without a bounded-log temporal-dead-zone failure');
     // a bootstrapped API token is required for privileged /api routes (api-hardening).
     const token = await bootToken(B, B);
     A.ok(token.length >= 32, 'got a session API token');
@@ -152,7 +162,7 @@ function boot(port, env, attemptsLeft) {
     const res = await fetch(B + '/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B },
-      body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'e2e', messages: [{ role: 'user', content: 'hi' }] })
+      body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'e2e', recipeId: 'e2e-recipe', messages: [{ role: 'user', content: 'hi' }] })
     });
     A.eq(res.status, 200, 'POST /api/run streams (200)');
 
@@ -178,12 +188,56 @@ function boot(port, env, attemptsLeft) {
     const ends = events.filter(e => e.name === 'agent.run.end');
     A.eq(ends.length, 1, 'exactly one agent.run.end');
     A.eq(ends[0].payload.reason, 'done', 'the run completes with reason done');
+    const startedRunId = ((events.find(e => e.name === 'agent.run.start') || {}).payload || {}).runId;
+    A.ok(startedRunId, 'real HTTP recipe run exposes its runtime run identity');
+    const durableRuns = await (await fetch(B + '/api/runs?agent=e2e&runId=' + encodeURIComponent(startedRunId), { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
+    A.eq((durableRuns.runs || [])[0] && durableRuns.runs[0].recipeId, 'e2e-recipe', 'validated POST /api/run recipe metadata reaches durable run history');
+    const durableLedger = fs.readFileSync(path.join(ws, 'ledger.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+    A.ok(durableLedger.some(row => row.runId === startedRunId && row.agentId === 'e2e' && row.recipeId === 'e2e-recipe'), 'the actual spend-ledger writer persists request provenance on the completed HTTP run');
     const firstReq = mock.requests[0] || {};
     const firstSystem = (((firstReq.messages || [])[0] || {}).content) || '';
     A.ok(firstSystem.indexOf('[RUNTIME]') >= 0, 'runtime identity block reaches the provider system prompt');
     A.ok(firstSystem.indexOf('Provider: openrouter') >= 0, 'runtime block names the selected provider');
     A.ok(firstSystem.indexOf('Requested model at run start: test/model') >= 0, 'runtime block names the requested model');
     A.ok(firstSystem.indexOf('If the Commander asks what StarNet build, model, provider') >= 0, 'runtime block tells the agent to answer build/model/provider questions from host state');
+
+    // Validate before starting a stream/provider call, then enforce limits in the real loop.
+    {
+      const headers = { 'Content-Type': 'application/json', 'X-StarNet-Token': token, Origin: B };
+      const invalidPrompt = 'INVALID-LIMIT-MUST-NOT-REACH-PROVIDER';
+      for (const limits of [{ maxIters: 0 }, { maxIters: '1' }, { maxCostUsd: -1 }, { grace: true }, null]) {
+        const invalid = await fetch(B + '/api/run', { method: 'POST', headers,
+          body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model: 'test/model', agentId: 'limits-invalid', messages: [{ role: 'user', content: invalidPrompt }], limits }) });
+        A.eq(invalid.status, 400, 'invalid request ceiling rejected before execution');
+        A.ok((await invalid.json()).error.includes('limit'), 'invalid ceiling has an actionable error');
+      }
+      A.ok(!mock.requests.some(q => JSON.stringify(q).includes(invalidPrompt)), 'invalid limits never contact the provider');
+      const run = async (agentId, model, limits) => {
+        const prompt = 'LIMITLOOP ' + agentId;
+        const r = await fetch(B + '/api/run', { method: 'POST', headers,
+          body: JSON.stringify({ key: 'sk-or-v1-e2e-fake', model, agentId, streamId: agentId, messages: [{ role: 'user', content: prompt }], limits }) });
+        A.eq(r.status, 200, 'bounded request starts through normal run entry');
+        const evs = (await r.text()).split('\n').filter(Boolean).map(l => JSON.parse(l));
+        const mainCalls = mock.requests.filter(q => (q.messages || []).some(m => m.role === 'user' && m.content === prompt));
+        return { end: evs.find(e => e.name === 'agent.run.end'), evs, mainCalls };
+      };
+      const turns = await run('limits-turns', 'test/model', { maxIters: 1 });
+      A.eq(turns.mainCalls.length, 1, 'one requested iteration permits no grace provider call');
+      A.eq(turns.end && turns.end.payload.reason, 'max_iters', 'explicit iteration ceiling settles truthfully');
+      A.ok(turns.evs.some(e => e.name === 'agent.tool_result'), 'bounded turn still uses the normal tool path');
+
+      const spend = await run('limits-spend', 'test/priced', { maxCostUsd: 0.005 });
+      A.eq(spend.mainCalls.length, 1, 'request spend ceiling stops another priced call');
+      A.eq(spend.end && spend.end.payload.reason, 'budget', 'request spend ceiling ends with budget');
+
+      const cap = await fetch(B + '/api/budget/caps', { method: 'POST', headers, body: JSON.stringify({ perRun: 0.005 }) });
+      A.eq(cap.status, 200, 'set an isolated station cap');
+      const station = await run('limits-station', 'test/priced', { maxCostUsd: 1 });
+      A.eq(station.mainCalls.length, 1, 'larger request cannot raise station spend ceiling');
+      A.eq(station.end && station.end.payload.reason, 'budget', 'station cap remains authoritative');
+      const restore = await fetch(B + '/api/budget/caps', { method: 'POST', headers, body: JSON.stringify({ perRun: 0 }) });
+      A.eq(restore.status, 200, 'restore isolated cap for remaining regressions');
+    }
 
     // CURRENT-RELEASE INCIDENT: an orphaned tool result used to pass straight through OpenRouter and make
     // every replay fail with the same provider 400. Drive the malformed history through the real HTTP route,
@@ -408,13 +462,81 @@ function boot(port, env, attemptsLeft) {
 
   // reboot the sidecar on the SAME workspace: the persisted diag tail must come back.
   {
-    const boot2 = await boot(8890 + (process.pid % 50), env, 20);
+    // Exercise the real scheduler -> runOnce -> loop path under a low station-wide turn cap. The two
+    // persisted routines carry a lower cap and a higher cap respectively, proving the routine cap stops
+    // execution and that the station cap still wins when it is lower.
+    const cronEnv = Object.assign({}, env, {
+      SKYNET_CRON_ENABLED: '1', SKYNET_CRON_TICK_MS: '5000', SKYNET_MAX_ITERS: '2',
+      SKYNET_OPENROUTER_KEY: 'sk-or-v1-e2e-fake'
+    });
+    const boot2 = await boot(8890 + (process.pid % 50), cronEnv, 20);
     const B2 = 'http://' + HOST + ':' + boot2.port;
     try {
       const token2 = await bootToken(B2, B2);
       const d2 = await (await fetch(B2 + '/api/diagnostics', { headers: { 'X-StarNet-Token': token2, Origin: B2 } })).json();
       A.ok(d2.text.indexOf('KABOOM-DIAG-NEEDLE') >= 0, 'RESTART-SAFE: the error tail survived the sidecar restart (diag.errors.json)');
       A.ok(d2.text.indexOf('(none recorded)') < 0, 'the report no longer claims an empty tail after restart');
+      const hdr2 = { 'Content-Type': 'application/json', 'X-StarNet-Token': token2, Origin: B2 };
+      for (const spec of [
+        { name: 'Routine one-turn cap', prompt: 'SCHEDCAP-E2E LIMITLOOP routine-one-turn-cap', maxIters: 1 },
+        { name: 'Station cap wins', prompt: 'SCHEDCAP-E2E LIMITLOOP routine-station-cap', maxIters: 5 }
+      ]) {
+        const made = await fetch(B2 + '/api/cron', { method: 'POST', headers: hdr2,
+          body: JSON.stringify({ name: spec.name, prompt: spec.prompt, schedule: 'in 1s', model: 'test/model', maxIters: spec.maxIters }) });
+        A.eq(made.status, 200, 'bounded scheduled routine is accepted');
+        spec.id = (await made.json()).job.id;
+      }
+      let cronJobs = [];
+      for (let i = 0; i < 25; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        cronJobs = ((await (await fetch(B2 + '/api/cron', { headers: hdr2 })).json()).jobs || []);
+        const finished = ['Routine one-turn cap', 'Station cap wins'].every(name => {
+          const j = cronJobs.find(x => x.name === name); return j && j.lastReason === 'max_iters';
+        });
+        if (finished) break;
+      }
+      for (const name of ['Routine one-turn cap', 'Station cap wins']) {
+        const j = cronJobs.find(x => x.name === name);
+        A.eq(j && j.lastReason, 'max_iters', name + ' reaches the actual loop iteration stopping condition (lastError=' + String(j && j.lastError) + ')');
+      }
+      const entryRequestCount = needle => mock.requests.filter(q =>
+        (q.messages || []).some(m => m && m.role === 'system' && String(m.content || '').startsWith('You are an autonomous STARNET station agent running a SCHEDULED routine')) &&
+        (q.messages || []).some(m => m && m.role === 'user' && String(m.content || '').includes(needle))).length;
+      A.eq(entryRequestCount('routine-one-turn-cap'), 1, 'scheduled routine cap of 1 stops after one tool-turn request');
+      A.eq(entryRequestCount('routine-station-cap'), 2, 'routine cap 5 is clamped to the lower station cap of 2');
+
+      // RUN NOW exercises the other routine entry path against the same real loop and mocked, priced provider.
+      // Each first completion reports spend above these micro-dollar limits; the loop must stop before a second call.
+      const runNowCost = async (name, prompt, routineCap, stationCap) => {
+        if (stationCap != null) {
+          const cap = await fetch(B2 + '/api/budget/caps', { method: 'POST', headers: hdr2, body: JSON.stringify({ perRun: stationCap }) });
+          A.eq(cap.status, 200, name + ' sets its isolated station run cap');
+        }
+        const agentId = name === 'Routine cost cap' ? 'routine_cost_cap_e2e' : 'station_cost_cap_e2e';
+        const made = await fetch(B2 + '/api/cron', { method: 'POST', headers: hdr2,
+          body: JSON.stringify({ name, prompt, schedule: 'in 1h', agentId, model: 'test/priced', provider: 'openrouter', maxCostUsd: routineCap }) });
+        A.eq(made.status, 200, name + ' creates a routine with a cost cap');
+        const madeJob = (await made.json()).job;
+        const beforeRequests = mock.requests.length;
+        const runNow = await fetch(B2 + '/api/cron/run', { method: 'POST', headers: hdr2, body: JSON.stringify({ id: madeJob.id }) });
+        A.eq(runNow.status, 200, name + ' starts through RUN NOW');
+        const events = (await runNow.text()).split('\n').filter(Boolean).map(line => JSON.parse(line));
+        const end = events.find(event => event.name === 'agent.run.end');
+        const calls = mock.requests.filter(q => (q.messages || []).some(message => message.role === 'user' && String(message.content || '').includes(prompt))).length;
+        if (!end || end.payload.reason !== 'budget') A.eq(events.filter(event => event.name === 'agent.run.error').map(event => event.payload.message), [], name + ' reaches the loop instead of failing in setup');
+        A.ok(mock.requests.length > beforeRequests, name + ' reached the mocked provider');
+        return { end, calls };
+      };
+      const routineCost = await runNowCost('Routine cost cap', 'SCHEDCAP-E2E LIMITLOOP COSTCAP-RUN-NOW routine-cost-cap', 0.0000001, null);
+      A.eq(routineCost.end && routineCost.end.payload.reason, 'budget', 'routine cost cap stops the real Run Now loop');
+      A.eq(routineCost.end && routineCost.end.payload.budgetCapUsd, 0.0000001, 'Run Now passes the routine cost cap into the loop');
+      A.eq(routineCost.calls, 1, 'routine cost cap stops before a second priced provider request');
+      const stationCost = await runNowCost('Station cost cap wins', 'SCHEDCAP-E2E LIMITLOOP COSTCAP-RUN-NOW station-cost-wins', 0.001, 0.000001);
+      A.eq(stationCost.end && stationCost.end.payload.reason, 'budget', 'station cost cap stops the real Run Now loop');
+      A.eq(stationCost.end && stationCost.end.payload.budgetCapUsd, 0.000001, 'a lower station cap wins over the routine cost cap');
+      A.eq(stationCost.calls, 1, 'the station cap stops before a second priced provider request');
+      const restoreCost = await fetch(B2 + '/api/budget/caps', { method: 'POST', headers: hdr2, body: JSON.stringify({ perRun: 0 }) });
+      A.eq(restoreCost.status, 200, 'restore the isolated station cap');
     } finally {
       try { boot2.child.kill(); } catch (_) {}
       try { mock.server.close(); } catch (_) {}
