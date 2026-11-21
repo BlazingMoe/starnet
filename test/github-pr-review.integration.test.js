@@ -29,7 +29,13 @@ const REPORT_ROOT = 'github-pr-review';
 const RUN_REPORT_DIR = REPORT_ROOT + '/run-20261011-125002-a9f3';
 const PRIOR_REPORT = '# Earlier review\\nKeep this immutable.';
 const PRS = [{ number: 17, title: 'Validate import rows before replacing saved records', state: 'open', created_at: '2026-10-01T10:00:00Z', html_url: 'https://github.example/acme/app/pull/17', body: 'Validation change.' }];
+const DETAIL = { number: 17, state: 'open', draft: false, head: { sha: 'abc123', ref: 'validate-import' }, base: { ref: 'main' }, changed_files: 1, additions: 2, deletions: 0 };
 const DIFF = 'diff --git a/import.js b/import.js\n@@ -4,1 +4,3 @@\n+if (!row.id) throw new Error("missing id");\n+await replaceRecords(rows);\n';
+const STATUS = { state: 'pending', sha: 'abc123', total_count: 2 };
+const CHECKS = { total_count: 2, check_runs: [
+  { name: 'unit-tests', status: 'completed', conclusion: 'success', head_sha: 'abc123' },
+  { name: 'lint', status: 'in_progress', conclusion: null, head_sha: 'abc123' }
+] };
 
 function mcpTool(name, properties, required, description, readOnlyHint) {
   return { name, description, annotations: { readOnlyHint: readOnlyHint !== false }, inputSchema: { type: 'object', required, properties } };
@@ -52,14 +58,17 @@ async function runCase(mode) {
       initialize: async () => ({ serverInfo: { name: 'fixture-github-mcp' } }),
       listTools: async () => [
         mcpTool('list_pull_requests', { owner: { type: 'string' }, repo: { type: 'string' }, state: { type: 'string' }, page: { type: 'number' }, perPage: { type: 'number' } }, ['owner', 'repo'], 'List pull requests.', mode !== 'not-readonly'),
-        mcpTool('pull_request_read', { owner: { type: 'string' }, repo: { type: 'string' }, pullNumber: { type: 'number' }, method: { type: 'string' } }, ['owner', 'repo', 'pullNumber', 'method'], 'Read pull request details, files or diff.', mode !== 'not-readonly')
+        mcpTool('pull_request_read', { owner: { type: 'string' }, repo: { type: 'string' }, pullNumber: { type: 'number' }, method: { type: 'string' }, page: { type: 'number' }, perPage: { type: 'number' } }, ['owner', 'repo', 'pullNumber', 'method'], 'Read pull request details, files, diff, status or checks.', mode !== 'not-readonly')
       ],
       callTool: async (name, args) => {
         connectorCalls.push({ name, args });
         if (name === 'list_pull_requests') return { content: [{ type: 'text', text: JSON.stringify(PRS) }] };
+        if (name === 'pull_request_read' && args.method === 'get') return { content: [{ type: 'text', text: JSON.stringify(DETAIL) }] };
         if (name === 'pull_request_read' && args.method === 'get_files') return { content: [{ type: 'text', text: JSON.stringify([{ filename: 'import.js', status: 'modified', additions: 2, deletions: 0 }]) }] };
         if (name === 'pull_request_read' && args.method === 'get_diff' && (mode === 'connected' || mode === 'both')) return { content: [{ type: 'text', text: DIFF }] };
         if (name === 'pull_request_read' && args.method === 'get_diff') return { isError: true, content: [{ type: 'text', text: 'fixture diff unavailable' }] };
+        if (name === 'pull_request_read' && args.method === 'get_status') return { content: [{ type: 'text', text: JSON.stringify(STATUS) }] };
+        if (name === 'pull_request_read' && args.method === 'get_check_runs') return { content: [{ type: 'text', text: JSON.stringify(CHECKS) }] };
         return { isError: true, content: [{ type: 'text', text: 'unavailable fixture method' }] };
       },
       close() {}, isClosed: () => false
@@ -111,6 +120,7 @@ async function runCase(mode) {
         A.ok(allDefs.some(d => /^mcp__github__/.test(d.name)), 'both: full-access GitHub tools were available before PR Sweep selection');
         A.ok(githubDefs.every(d => !/^mcp__github__/.test(d.name)), 'both: full-access tools are excluded from PR Sweep');
         let rejectedMethod = false, rejectedPage = false, rejectedMissingLimit = false, rejectedNan = false, rejectedFraction = false;
+        let rejectedReadPage = false, rejectedReadExtra = false, rejectedPullNumber = false;
         try { await githubDefs.find(d => d.name === 'mcp__github-readonly__pull_request_read').run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_reviews' }); }
         catch (_) { rejectedMethod = true; }
         try { await githubDefs.find(d => d.name === 'mcp__github-readonly__list_pull_requests').run({ owner: 'acme', repo: 'app', state: 'all', page: 2, perPage: 100 }); }
@@ -121,11 +131,20 @@ async function runCase(mode) {
         catch (_) { rejectedNan = true; }
         try { await githubDefs.find(d => d.name === 'mcp__github-readonly__list_pull_requests').run({ owner: 'acme', repo: 'app', state: 'open', page: 1.5, perPage: 10.5 }); }
         catch (_) { rejectedFraction = true; }
-        A.eq(rejectedMethod, true, 'both: non-file/diff read methods are rejected at dispatch');
+        try { await githubDefs.find(d => d.name === 'mcp__github-readonly__pull_request_read').run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_check_runs', page: 2, perPage: 50 }); }
+        catch (_) { rejectedReadPage = true; }
+        try { await githubDefs.find(d => d.name === 'mcp__github-readonly__pull_request_read').run({ owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_status', page: 1 }); }
+        catch (_) { rejectedReadExtra = true; }
+        try { await githubDefs.find(d => d.name === 'mcp__github-readonly__pull_request_read').run({ owner: 'acme', repo: 'app', pullNumber: 0, method: 'get' }); }
+        catch (_) { rejectedPullNumber = true; }
+        A.eq(rejectedMethod, true, 'both: review/comment read methods are rejected at dispatch');
         A.eq(rejectedPage, true, 'both: unbounded pull request listing is rejected at dispatch');
         A.eq(rejectedMissingLimit, true, 'both: missing page size is rejected at dispatch');
         A.eq(rejectedNan, true, 'both: non-finite page size is rejected at dispatch');
         A.eq(rejectedFraction, true, 'both: fractional page and size are rejected at dispatch');
+        A.eq(rejectedReadPage, true, 'both: detail pagination beyond the first page is rejected at dispatch');
+        A.eq(rejectedReadExtra, true, 'both: non-paged detail methods reject extra pagination arguments');
+        A.eq(rejectedPullNumber, true, 'both: invalid pull request numbers are rejected at dispatch');
         A.eq(connectorCalls.length, 0, 'both: rejected operations never reach the connector');
       }
       A.ok(allDefs.some(d => /^mcp__github__/.test(d.name)) ? mode !== 'both' || githubDefs.every(d => !/^mcp__github__/.test(d.name)) : true, mode + ': full-access tools are excluded even when both connectors are configured');
@@ -160,25 +179,29 @@ async function runCase(mode) {
       { type: 'tool_start', index: 0, id, name }, { type: 'tool_args', index: 0, chunk: JSON.stringify(args) }, { type: 'done', finishReason: 'tool_calls' }
     ];
     const review = '# PR review: acme/app#17\n\nEvidence: import.js diff adds a missing-id check before replacement. This is fixture evidence only.\n';
-    const findings = `repo,pr,priority,file,evidence,confidence,coverage
-acme/app,17,review,import.js,"missing-id check precedes replaceRecords",fixture,"page 1 only; at most 10 open PRs"
+    const findings = `repo,pr,priority,file,evidence,confidence,metadata_state,files_state,diff_state,status_state,checks_state,coverage
+acme/app,17,review,import.js,"missing-id check precedes replaceRecords",fixture,verified,verified,verified,verified,"verified; lint pending","page 1 only; at most 10 open PRs; detail pages capped at 50"
 `;
     const coverage = 'Coverage: page 1, at most 10 open PRs; further pages were not fetched, so this is not a complete sweep.';
-    const csv = (mode === 'connected' || mode === 'both') ? findings : `repo,pr,priority,file,evidence,confidence,coverage
-acme/app,17,unverified,import.js,"diff unavailable; no change claim",unknown,"page 1 only; at most 10 open PRs"
+    const csv = (mode === 'connected' || mode === 'both') ? findings : `repo,pr,priority,file,evidence,confidence,metadata_state,files_state,diff_state,status_state,checks_state,coverage
+acme/app,17,unverified,import.js,"diff unavailable; no change claim",unknown,verified,verified,unverified,verified,"verified; lint pending","page 1 only; at most 10 open PRs; detail pages capped at 50"
 `;
     const report = (mode === 'connected' || mode === 'both')
       ? `# PR review: acme/app#17
 
 ${coverage}
 
-Evidence: import.js diff adds a missing-id check before replacement. This is fixture evidence only.
+Evidence state: metadata VERIFIED at head abc123; files VERIFIED; diff VERIFIED; combined status VERIFIED as pending; check runs VERIFIED with unit-tests successful and lint pending.
+
+Evidence: import.js diff adds a missing-id check before replacement. Successful checks do not prove the change is correct. This is fixture evidence only.
 `
       : `# PR review: acme/app#17
 
 ${coverage}
 
-PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its file list, but its diff request failed. No claim is made about the code change; retry after connector access is restored.
+Evidence state: metadata VERIFIED at head abc123; files VERIFIED; diff UNVERIFIED; combined status VERIFIED as pending; check runs VERIFIED with unit-tests successful and lint pending.
+
+PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its metadata, file list, combined status and check runs, but its diff request failed. No claim is made about the code change; retry after connector access is restored.
 `;
     let turns;
     if (mode === 'unavailable') {
@@ -187,8 +210,11 @@ PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its file list, but its d
       turns = [
         turn('list-reports', 'fs_list', { path: REPORT_ROOT }),
         turn('list', 'mcp__github-readonly__list_pull_requests', { owner: 'acme', repo: 'app', state: 'open', page: 1, perPage: 10 }),
-        turn('files', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_files' }),
-        turn('diff', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_diff' })
+        turn('detail', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get' }),
+        turn('files', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_files', page: 1, perPage: 50 }),
+        turn('diff', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_diff' }),
+        turn('status', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_status' }),
+        turn('checks', 'mcp__github-readonly__pull_request_read', { owner: 'acme', repo: 'app', pullNumber: 17, method: 'get_check_runs', page: 1, perPage: 50 })
       ];
       turns.push(turn('write-review', 'fs_write', { path: RUN_REPORT_DIR + '/review.md', content: report }));
       turns.push(turn('write-findings', 'fs_write', { path: RUN_REPORT_DIR + '/findings.csv', content: csv }));
@@ -212,12 +238,13 @@ PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its file list, but its d
       return;
     }
     const toolResults = seen.filter(e => e.name === 'agent.tool_result').map(e => e.payload);
-    A.eq(toolResults.length, 8, mode + ': preflight list, PR list, files, diff, two writes and two read-backs have results');
+    A.eq(toolResults.length, 11, mode + ': preflight, bounded PR evidence, two writes and two read-backs have results');
     A.ok(!toolResults[0].isError && /prior-run/.test(dispatchedResults.get('list-reports').content), mode + ': preflight lists the prior report folder before writing');
-    A.ok(toolResults.slice(1, 3).every(r => !r.isError), mode + ': pull request list and file list succeed');
-    if (mode === 'connected' || mode === 'both') A.ok(!toolResults[3].isError, mode + ': diff is retrieved successfully');
-    else A.ok(toolResults[3].isError, 'diff-error: MCP failure is surfaced as a failed tool result');
-    A.ok(toolResults.slice(4, 8).every(r => !r.isError), mode + ': both writes and both reads succeed');
+    A.ok(toolResults.slice(1, 4).every(r => !r.isError), mode + ': pull request list, metadata and file list succeed');
+    if (mode === 'connected' || mode === 'both') A.ok(!toolResults[4].isError, mode + ': diff is retrieved successfully');
+    else A.ok(toolResults[4].isError, 'diff-error: MCP failure is surfaced as a failed tool result');
+    A.ok(toolResults.slice(5, 7).every(r => !r.isError), mode + ': combined status and check runs succeed independently');
+    A.ok(toolResults.slice(7, 11).every(r => !r.isError), mode + ': both writes and both reads succeed');
     A.eq(dispatchedResults.get('read-review').content, report, mode + ': review read-back tool result matches exact saved report');
     A.eq(dispatchedResults.get('read-findings').content, csv, mode + ': findings read-back tool result matches exact saved CSV');
     const reportDir = path.join(agentRoot, 'agent', RUN_REPORT_DIR);
@@ -225,14 +252,21 @@ PARTIAL / UNVERIFIED: GitHub listed PR #17 and returned its file list, but its d
     A.eq(await fsp.readFile(path.join(reportDir, 'findings.csv'), 'utf8'), csv, mode + ': CSV artifact is persisted exactly');
     A.eq(await fsp.readFile(path.join(agentRoot, 'agent', REPORT_ROOT, 'prior-run', 'review.md'), 'utf8'), PRIOR_REPORT, mode + ': prior report remains byte-for-byte unchanged');
     A.ok(/page 1, at most 10 open PRs/.test(report) && /not a complete sweep/.test(report), mode + ': report discloses bounded first-page coverage');
+    A.ok(/combined status VERIFIED as pending/.test(report) && /check runs VERIFIED/.test(report) && /lint pending/.test(report), mode + ': report separates combined status from named check-run evidence');
+    A.ok(/Successful checks do not prove|diff UNVERIFIED/.test(report), mode + ': report does not turn check evidence into a correctness claim');
     if (mode === 'diff-unavailable') {
       A.ok(/PARTIAL \/ UNVERIFIED/.test(report) && /diff request failed/.test(report), 'diff-error: report preserves the missing evidence rather than guessing');
       A.ok(/unknown/.test(csv), 'diff-error: CSV marks confidence unknown');
     }    A.ok(!seen.some(e => e.name === 'agent.run.error'), mode + ': no run-level failure');
     A.ok(githubDefs.every(d => /mcp__github-readonly__/.test(d.name)), mode + ': remote access stays in the MCP connector boundary');
-    A.eq(connectorCalls.map(c => c.name), ['list_pull_requests', 'pull_request_read', 'pull_request_read'], mode + ': connector dispatch performs only bounded list/files/diff reads and no remote write');
+    A.eq(connectorCalls.map(c => c.name), ['list_pull_requests', 'pull_request_read', 'pull_request_read', 'pull_request_read', 'pull_request_read', 'pull_request_read'], mode + ': connector dispatch performs only bounded list/detail/files/diff/status/check reads and no remote write');
+    A.eq(connectorCalls.slice(1).map(c => c.args.method), ['get', 'get_files', 'get_diff', 'get_status', 'get_check_runs'], mode + ': detail methods are the exact read-only evidence allowlist');
     A.eq(connectorCalls[0].args.page, 1, mode + ': GitHub listing explicitly starts at page one');
     A.eq(connectorCalls[0].args.perPage, 10, mode + ': GitHub listing is capped at ten results per page');
+    A.eq(connectorCalls[2].args.page, 1, mode + ': changed-file evidence explicitly starts at page one');
+    A.eq(connectorCalls[2].args.perPage, 50, mode + ': changed-file evidence is capped at fifty results');
+    A.eq(connectorCalls[5].args.page, 1, mode + ': check-run evidence explicitly starts at page one');
+    A.eq(connectorCalls[5].args.perPage, 50, mode + ': check-run evidence is capped at fifty results');
     A.eq(approvals, ['mcp__github-readonly__list_pull_requests', 'fs.write'], mode + ': the watched consent broker asks once per danger class and caches only the human session approvals');
   } finally { await manager.close(); }
 }
