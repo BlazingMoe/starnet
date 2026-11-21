@@ -206,6 +206,7 @@ const googleClientConfig = require('./mcp/google-client.js');
 const { makeStdioTransport } = require('./mcp/transport.stdio.js');
 const mcpSchemaCache = require('./mcp/schema-cache.js');
 const connectorCatalog = require('./mcp/catalog.js');       // curated one-click MCP connector catalog (pure data + selectors)
+const connectorProvenance = require('./mcp/provenance.js'); // descriptive origin only; never grants connector trust/authority
 const serviceKeysMod = require('./servicekeys.js');         // KEYS tab: custom service API keys (pure core — env injection + masked list)
 const serviceKeysCatalog = require('./servicekeys-catalog.js');   // KEYS tab: the curated PLATFORM directory (pure data)
 const mcpOauth = require('./mcp/oauth.js');                 // generic OAuth 2.1 client for MCP connectors (discover/DCR/PKCE/refresh)
@@ -10957,9 +10958,14 @@ async function handleToolsetToggle(req, res) {
 /* ---- /api/connectors: the Connectors panel manages MCP servers. A token is accepted here, persisted to the
    protected sibling file, and NEVER echoed back (list/status carry `hasToken` only, never the value). ---- */
 function connectedConnectorSnapshot() {
-  return connectors.list().map(c => c && c.oauth
-    ? Object.assign({}, c, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken), account: require('./mcp/account.js').publicAccount(connectorOauth.byId[c.id]) })
-    : c);
+  const configs = new Map((connectorConfigs || []).filter(Boolean).map(c => [String(c.id || ''), c]));
+  return connectors.list().map(c => {
+    if (!c) return c;
+    const projected = connectorProvenance.projectConnector(c, configs.get(String(c.id || '')), connectorCatalog);
+    return c.oauth
+      ? Object.assign(projected, { oauthAuthorized: !!(connectorOauth.byId[c.id] && connectorOauth.byId[c.id].accessToken), account: require('./mcp/account.js').publicAccount(connectorOauth.byId[c.id]) })
+      : projected;
+  });
 }
 function handleConnectorsList(req, res) {
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });

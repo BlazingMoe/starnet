@@ -97,6 +97,12 @@ Three facts make the bridge additive:
   Tests: `worldmodel.test.js` (bayObjects connector emission + `bindConnector`) and `routing.b5.test.js`
   (`stationFor` rich-object passthrough). `test:fast` green; browser-verified (palette + sprite renders every
   state with no throw, zero console errors).
+- [x] **Slice 6a — honest origin and server declarations.** `/api/connectors` projects a live connector as
+  `catalog-endpoint` only when both its ID and normalized endpoint match the curated catalog; a reused ID with
+  another endpoint remains `custom-remote`, and stdio is always `local-process`. The panel states that catalog
+  metadata and localhost are not trust. It also counts live tool annotations that self-declare
+  `readOnlyHint:true`, labelled as server-supplied and not independently verified. This is operator evidence
+  only: it adds no grant, consent bypass, network call, mutation authority or automatic trust decision.
 
 ## Open decisions for andro
 

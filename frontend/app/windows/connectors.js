@@ -807,12 +807,22 @@
           + (c.oauth ? (c.authRequired ? ' · OAuth grant rejected — sign in again' : (c.oauthAuthorized ? ' · OAuth authorized' : ' · OAuth sign-in needed')) : (c.hasToken ? ' · token saved' : ''))
           + (c.hasHeaders ? ' · headers set' : ''));
       const timeout = (c.timeoutMs && c.timeoutMs !== 30000) ? '<span class="dim"> · ' + Math.round(c.timeoutMs / 1000) + 's</span>' : '';
+      const provenance = c.provenance || {};
+      const origin = provenance.label
+        ? '<div class="mc-hint"><span class="mc-tag">' + esc(provenance.label) + '</span> ' + esc(provenance.detail || '') + '</div>'
+        : '';
+      const declared = c.toolDeclarations || {};
+      const declarations = declared.total > 0
+        ? '<div class="mc-hint">Server declaration: ' + Number(declared.readOnly || 0) + '/' + Number(declared.total || 0) +
+          ' advertised tools mark themselves read-only. This is not independently verified.</div>'
+        : '<div class="mc-hint">Server declaration: no visible tool annotations to assess.</div>';
       return '<div class="mc-row" data-id="' + esc(c.id) + '" data-enabled="' + (c.enabled ? '1' : '0') + '" style="--ci:' + (ri || 0) + '">' +
         '<div class="mc-top">' +
           '<span class="set-row mc-enable"><input type="checkbox" data-act="toggle"' + (c.enabled ? ' checked' : '') + ' aria-label="Enable connector ' + esc(c.id) + '"></span>' +
           '<b>' + esc(c.label || c.id) + '</b> <span class="dim">' + esc(c.id) + '</span>' +
           '<span class="mc-state" style="color:' + b[0] + '">' + b[1] + (c.toolCount ? ' · ' + c.toolCount + ' tool' + (c.toolCount === 1 ? '' : 's') : '') + '</span></div>' +
         '<div class="mc-url dim">' + where + timeout + '</div>' +
+        origin + declarations +
         '<div class="mc-hint">' + (c.account && c.account.email ? 'Account at last sign-in: ' + esc(c.account.email) : 'Account identity: not verified by StarNet.') + ' Browser logins are separate from this connection.</div>' +
         (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
         '<div class="mc-acts">' +

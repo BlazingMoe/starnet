@@ -441,7 +441,14 @@
         // serves documents, not actions".
         resourceCount: issue ? 0 : (c.resources || []).length,
         promptCount: issue ? 0 : (c.prompts || []).length,
-        tools: visibleTools.map(t => t.name)
+        tools: visibleTools.map(t => t.name),
+        // This is only what the REMOTE SERVER declared in MCP annotations. It is useful evidence for an
+        // operator, but never a permission grant or proof that the implementation is actually read-only.
+        toolDeclarations: {
+          total: visibleTools.length,
+          readOnly: visibleTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).length,
+          allReadOnly: visibleTools.length > 0 && visibleTools.every(t => t && t.annotations && t.annotations.readOnlyHint === true)
+        }
       };
       if (c.transportKind === 'stdio') {
         out.command = c.command;

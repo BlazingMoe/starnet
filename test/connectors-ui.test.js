@@ -32,7 +32,10 @@ function fakeStack(tools) {
 (async () => {
   // ---------- 1. MANAGER: headers + timeout threading ----------
   {
-    const { seen, makeTransport, makeClient } = fakeStack([{ name: 'do_thing' }]);
+    const { seen, makeTransport, makeClient } = fakeStack([
+      { name: 'read_thing', annotations: { readOnlyHint: true } },
+      { name: 'do_thing', annotations: { destructiveHint: true } }
+    ]);
     const m = makeConnectorManager({ makeTransport, makeClient, makeToolDef: () => ({ name: 'x' }), timeoutMs: 30000 });
     const r = await m.configure('gh', { transport: 'http', url: 'https://mcp.example/x', token: 'sk-secret',
       headers: { 'X-Api-Version': '2024', 'X-Auth-Token': 'zzz' }, timeoutMs: 5000 });
@@ -49,6 +52,7 @@ function fakeStack(tools) {
     A.eq(s.headers['X-Api-Version'], '<set>', 'non-secret header value is masked to <set>, never echoed');
     A.ok(JSON.stringify(s).indexOf('zzz') === -1, 'header VALUE never leaves the summary');
     A.ok(JSON.stringify(s).indexOf('sk-secret') === -1, 'token VALUE never leaves the summary');
+    A.eq(s.toolDeclarations, { total: 2, readOnly: 1, allReadOnly: false }, 'summary counts server-declared read-only annotations without promoting them to trust');
   }
 
   // headers + timeout are carried forward when a later configure() omits them
@@ -168,6 +172,9 @@ function fakeStack(tools) {
   A.ok(/\/api\/connectors\/refresh/.test(station), 'RELOAD hits the refresh endpoint');
   A.ok(/function badge/.test(station) && /connected/.test(station) && /error/.test(station), 'status badge (green/amber/red) present');
   A.ok(/mc-tools/.test(station), 'discovered-tools preview present');
+  A.ok(/c\.provenance/.test(station) && /CATALOG ENDPOINT|provenance\.label/.test(station), 'rows surface host-derived connector provenance');
+  A.ok(/Server declaration:/.test(station) && /not independently verified/.test(station), 'rows label read-only annotations as unverified server declarations');
+  A.ok(/c\.provenance/.test(webStation) && /not independently verified/.test(webStation), 'web build carries the same provenance and annotation caveat');
   A.ok(/async function removeConnector\([\s\S]{0,500}if \(!r\.ok\)/.test(station),
     'connector delete checks HTTP success before claiming removal');
   A.ok(/function wireRemoveButtons\(\)/.test(station) && /ArmConfirm\.wire\(btn/.test(station) &&
