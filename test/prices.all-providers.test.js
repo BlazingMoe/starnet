@@ -31,6 +31,7 @@ const { selectProvider } = require('../sidecar/providers/factory.js');
 const UNPRICED_BY_DESIGN = {
   perplexity: 'vendor publishes per-request search fees on top of tokens; a token rate alone would under-report',
   custom: 'a user-supplied endpoint: nothing is known about its billing',
+  freellmapi: 'a local router can select free or user-configured paid upstreams whose rates are not one stable family',
   cerebras: 'console.groq-style catalog carries no pricing and the vendor page lists too few ids to table (2026-08-21)',
   starnet: 'managed proxy bills the ledger per request itself (usage.cost on the wire)'
 };
