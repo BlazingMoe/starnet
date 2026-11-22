@@ -9340,6 +9340,7 @@ const ROUTES = [
   { m: 'GET', prefix: '/api/connectors/oauth/callback', h: handleConnectorOauthCallback },
   { m: 'GET', exact: '/api/connectors', h: handleConnectorsList },
   { m: 'POST', exact: '/api/connectors', h: handleConnectorUpsert },
+  { m: 'POST', exact: '/api/connectors/policy', h: handleConnectorPolicy },
   { m: 'POST', exact: '/api/connectors/remove', h: handleConnectorRemove },
   { m: 'POST', exact: '/api/connectors/refresh', h: handleConnectorRefresh },
   { m: 'GET', exact: '/api/servicekeys', h: handleServiceKeysList },
@@ -10568,6 +10569,7 @@ function prepareConnectorImport(rows) {
     if (!Object.prototype.hasOwnProperty.call(c, 'enabled')) merged.enabled = sameService && live ? live.enabled !== false : false;
     if (!Object.prototype.hasOwnProperty.call(c, 'oauth')) merged.oauth = sameService && live ? live.oauth === true : false;
     const sameStdioConfig = canRetainStdioValues(live, c, redacted);
+    if (!Object.prototype.hasOwnProperty.call(c, 'blockedTools')) merged.blockedTools = (sameService || sameStdioConfig) && live && Array.isArray(live.blockedTools) ? live.blockedTools.slice() : [];
     if (!Object.prototype.hasOwnProperty.call(c, 'agentId')) merged.agentId = '';
     if (!Object.prototype.hasOwnProperty.call(c, 'cwd')) merged.cwd = '';
     if (!Object.prototype.hasOwnProperty.call(c, 'label')) merged.label = live ? String(live.label || c.id) : c.id;
@@ -11181,7 +11183,9 @@ async function handleConnectorUpsert(req, res) {
     agentId: transport === 'stdio' ? agentId : '',
     headers: transport === 'http' ? headers : {},
     label: String(body.label || prev.label || id),
-    enabled: body.enabled !== false
+    enabled: body.enabled !== false,
+    // A normal edit/toggle cannot widen the connector by forgetting its local deny-list.
+    blockedTools: Array.isArray(prev.blockedTools) ? prev.blockedTools.slice() : []
   };
   // Imported redaction requirements survive restarts and ordinary edits. Clear a field only when this request
   // supplies its replacement for the same service; an Enable toggle alone can never make an incomplete row run.
@@ -11227,6 +11231,35 @@ async function handleConnectorUpsert(req, res) {
     ok: false, saved: true, connected: false, state: 'error', status: status,
     error: 'saved, but not connected — ' + detail
   }));
+}
+async function handleConnectorPolicy(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let body; try { body = JSON.parse(await readBody(req, 1 << 15)) || {}; } catch (e) { return json(400, { error: 'bad json' }); }
+  const id = String(body.id || '').trim();
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return json(400, { error: 'invalid connector id' });
+  if (!Array.isArray(body.blockedTools) || body.blockedTools.length > 256) return json(400, { error: 'blockedTools must be an array of at most 256 tool names' });
+  const blockedTools = [];
+  for (const raw of body.blockedTools) {
+    const name = String(raw == null ? '' : raw);
+    if (!name || name.length > 128 || /[\u0000-\u001f\u007f]/.test(name)) return json(400, { error: 'invalid connector tool name' });
+    if (blockedTools.indexOf(name) < 0) blockedTools.push(name);
+  }
+  const current = connectorConfigs.find(c => c && c.id === id);
+  if (!current) return json(404, { error: 'unknown connector' });
+  const live = connectors.status(id);
+  const published = new Set(live && Array.isArray(live.tools) ? live.tools : []);
+  const unknown = blockedTools.find(name => !published.has(name));
+  if (unknown) return json(409, { error: 'connector tool is not currently advertised: ' + unknown });
+  const nextCfg = Object.assign({}, current, { blockedTools });
+  const next = connectorStateMod.upsertConfig(connectorStateMod.envelope(connectorConfigs, connectorOauth), nextCfg);
+  if (!persistConnectorState(next.configs, next.oauth)) {
+    return json(500, { ok: false, saved: false, error: 'connector tool policy could not be verified on disk' });
+  }
+  adoptConnectorState(next);
+  // Validation, durable write and this in-memory swap are synchronous; no schema refresh can interleave them.
+  const applied = connectors.setBlockedTools(id, blockedTools);
+  if (!applied.ok) return json(500, { ok: false, saved: true, error: 'policy was saved but the live connector could not apply it; reload the connector' });
+  return json(200, { ok: true, saved: true, status: connectors.status(id) });
 }
 async function handleConnectorRemove(req, res) {
   const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };

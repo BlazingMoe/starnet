@@ -53,6 +53,15 @@ function fakeStack(tools) {
     A.ok(JSON.stringify(s).indexOf('zzz') === -1, 'header VALUE never leaves the summary');
     A.ok(JSON.stringify(s).indexOf('sk-secret') === -1, 'token VALUE never leaves the summary');
     A.eq(s.toolDeclarations, { total: 2, readOnly: 1, allReadOnly: false }, 'summary counts server-declared read-only annotations without promoting them to trust');
+    A.eq(m.setBlockedTools('gh', ['do_thing']).ok, true, 'a published tool can be locally blocked without reconnecting');
+    A.eq(m.status('gh').blockedTools, ['do_thing'], 'summary keeps blocked tools visible for operator recovery');
+    A.eq(m.status('gh').toolCount, 1, 'blocked tool is removed from the enabled count');
+    A.eq(m.toolDefsFor('gh').length, 1, 'blocked tool is removed from agent projection');
+    let blockedCall = '';
+    try { await m.call('gh', 'do_thing', {}); } catch (e) { blockedCall = String((e && e.message) || e); }
+    A.ok(/not permitted by the host policy/.test(blockedCall), 'direct dispatch cannot bypass the local block');
+    A.eq(m.setBlockedTools('gh', ['invented']).ok, false, 'unknown tool cannot be smuggled into durable policy');
+    A.eq(m.setBlockedTools('gh', []).ok, true, 'operator can re-enable the advertised tool');
   }
 
   // headers + timeout are carried forward when a later configure() omits them
@@ -174,6 +183,8 @@ function fakeStack(tools) {
   A.ok(/mc-tools/.test(station), 'discovered-tools preview present');
   A.ok(/c\.provenance/.test(station) && /CATALOG ENDPOINT|provenance\.label/.test(station), 'rows surface host-derived connector provenance');
   A.ok(/Server declaration:/.test(station) && /not independently verified/.test(station), 'rows label read-only annotations as unverified server declarations');
+  A.ok(/data-act="tool-policy"/.test(station) && /\/api\/connectors\/policy/.test(station), 'each advertised tool has a local per-server policy toggle');
+  A.ok(/no connector call was made/.test(station), 'tool policy result states that the change was local-only');
   A.ok(/c\.provenance/.test(webStation) && /not independently verified/.test(webStation), 'web build carries the same provenance and annotation caveat');
   A.ok(/async function removeConnector\([\s\S]{0,500}if \(!r\.ok\)/.test(station),
     'connector delete checks HTTP success before claiming removal');

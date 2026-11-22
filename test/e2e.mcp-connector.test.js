@@ -312,6 +312,31 @@ async function readNdjson(res) {
     const listed = await (await fetch(B + '/api/connectors', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     A.ok((listed.connectors || []).some(c => c.id === 'demo' && c.tools && c.tools.indexOf('lookup') >= 0), '/api/connectors lists the discovered MCP tool');
 
+    // PER-SERVER TOOL POLICY is local-only and narrowing: keep the advertised tool visible for recovery while
+    // removing it from projection/dispatch. Saving the checkbox must not call or reconnect the remote server.
+    const callsBeforePolicy = mcp.calls.length;
+    const blockTool = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: ['lookup'] })
+    });
+    A.eq(blockTool.status, 200, 'known advertised tool can be blocked locally');
+    const blockedStatus = (await blockTool.json()).status;
+    A.eq(blockedStatus.toolCount, 0, 'blocked tool leaves the enabled tool count');
+    A.eq(blockedStatus.tools, ['lookup'], 'blocked tool remains advertised for operator recovery');
+    A.eq(blockedStatus.blockedTools, ['lookup'], 'blocked tool is explicitly identified');
+    A.eq(mcp.calls.length, callsBeforePolicy, 'policy write makes no MCP request or reconnect');
+    const policyDisk = JSON.parse(fs.readFileSync(connectorFile, 'utf8')).configs.find(c => c.id === 'demo');
+    A.eq(policyDisk.blockedTools, ['lookup'], 'tool policy is durable in protected connector state');
+    const rejectUnknown = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: ['invented'] })
+    });
+    A.eq(rejectUnknown.status, 409, 'unknown tool cannot enter connector policy');
+    const unblockTool = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: [] })
+    });
+    A.eq(unblockTool.status, 200, 'advertised tool can be re-enabled locally');
+    A.eq((await unblockTool.json()).status.toolCount, 1, 're-enabled tool returns to projection count');
+    A.eq(mcp.calls.length, callsBeforePolicy, 'unblocking also makes no MCP request or reconnect');
+
     // PR SWEEP ADMISSION: the real /api/run path must refuse a room with only the full-access GitHub connector.
     // The local mock endpoint proves the configured full-access tool cannot trigger a provider request or MCP call.
     const fullGithub = await fetch(B + '/api/connectors', {

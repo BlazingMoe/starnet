@@ -98,6 +98,20 @@
       if (!isFinite(n) || n <= 0) return (prev && prev.timeoutMs) || timeoutMs;
       return Math.max(1000, Math.min(600000, Math.round(n)));
     }
+    function normalizeBlockedTools(cfg, prev) {
+      if (!Object.prototype.hasOwnProperty.call(cfg || {}, 'blockedTools')) {
+        return prev && Array.isArray(prev.blockedTools) ? prev.blockedTools.slice() : [];
+      }
+      if (!Array.isArray(cfg.blockedTools)) throw new Error('connector blockedTools must be an array');
+      if (cfg.blockedTools.length > 256) throw new Error('connector blockedTools cannot exceed 256 entries');
+      const out = [];
+      for (const raw of cfg.blockedTools) {
+        const name = String(raw == null ? '' : raw);
+        if (!name || name.length > 128 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('connector blockedTools contains an invalid tool name');
+        if (out.indexOf(name) < 0) out.push(name);
+      }
+      return out;
+    }
     function redactEnv(env) {
       const out = {};
       const keys = Object.keys(env || {}).sort();
@@ -140,10 +154,14 @@
       }
       try { return String(validateConfig(c) || ''); } catch (_) { return 'connector runtime ownership could not be verified'; }
     }
-    function allowedTools(c) {
+    function hostAllowedTools(c) {
       return (c && Array.isArray(c.tools) ? c.tools : []).filter(t => {
         try { return toolAllowed(c, t) !== false; } catch (_) { return false; }
       });
+    }
+    function allowedTools(c) {
+      const blocked = new Set(c && Array.isArray(c.blockedTools) ? c.blockedTools : []);
+      return hostAllowedTools(c).filter(t => t && !blocked.has(String(t.name || '')));
     }
     function closeResources(client, transport, reason) {
       if (client) { try {
@@ -373,6 +391,7 @@
         missingFields: Array.isArray(cfg.missingFields)
           ? Array.from(new Set(cfg.missingFields.filter(x => typeof x === 'string')))
           : (prev && Array.isArray(prev.missingFields) ? prev.missingFields.slice() : []),
+        blockedTools: normalizeBlockedTools(cfg, prev),
         // oauth connectors pass a tokenProvider() instead of a frozen token (see connect); carried across reconfigure
         // so a benign toggle/re-warm keeps refreshing the bearer.
         tokenProvider: Object.prototype.hasOwnProperty.call(cfg, 'tokenProvider')
@@ -422,7 +441,9 @@
     // a summary safe to log / return over HTTP: the token is NEVER included (only whether one is set).
     function summary(c) {
       const issue = configIssue(c);
+      const advertisedTools = issue ? [] : hostAllowedTools(c);
       const visibleTools = issue ? [] : allowedTools(c);
+      const blocked = new Set(c && Array.isArray(c.blockedTools) ? c.blockedTools : []);
       const out = {
         id: c.id,
         label: c.label,
@@ -436,18 +457,20 @@
         authRequired: !issue && !!c.authRequired,        // the server rejected the credential (HTTP 401) — render "sign in again", not "down"
         timeoutMs: c.timeoutMs || timeoutMs,
         toolCount: visibleTools.length,
+        advertisedToolCount: advertisedTools.length,
         // Surfaced so the connector panel can say what a server ACTUALLY offers. A server with 0 tools and 40
         // resources used to render as an empty connector, which reads as broken rather than as "this one
         // serves documents, not actions".
         resourceCount: issue ? 0 : (c.resources || []).length,
         promptCount: issue ? 0 : (c.prompts || []).length,
-        tools: visibleTools.map(t => t.name),
+        tools: advertisedTools.map(t => t.name),
+        blockedTools: advertisedTools.filter(t => blocked.has(String(t && t.name || ''))).map(t => t.name),
         // This is only what the REMOTE SERVER declared in MCP annotations. It is useful evidence for an
         // operator, but never a permission grant or proof that the implementation is actually read-only.
         toolDeclarations: {
-          total: visibleTools.length,
-          readOnly: visibleTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).length,
-          allReadOnly: visibleTools.length > 0 && visibleTools.every(t => t && t.annotations && t.annotations.readOnlyHint === true)
+          total: advertisedTools.length,
+          readOnly: advertisedTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).length,
+          allReadOnly: advertisedTools.length > 0 && advertisedTools.every(t => t && t.annotations && t.annotations.readOnlyHint === true)
         }
       };
       if (c.transportKind === 'stdio') {
@@ -474,6 +497,18 @@
     function list() { const out = []; for (const c of conns.values()) out.push(summary(c)); return out; }
     function has(id) { return conns.has(String(id)); }
     function ids() { return Array.from(conns.keys()); }
+    function setBlockedTools(id, names) {
+      const c = conns.get(String(id));
+      if (!c) return { ok: false, error: 'unknown connector' };
+      let next;
+      try { next = normalizeBlockedTools({ blockedTools: names }, c); }
+      catch (e) { return { ok: false, error: (e && e.message) || 'invalid blockedTools' }; }
+      const published = new Set(hostAllowedTools(c).map(t => String(t && t.name || '')));
+      const unknown = next.find(name => !published.has(name));
+      if (unknown) return { ok: false, error: 'connector tool is not currently advertised: ' + unknown };
+      c.blockedTools = next;
+      return { ok: true, status: summary(c) };
+    }
 
     // consecutive call failures that flip an HTTP connector to 'error' (its transport reports per-call failures as
     // JSON-RPC errors, not transport death, so a vanished HTTP endpoint would otherwise stay 'up' forever). stdio
@@ -758,7 +793,7 @@
       return upConn(id).client.getPrompt(name, args);
     };
 
-    return { configure, remove, refresh, close, status, list, has, ids, toolDefsFor, toolDefsForObjects, toolInfo, call, resourcesFor, promptsFor, readResource, getPrompt, sweepLifecycle, _internals: { connectorIdOf } };
+    return { configure, remove, refresh, close, status, list, has, ids, setBlockedTools, toolDefsFor, toolDefsForObjects, toolInfo, call, resourcesFor, promptsFor, readResource, getPrompt, sweepLifecycle, _internals: { connectorIdOf } };
   }
 
   return { makeConnectorManager, _internals: { connectorIdOf } };

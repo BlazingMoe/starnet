@@ -4323,6 +4323,8 @@ body.crew-rail-off #screen-game.active {
 .mc-detail { font-size: 12px; color: var(--bad); margin-top: 4px; }
 .mc-tools { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .mc-tools code { font-size: 11px; color: var(--ph); border: 1px solid var(--ph-dim); border-radius: 4px; padding: 1px 5px; background: rgba(0,0,0,.4); }
+.mc-tool-policy { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
+.mc-tool-policy input:not(:checked) + code { color: var(--ph-dim); text-decoration: line-through; opacity: .7; }
 .mc-acts { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .mc-form { display: flex; flex-direction: column; gap: 6px; }
 /* EXTENSIONS authoring: two fields side by side on a wide panel, stacked when the console is narrow. No

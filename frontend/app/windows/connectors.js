@@ -792,7 +792,10 @@
     }
     function row(c, ri) {
       const b = badge(c.state);
-      const tools = (c.tools && c.tools.length) ? '<div class="mc-tools">' + c.tools.map(t => '<code>' + esc(t) + '</code>').join('') + '</div>' : '';
+      const blockedTools = new Set(c.blockedTools || []);
+      const tools = (c.tools && c.tools.length) ? '<div class="mc-tools">' + c.tools.map(t =>
+        '<label class="mc-tool-policy" title="Local connector policy — uncheck to block this tool"><input type="checkbox" data-act="tool-policy" data-tool="' + esc(t) + '"' +
+        (blockedTools.has(t) ? '' : ' checked') + '> <code>' + esc(t) + '</code></label>').join('') + '</div>' : '';
       const detail = (c.state === 'error' && c.detail) ? '<div class="mc-detail">' + esc(c.detail) + '</div>' : '';
       const next = !c.enabled ? 'Turn on the switch above to let agents use this service.'
         : c.oauth && (c.authRequired || !c.oauthAuthorized) ? 'Sign in below to restore access to this account.'
@@ -934,6 +937,22 @@
     });
     // per-connector ENABLE pill switch (upgraded presentation of the old DISABLE/ENABLE button; same server flag).
     listEl.addEventListener('change', async ev => {
+      const toolCb = ev.target.closest('input[data-act="tool-policy"]');
+      if (toolCb) {
+        const rowEl = ev.target.closest('.mc-row'); const id = rowEl && rowEl.dataset.id; if (!id) return;
+        const c = lastList.find(x => x.id === id) || {};
+        const blocked = new Set(c.blockedTools || []);
+        if (toolCb.checked) blocked.delete(toolCb.dataset.tool); else blocked.add(toolCb.dataset.tool);
+        toolCb.disabled = true;
+        try {
+          const r = await postJSON('/api/connectors/policy', { id, blockedTools: Array.from(blocked) });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({})); toolCb.checked = !toolCb.checked;
+            msgEl.classList.remove('ok'); msgEl.textContent = '✕ ' + ((j && j.error) || ('HTTP ' + r.status)); sfx('bad');
+          } else { msgEl.classList.add('ok'); msgEl.textContent = '✓ local tool policy saved — no connector call was made'; sfx('tick'); }
+        } catch (e) { toolCb.checked = !toolCb.checked; msgEl.classList.remove('ok'); msgEl.textContent = '✕ ' + ((e && e.message) || 'request failed'); sfx('bad'); }
+        toolCb.disabled = false; refresh(); return;
+      }
       const cb = ev.target.closest('input[data-act="toggle"]'); if (!cb) return;
       const rowEl = ev.target.closest('.mc-row'); const id = rowEl && rowEl.dataset.id; if (!id) return;
       const c = lastList.find(x => x.id === id) || {};

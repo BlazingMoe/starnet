@@ -103,6 +103,11 @@ Three facts make the bridge additive:
   metadata and localhost are not trust. It also counts live tool annotations that self-declare
   `readOnlyHint:true`, labelled as server-supplied and not independently verified. This is operator evidence
   only: it adds no grant, consent bypass, network call, mutation authority or automatic trust decision.
+- [x] **Slice 6b — per-server tool deny-list.** Every host-permitted advertised tool remains visible in its
+  connector row and can be blocked/re-enabled by exact raw tool name. The bounded list is written into the
+  existing protected connector envelope with verified read-back and applied live without reconnecting or calling
+  the MCP server. Projection and direct dispatch both use the same filtered manager path. The control only
+  narrows: host policy, placement, consent and autonomous-run rules still decide whether an enabled tool may run.
 
 ## Open decisions for andro
 
