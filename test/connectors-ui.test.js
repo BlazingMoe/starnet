@@ -53,6 +53,7 @@ function fakeStack(tools) {
     A.ok(JSON.stringify(s).indexOf('zzz') === -1, 'header VALUE never leaves the summary');
     A.ok(JSON.stringify(s).indexOf('sk-secret') === -1, 'token VALUE never leaves the summary');
     A.eq(s.toolDeclarations, { total: 2, readOnly: 1, allReadOnly: false }, 'summary counts server-declared read-only annotations without promoting them to trust');
+    A.eq(s.readOnlyTools, ['read_thing'], 'summary exposes only exact server-declared names for restriction presets');
     A.eq(m.setBlockedTools('gh', ['do_thing']).ok, true, 'a published tool can be locally blocked without reconnecting');
     A.eq(m.status('gh').blockedTools, ['do_thing'], 'summary keeps blocked tools visible for operator recovery');
     A.eq(m.status('gh').toolCount, 1, 'blocked tool is removed from the enabled count');
@@ -184,6 +185,10 @@ function fakeStack(tools) {
   A.ok(/c\.provenance/.test(station) && /CATALOG ENDPOINT|provenance\.label/.test(station), 'rows surface host-derived connector provenance');
   A.ok(/Server declaration:/.test(station) && /not independently verified/.test(station), 'rows label read-only annotations as unverified server declarations');
   A.ok(/data-act="tool-policy"/.test(station) && /\/api\/connectors\/policy/.test(station), 'each advertised tool has a local per-server policy toggle');
+  A.ok(/data-act="policy-readonly"/.test(station) && /data-act="policy-block-all"/.test(station) && /data-act="policy-restore-all"/.test(station),
+    'connector rows expose the three restriction-only policy presets');
+  A.ok(/advertised\.filter\(name => !declaredReadOnly\.has\(name\)\)/.test(station) && /host policy and consent still apply/.test(station),
+    'read-only preset blocks every undeclared tool and never claims the server hint grants authority');
   A.ok(/no connector call was made/.test(station), 'tool policy result states that the change was local-only');
   A.ok(/c\.provenance/.test(webStation) && /not independently verified/.test(webStation), 'web build carries the same provenance and annotation caveat');
   A.ok(/async function removeConnector\([\s\S]{0,500}if \(!r\.ok\)/.test(station),

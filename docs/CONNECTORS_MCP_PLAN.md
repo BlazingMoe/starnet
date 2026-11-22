@@ -117,6 +117,12 @@ Three facts make the bridge additive:
   labelled publisher-supplied metadata, not vendor verification, trust, safety, liveness or permission evidence.
   Sources: [official Registry API](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md)
   and [v0.1 OpenAPI](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml).
+- [x] **Slice 6d — restriction-only permission presets.** A connected server's exact host-permitted tool list,
+  when it fits the protected 256-name policy ceiling, can
+  be reduced in one local action to no tools, only names carrying the server-supplied `readOnlyHint:true`, or the
+  full host-permitted list. Presets write the same bounded deny-list as individual checkboxes, make no connector
+  call and do not reconnect. The read-only preset is explicitly labelled unverified server metadata; restoring
+  removes only this local deny-list, while host policy, placement, consent and downstream approval remain in force.
 
 ## Open decisions for andro
 

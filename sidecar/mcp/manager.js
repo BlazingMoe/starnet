@@ -465,6 +465,10 @@
         promptCount: issue ? 0 : (c.prompts || []).length,
         tools: advertisedTools.map(t => t.name),
         blockedTools: advertisedTools.filter(t => blocked.has(String(t && t.name || ''))).map(t => t.name),
+        // Names are safe for the panel's restriction-only preset. This remains server-authored evidence: the
+        // preset may block everything not declared read-only, but it never uses the hint to bypass consent,
+        // host policy or any downstream safety gate.
+        readOnlyTools: advertisedTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).map(t => t.name),
         // This is only what the REMOTE SERVER declared in MCP annotations. It is useful evidence for an
         // operator, but never a permission grant or proof that the implementation is actually read-only.
         toolDeclarations: {

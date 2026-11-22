@@ -803,6 +803,12 @@
       const tools = (c.tools && c.tools.length) ? '<div class="mc-tools">' + c.tools.map(t =>
         '<label class="mc-tool-policy" title="Local connector policy — uncheck to block this tool"><input type="checkbox" data-act="tool-policy" data-tool="' + esc(t) + '"' +
         (blockedTools.has(t) ? '' : ' checked') + '> <code>' + esc(t) + '</code></label>').join('') + '</div>' : '';
+      const policyPresets = (c.tools && c.tools.length && c.tools.length <= 256) ? '<div class="mc-acts mc-tool-presets">' +
+        '<button class="bb xs" data-act="policy-readonly" title="Block every tool that the server does not declare read-only">SERVER-DECLARED READ-ONLY ONLY</button>' +
+        '<button class="bb xs" data-act="policy-block-all" title="Block every advertised tool on this connector">BLOCK ALL TOOLS</button>' +
+        '<button class="bb xs" data-act="policy-restore-all" title="Remove this local deny-list; host policy and consent still apply">RESTORE HOST-PERMITTED</button>' +
+        '</div><div class="mc-hint">Presets only narrow this connector. Read-only labels come from the server and are not independently verified.</div>'
+        : (c.tools && c.tools.length ? '<div class="mc-hint">Bulk presets are unavailable above the protected 256-tool policy limit.</div>' : '');
       const detail = (c.state === 'error' && c.detail) ? '<div class="mc-detail">' + esc(c.detail) + '</div>' : '';
       const next = !c.enabled ? 'Turn on the switch above to let agents use this service.'
         : c.oauth && (c.authRequired || !c.oauthAuthorized) ? 'Sign in below to restore access to this account.'
@@ -834,7 +840,7 @@
         '<div class="mc-url dim">' + where + timeout + '</div>' +
         origin + declarations +
         '<div class="mc-hint">' + (c.account && c.account.email ? 'Account at last sign-in: ' + esc(c.account.email) : 'Account identity: not verified by StarNet.') + ' Browser logins are separate from this connection.</div>' +
-        (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools +
+        (next ? '<div class="mc-hint">' + esc(next) + '</div>' : '') + detail + tools + policyPresets +
         '<div class="mc-acts">' +
           // an OAuth connector's stored grant can die provider-side (token revoked, DCR client deleted) — a state
           // RELOAD can't cure (it reconnects with the same dead grant) and EDIT can't reach (its form is the
@@ -930,6 +936,28 @@
       if (act === 'resign') { sfx('click'); ccSignIn(id, msgEl); return; }
       if (act === 'remove' && btn.dataset.wired === '1') return; // ArmConfirm owns both clicks.
       if (act === 'remove') { await removeConnector(id, btn); return; } // defensive fallback for stripped builds.
+      if (act === 'policy-readonly' || act === 'policy-block-all' || act === 'policy-restore-all') {
+        const c = lastList.find(x => x.id === id) || {};
+        const advertised = Array.isArray(c.tools) ? c.tools.slice() : [];
+        const declaredReadOnly = new Set(Array.isArray(c.readOnlyTools) ? c.readOnlyTools : []);
+        const blockedTools = act === 'policy-block-all' ? advertised
+          : act === 'policy-readonly' ? advertised.filter(name => !declaredReadOnly.has(name)) : [];
+        const controls = rowEl.querySelectorAll('button[data-act^="policy-"], input[data-act="tool-policy"]');
+        controls.forEach(control => { control.disabled = true; });
+        try {
+          const r = await postJSON('/api/connectors/policy', { id, blockedTools });
+          if (!r.ok) {
+            const j = await r.json().catch(() => ({}));
+            msgEl.classList.remove('ok'); msgEl.textContent = '✕ ' + ((j && j.error) || ('HTTP ' + r.status)); sfx('bad');
+          } else {
+            msgEl.classList.add('ok');
+            msgEl.textContent = '✓ restriction preset saved — no connector call was made; host policy and consent still apply';
+            sfx('tick');
+          }
+        } catch (e) { msgEl.classList.remove('ok'); msgEl.textContent = '✕ ' + ((e && e.message) || 'request failed'); sfx('bad'); }
+        controls.forEach(control => { control.disabled = false; });
+        refresh(); return;
+      }
       btn.disabled = true;
       try {
         if (act === 'reload') {
