@@ -11,6 +11,7 @@ const C = require('../sidecar/configexport.js');
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const eq = (a, b, m) => { assert.strictEqual(a, b, m); n++; };
+const deep = (a, b, m) => { assert.deepStrictEqual(a, b, m); n++; };
 
 // ---- schema + shape ----
 eq(C.SCHEMA, 1, 'schema version is 1');
@@ -67,7 +68,7 @@ ok(c.redactedFields.indexOf('token') >= 0, 'a bearer token marker is retained wi
 eq(c.url, 'https://mcp.example/api', 'the url is stripped of its token query');
 eq(c.enabled, false, 'disabled state is exported');
 eq(c.oauth, true, 'OAuth mode is exported');
-eq(c.blockedTools, ['delete_issue', 'publish_release'], 'narrowing connector policy is exported without secrets');
+deep(c.blockedTools, ['delete_issue', 'publish_release'], 'narrowing connector policy is exported without secrets');
 const stdio = env.sections.connectors[1];
 eq(stdio.agentId, 'lead', 'Safe Cell owner is exported');
 eq(stdio.cwd, 'C:/work', 'stdio working directory is exported');
@@ -94,7 +95,7 @@ ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 3, 'all redacted
 eq(p.secretsNeeded[0].id, 'gh', 'the secretsNeeded prompt names the connector');
 eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
 eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');
-eq(p.sections.connectors[0].blockedTools, ['delete_issue', 'publish_release'], 'blocked connector tools round-trip');
+deep(p.sections.connectors[0].blockedTools, ['delete_issue', 'publish_release'], 'blocked connector tools round-trip');
 eq(p.sections.connectors[1].agentId, 'lead', 'Safe Cell owner round-trips');
 eq(p.sections.connectors[1].cwd, 'C:/work', 'working directory round-trips');
 
