@@ -207,6 +207,7 @@ const { makeStdioTransport } = require('./mcp/transport.stdio.js');
 const mcpSchemaCache = require('./mcp/schema-cache.js');
 const connectorCatalog = require('./mcp/catalog.js');       // curated one-click MCP connector catalog (pure data + selectors)
 const connectorProvenance = require('./mcp/provenance.js'); // descriptive origin only; never grants connector trust/authority
+const connectorRegistryDiscovery = require('./mcp/registry-discovery.js'); // bounded official-registry search; never auto-connects
 const serviceKeysMod = require('./servicekeys.js');         // KEYS tab: custom service API keys (pure core — env injection + masked list)
 const serviceKeysCatalog = require('./servicekeys-catalog.js');   // KEYS tab: the curated PLATFORM directory (pure data)
 const mcpOauth = require('./mcp/oauth.js');                 // generic OAuth 2.1 client for MCP connectors (discover/DCR/PKCE/refresh)
@@ -9334,6 +9335,7 @@ const ROUTES = [
   { m: 'GET', qprefix: '/api/models/', h: handleProviderModels },
   { m: 'POST', exact: '/api/auth/codex/logout', h: handleCodexLogout },
   { m: 'GET', exact: '/api/connectors/catalog', h: handleConnectorCatalog },
+  { m: 'GET', exact: '/api/connectors/registry', h: handleConnectorRegistry },
   { m: 'POST', exact: '/api/connectors/oauth/start', h: handleConnectorOauthStart },
   { m: 'POST', exact: '/api/connectors/oauth/client', h: handleConnectorOauthClient },
   { m: 'POST', exact: '/api/connectors/oauth/cancel', h: handleConnectorOauthCancel },
@@ -11060,6 +11062,23 @@ function handleConnectorCatalog(req, res) {
   payload.connectors.forEach(markNeedsClient);
   payload.groups.forEach(g => g.connectors.forEach(markNeedsClient));
   res.end(JSON.stringify(payload));
+}
+/* GET /api/connectors/registry?search=... — one bounded read-only query to the official MCP Registry.
+   Publisher metadata is projected to display-safe fields. Even a compatible endpoint can only prefill the
+   existing manual form; this route never persists, connects, downloads packages or starts a process. */
+async function handleConnectorRegistry(req, res) {
+  const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  let search = '';
+  try { search = new URL(req.url, 'http://127.0.0.1').searchParams.get('search') || ''; }
+  catch (_) { return json(400, { ok: false, error: 'invalid registry search URL' }); }
+  try {
+    const result = await connectorRegistryDiscovery.search({ query: search, fetchImpl: globalThis.fetch });
+    return json(200, Object.assign({ ok: true }, result));
+  } catch (error) {
+    const code = error && error.code;
+    const status = code === 'INVALID_QUERY' ? 400 : code === 'REGISTRY_TIMEOUT' ? 504 : 502;
+    return json(status, { ok: false, code: code || 'REGISTRY_UNAVAILABLE', error: (error && error.message) || 'registry search failed' });
+  }
 }
 /* POST /api/connectors/oauth/client {id, clientId, clientSecret} — store the ONE-TIME pre-registered OAuth
    client for a staticOauth connector's authorization server (Google has no dynamic registration, so the

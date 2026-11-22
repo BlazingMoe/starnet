@@ -108,6 +108,15 @@ Three facts make the bridge additive:
   existing protected connector envelope with verified read-back and applied live without reconnecting or calling
   the MCP server. Projection and direct dispatch both use the same filtered manager path. The control only
   narrows: host policy, placement, consent and autonomous-run rules still decide whether an enabled tool may run.
+- [x] **Slice 6c — official Registry discovery preview.** An explicit Catalog search makes one bounded public
+  `GET /v0.1/servers?search=...&version=latest&limit=10` request to the fixed official Registry origin. The host
+  accepts at most 512 KiB, keeps only active/latest records and projects bounded display fields. A result may
+  prefill the existing manual form only when it publishes a fixed header-free HTTPS `streamable-http` endpoint.
+  Template URLs, cleartext HTTP, legacy SSE, header/secret setup and package/process installs remain display-only.
+  Search and prefill never persist, connect, download, execute or grant tools. Registry publication is explicitly
+  labelled publisher-supplied metadata, not vendor verification, trust, safety, liveness or permission evidence.
+  Sources: [official Registry API](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md)
+  and [v0.1 OpenAPI](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml).
 
 ## Open decisions for andro
 

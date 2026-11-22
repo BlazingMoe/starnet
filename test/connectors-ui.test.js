@@ -217,6 +217,16 @@ function fakeStack(tools) {
   A.ok(/id:\s*'catalog'/.test(station) && /label:\s*'CATALOG'/.test(station), 'CATALOG tab registered on the connectors console');
   A.ok(/id="cc-list"/.test(station), 'catalog list container present');
   A.ok(/\/api\/connectors\/catalog/.test(station), 'catalog pane fetches GET /api/connectors/catalog');
+  A.ok(/id="cc-registry-search"/.test(station) && /id="cc-registry-go"/.test(station),
+    'catalog exposes an explicit official-registry search rather than an ambient background sync');
+  A.ok(/\/api\/connectors\/registry\?search=/.test(station) && /function ccRegistrySearch/.test(station),
+    'registry search uses the bounded sidecar route');
+  A.ok(/PREFILL MANUAL CONNECTOR/.test(station) && /REVIEW REGISTRY PREFILL — NOT CONNECTED/.test(station),
+    'compatible registry results only prefill the existing manual connector form');
+  A.ok(/No headers or secrets were imported/.test(station) && /Nothing was connected/.test(station),
+    'registry UI states the no-secret and no-connect boundary');
+  A.ok(/Publisher-supplied discovery metadata only/.test(station) && /not proof of vendor identity, safety, availability/.test(station),
+    'registry results are visibly untrusted metadata, not recommendations or liveness evidence');
   A.ok(/function ccCard/.test(station) && /function ccGroupHTML/.test(station), 'catalog card + category-group renderers present');
   // honest auth tiers: no-setup adds, apikey reveals a key field, oauth is listed-but-gated (never a dead click)
   A.ok(/data-cc-act="add"/.test(station), 'no-setup connectors get an ADD action');
@@ -236,6 +246,8 @@ function fakeStack(tools) {
   A.ok(/ccPending/.test(station), 'sign-in has a per-connector in-flight guard (no duplicate popups / concurrent pollers)');
   A.ok(/e\.authType === 'oauth'/.test(station), 'the UI gates on the authType tier from the catalog');
   const sidecar = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  A.ok(/exact: '\/api\/connectors\/registry'/.test(sidecar) && /connectorRegistryDiscovery\.search/.test(sidecar),
+    'sidecar routes registry discovery through the bounded projector');
   A.ok(/resolveConnectorOauthTarget\([^\n]+connectorCatalog, connectorConfigs\)/.test(sidecar),
     'OAuth start resolves both catalog and durably saved custom connector ids');
   A.ok(/connectorOauthPublicUrl[\s\S]{0,500}assertResolvedSafe/.test(sidecar) && /fetchImpl: connectorOauthFetch/.test(sidecar)
@@ -254,6 +266,8 @@ function fakeStack(tools) {
     'a catalog entry can expose named presets without multiplying duplicate cards');
   A.ok(/Array\.isArray\(e\.presets\)/.test(webStation) && /PRESETS ·/.test(webStation),
     'web build carries the same preset rendering');
+  A.ok(/id="cc-registry-search"/.test(webStation) && /PREFILL MANUAL CONNECTOR/.test(webStation),
+    'web build carries the same registry preview and manual-prefill boundary');
   // truthful telemetry: ADDED state comes from the backend `installed` flag, and live state is re-read after add
   const renderCatalog = require('node:vm').runInNewContext('(' + station.slice(station.indexOf('function ccCard('), station.indexOf('    function ccGroupHTML')) + ')', {
     CC_CHIP: { none: ['', 'no setup', 'green'] }, esc: x => String(x == null ? '' : x), ccSeal: () => '', location: { port: '8787' }

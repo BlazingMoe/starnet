@@ -153,6 +153,13 @@
         '<b class="cc-lg-key">API key</b> you paste a key · <b class="cc-lg-oauth">SIGN IN</b> connect through your browser. Some services require one-time app setup first.</span></p>' +
       '<div id="cc-list" class="cc-list"><span class="loading pulse">loading catalog…</span></div>' +
       '<div id="cc-msg" class="msg" role="status" aria-live="polite"></div>' +
+      '<details class="mc-adv cc-registry"><summary>Search the official MCP Registry</summary>' +
+        '<p class="set-about dim">Publisher-supplied discovery metadata only — not a StarNet recommendation, trust check, liveness check, or permission grant. Search never connects or installs anything.</p>' +
+        '<div class="mc-acts"><input id="cc-registry-search" class="key-input" placeholder="server name — at least 3 characters" autocomplete="off" spellcheck="false" maxlength="80">' +
+          '<button type="button" class="bb xs" id="cc-registry-go">SEARCH REGISTRY</button></div>' +
+        '<div id="cc-registry-results" class="cc-list"></div>' +
+        '<div id="cc-registry-msg" class="msg" role="status" aria-live="polite"></div>' +
+      '</details>' +
       '<p class="set-about dim">Need something not listed? Add any remote MCP server by URL in <b>MCP CONNECTORS</b>, or paste a custom platform key in <b>KEYS</b>.</p>';
     // ---- KEYS pane markup: every platform key the agents hold, in one place. Top = keyed catalog/MCP platforms
     //      currently connected (truth from /api/connectors — managed on their own tab, read-only here). Bottom =
@@ -1031,7 +1038,12 @@
     // then really connects and reports honest live state, so a card never claims more than the backend proves.
     const ccListEl = body.querySelector('#cc-list');
     const ccMsgEl = body.querySelector('#cc-msg');
+    const ccRegistryInput = body.querySelector('#cc-registry-search');
+    const ccRegistryGo = body.querySelector('#cc-registry-go');
+    const ccRegistryResults = body.querySelector('#cc-registry-results');
+    const ccRegistryMsg = body.querySelector('#cc-registry-msg');
     let ccCache = [];   // flat catalog entries, so a click reads the authoritative id/url/name (never re-typed)
+    let ccRegistryEntries = [];
     let ccAlternatives = new Map();
     const ccEntry = id => ccCache.find(x => (x.catalogId || x.id) === id);
     const ccPending = new Set();   // connector ids with an in-flight OAuth sign-in (guards duplicate popups/pollers)
@@ -1064,6 +1076,65 @@
       const svg = (typeof ClassIcons !== 'undefined' && ClassIcons.platformIcon) ? ClassIcons.platformIcon(e) : null;
       return svg ? '<span class="mkt-coin cc-seal"><span class="mkt-coin-ico">' + svg + '</span></span>' : '';
     }
+    function ccRegistryCard(entry, index) {
+      const links = (entry.websiteUrl ? '<a class="cc-home dim" href="' + esc(entry.websiteUrl) + '" target="_blank" rel="noopener">site ↗</a>' : '') +
+        (entry.repositoryUrl ? ' <a class="cc-home dim" href="' + esc(entry.repositoryUrl) + '" target="_blank" rel="noopener">source ↗</a>' : '');
+      const action = entry.canPrefill
+        ? '<button type="button" class="bb xs" data-registry-prefill="' + index + '">PREFILL MANUAL CONNECTOR</button>'
+        : '<button type="button" class="bb xs" disabled>NO SAFE REMOTE PREFILL</button>';
+      return '<div class="mc-row" data-registry-name="' + esc(entry.name) + '">' +
+        '<div class="mc-top"><b>' + esc(entry.title || entry.name) + '</b> <span class="mc-tag">REGISTRY METADATA</span></div>' +
+        '<div class="mc-url dim"><code>' + esc(entry.name) + '</code> · version ' + esc(entry.version) + '</div>' +
+        '<div class="mc-detail">' + esc(entry.description || 'No description supplied by the publisher.') + '</div>' +
+        (entry.canPrefill
+          ? '<div class="mc-hint">Compatible fixed HTTPS Streamable-HTTP endpoint found. Prefill copies only its public URL, name and suggested local id; it does not connect.</div>'
+          : '<div class="mc-hint">' + esc(entry.unavailableReason || 'No compatible endpoint is available for safe prefill.') + '</div>') +
+        '<div class="mc-hint">Registry publication is not proof of vendor identity, safety, availability, tool behavior or account authorization.</div>' +
+        '<div class="mc-acts">' + action + (links ? ' ' + links : '') + '</div></div>';
+    }
+    async function ccRegistrySearch() {
+      const query = String((ccRegistryInput && ccRegistryInput.value) || '').trim();
+      if (Array.from(query).length < 3) {
+        ccRegistryMsg.classList.remove('ok'); ccRegistryMsg.textContent = 'enter at least 3 characters'; sfx('bad'); return;
+      }
+      ccRegistryGo.disabled = true;
+      ccRegistryMsg.classList.remove('ok'); ccRegistryMsg.textContent = 'searching the public registry once…';
+      ccRegistryResults.innerHTML = '';
+      try {
+        const response = await fetch('/api/connectors/registry?search=' + encodeURIComponent(query), { cache: 'no-store' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.ok) throw new Error(result.error || ('HTTP ' + response.status));
+        ccRegistryEntries = Array.isArray(result.entries) ? result.entries : [];
+        ccRegistryResults.innerHTML = ccRegistryEntries.length
+          ? ccRegistryEntries.map(ccRegistryCard).join('')
+          : '<div class="mc-detail">No active latest registry entries matched this name.</div>';
+        ccRegistryMsg.classList.add('ok');
+        ccRegistryMsg.textContent = 'Registry search returned ' + ccRegistryEntries.length + ' display-safe result(s)' +
+          (result.moreAvailable ? ' — only the first bounded page is shown.' : '.') + ' Nothing was connected.';
+        sfx('tick');
+      } catch (error) {
+        ccRegistryEntries = []; ccRegistryResults.innerHTML = '';
+        ccRegistryMsg.classList.remove('ok'); ccRegistryMsg.textContent = '✕ ' + ((error && error.message) || 'registry search failed'); sfx('bad');
+      } finally { ccRegistryGo.disabled = false; }
+    }
+    if (ccRegistryGo) ccRegistryGo.addEventListener('click', ccRegistrySearch);
+    if (ccRegistryInput) ccRegistryInput.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); ccRegistrySearch(); }
+    });
+    if (ccRegistryResults) ccRegistryResults.addEventListener('click', ev => {
+      const button = ev.target.closest('button[data-registry-prefill]'); if (!button) return;
+      const entry = ccRegistryEntries[Number(button.dataset.registryPrefill)];
+      if (!entry || !entry.canPrefill || !entry.remoteUrl) return;
+      const tab = body.querySelector('#con-tab-connectors-mcp'); if (tab) tab.click();
+      resetForm(); setTransport('http');
+      idInput.value = entry.suggestedId || '';
+      body.querySelector('#mc-label').value = entry.title || entry.name || '';
+      body.querySelector('#mc-url').value = entry.remoteUrl;
+      formH.textContent = 'REVIEW REGISTRY PREFILL — NOT CONNECTED';
+      msgEl.classList.remove('ok');
+      msgEl.textContent = 'Registry metadata copied into the manual form. Review the publisher and endpoint; ADD & CONNECT is still a separate explicit action. No headers or secrets were imported.';
+      formH.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); idInput.focus(); sfx('click');
+    });
     function ccCard(e, ci) {
       const cardId = e.catalogId || e.id;
       const chip = e.platformApi && e.unattendedSupported === false
