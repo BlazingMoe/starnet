@@ -334,7 +334,15 @@ synthetic station fixtures with external model calls and routine execution disab
 installed-app browser interaction, Moe's actual data, an off-disk copy, and real account
 reauthentication have not been accepted. Those remain the operator rehearsal criteria.
 
-## 9. Private readiness checklist
+## 9. Optional production tools on a modest PC
+
+Moe AI Station can use selected open-source production programs as optional separate tools. They are not bundled, installed, downloaded or started by inspection. The default tool root is the `external-tools` sibling of the configured `WORKSPACES` directory. With the canonical migrated workspace on `F:`, program state, models, caches and temporary files therefore remain on `F:`. Set `STARNET_EXTERNAL_TOOLS_ROOT` only when a different specific directory is required; a drive root is refused.
+
+The built-in `external.tools.inspect` action is read-only. It reports exact-path availability, resource floors and whether the single external-job slot is occupied. It cannot launch a program. Dedicated task adapters may later use the shared governor, but only one optional external job may run at a time; no background service or automatic installer is permitted. A successful process exit still requires the adapter's format/readback checks and the operator's visual, rights, licence or customer review where applicable.
+
+Do not install every candidate in advance. Install a pinned reviewed version only when its dedicated adapter and identical-input comparison are ready. SiteOne/Lighthouse website audit is first; image, 3D and video programs remain optional until their own milestone. See [the commercial open-source adoption decision](research/2026-11-23-commercial-open-source-production-tools.md).
+
+## 10. Private readiness checklist
 
 A private working build is ready for daily use when:
 

@@ -202,6 +202,7 @@ const fixture = {
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
   for (const name of ['media.audio.edit', 'media.inspect']) A.ok(registry.get(name), 'studio media tool registered: ' + name);
+  A.ok(registry.get('external.tools.inspect'), 'optional external production inspection is registered');
 
   /* DEFERRAL IS ADVERTISING, NOT CAPABILITY: `resolved.tools` above is the full GRANT set and is what the gate
      reads, so it must still list every deferred tool. Only the wire list narrows. */

@@ -84,6 +84,8 @@ const { makeImageTools } = require('./tools/builtin/image.js');           // STU
 const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB: connectors.list — what the station HAS wired, and what it could (read-only, no secrets)
 const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STUDIO: voice_generate — speech saved into the workspace as a playable clip
 const { makeMediaProductionTools } = require('./tools/builtin/media-production.js');
+const { makeExternalToolTools } = require('./tools/builtin/external-tools.js');
+const { makeExternalToolGovernor } = require('./external-tool-governor.js');
 const { makeSpotifyTools } = require('./tools/builtin/spotify.js');       // JUKEBOX: control/query the user's Spotify
 const { makeSpotifyStore } = require('./spotify/store.js');               // Spotify OAuth (PKCE) token store + auto-refresh
 const spotifyPkce = require('./spotify/pkce.js');                          // pure PKCE helpers (verifier/challenge/urls)
@@ -444,6 +446,13 @@ function defaultWorkspaces() {
   return neu;
 }
 const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : defaultWorkspaces();
+// Optional production programs, models, caches and temp files stay beside the canonical workspace by
+// default. A migrated F:-backed station therefore does not silently refill C:. Nothing is installed or
+// discovered from PATH; dedicated adapters may use only exact executables below this root.
+const EXTERNAL_TOOLS_ROOT = ENV('EXTERNAL_TOOLS_ROOT')
+  ? path.resolve(ENV('EXTERNAL_TOOLS_ROOT'))
+  : path.resolve(WORKSPACES, '..', 'external-tools');
+const externalToolGovernor = makeExternalToolGovernor({ root: EXTERNAL_TOOLS_ROOT, fs, fsp, os });
 const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
 
 const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
@@ -15685,6 +15694,7 @@ async function runOnce(o) {
   // Deterministic private finishing: bounded PCM16 WAV edits plus technical byte/container inspection.
   // These tools never replace the lane's required rights review or human listening/playback.
   makeMediaProductionTools({ fsp, pathMod: path, root: WORKSPACES, pathTrust: runPathTrust }).register(registry);
+  makeExternalToolTools({ governor: externalToolGovernor }).register(registry);
   // JUKEBOX (Spotify): registered every run, EXPOSED via a 'jukebox' object; no-op (clear error) until the user
   // connects Spotify in TOOLSETS. The OAuth session + auto-refresh live in the station-wide spotifyStore above.
   makeSpotifyTools({ store: spotifyStore }).register(registry);
