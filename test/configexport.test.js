@@ -11,6 +11,7 @@ const C = require('../sidecar/configexport.js');
 
 let n = 0; const ok = (c, m) => { assert.ok(c, m); n++; };
 const eq = (a, b, m) => { assert.strictEqual(a, b, m); n++; };
+const deep = (a, b, m) => { assert.deepStrictEqual(a, b, m); n++; };
 
 // ---- schema + shape ----
 eq(C.SCHEMA, 1, 'schema version is 1');
@@ -28,7 +29,7 @@ const env = C.buildExport({
   connectors: [{
     id: 'gh', transport: 'http', url: 'https://mcp.example/api?token=SEKRET#FRAGMENT_SECRET',
     headers: { Authorization: 'Bearer abc', 'X-Foo': 'ok' }, hasToken: true,
-    enabled: false, oauth: true, label: 'GitHub'
+    enabled: false, oauth: true, label: 'GitHub', blockedTools: ['delete_issue', 'publish_release']
   }, {
     id: 'stdio-sec', transport: 'stdio', command: 'node',
     args: ['server.js', '--api-token=ARG_SECRET', '--password', 'NEXT_SECRET', 'https://safe.example/mcp?access_token=URL_SECRET&view=ok',
@@ -67,6 +68,7 @@ ok(c.redactedFields.indexOf('token') >= 0, 'a bearer token marker is retained wi
 eq(c.url, 'https://mcp.example/api', 'the url is stripped of its token query');
 eq(c.enabled, false, 'disabled state is exported');
 eq(c.oauth, true, 'OAuth mode is exported');
+deep(c.blockedTools, ['delete_issue', 'publish_release'], 'narrowing connector policy is exported without secrets');
 const stdio = env.sections.connectors[1];
 eq(stdio.agentId, 'lead', 'Safe Cell owner is exported');
 eq(stdio.cwd, 'C:/work', 'stdio working directory is exported');
@@ -93,6 +95,7 @@ ok(Array.isArray(p.secretsNeeded) && p.secretsNeeded.length === 3, 'all redacted
 eq(p.secretsNeeded[0].id, 'gh', 'the secretsNeeded prompt names the connector');
 eq(p.sections.connectors[0].enabled, false, 'disabled state round-trips');
 eq(p.sections.connectors[0].oauth, true, 'OAuth mode round-trips');
+deep(p.sections.connectors[0].blockedTools, ['delete_issue', 'publish_release'], 'blocked connector tools round-trip');
 eq(p.sections.connectors[1].agentId, 'lead', 'Safe Cell owner round-trips');
 eq(p.sections.connectors[1].cwd, 'C:/work', 'working directory round-trips');
 
@@ -101,9 +104,12 @@ const fortyExport = C.buildExport({ connectors: [{ id: 'forty', transport: 'stdi
 eq(fortyExport.sections.connectors[0].args.length, 40, 'supported argv is exported without the former 32-entry truncation');
 eq(C.parseImport(fortyExport).sections.connectors[0].args.length, 40, 'supported argv is imported without truncation');
 assert.throws(() => C.buildExport({ connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] }), /128/, 'oversized argv fails export explicitly'); n++;
+assert.throws(() => C.buildExport({ connectors: [{ id: 'bad-policy-export', transport: 'http', url: 'https://safe.example/mcp', blockedTools: ['bad\nname'] }] }), /blocked tool policy/, 'malformed blocked tool policy fails export rather than widening on restore'); n++;
 eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'too-many', transport: 'stdio', command: 'node', args: Array(129).fill('x') }] } }).ok, false, 'oversized argv is rejected before import');
 eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-http', transport: 'http', url: 'file:///tmp/x' }] } }).ok, false, 'import applies the edit route HTTP URL rule');
 eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-marker', transport: 'stdio', command: 'node', redactedFields: ['args:999'] }] } }).ok, false, 'out-of-range redaction markers are rejected');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'bad-policy', transport: 'http', url: 'https://safe.example/mcp', blockedTools: ['bad\nname'] }] } }).ok, false, 'malformed blocked tool names are rejected before import');
+eq(C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'huge-policy', transport: 'http', url: 'https://safe.example/mcp', blockedTools: Array(257).fill('tool') }] } }).ok, false, 'oversized blocked tool policy is rejected before import');
 eq(C.parseImport({ starnetExport: 1, sections: { connectors: [
   { id: 'duplicate', transport: 'http', url: 'https://one.example/mcp' },
   { id: 'duplicate', transport: 'http', url: 'https://two.example/mcp' }
@@ -114,6 +120,7 @@ eq(C.parseImport({ starnetExport: 1, sections: { connectors: [
 const legacyConnector = C.parseImport({ starnetExport: 1, sections: { connectors: [{ id: 'old', transport: 'http', url: 'https://old.example/mcp' }] } }).sections.connectors[0];
 eq(Object.prototype.hasOwnProperty.call(legacyConnector, 'enabled'), false, 'legacy missing enabled remains distinguishable from enabled=true');
 eq(Object.prototype.hasOwnProperty.call(legacyConnector, 'oauth'), false, 'legacy missing oauth remains distinguishable from oauth=false');
+eq(Object.prototype.hasOwnProperty.call(legacyConnector, 'blockedTools'), false, 'legacy missing tool policy remains distinguishable so live deny-lists are not erased');
 
 // ---- validation: budget clamps out junk; fallback is cleaned + capped at 8 ----
 const badBudget = C.parseImport({ starnetExport: 1, sections: { budget: { perRun: -5, perDay: 'oops', global: 10 } } });

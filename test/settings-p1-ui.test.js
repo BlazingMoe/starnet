@@ -36,6 +36,36 @@ ok(/const freshMsg = document\.querySelector\('#bk-msg'\)/.test(ui), 'P1-7: the 
 ok(/your keys and tokens are never included|secrets excluded/i.test(ui), 'P1-7: the card discloses secrets are excluded');
 ok(/AutonomyStore\.exportState/.test(ui) && /AutonomyStore\.importState/.test(ui), 'P1-7: browser-owned autonomy slice round-trips');
 ok(/function exportState\(/.test(auto) && /function importState\(/.test(auto), 'P1-7: AutonomyStore exposes export/import');
+ok(/id="bk-export">EXPORT STATION/.test(ui) && /id="bk-agent-export">EXPORT AGENT/.test(ui), 'P1-7: configuration backup stays distinct from full agent/session export');
+ok(!/id="bk-agent-import"|id="bk-agent-file"/.test(ui), 'P1-7: RUNTIME does not add an active-station overwrite route');
+ok(/agentExportBtn\.addEventListener\('click',[\s\S]{0,400}Backup\.exportAll\(\)/.test(ui), 'P1-7: the RUNTIME agent export calls the existing browser backup contract');
+ok(/Provider credentials are excluded/.test(ui), 'P1-7: the agent/session card discloses credential re-entry');
+
+// Execute the production agent-export handler with a tiny DOM seam so both the real contract call and its
+// success/failure feedback are exercised without a browser download or any external request.
+const agentHandlerStart = ui.indexOf('    const agentExportBtn = body.querySelector(\'#bk-agent-export\');');
+const agentHandlerEnd = ui.indexOf('    // gather the browser-owned slices', agentHandlerStart);
+ok(agentHandlerStart >= 0 && agentHandlerEnd > agentHandlerStart, 'P1-7: production agent-export handler is located');
+const runAgentExportHandler = new Function('body', 'Backup', 'sfx',
+  ui.slice(agentHandlerStart, agentHandlerEnd));
+function exportUi(Backup, sounds) {
+  const listeners = {}; const status = { textContent: '', className: '' };
+  const button = { addEventListener: (name, fn) => { listeners[name] = fn; } };
+  runAgentExportHandler({ querySelector: selector => selector === '#bk-agent-export' ? button : selector === '#bk-agent-msg' ? status : null }, Backup, name => sounds.push(name));
+  return { listeners, status };
+}
+const agentExportChecks = (async () => {
+  const sounds = [];
+  const success = exportUi({ exportAll: async () => ({ ok: true, file: 'starnet-synthetic.json', records: 3, notes: 1 }) }, sounds);
+  await success.listeners.click();
+  ok(success.status.textContent.includes('exported starnet-synthetic.json') && success.status.className.includes('ok'), 'P1-7: successful export reports its filename and record count');
+  ok(sounds.includes('sale'), 'P1-7: successful export uses the existing success sound');
+  const rejectedSounds = [];
+  const rejected = exportUi({ exportAll: async () => { throw new Error('download unavailable'); } }, rejectedSounds);
+  await rejected.listeners.click();
+  ok(rejected.status.textContent === 'agent and session export failed', 'P1-7: rejected export promise produces visible failure status');
+  ok(rejectedSounds.includes('bad'), 'P1-7: rejected export promise is handled without escaping the event handler');
+})();
 
 // Execute the production browser-slice collector: a successful import must restore
 // visual preferences as well as theme and sound, including the new sky choices.
@@ -85,4 +115,5 @@ ok(/function loadReflectionConfig\(/.test(ui), 'P1-10: the reflection controls l
 ok(/\/api\/memory\/config/.test(ui), 'P1-10: the controls read/write /api/memory/config');
 ok(/mc-scope/.test(ui), 'P1-10: a "what the station may remember" scope note is shown');
 
-console.log('settings-p1-ui.test.js OK —', n, 'assertions');
+agentExportChecks.then(() => console.log('settings-p1-ui.test.js OK —', n, 'assertions'))
+  .catch(error => { console.error(error && error.stack || error); process.exitCode = 1; });

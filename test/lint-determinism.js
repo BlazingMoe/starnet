@@ -53,7 +53,7 @@ function decomment(src) {
 
 for (const f of files) {
   if (EXCLUDE.has(path.relative(base, f))) continue;   // ambient composition root — exempt by design
-  const src = decomment(fs.readFileSync(f, 'utf8'));
+  const src = decomment(fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n'));
   src.split('\n').forEach((ln, i) => {
     const code = ln.replace(/(^|[^:])\/\/.*$/, '$1');
     banned.forEach((re, bi) => {

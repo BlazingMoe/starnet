@@ -33,6 +33,28 @@ const okr = { ok: true, isError: false, content: 'ok', summary: 'ok' };
   A.eq(c.count(), 0, 'failed writes, reads, unknown tools and missing results are all ignored');
 }
 
+// ---- B2. fs.write_csv is indexed only from its exact successful read-back receipt ----
+{
+  const c = makeArtifactCollector();
+  const receipt = { path: 'findings.csv', state: 'read-back-verified', verifiedBytes: 1174 };
+  c.observe({ toolName: 'fs.write_csv', args: { path: 'findings.csv' }, result: { ok: true, receipt } });
+  c.observe({ toolName: 'fs.write_csv', args: { path: 'unverified.csv' }, result: { ok: true } });
+  c.observe({ toolName: 'fs.write_csv', args: { path: 'wrong-path.csv' }, result: { ok: true, receipt } });
+  c.observe({ toolName: 'fs.write_csv', args: { path: 'denied.csv' }, result: { ok: false, receipt } });
+  A.eq(c.list(), [{ kind: 'file', path: 'findings.csv', bytes: 1174 }],
+    'structured CSV output is listed with exact bytes only when its matching write is read-back verified');
+}
+
+// ---- B3. fs.write_xlsx requires the exact verified writer receipt ----
+{
+  const c = makeArtifactCollector();
+  const receipt = { path: 'summary.xlsx', state: 'read-back-verified', verifiedBytes: 829 };
+  c.observe({ toolName: 'fs.write_xlsx', args: { path: 'summary.xlsx' }, result: { ok: true, receipt } });
+  c.observe({ toolName: 'fs.write_xlsx', args: { path: 'unverified.xlsx' }, result: { ok: true } });
+  c.observe({ toolName: 'fs.write_xlsx', args: { path: 'mismatch.xlsx' }, result: { ok: true, receipt } });
+  A.eq(c.list(), [{ kind: 'file', path: 'summary.xlsx', bytes: 829 }], 'XLSX deliverable is recorded only from matching verified receipt');
+}
+
 // ---- C. dedupe: repeated writes to the same path keep the LAST bytes; order is insertion order ----
 {
   const c = makeArtifactCollector();

@@ -342,6 +342,19 @@ const Marketplace = (() => {
   function close() {
     if (root) StationUI.closeTerm('marketplace');
   }
+  function openPrSweepSetup() {
+    sfx('click');
+    // Dismiss the recipe dossier before opening the catalog so the destination is visible and usable.
+    close();
+    if (typeof StationUI !== 'undefined' && typeof StationUI.connectorJump === 'function') {
+      StationUI.connectorJump('github-readonly');
+    } else if (typeof StationUI !== 'undefined' && typeof StationUI.openTerm === 'function') {
+      StationUI.openTerm('connectors', 'catalog');
+      note('Find GitHub (read-only) in the catalog.', 'warn');
+    } else {
+      note('Open Connectors → Catalog and find GitHub (read-only).', 'warn');
+    }
+  }
   function release(mounted) {
     if (root !== mounted) return;
     if (firstValueForm) { firstValueForm.destroy(); firstValueForm = null; }
@@ -1244,6 +1257,14 @@ const Marketplace = (() => {
       ? '<div class="mkt-r-fork">⑃ tweaked from <b>' + esc(parent ? parent.name : r.forkedFrom) + '</b></div>' : '';
     const cadHint = r.cadence
       ? '<div class="mkt-r-cadhint">◷ naturally recurring — suggests <b>' + esc(cadenceLabel(r.cadence)) + '</b></div>' : '';
+    // PR Sweep has a strict runtime dependency on the catalog's dedicated read-only endpoint. Give the
+    // operator a direct setup/check route from the recipe itself; saved setup is not represented here as
+    // live availability, so the connector manager remains the source of truth.
+    const prSweepSetup = r.id === 'pr-sweep'
+      ? '<div class="mkt-block mkt-pr-sweep-setup"><div class="bh">GITHUB ACCESS</div>' +
+        '<p class="mkt-cta-sub">Requires GitHub (read-only). If it is missing or unavailable, connect or check it in the catalog; PR Sweep stops safely and never substitutes full-access GitHub.</p>' +
+        '<button class="bb sm mkt-pr-sweep-connector" type="button">OPEN GITHUB (READ-ONLY) SETUP</button>' +
+        '<p class="mkt-cta-sub">The review is saved locally in a fresh run folder with repository and diff evidence, plus explicit coverage limits.</p></div>' : '';
     // TWEAK + EXPORT are on EVERY dossier (fork/export any recipe); EDIT/DELETE only on your own customs.
     const tweakBtn = '<button class="bb sm mkt-recipe-tweak" data-id="' + esc(r.id) + '">✎ TWEAK</button>';
     const exportBtn = '<button class="bb sm mkt-recipe-export" data-id="' + esc(r.id) + '" title="download this recipe as a portable JSON file">⇩ EXPORT</button>';
@@ -1259,7 +1280,7 @@ const Marketplace = (() => {
           '<div class="mkt-meta"><span class="mkt-chip lane">' + esc(CAT_LABEL[railBucket(r)] || 'GENERAL') + '</span>' + recipeLifeChip(r) + '</div></div></div>' +
       lastRunHTML(r) + driftHTML(r) + liveRoutineBadgeHTML(r) + forkLine + cadHint +
       '<div class="mkt-about"><div class="bp lead">' + esc(r.blurb || r.tagline) + '</div></div>' +
-      inputs +
+      inputs + prSweepSetup +
       '<details class="mkt-brief"><summary>INSTRUCTIONS &amp; CHECKS</summary>' +
         '<div class="mkt-block"><div class="bh">WHAT IT SENDS</div><pre>' + esc(r.task) + '</pre></div>' + steps + accept + '</details>' +
       '<details class="mkt-brief"><summary>TOOLS &amp; SKILLS</summary>' + recipeGearHTML(r) + recipeSkillsHTML(r) + '</details>' +
@@ -2292,6 +2313,8 @@ const Marketplace = (() => {
       loadCronJobs();   // warm the armed-state note for the MAKE ROUTINE panel
       renderStage();
     });
+    const prSweepConnectorBtn = sc.querySelector('.mkt-pr-sweep-connector');
+    if (prSweepConnectorBtn) prSweepConnectorBtn.addEventListener('click', openPrSweepSetup);
     const edit = sc.querySelector('.mkt-edit');
     if (edit) edit.addEventListener('click', () => {
       editingId = edit.dataset.id; sfx('click');

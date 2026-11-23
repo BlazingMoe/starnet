@@ -64,6 +64,39 @@
   const { note: failNote } = (typeof require === 'function') ? require('./failopen.js') : { note: function (tag, e) { console.warn('[failopen] ' + tag + ':', (e && e.message) || e); } };
 
   const SILENT_MARKER = '[SILENT]';
+  const MAX_WORKFLOW_DECISIONS = 64;
+  function projectWorkflowDecisions(rows) {
+    const kinds = ['filter', 'split', 'join', 'loop', 'route'];
+    const outcomes = ['route', 'default', 'fallback', 'selected', 'fanout', 'awaiting-branches', 'waiting', 'released', 'partial-timeout', 'back', 'done', 'exhausted-escalation', 'exhausted-done', 'escalation-target'];
+    const decisions = [];
+    let truncated = rows.length > MAX_WORKFLOW_DECISIONS;
+    for (const row of rows.slice(0, MAX_WORKFLOW_DECISIONS)) {
+      if (!row || typeof row !== 'object' || !kinds.includes(row.kind) || !outcomes.includes(row.outcome)) { truncated = true; continue; }
+      const clean = { kind: row.kind, outcome: row.outcome };
+      if (row.junction != null && /^-?\d{1,8},-?\d{1,8}$/.test(String(row.junction))) clean.junction = String(row.junction);
+      if (['E', 'S', 'W', 'N'].includes(row.lane)) clean.lane = row.lane;
+      if (row.agent != null) {
+        const agent = String(row.agent);
+        if (agent.length > 80) truncated = true;
+        clean.agent = agent.slice(0, 80);
+      }
+      if (Array.isArray(row.agents)) {
+        if (row.agents.length > 16) truncated = true;
+        clean.agents = row.agents.slice(0, 16).map(agent => {
+          const id = String(agent);
+          if (id.length > 80) truncated = true;
+          return id.slice(0, 80);
+        });
+      }
+      if (row.expected != null) {
+        const expected = Number(row.expected);
+        if (!Number.isFinite(expected) || expected > 100 || expected < 0) truncated = true;
+        clean.expected = Math.max(0, Math.min(100, Number.isFinite(expected) ? expected : 0));
+      }
+      decisions.push(clean);
+    }
+    return { decisions, truncated };
+  }
   const iso = cron._internals.iso;   // ms(arg) -> ISO; deterministic (the lint bans only the zero-arg new Date)
   // B4 redacted-egress: the SAME structural redaction the channel tee applies, so both autonomous lanes
   // (routed messages + scheduled cron) ship one shape to the floor — tool_call name-only, tool_result
@@ -270,7 +303,14 @@
           baseReason = baseReason + ' (paused: consecutive-failures x' + settled.consecutiveFailures + ')';
         }
       }
-      if (!owned || committed) try { emit('cron.result', { jobId: jobId, runId: runId, outcome: outcome, reason: owned ? baseReason : (baseReason + ' (stale-lease)') }); } catch (_) {}
+      if (!owned || committed) try {
+        const resultEvent = { jobId: jobId, runId: runId, outcome: outcome, reason: owned ? baseReason : (baseReason + ' (stale-lease)') };
+        if (state.workflowDecisions) {
+          resultEvent.workflowDecisions = state.workflowDecisions;
+          resultEvent.workflowDecisionsTruncated = state.workflowDecisionsTruncated === true;
+        }
+        emit('cron.result', resultEvent);
+      } catch (_) {}
       const continueAfterCommit = !(owned && committed && afterFinalizationCommitted && afterFinalizationCommitted(cronStore.getJob(getJobs(), jobId)) === false);
       if (owned && committed && continueAfterCommit) {
         const liveJob = cronStore.getJob(getJobs(), jobId) || { id: jobId };
@@ -292,7 +332,7 @@
       // (the cron.skipped enum is owned/closed; a gone agent has no capability to run as).
       if (agentExists && !agentExists(job.agentId)) {
         try { setJobs(cronStore.removeJob(getJobs(), job.id)); } catch (e) { failNote('cron.removeJob', e); }
-        try { emit('cron.skipped', { jobId: job.id, reason: 'no-capability' }); } catch (_) {}
+        try { emit('cron.skipped', { jobId: job.id, reason: 'no-capability', scheduledFor: scheduledFor }); } catch (_) {}
         return false;
       }
       /* INJECTION TRIPWIRE at FIRE time. Runs BEFORE the capability/credential gate so a payload never reaches
@@ -446,6 +486,11 @@
         p = runOnce({
           key: key, model: model, system: system, messages: messages,
           agentId: job.agentId, isTask: true, emit: sink, signal: ac.signal,
+          // A routine's optional tool-turn cap narrows the normal station limit in runOnce; bad legacy
+          // values are ignored so normal station run-limit behavior applies.
+          requestLimits: (Number.isSafeInteger(job.maxIters) && job.maxIters > 0) || (Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0)
+            ? Object.assign({}, Number.isSafeInteger(job.maxIters) && job.maxIters > 0 ? { maxIters: job.maxIters } : {}, Number.isFinite(job.maxCostUsd) && job.maxCostUsd > 0 ? { maxCostUsd: job.maxCostUsd } : {})
+            : undefined,
           // streamId 'cron-'+runId makes this run's transcript durable under a per-RUN named stream (runId is a
           // fresh newId() already in scope — determinism-clean). Without it the reply is buffered into `state.buf`
           // and only an outcome enum escapes, so the actual work is invisible: it persists under the 'global'
@@ -522,7 +567,16 @@
             unattendedGrants: [],
             onHop: function () { renewLease(job.id, runId); }
           })).then(
-            function (line) { if (line && String(line.text || '').trim()) state.buf = line.text; if (line && typeof line.usd === 'number' && isFinite(line.usd)) state.usd += line.usd; finishFire(job.id, runId, state, null); },
+            function (line) {
+              if (line && String(line.text || '').trim()) state.buf = line.text;
+              if (line && typeof line.usd === 'number' && isFinite(line.usd)) state.usd += line.usd;
+              if (line && Array.isArray(line.decisions)) {
+                const projected = projectWorkflowDecisions(line.decisions);
+                state.workflowDecisions = projected.decisions;
+                state.workflowDecisionsTruncated = projected.truncated || line.decisionsTruncated === true;
+              }
+              finishFire(job.id, runId, state, null);
+            },
             // A CHAIN FAILURE NEVER CHANGES THE ROUTINE'S OUTCOME: stage one really did run and really did
             // produce work. Same law the channel path holds — the line is never a gate on the answer.
             // It is still SAID OUT LOUD: a silently swallowed chain error is indistinguishable from a floor
@@ -611,7 +665,7 @@
               const key = String(dueMs);
               if (disabledNotified.get(job.id) !== key) {
                 disabledNotified.set(job.id, key);
-                try { emit('cron.skipped', { jobId: job.id, reason: 'disabled' }); } catch (_) {}
+                try { emit('cron.skipped', { jobId: job.id, reason: 'disabled', scheduledFor: job.nextRunAt }); } catch (_) {}
                 skips++;
               }
               continue;
@@ -668,7 +722,7 @@
         if (slotsLeft > 0) { slotsLeft--; }                // reserve a concurrency slot for this attempt
         else {                                             // over the cap -> defer (stays due, not advanced)
           deferred.push(job.id); deferredSet.add(job.id);
-          try { emit('cron.skipped', { jobId: job.id, reason: 'at-capacity' }); } catch (_) {}
+          try { emit('cron.skipped', { jobId: job.id, reason: 'at-capacity', scheduledFor: job.nextRunAt }); } catch (_) {}
           skips++;
         }
       }
@@ -721,13 +775,13 @@
       }
 
       // 4. stale recurring runs that were fast-forwarded (no backlog burst) -> a structured skip per job.
-      for (const sk of plan.skipped) { try { emit('cron.skipped', { jobId: sk.jobId, reason: sk.reason }); } catch (_) {} skips++; }
+      for (const sk of plan.skipped) { try { emit('cron.skipped', { jobId: sk.jobId, reason: sk.reason, scheduledFor: sk.scheduledFor }); } catch (_) {} skips++; }
 
       // 5. fire each due job — lease-guarded (one in-flight per job), CAP-guarded, and capability-guarded.
       for (const f of plan.fire) {
         const job = cronStore.getJob(getJobs(), f.jobId);
         if (!job) continue;
-        if (leases.has(job.id)) { try { emit('cron.skipped', { jobId: job.id, reason: 'already-running' }); } catch (_) {} skips++; continue; }
+        if (leases.has(job.id)) { try { emit('cron.skipped', { jobId: job.id, reason: 'already-running', scheduledFor: f.scheduledFor }); } catch (_) {} skips++; continue; }
         if (deferredSet.has(job.id)) continue;             // over the cap: held back (counted in `deferred`), skip already emitted in step 2b
         try {
           if (fireJob(job, f.scheduledFor, nowMs)) fires++; else skips++;   // false = no-capability (already emitted)

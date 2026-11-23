@@ -312,6 +312,55 @@ async function readNdjson(res) {
     const listed = await (await fetch(B + '/api/connectors', { headers: { 'X-StarNet-Token': token, Origin: B } })).json();
     A.ok((listed.connectors || []).some(c => c.id === 'demo' && c.tools && c.tools.indexOf('lookup') >= 0), '/api/connectors lists the discovered MCP tool');
 
+    // PER-SERVER TOOL POLICY is local-only and narrowing: keep the advertised tool visible for recovery while
+    // removing it from projection/dispatch. Saving the checkbox must not call or reconnect the remote server.
+    const callsBeforePolicy = mcp.calls.length;
+    const blockTool = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: ['lookup'] })
+    });
+    A.eq(blockTool.status, 200, 'known advertised tool can be blocked locally');
+    const blockedStatus = (await blockTool.json()).status;
+    A.eq(blockedStatus.toolCount, 0, 'blocked tool leaves the enabled tool count');
+    A.eq(blockedStatus.tools, ['lookup'], 'blocked tool remains advertised for operator recovery');
+    A.eq(blockedStatus.blockedTools, ['lookup'], 'blocked tool is explicitly identified');
+    A.eq(mcp.calls.length, callsBeforePolicy, 'policy write makes no MCP request or reconnect');
+    const policyDisk = JSON.parse(fs.readFileSync(connectorFile, 'utf8')).configs.find(c => c.id === 'demo');
+    A.eq(policyDisk.blockedTools, ['lookup'], 'tool policy is durable in protected connector state');
+    const rejectUnknown = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: ['invented'] })
+    });
+    A.eq(rejectUnknown.status, 409, 'unknown tool cannot enter connector policy');
+    const unblockTool = await fetch(B + '/api/connectors/policy', {
+      method: 'POST', headers, body: JSON.stringify({ id: 'demo', blockedTools: [] })
+    });
+    A.eq(unblockTool.status, 200, 'advertised tool can be re-enabled locally');
+    A.eq((await unblockTool.json()).status.toolCount, 1, 're-enabled tool returns to projection count');
+    A.eq(mcp.calls.length, callsBeforePolicy, 'unblocking also makes no MCP request or reconnect');
+
+    // PR SWEEP ADMISSION: the real /api/run path must refuse a room with only the full-access GitHub connector.
+    // The local mock endpoint proves the configured full-access tool cannot trigger a provider request or MCP call.
+    const fullGithub = await fetch(B + '/api/connectors', {
+      method: 'POST', headers,
+      body: JSON.stringify({ id: 'github', label: 'GitHub', transport: 'http', url: mcp.url, token: 'github-full-mock-token' })
+    });
+    A.eq(fullGithub.status, 200, 'configured a local full-access GitHub connector fixture');
+    A.eq((await fullGithub.json()).state, 'up', 'full-access GitHub fixture connects to the local mock');
+    const providerCallsBeforeSweep = llm.requests.length;
+    const mcpCallsBeforeSweep = mcp.calls.length;
+    const blockedSweep = await fetch(B + '/api/run', {
+      method: 'POST', headers,
+      body: JSON.stringify({ key: 'sk-or-v1-mcp-fake', model: 'test/model', agentId: 'github-sweep-gate', isTask: true, recipeId: 'pr-sweep',
+        messages: [{ role: 'user', content: 'Review the open pull requests for acme/app.' }] })
+    });
+    A.eq(blockedSweep.status, 200, 'PR Sweep gate returns its normal event stream');
+    const blockedSweepEvents = await readNdjson(blockedSweep);
+    const blockedSweepError = blockedSweepEvents.find(e => e.name === 'agent.run.error');
+    A.ok(blockedSweepEvents.some(e => e.name === 'agent.run.start'), 'PR Sweep gate emits run start');
+    A.ok(blockedSweepError && /GitHub \(read-only\)/.test(blockedSweepError.payload.message) && /Connectors catalog/.test(blockedSweepError.payload.message), 'PR Sweep full-access-only refusal gives actionable read-only setup');
+    A.ok(blockedSweepEvents.some(e => e.name === 'agent.run.end' && e.payload.reason === 'error'), 'PR Sweep gate closes the run with an error terminal');
+    A.eq(llm.requests.length, providerCallsBeforeSweep, 'PR Sweep readiness refusal happens before any provider request');
+    A.eq(mcp.calls.length, mcpCallsBeforeSweep, 'PR Sweep readiness refusal makes no remote MCP call');
+
     // HARNESS SELF-KNOWLEDGE: plant all three mutable sources, then make a REAL /api/run call the
     // always-present station.inspect tool. The returned bytes must agree with the same live stores the
     // APIs above use — not a prompt summary or scripted fixture inside the tool.

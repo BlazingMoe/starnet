@@ -109,6 +109,9 @@ const ROUTES = {
   const driver = T.makeCdpDriver({
     chrome, forceHeadless: true, syntheticInputOnly: true, cdpPort: 0, profileDir, timeoutMs: 20000, downloadDir
   });
+  // Explicit local fixture grants, identical to browser.test_navigate's scoped path.
+  driver.allowLocal(base);
+  driver.allowLocal(base.replace('127.0.0.1', 'localhost'));
 
   try {
     // 1. LATE HYDRATION — the silent corrupter. Content lands at 1200ms; the old code waited 900ms.
@@ -259,6 +262,8 @@ const ROUTES = {
       } else {
         const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'starnet-gauntlet-oopif-'));
         const d2 = T.makeCdpDriver({ chrome: fullPath, forceHeadless: true, syntheticInputOnly: true, cdpPort: 0, profileDir: dir2, timeoutMs: 20000 });
+        d2.allowLocal(base);
+        d2.allowLocal(base.replace('127.0.0.1', 'localhost'));
         try {
           const t0 = Date.now();
           await d2.navigate(base + '/crossframe');

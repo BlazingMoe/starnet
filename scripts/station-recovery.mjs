@@ -6,13 +6,16 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const Recovery = require('../sidecar/station-recovery.js');
+const AgentBackup = require('../frontend/app/backup.js');
+const AgentSave = require('../frontend/app/save.js');
 
 function usage(code = 1) {
   const msg = [
     'StarNet station recovery (offline — stop StarNet first)',
     '',
     'Backup:',
-    '  node scripts/station-recovery.mjs backup --workspace <WORKSPACES> --output <file> [--browser-state <backup.json>] [--app-version <v>] [--mutation <id>]',
+    '  node scripts/station-recovery.mjs backup --workspace <WORKSPACES> --output <file> --browser-state <backup.json> [--replace-backup] [--app-version <v>] [--mutation <id>]',
+    '  node scripts/station-recovery.mjs backup --workspace <WORKSPACES> --output <file> --workspace-only [--replace-backup] [--app-version <v>] [--mutation <id>]',
     '',
     'Inspect:',
     '  node scripts/station-recovery.mjs inspect --bundle <file>',
@@ -42,12 +45,77 @@ function argsOf(argv) {
 }
 function required(v, name) { if (!v || v === true) throw new Error('--' + name + ' is required'); return path.resolve(String(v)); }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+function validateBrowserStore(store) {
+  const rawSave = typeof store['starnet.save'] === 'string' ? store['starnet.save'] : store['skynet.save'];
+  if (typeof rawSave !== 'string') throw new Error('browser state must include the exported agent save (starnet.save)');
+  let save;
+  try { save = JSON.parse(rawSave); }
+  catch (_) { throw new Error('browser agent save is not valid JSON'); }
+  if (!save || typeof save !== 'object' || Array.isArray(save) ||
+      (save.schema !== 'starnet.save' && save.schema !== 'skynet.save') ||
+      !save.agent || typeof save.agent !== 'object' || Array.isArray(save.agent)) {
+    throw new Error('browser agent save is not a recognized StarNet save');
+  }
+  const saveVersion = Number(save.version || 0);
+  if (saveVersion > AgentSave.CURRENT) throw new Error('browser agent save was made by a newer StarNet version');
+  return store;
+}
 function browserStoreFrom(file) {
-  if (!file) return {};
+  if (!file) throw new Error('--browser-state is required for a complete station backup; export it from StarNet first');
   const doc = readJson(path.resolve(String(file)));
-  if (doc && doc.store && typeof doc.store === 'object') return doc.store;
-  if (doc && typeof doc === 'object' && !Array.isArray(doc)) return doc;
-  throw new Error('browser state must be an object or a StarNet browser backup with {store}');
+  const store = doc && doc.store && typeof doc.store === 'object' && !Array.isArray(doc.store)
+    ? doc.store
+    : (doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : null);
+  if (!store) throw new Error('browser state must be an object or a StarNet browser backup with {store}');
+  if (doc && doc.store) {
+    const envelopeError = AgentBackup.validate(doc);
+    if (envelopeError) throw new Error('browser export is invalid: ' + envelopeError);
+  }
+  return validateBrowserStore(store);
+}
+function browserStoreFromBundle(bundle) {
+  if (!bundle.browser.length) return null;
+  const store = Object.fromEntries(bundle.browser.map(row => [row.key, row.value]));
+  try { return validateBrowserStore(store); }
+  catch (e) { throw new Error('bundle browser state is invalid; restore cannot emit an importable backup: ' + ((e && e.message) || String(e))); }
+}
+function lstatOptional(file) {
+  try { return fs.lstatSync(file); }
+  catch (e) { if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null; throw e; }
+}
+function prospectiveRealPath(file) {
+  const absolute = path.resolve(file);
+  const existing = lstatOptional(absolute);
+  if (existing) {
+    if (existing.isSymbolicLink()) throw new Error('backup output must not be a symbolic link');
+    if (!existing.isFile()) throw new Error('backup output must be a regular file');
+    return fs.realpathSync(absolute);
+  }
+  let ancestor = absolute;
+  const missing = [];
+  while (!lstatOptional(ancestor)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) throw new Error('cannot resolve backup output path');
+    missing.unshift(path.basename(ancestor));
+    ancestor = parent;
+  }
+  if (!fs.statSync(ancestor).isDirectory()) throw new Error('backup output parent is not a directory');
+  return path.resolve(fs.realpathSync(ancestor), ...missing);
+}
+function isWithin(root, target) {
+  const relative = path.relative(root, target);
+  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep));
+}
+function validateBackupOutput(workspace, output, replaceBackup) {
+  const realWorkspace = fs.realpathSync(workspace);
+  const absoluteOutput = path.resolve(output);
+  const existing = lstatOptional(absoluteOutput);
+  if (existing && existing.isSymbolicLink()) throw new Error('backup output must not be a symbolic link');
+  if (existing && !existing.isFile()) throw new Error('backup output must be an existing regular file when present');
+  if (existing && !replaceBackup) throw new Error('backup output already exists; choose a new path or pass --replace-backup to replace this regular file');
+  if (!existing && replaceBackup) throw new Error('--replace-backup requires an existing regular backup file');
+  const realOutput = prospectiveRealPath(absoluteOutput);
+  if (isWithin(realWorkspace, realOutput)) throw new Error('backup output must be outside the captured WORKSPACES directory');
 }
 function printReport(doc) { console.log(JSON.stringify(doc, null, 2)); }
 
@@ -59,9 +127,12 @@ try {
   if (cmd === 'backup') {
     const workspace = required(a.workspace, 'workspace');
     const output = required(a.output, 'output');
+    validateBackupOutput(workspace, output, !!a['replace-backup']);
+    if (a['workspace-only'] && a['browser-state']) throw new Error('choose either --browser-state or --workspace-only, not both');
+    const browserStore = a['workspace-only'] ? {} : browserStoreFrom(a['browser-state']);
     const bundle = Recovery.capture({
       workspaceRoot: workspace,
-      browserStore: browserStoreFrom(a['browser-state']),
+      browserStore,
       now: Date.now(),
       appVersion: a['app-version'] || 'unknown',
       lastCompletedMutation: a.mutation == null ? null : String(a.mutation)
@@ -70,35 +141,41 @@ try {
       printReport({ ok: false, action: 'backup', output, report: bundle.report });
       process.exit(2);
     }
-    const receipt = Recovery.writeBundleAtomic({ bundle, file: output });
-    printReport({ ok: true, action: 'backup', receipt, recoveryPoint: bundle.recoveryPoint, requirements: bundle.report.requirements, skipped: bundle.report.skipped, reauthentication: bundle.report.reauthentication });
+    const receipt = Recovery.writeBundleAtomic({ bundle, file: output, noReplace: !a['replace-backup'] });
+    printReport({ ok: true, action: 'backup', scope: bundle.browser.length ? 'station' : 'workspace-only', receipt, recoveryPoint: bundle.recoveryPoint, requirements: bundle.report.requirements, skipped: bundle.report.skipped, reauthentication: bundle.report.reauthentication });
   } else if (cmd === 'inspect') {
     const file = required(a.bundle, 'bundle');
     const bundle = Recovery.readBundle(file);
-    printReport({ ok: true, action: 'inspect', file, schema: bundle.schema, version: bundle.version, createdAt: bundle.createdAt, appVersion: bundle.appVersion, manifestSha256: bundle.manifestSha256, recoveryPoint: bundle.recoveryPoint, requirements: bundle.report.requirements, files: bundle.files.length, browserKeys: bundle.browser.length, skipped: bundle.report.skipped, reauthentication: bundle.report.reauthentication, semanticFingerprint: Recovery.semanticFingerprint(bundle) });
+    browserStoreFromBundle(bundle);
+    printReport({ ok: true, action: 'inspect', scope: bundle.browser.length ? 'station' : 'workspace-only', file, schema: bundle.schema, version: bundle.version, createdAt: bundle.createdAt, appVersion: bundle.appVersion, manifestSha256: bundle.manifestSha256, recoveryPoint: bundle.recoveryPoint, requirements: bundle.report.requirements, files: bundle.files.length, browserKeys: bundle.browser.length, skipped: bundle.report.skipped, reauthentication: bundle.report.reauthentication, semanticFingerprint: Recovery.semanticFingerprint(bundle) });
   } else if (cmd === 'restore') {
     const file = required(a.bundle, 'bundle');
     const target = required(a.target, 'target');
     const bundle = Recovery.readBundle(file);
+    const validatedBrowserStore = browserStoreFromBundle(bundle);
     const browserOutput = path.resolve(String(a['browser-output'] || path.join(path.dirname(target), 'starnet-browser-restore.json')));
+    const hasBrowserState = !!validatedBrowserStore;
     const browserWithinTarget = path.relative(target, browserOutput);
-    if (browserWithinTarget === '' || (!path.isAbsolute(browserWithinTarget) && browserWithinTarget !== '..' && !browserWithinTarget.startsWith('..' + path.sep))) {
+    if (hasBrowserState && (browserWithinTarget === '' || (!path.isAbsolute(browserWithinTarget) && browserWithinTarget !== '..' && !browserWithinTarget.startsWith('..' + path.sep)))) {
       throw new Error('browser output must be outside the workspace target: ' + browserOutput);
     }
-    const browserStore = Object.fromEntries(bundle.browser.map(row => [row.key, row.value]));
-    const browserPayload = JSON.stringify({ schema: 'starnet.backup', version: 1, app: 'starnet', exportedAt: bundle.createdAt, agentName: 'restored-station', secretsIncluded: false, secretPolicy: 'credentials-excluded', store: browserStore, notebook: null }, null, 2) + '\n';
-    const browserStage = browserOutput + '.restore-stage-' + process.pid + '-' + Date.now();
-    const browserRollback = browserOutput + '.restore-rollback-' + process.pid + '-' + Date.now();
+    const browserStage = hasBrowserState ? browserOutput + '.restore-stage-' + process.pid + '-' + Date.now() : null;
+    const browserRollback = hasBrowserState ? browserOutput + '.restore-rollback-' + process.pid + '-' + Date.now() : null;
     let browserActivated = false;
     let browserMoved = false;
-    fs.mkdirSync(path.dirname(browserOutput), { recursive: true });
-    if (fs.existsSync(browserOutput) && !fs.statSync(browserOutput).isFile()) throw new Error('browser output is not a file: ' + browserOutput);
-    try {
-      fs.writeFileSync(browserStage, browserPayload, { flag: 'wx' });
-      if (fs.readFileSync(browserStage, 'utf8') !== browserPayload) throw new Error('browser output staging read-back mismatch');
-    } catch (e) {
-      if (fs.existsSync(browserStage)) fs.unlinkSync(browserStage);
-      throw e;
+    if (hasBrowserState) {
+      const browserPayload = JSON.stringify({ schema: 'starnet.backup', version: 1, app: 'starnet', exportedAt: bundle.createdAt, agentName: 'restored-station', secretsIncluded: false, secretPolicy: 'credentials-excluded', store: validatedBrowserStore, notebook: null }, null, 2) + '\n';
+      fs.mkdirSync(path.dirname(browserOutput), { recursive: true });
+      const existingBrowserOutput = lstatOptional(browserOutput);
+      if (existingBrowserOutput && existingBrowserOutput.isSymbolicLink()) throw new Error('browser output must not be a symbolic link: ' + browserOutput);
+      if (existingBrowserOutput && !existingBrowserOutput.isFile()) throw new Error('browser output is not a file: ' + browserOutput);
+      try {
+        fs.writeFileSync(browserStage, browserPayload, { flag: 'wx' });
+        if (fs.readFileSync(browserStage, 'utf8') !== browserPayload) throw new Error('browser output staging read-back mismatch');
+      } catch (e) {
+        if (fs.existsSync(browserStage)) fs.unlinkSync(browserStage);
+        throw e;
+      }
     }
     try {
       const receipt = Recovery.restore({
@@ -106,17 +183,20 @@ try {
         targetRoot: target,
         replaceExisting: !!a['replace-existing'],
         beforeActivate() {
+          if (!hasBrowserState) return;
           if (fs.existsSync(browserOutput)) { fs.renameSync(browserOutput, browserRollback); browserMoved = true; }
           fs.renameSync(browserStage, browserOutput);
           browserActivated = true;
         }
       });
       if (browserMoved && fs.existsSync(browserRollback)) fs.unlinkSync(browserRollback);
-      printReport({ ok: true, action: 'restore', receipt, browserImport: { file: browserOutput, instruction: 'Open StarNet and choose RESTORE BACKUP to import this browser-owned state.' } });
+      printReport({ ok: true, action: 'restore', receipt, browserImport: hasBrowserState
+        ? { file: browserOutput, instruction: 'Use the offline recovery command with this file and a new dedicated Chromium --profile directory; after its recovery window closes, start StarNet on port 8787 and reuse that same Chromium profile and origin.' }
+        : { available: false, reason: 'This workspace-only bundle contains no browser-owned state.' } });
     } catch (e) {
       if (browserActivated && fs.existsSync(browserOutput)) fs.unlinkSync(browserOutput);
       if (browserMoved && fs.existsSync(browserRollback)) fs.renameSync(browserRollback, browserOutput);
-      if (fs.existsSync(browserStage)) fs.unlinkSync(browserStage);
+      if (browserStage && fs.existsSync(browserStage)) fs.unlinkSync(browserStage);
       throw e;
     }
   } else usage(1);

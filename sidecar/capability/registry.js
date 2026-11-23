@@ -88,9 +88,42 @@
     // M5: object = capability made real — placing these grants the agent real-world reach.
     cabinet: [
       { capId: 'cabinet', tool: 'fs.read', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.profile_csv', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.read_csv_rows', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.table_operation', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.xlsx_sheets', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.read_xlsx_range', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fs.xlsx_table_operation', scope: 'read', requiresConsent: false, network: false },
+      // Pure arithmetic over caller-supplied assumptions/estimates. Cabinet-gated because the business dossier
+      // requires the same object as its verified artifact writers; this does not read or mutate files itself.
+      { capId: 'cabinet', tool: 'economics.calculate', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'economics.reconcile', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'website.audit.lighthouse_fixture', scope: 'execute', requiresConsent: true, network: false, deferred: true },
+      { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'fiverr.handoff.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'service.studio.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'channel.content.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'channel.render.prepare', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'channel.youtube.prepare', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'channel.youtube.initiate', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.youtube.status', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.youtube.upload', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.youtube.verify', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.render.submit', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.render.reconcile', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'channel.render.finalize', scope: 'write', requiresConsent: true, network: true },
+      { capId: 'cabinet', tool: 'etsy.pod.prepare', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'crm.demo.generate', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'website.demo.generate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.list', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.search', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fs.write', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_csv', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_xlsx', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_docx', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_svg_chart', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'cabinet', tool: 'fs.write_dossier_sources', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.append', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.edit', scope: 'write', requiresConsent: true, network: false },
       { capId: 'cabinet', tool: 'fs.patch', scope: 'write', requiresConsent: true, network: false }
@@ -101,6 +134,9 @@
       // web_request calls a third-party API AS the Commander (it spends a stored key), so unlike the two
       // keyless readers above it always asks. Its unattended use is additionally gated per-key.
       { capId: 'web', tool: 'web_request', scope: 'execute', requiresConsent: true, network: true },
+      // Optional SiteOne is an attended external network process, not a passive read. Its dedicated adapter
+      // still restricts it to one public HTTPS page through an exact-host DNS-pinning proxy.
+      { capId: 'web', tool: 'website.audit.siteone', scope: 'execute', requiresConsent: true, network: true, deferred: true },
       // The INTEGRATION readout that keeps web_request honest: which connectors/keys are live, and which vetted
       // ones the Commander could add but has not. Rides `dish` because web_request is the route a key is actually
       // spent through — a station with no dish has no reach to advertise. Local read, no network, no consent, no
@@ -278,13 +314,20 @@
     // key the agent already uses (no new provider). image_generate WRITES a file into the agent's workspace, so
     // it is consent-gated like fs.write; image_analyze only READS an image and returns text (consent-free).
     studio: [
+      { capId: 'studio', tool: 'visual.demo.plan', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'studio', tool: 'visual.demo.export', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'studio', tool: 'visual.demo.validate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'studio', tool: 'image_generate', scope: 'write', requiresConsent: true, network: true },
       { capId: 'studio', tool: 'image_analyze', scope: 'read', requiresConsent: false, network: true },
       // voice_generate SPEAKS to a file — the studio's third skill. Consent-gated for the same reason
       // image_generate is: it writes into the workspace. It rides the station's existing TTS ladder (the keyed
       // neural chain, then the free keyless Edge floor), so it needs no studio-specific credential — but it
       // does reach the network on the keyed legs. (see tools/builtin/voice.js)
-      { capId: 'studio', tool: 'voice_generate', scope: 'write', requiresConsent: true, network: true }
+      { capId: 'studio', tool: 'voice_generate', scope: 'write', requiresConsent: true, network: true },
+      // Local-only finishing and technical evidence. Edits write a new versioned WAV under consent;
+      // inspection reads bounded media bytes and never claims subjective or rights acceptance.
+      { capId: 'studio', tool: 'media.audio.edit', scope: 'write', requiresConsent: true, network: false },
+      { capId: 'studio', tool: 'media.inspect', scope: 'read', requiresConsent: false, network: false }
     ],
     // JUKEBOX (Spotify): querying playback/library is consent-free (read); CONTROLLING playback is an outward
     // action on the user's account/device, so it is execute + consent-gated. The OAuth session (PKCE, no secret)

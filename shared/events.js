@@ -161,7 +161,16 @@
     }),
     // a fired job's run finished: ok / failed (always delivered) / silent ([SILENT] suppressed delivery, audit kept).
     'cron.result': obj(['jobId', 'runId', 'outcome'], {
-      jobId: str, runId: str, outcome: { enum: ['ok', 'failed', 'silent'] }, reason: str
+      jobId: str, runId: str, outcome: { enum: ['ok', 'failed', 'silent'] }, reason: str,
+      // ADDITIVE: a scheduled line may attach its bounded, content-free routing trace to this run result.
+      // Decision rows are a strict projection; trace strings are redacted by cronEmit before this schema.
+      workflowDecisions: { type: 'array', items: { type: 'object', required: ['kind', 'outcome'], properties: {
+        kind: { enum: ['filter', 'split', 'join', 'loop', 'route'] },
+        outcome: { enum: ['route', 'default', 'fallback', 'selected', 'fanout', 'awaiting-branches', 'waiting', 'released', 'partial-timeout', 'back', 'done', 'exhausted-escalation', 'exhausted-done', 'escalation-target'] },
+        junction: str, lane: { enum: ['E', 'S', 'W', 'N'] }, agent: str,
+        agents: { type: 'array', items: str }, expected: num
+      }, additionalProperties: false } },
+      workflowDecisionsTruncated: bool
     }),
 
     // ---- away workshop (an agent builds a reviewable deliverable in its own jail while the Commander is away) ----

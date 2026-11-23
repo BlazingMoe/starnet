@@ -54,6 +54,7 @@
     const schemaCache = deps.schemaCache || null;
     const fingerprintConfig = typeof deps.fingerprintConfig === 'function' ? deps.fingerprintConfig : function () { return ''; };
     const validateConfig = typeof deps.validateConfig === 'function' ? deps.validateConfig : function () { return ''; };
+    const toolAllowed = typeof deps.toolAllowed === 'function' ? deps.toolAllowed : function () { return true; };
     const STDIO_IDLE_MS = Math.max(0, Number(deps.stdioIdleMs) || 15 * 60 * 1000);
     const STDIO_MAX_LIFETIME_MS = Math.max(0, Number(deps.stdioMaxLifetimeMs) || 6 * 60 * 60 * 1000);
     const RECONNECT_BASE_MS = Math.max(250, Number(deps.reconnectBaseMs) || 1000);
@@ -97,6 +98,20 @@
       if (!isFinite(n) || n <= 0) return (prev && prev.timeoutMs) || timeoutMs;
       return Math.max(1000, Math.min(600000, Math.round(n)));
     }
+    function normalizeBlockedTools(cfg, prev) {
+      if (!Object.prototype.hasOwnProperty.call(cfg || {}, 'blockedTools')) {
+        return prev && Array.isArray(prev.blockedTools) ? prev.blockedTools.slice() : [];
+      }
+      if (!Array.isArray(cfg.blockedTools)) throw new Error('connector blockedTools must be an array');
+      if (cfg.blockedTools.length > 256) throw new Error('connector blockedTools cannot exceed 256 entries');
+      const out = [];
+      for (const raw of cfg.blockedTools) {
+        const name = String(raw == null ? '' : raw);
+        if (!name || name.length > 128 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('connector blockedTools contains an invalid tool name');
+        if (out.indexOf(name) < 0) out.push(name);
+      }
+      return out;
+    }
     function redactEnv(env) {
       const out = {};
       const keys = Object.keys(env || {}).sort();
@@ -138,6 +153,15 @@
         return 'connector configuration is incomplete; re-enter: ' + c.missingFields.join(', ');
       }
       try { return String(validateConfig(c) || ''); } catch (_) { return 'connector runtime ownership could not be verified'; }
+    }
+    function hostAllowedTools(c) {
+      return (c && Array.isArray(c.tools) ? c.tools : []).filter(t => {
+        try { return toolAllowed(c, t) !== false; } catch (_) { return false; }
+      });
+    }
+    function allowedTools(c) {
+      const blocked = new Set(c && Array.isArray(c.blockedTools) ? c.blockedTools : []);
+      return hostAllowedTools(c).filter(t => t && !blocked.has(String(t.name || '')));
     }
     function closeResources(client, transport, reason) {
       if (client) { try {
@@ -367,6 +391,7 @@
         missingFields: Array.isArray(cfg.missingFields)
           ? Array.from(new Set(cfg.missingFields.filter(x => typeof x === 'string')))
           : (prev && Array.isArray(prev.missingFields) ? prev.missingFields.slice() : []),
+        blockedTools: normalizeBlockedTools(cfg, prev),
         // oauth connectors pass a tokenProvider() instead of a frozen token (see connect); carried across reconfigure
         // so a benign toggle/re-warm keeps refreshing the bearer.
         tokenProvider: Object.prototype.hasOwnProperty.call(cfg, 'tokenProvider')
@@ -416,6 +441,9 @@
     // a summary safe to log / return over HTTP: the token is NEVER included (only whether one is set).
     function summary(c) {
       const issue = configIssue(c);
+      const advertisedTools = issue ? [] : hostAllowedTools(c);
+      const visibleTools = issue ? [] : allowedTools(c);
+      const blocked = new Set(c && Array.isArray(c.blockedTools) ? c.blockedTools : []);
       const out = {
         id: c.id,
         label: c.label,
@@ -428,13 +456,26 @@
         oauth: !!c.tokenProvider,                        // the panel renders oauth connectors distinctly (re-auth via sign-in, not an http edit)
         authRequired: !issue && !!c.authRequired,        // the server rejected the credential (HTTP 401) — render "sign in again", not "down"
         timeoutMs: c.timeoutMs || timeoutMs,
-        toolCount: issue ? 0 : (c.tools || []).length,
+        toolCount: visibleTools.length,
+        advertisedToolCount: advertisedTools.length,
         // Surfaced so the connector panel can say what a server ACTUALLY offers. A server with 0 tools and 40
         // resources used to render as an empty connector, which reads as broken rather than as "this one
         // serves documents, not actions".
         resourceCount: issue ? 0 : (c.resources || []).length,
         promptCount: issue ? 0 : (c.prompts || []).length,
-        tools: issue ? [] : (c.tools || []).map(t => t.name)
+        tools: advertisedTools.map(t => t.name),
+        blockedTools: advertisedTools.filter(t => blocked.has(String(t && t.name || ''))).map(t => t.name),
+        // Names are safe for the panel's restriction-only preset. This remains server-authored evidence: the
+        // preset may block everything not declared read-only, but it never uses the hint to bypass consent,
+        // host policy or any downstream safety gate.
+        readOnlyTools: advertisedTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).map(t => t.name),
+        // This is only what the REMOTE SERVER declared in MCP annotations. It is useful evidence for an
+        // operator, but never a permission grant or proof that the implementation is actually read-only.
+        toolDeclarations: {
+          total: advertisedTools.length,
+          readOnly: advertisedTools.filter(t => t && t.annotations && t.annotations.readOnlyHint === true).length,
+          allReadOnly: advertisedTools.length > 0 && advertisedTools.every(t => t && t.annotations && t.annotations.readOnlyHint === true)
+        }
       };
       if (c.transportKind === 'stdio') {
         out.command = c.command;
@@ -460,6 +501,18 @@
     function list() { const out = []; for (const c of conns.values()) out.push(summary(c)); return out; }
     function has(id) { return conns.has(String(id)); }
     function ids() { return Array.from(conns.keys()); }
+    function setBlockedTools(id, names) {
+      const c = conns.get(String(id));
+      if (!c) return { ok: false, error: 'unknown connector' };
+      let next;
+      try { next = normalizeBlockedTools({ blockedTools: names }, c); }
+      catch (e) { return { ok: false, error: (e && e.message) || 'invalid blockedTools' }; }
+      const published = new Set(hostAllowedTools(c).map(t => String(t && t.name || '')));
+      const unknown = next.find(name => !published.has(name));
+      if (unknown) return { ok: false, error: 'connector tool is not currently advertised: ' + unknown };
+      c.blockedTools = next;
+      return { ok: true, status: summary(c) };
+    }
 
     // consecutive call failures that flip an HTTP connector to 'error' (its transport reports per-call failures as
     // JSON-RPC errors, not transport death, so a vanished HTTP endpoint would otherwise stay 'up' forever). stdio
@@ -570,7 +623,7 @@
       const issue = configIssue(c); if (issue) throw new Error(issue);
       if (c.transportKind === 'stdio') await ensureLive(c);
       if (!c.client || c.state !== 'up') throw notConnected(id, toolName, ctx);
-      if (!(c.tools || []).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is no longer published by the current server');
+      toolStillPublished(c, toolName);
       c.lastUsedAt = clock.now();
       if (c.transportKind !== 'http') return c.client.callTool(toolName, args || {});
       return httpCall(c, toolName, args, false);
@@ -583,6 +636,7 @@
     const SESSION_404 = /^connector HTTP 404\b/;
     function toolStillPublished(c, toolName) {
       if (!(c.tools || []).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is no longer published by the current server');
+      if (!allowedTools(c).some(t => t && t.name === toolName)) throw new Error('connector tool "' + toolName + '" is not permitted by the host policy');
     }
     async function httpCall(c, toolName, args, isRetry) {
       const epochAtCall = c._epoch;
@@ -655,7 +709,7 @@
     function toolInfo(id, toolName) {
       const c = conns.get(String(id));
       if (!c || configIssue(c) || (c.state !== 'up' && c.state !== 'cached')) return null;
-      const t = (c.tools || []).find(x => x && x.name === String(toolName));
+      const t = allowedTools(c).find(x => x && x.name === String(toolName));
       if (!t) return null;
       return { name: t.name, readOnlyHint: !!(t.annotations && t.annotations.readOnlyHint === true), state: c.state };
     }
@@ -663,7 +717,7 @@
       const c = conns.get(String(id));
       if (!c || configIssue(c) || (c.state !== 'up' && c.state !== 'cached')) return [];
       const bound = (toolName, args, ctx) => call(c.id, toolName, args, ctx);   // ctx rides through for connector_required
-      const defs = (c.tools || []).map(t => makeToolDef({ connectorId: c.id, label: c.label, mcpTool: t, call: bound, localProcess: c.transportKind === 'stdio' }));
+      const defs = allowedTools(c).map(t => makeToolDef({ connectorId: c.id, label: c.label, mcpTool: t, call: bound, localProcess: c.transportKind === 'stdio' }));
       /* The resources/prompts tools are projected ONLY for a server that actually publishes them, so a
          tools-only connector's catalogue is byte-identical to before — nobody pays schema bytes for a
          primitive their server does not serve. They ride the same projection as tools, which is why they
@@ -743,7 +797,7 @@
       return upConn(id).client.getPrompt(name, args);
     };
 
-    return { configure, remove, refresh, close, status, list, has, ids, toolDefsFor, toolDefsForObjects, toolInfo, call, resourcesFor, promptsFor, readResource, getPrompt, sweepLifecycle, _internals: { connectorIdOf } };
+    return { configure, remove, refresh, close, status, list, has, ids, setBlockedTools, toolDefsFor, toolDefsForObjects, toolInfo, call, resourcesFor, promptsFor, readResource, getPrompt, sweepLifecycle, _internals: { connectorIdOf } };
   }
 
   return { makeConnectorManager, _internals: { connectorIdOf } };

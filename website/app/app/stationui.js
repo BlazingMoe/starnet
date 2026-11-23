@@ -1962,7 +1962,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
   //      edit / forget. Rendered as a .gx-framed placeholder, then filled by loadMemoryCore() after the async
   //      fetch (survives retab without a refetch race). Record cards are built as DOM (textContent bodies —
   //      a poisoned/injection entry is inspectable + deletable here but never interpreted, §5.6). ----
-  const MEM_KIND = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE' };
+  const MEM_KIND = { profile: 'PREFERENCE', fact: 'FACT', skill: 'SKILL', note: 'NOTE', lesson:'LESSON' };
 
   function agMemory(a) {
     // same de-duplication as GROWTH: the window is already titled AGENT DOSSIER, the tab is already MEMORY, and
@@ -1983,6 +1983,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       '<div class="gx-sec" id="mc-pending-sec" style="display:none;"><span class="gx-ref gold">?</span><span class="gx-title">Awaiting your decision</span><span class="gx-tag" id="mc-pending-count"></span></div>' +
       '<div class="mc-note" id="mc-pending-note" style="display:none;">Sensitive beliefs raised while you were away — <b>nothing here is remembered yet</b>. <b>Keep</b> to save one &middot; <b>Discard</b> to reject it for good.</div>' +
       '<div id="mc-pending-list" class="mc-list"></div>' +
+      // The durable structured ledger is separate from notebook recall. Model-reported outcomes stay unconfirmed;
+      // only this selected agent's records are read, and review status mirrors the existing proposal receipt.
+      '<div class="gx-sec" id="mc-decision-history-sec" style="display:none;"><span class="gx-ref">◷</span><span class="gx-title">Decision history</span><span class="gx-tag" id="mc-decision-history-status"></span></div>' +
+      '<div class="mc-note">Structured decisions and append-only outcomes for this agent. Model reports are unverified; lesson candidates become reference-only memory only after your existing Keep review.</div>' +
+      '<div id="mc-decision-history" class="mc-list" aria-live="polite"></div>' +
       // ▤ not "M": the ref chip is a marker, and every other one in the dossier is a glyph. A bare letter reads as
       // a code the reader is expected to already know (which is exactly what GROWTH's retired A/B/B2/B3 were).
       '<div class="gx-sec"><span class="gx-ref gold">▤</span><span class="gx-title">Stored beliefs</span><span class="gx-tag" id="mc-count">&hellip;</span></div>' +
@@ -2005,6 +2010,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     }).catch(() => { const cur = $('#mc-list'); if (cur) cur.textContent = 'Could not read the Memory Core.'; });
     loadDeclined(a);   // the reject-list renders alongside (its own fetch; absent/empty → the section stays hidden)
     loadPending(a);    // …as does the un-answered high-stakes deck (same pattern, same hidden-when-empty rule)
+    if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id);
     loadReflectionConfig();   // P1-10 reflection on/off + cooldown (station-wide)
   }
 
@@ -2032,6 +2038,20 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const org = originChip(p.origin); if (org) head.appendChild(org);
     card.appendChild(head);
     const bodyEl = mkEl('div', 'mc-body'); bodyEl.textContent = p.content || '(empty)'; card.appendChild(bodyEl);   // textContent — never interpreted
+    if (p.proposalType === 'decision-lesson') {
+      const source = mkEl('div', 'mc-meta'); source.textContent = 'UNVERIFIED OUTCOME SOURCE · decision ' + p.sourceDecisionId + ' · outcome ' + p.sourceOutcomeEventId + '\nDecision: ' + p.sourceDecision + '\nOutcome (model-reported): ' + p.sourceOutcome + '\nEvidence refs: ' + (p.evidenceRefs || []).join(', ') + '\nUncertainty: ' + p.uncertainty; card.appendChild(source);
+    }
+    if (p.lessonContract) {
+      const c = p.lessonContract, scope = c.scope || {};
+      const contract = mkEl('div', 'mc-meta');
+      contract.textContent = 'STRUCTURED LESSON · UNVERIFIED · CANDIDATE SCOPE (NOT ACTIVE MEMORY SCOPE): ' + String(scope.type || 'unknown').toUpperCase() + (scope.id ? ' · ' + scope.id : '') +
+        '\nVersion: ' + (c.version || 'unknown') + ' · confidence: ' + (c.confidence == null ? 'unknown' : Math.round(c.confidence * 100) + '%') +
+        '\nSource refs: ' + (c.sourceRefs || []).join(', ') + ' · uncertainty: ' + (c.uncertainty || 'unknown') +
+        '\nRecheck: ' + (c.recheckAt || 'unknown') + ' · expires: ' + (c.expiresAt || 'unknown') +
+        '\nPositive examples: ' + (c.positiveExamples || []).join(' · ') + '\nNegative examples: ' + (c.negativeExamples || []).join(' · ') +
+        '\nKeep requires current passed project-scoped validation; customer/global Keep and Edit remain blocked.';
+      card.appendChild(contract);
+    }
     const meta = mkEl('div', 'mc-meta');
     const prov = mkEl('span', 'mc-prov');
     const when = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—';
@@ -2043,10 +2063,17 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     let busy = false;
     const decide = async (verdict) => {
       if (busy) return; busy = true;
-      const r = await Harness.memoryTurnin({ agentId: a.id, runId: p.runId, id: p.id, verdict: verdict });
+      const r = await Harness.memoryTurnin({ agentId: a.id, runId: p.runId, id: p.id, verdict: verdict, ...(verdict === 'keep' && p.promotion && p.promotion.eligible ? {promotion:'project-reference-only'} : {}) });
       if (r && r.ok) { sfx('click'); loadMemoryCore(a); } else busy = false;   // a failed verdict must stay clickable
     };
-    const keep = mkEl('button', 'consent-btn'); keep.textContent = 'Keep'; keep.title = 'remember this'; keep.onclick = () => decide('keep');
+    const keep = mkEl('button', 'consent-btn'); keep.textContent = 'Keep'; keep.title = 'remember this';
+    if (p.lessonContract || p.structuredLesson) {
+      keep.textContent = 'Keep project reference only';
+      keep.disabled = !(p.promotion && p.promotion.type === 'project-reference-only' && p.promotion.eligible === true);
+      keep.title = keep.disabled ? 'Requires current passed project-scoped validation' : 'Unverified reference for this project and agent only; grants no permissions or instructions';
+      if (!keep.disabled) keep.onclick = () => decide('keep');
+    }
+    else keep.onclick = () => decide('keep');
     btns.appendChild(keep);
     const drop = mkEl('button', 'consent-btn deny'); drop.textContent = 'Discard'; drop.title = 'reject it — never propose this again'; drop.onclick = () => decide('discard');
     btns.appendChild(drop);
@@ -2153,6 +2180,10 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const sc = mkEl('span', 'mc-scope'); sc.textContent = '⊂ ' + (wsT || 'workstream'); sc.title = 'working memory — scoped to this workstream (still cross-stream searchable)'; head.appendChild(sc);
     }
     const org = originChip(rec.origin); if (org) head.appendChild(org);   // only when it was NOT the Commander's own run
+    if (rec.projectReference === true) {
+      const ref = mkEl('span', 'mc-scope'); ref.textContent = 'project reference · unverified';
+      ref.title = 'Reference-only memory for this project; it grants no instruction, tool or permission authority'; head.appendChild(ref);
+    }
     if (rec.pinned) { const p = mkEl('span', 'mc-pinflag'); p.textContent = '★ pinned'; head.appendChild(p); }
     card.appendChild(head);
 
@@ -2167,6 +2198,11 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const used = mkEl('span', 'mc-used');
     used.textContent = rec.useCount ? ('used ' + rec.useCount + '×') : 'never recalled';
     meta.appendChild(used);
+    if (rec.projectReference === true) {
+      const contract = mkEl('span', 'mc-prov');
+      contract.textContent = 'contract ' + (rec.contractVersion || 'unknown') + ' · ' + (rec.contractFreshness || 'unknown') + ' · recheck ' + (rec.contractRecheckAt || 'unknown') + ' · expires ' + (rec.contractExpiresAt || 'unknown');
+      meta.appendChild(contract);
+    }
     const pct = Math.max(0, Math.min(100, Math.round((rec.trust || 0) * 100)));
     const trust = mkEl('span', 'mc-trust', 'trust <span class="mc-trk"><span class="mc-fill" style="width:' + pct + '%;"></span></span>');   // numeric pct only — safe
     meta.appendChild(trust);
@@ -2176,6 +2212,26 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const reload = () => loadMemoryCore(a);
     let busy = false;   // in-flight guard: a fast double-click must not fire two POSTs (a success reloads the card away)
     const mk = (label, cls, fn) => { const b = mkEl('button', 'consent-btn' + (cls ? ' ' + cls : '')); b.textContent = label; b.onclick = fn; btns.appendChild(b); return b; };
+    if (rec.projectReference === true) {
+      if (rec.renewalPending && rec.renewalPending.eligible === true) {
+        let renewalArmed = false;
+        const renew = mk('Review renewal ' + rec.renewalPending.contractVersion, '', async () => {
+          if (!renewalArmed) { renewalArmed = true; renew.textContent = 'Confirm activate ' + rec.renewalPending.contractVersion; setTimeout(() => { if (renewalArmed) { renewalArmed = false; renew.textContent = 'Review renewal ' + rec.renewalPending.contractVersion; } }, 4000); return; }
+          if (busy) return; busy = true;
+          const r = await Harness.memoryProjectReferenceRenew({ agentId:a.id, id:rec.id, renewalId:rec.renewalPending.renewalId });
+          if (r && r.ok) { sfx('click'); reload(); if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id); } else busy = false;
+        });
+        renew.title = 'Activate this passed, unverified reference-only contract version; no permissions or broader scope are added';
+      }
+      let armed = false;
+      const revoke = mk('Revoke reference', 'deny', async () => {
+        if (!armed) { armed = true; revoke.textContent = 'Confirm revoke & remove'; setTimeout(() => { if (armed) { armed = false; revoke.textContent = 'Revoke reference'; } }, 4000); return; }
+        if (busy) return; busy = true;
+        const r = await Harness.memoryProjectReferenceRevoke({ agentId:a.id, id:rec.id });
+        if (r && r.ok) { sfx('click'); reload(); if (typeof MemoryDecisionHistory !== 'undefined') MemoryDecisionHistory.load(a.id); } else busy = false;
+      });
+      return card;
+    }
     mk(rec.pinned ? 'Unpin' : 'Pin', '', async () => {
       if (busy) return; busy = true;
       const r = await Harness.memoryPin({ agentId: a.id, id: rec.id, pinned: !rec.pinned });
@@ -4004,6 +4060,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     { id: 'fireworks',     name: 'FIREWORKS',         endpoint: 'api.fireworks.ai/inference/v1', blurb: 'Fireworks API', live: true },
     { id: 'perplexity',    name: 'PERPLEXITY',        endpoint: 'api.perplexity.ai',          blurb: 'Sonar API', live: true },
     { id: 'cerebras',      name: 'CEREBRAS',          endpoint: 'api.cerebras.ai/v1',         blurb: 'Cerebras API', live: true },
+    { id: 'freellmapi',    name: 'FREELLMAPI',        endpoint: '127.0.0.1:31415/v1',         blurb: 'local gateway · external routing possible', live: true },
     { id: 'ollama',        name: 'OLLAMA',            endpoint: '127.0.0.1:11434/v1',         blurb: 'local models', live: true },
     { id: 'custom',        name: 'CUSTOM',            endpoint: 'any /v1 base URL',           blurb: 'bring your endpoint', live: true }
   ];
@@ -4209,7 +4266,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const h = H(); if (!h) return;
     for (const p of PROVIDERS) {
       const credentialSaved = !!(h.hasStoredCredential && h.hasStoredCredential(p.id));
-      const endpointConfigured = p.id === 'ollama' || (p.id === 'custom' && !!(h.getBaseUrl && h.getBaseUrl(p.id)));
+      const endpointConfigured = p.id === 'ollama' || p.id === 'freellmapi' || (p.id === 'custom' && !!(h.getBaseUrl && h.getBaseUrl(p.id)));
       if ((credentialSaved || endpointConfigured || p.id === activeProv()) && providerHealth[p.id] === undefined) refreshProviderHealth(p.id);
     }
   }
@@ -4282,7 +4339,7 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
       const codexDead = isOAuthProvider(p.id) && oauthExpiredFor(p.id);
       const h = H();
       const credentialSaved = isOAuthProvider(p.id) ? (ks.length > 0 && !codexDead) : !!(h && h.hasStoredCredential && h.hasStoredCredential(p.id));
-      const endpointConfigured = p.id === 'ollama' || (p.id === 'custom' && !!(h && h.getBaseUrl && h.getBaseUrl(p.id)));
+      const endpointConfigured = p.id === 'ollama' || p.id === 'freellmapi' || (p.id === 'custom' && !!(h && h.getBaseUrl && h.getBaseUrl(p.id)));
       const configured = credentialSaved || endpointConfigured;
       const health = providerHealth[p.id];
       // ACTIVE is reserved for a selected model whose endpoint and credential (when applicable) were proven by
@@ -5593,6 +5650,21 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
     const exportBtn = body.querySelector('#bk-export');
     const importBtn = body.querySelector('#bk-import');
     const fileIn = body.querySelector('#bk-file');
+    const agentExportBtn = body.querySelector('#bk-agent-export');
+    const agentMsgEl = body.querySelector('#bk-agent-msg');
+    const setAgentMsg = (text, ok) => {
+      if (agentMsgEl) { agentMsgEl.textContent = text || ''; agentMsgEl.className = 'msg' + (ok ? ' ok' : ''); }
+    };
+    if (agentExportBtn) agentExportBtn.addEventListener('click', async () => {
+      setAgentMsg('building agent and session export…');
+      try {
+        const result = await Backup.exportAll();
+        if (!result || !result.ok) throw new Error('export failed');
+        setAgentMsg('✓ exported ' + result.file + ' — secrets excluded; ' + result.records + ' records'
+          + (result.notes ? ' + ' + result.notes + ' memories' : ''), true);
+        sfx('sale');
+      } catch (_) { setAgentMsg('agent and session export failed'); sfx('bad'); }
+    });
     // gather the browser-owned slices the sidecar can't see (localStorage).
     const browserSections = () => {
       const out = { settings: {
@@ -6036,6 +6108,12 @@ const StationUI = typeof document === 'undefined' ? {} : (() => {
         '<input type="file" id="bk-file" accept="application/json,.json" style="display:none">' +
       '</div>' +
       '<div id="bk-msg" class="msg"></div>' +
+      '<h4 class="ms-h">AGENT + SESSION BACKUP <span class="dim">— portable browser state</span></h4>' +
+      '<p class="set-about">Export your agent identity, sessions, local StarNet records and notebook snapshot. This browser backup does not contain durable workspace files; include a station recovery bundle for those. <b>Provider credentials are excluded</b> and must be reconnected after restore.</p>' +
+      '<div class="set-save">' +
+        '<button class="bb sm" id="bk-agent-export">EXPORT AGENT</button>' +
+      '</div>' +
+      '<div id="bk-agent-msg" class="msg" role="status" aria-live="polite"></div>' +
       ((typeof Updates !== 'undefined' && Updates.settingsHtml) ? Updates.settingsHtml() : '') +
       // DIAGNOSTICS (T3.9) — one click copies a paste-ready, SECRET-FREE report to email in a bug report. The sidecar
       // assembles + sanitizes it (GET /api/diagnostics); this button just fetches + copies. Destination is ONE constant

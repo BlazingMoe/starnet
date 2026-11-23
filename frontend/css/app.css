@@ -4323,6 +4323,8 @@ body.crew-rail-off #screen-game.active {
 .mc-detail { font-size: 12px; color: var(--bad); margin-top: 4px; }
 .mc-tools { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .mc-tools code { font-size: 11px; color: var(--ph); border: 1px solid var(--ph-dim); border-radius: 4px; padding: 1px 5px; background: rgba(0,0,0,.4); }
+.mc-tool-policy { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
+.mc-tool-policy input:not(:checked) + code { color: var(--ph-dim); text-decoration: line-through; opacity: .7; }
 .mc-acts { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
 .mc-form { display: flex; flex-direction: column; gap: 6px; }
 /* EXTENSIONS authoring: two fields side by side on a wide panel, stacked when the console is narrow. No
@@ -5760,3 +5762,8 @@ button:disabled, select:disabled, input:disabled, textarea:disabled {
 .gx-quests .q-achievement, .gx-quests .q-plan-complete { padding: 6px 0; }
 .gx-quests .q-deferred { margin: 12px 0; }
 .gx-quests .q-life-quest .consent-btns { flex-wrap: wrap; }
+
+/* Operator-selected, project-only lesson context binding. */
+.lesson-binding { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; min-width:0; max-width:100%; padding:3px 0 2px 14px; color:var(--tx2); font-size:10px; }
+.lesson-bind { max-width:100%; border:1px solid var(--line); border-radius:4px; padding:2px 6px; color:var(--tx); background:var(--bg2); font:inherit; cursor:pointer; white-space:normal; }
+.lesson-bind:disabled { opacity:.55; cursor:wait; }

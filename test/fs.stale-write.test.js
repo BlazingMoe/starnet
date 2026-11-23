@@ -4,7 +4,7 @@
    agent read it and the moment it writes back. Nothing noticed, so the write silently reverted the other
    change — the classic lost update, and the harder kind to spot because both sides believe they succeeded.
 
-   The guard is scoped to fs.write alone, and these assertions are the reason: fs.edit / fs.append / fs.patch
+   The guard applies to whole-file replacement tools fs.write and fs.write_csv. fs.edit / fs.append / fs.patch
    are read-modify-write inside ONE call and cannot clobber, so guarding them would only invent false refusals.
    Uses a real temp dir with explicitly stamped mtimes so the drift is genuine, not simulated. */
 'use strict';
@@ -15,7 +15,7 @@ const os = require('os');
 const { makeFsTools } = require('../sidecar/tools/builtin/fs.js');
 
 const ROOT = path.join(os.tmpdir(), 'starnet-fs-stale-' + process.pid);
-const { writeTool, readTool, editTool, appendTool } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 100000 } });
+const { writeTool, writeCsvTool, readTool, editTool, appendTool } = makeFsTools({ fsp, pathMod: path, root: ROOT, limits: { writeBytes: 1 << 20, readReturn: 100000 } });
 const CTX = { agentId: 'ag', emit: () => {} };
 const absOf = (rel) => path.join(ROOT, 'ag', rel);
 
@@ -53,6 +53,18 @@ async function rejects(p, re, msg) {
     const r = await writeTool.run({ path: 'a.js', content: 'merged' }, CTX);
     A.ok(/Wrote a\.js/.test(r.content), 'a re-read re-arms the stamp and the write succeeds');
     A.eq(await fsp.readFile(absOf('a.js'), 'utf8'), 'merged', 'the merged content landed');
+  }
+
+  // ---- structured CSV overwrite uses the same stale-read guard and fresh-read retry path ----
+  {
+    await writeCsvTool.run({ path: 'table.csv', columns: ['v'], rows: [['old']] }, CTX);
+    await readTool.run({ path: 'table.csv' }, CTX);
+    await externalChange('table.csv', 'someone else\r\n');
+    await rejects(writeCsvTool.run({ path: 'table.csv', columns: ['v'], rows: [['stale']] }, CTX), /stale write refused/, 'CSV overwrite after a later disk change is refused');
+    A.eq(await fsp.readFile(absOf('table.csv'), 'utf8'), 'someone else\r\n', 'stale CSV rejection preserves the other writer bytes');
+    await readTool.run({ path: 'table.csv' }, CTX);
+    await writeCsvTool.run({ path: 'table.csv', columns: ['v'], rows: [['fresh']] }, CTX);
+    A.eq(await fsp.readFile(absOf('table.csv'), 'utf8'), 'v\r\nfresh\r\n', 'fresh read rearms the CSV overwrite and succeeds');
   }
 
   // ---- 3. NO DRIFT, NO REFUSAL — the ordinary read-then-write path is untouched ----

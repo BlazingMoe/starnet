@@ -97,6 +97,32 @@ Three facts make the bridge additive:
   Tests: `worldmodel.test.js` (bayObjects connector emission + `bindConnector`) and `routing.b5.test.js`
   (`stationFor` rich-object passthrough). `test:fast` green; browser-verified (palette + sprite renders every
   state with no throw, zero console errors).
+- [x] **Slice 6a — honest origin and server declarations.** `/api/connectors` projects a live connector as
+  `catalog-endpoint` only when both its ID and normalized endpoint match the curated catalog; a reused ID with
+  another endpoint remains `custom-remote`, and stdio is always `local-process`. The panel states that catalog
+  metadata and localhost are not trust. It also counts live tool annotations that self-declare
+  `readOnlyHint:true`, labelled as server-supplied and not independently verified. This is operator evidence
+  only: it adds no grant, consent bypass, network call, mutation authority or automatic trust decision.
+- [x] **Slice 6b — per-server tool deny-list.** Every host-permitted advertised tool remains visible in its
+  connector row and can be blocked/re-enabled by exact raw tool name. The bounded list is written into the
+  existing protected connector envelope with verified read-back and applied live without reconnecting or calling
+  the MCP server. Projection and direct dispatch both use the same filtered manager path. The control only
+  narrows: host policy, placement, consent and autonomous-run rules still decide whether an enabled tool may run.
+- [x] **Slice 6c — official Registry discovery preview.** An explicit Catalog search makes one bounded public
+  `GET /v0.1/servers?search=...&version=latest&limit=10` request to the fixed official Registry origin. The host
+  accepts at most 512 KiB, keeps only active/latest records and projects bounded display fields. A result may
+  prefill the existing manual form only when it publishes a fixed header-free HTTPS `streamable-http` endpoint.
+  Template URLs, cleartext HTTP, legacy SSE, header/secret setup and package/process installs remain display-only.
+  Search and prefill never persist, connect, download, execute or grant tools. Registry publication is explicitly
+  labelled publisher-supplied metadata, not vendor verification, trust, safety, liveness or permission evidence.
+  Sources: [official Registry API](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/official-registry-api.md)
+  and [v0.1 OpenAPI](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/api/openapi.yaml).
+- [x] **Slice 6d — restriction-only permission presets.** A connected server's exact host-permitted tool list,
+  when it fits the protected 256-name policy ceiling, can
+  be reduced in one local action to no tools, only names carrying the server-supplied `readOnlyHint:true`, or the
+  full host-permitted list. Presets write the same bounded deny-list as individual checkboxes, make no connector
+  call and do not reconnect. The read-only preset is explicitly labelled unverified server metadata; restoring
+  removes only this local deny-list, while host policy, placement, consent and downstream approval remain in force.
 
 ## Open decisions for andro
 

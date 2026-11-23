@@ -20,7 +20,8 @@ const ModelDock = (() => {
     together: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8', 'deepseek-ai/DeepSeek-V3'],
     fireworks: ['accounts/fireworks/models/deepseek-v3p1', 'accounts/fireworks/models/kimi-k2p5', 'accounts/fireworks/models/llama-v3p3-70b-instruct'],
     perplexity: ['sonar-pro', 'sonar', 'sonar-reasoning-pro'],
-    cerebras: ['llama-4-scout-17b-16e-instruct', 'llama3.1-8b', 'qwen-3-coder-480b']
+    cerebras: ['llama-4-scout-17b-16e-instruct', 'llama3.1-8b', 'qwen-3-coder-480b'],
+    freellmapi: ['auto:balanced']
   };
   // OpenRouter fallback seed — real slugs only (shown labelled "(catalog offline)" when the live fetch fails).
   const OPENROUTER_FALLBACK = [
@@ -57,7 +58,7 @@ const ModelDock = (() => {
     qwen: 'QWEN',
     cohere: 'COHERE'
   };
-  const PROVIDER_RANK = { starnet: -1, codex: 0, grok: 1, kimi: 2, openrouter: 3, openai: 4, anthropic: 5, gemini: 6, xai: 7, groq: 8, mistral: 9, deepseek: 10, together: 11, fireworks: 12, perplexity: 13, cerebras: 14, ollama: 15, custom: 16 };
+  const PROVIDER_RANK = { starnet: -1, codex: 0, grok: 1, kimi: 2, openrouter: 3, openai: 4, anthropic: 5, gemini: 6, xai: 7, groq: 8, mistral: 9, deepseek: 10, together: 11, fireworks: 12, perplexity: 13, cerebras: 14, freellmapi: 15, ollama: 16, custom: 17 };
 
   let opts = {};
   let wired = false;
@@ -76,7 +77,7 @@ const ModelDock = (() => {
   }
   function providerLabel(p) {
     p = normalizeProvider(p);
-    const map = { starnet: 'STARNET', codex: 'GPT / CODEX', grok: 'GROK OAUTH', kimi: 'KIMI OAUTH', openrouter: 'OPENROUTER', openai: 'OPENAI API', anthropic: 'ANTHROPIC', gemini: 'GEMINI', xai: 'XAI', groq: 'GROQ', mistral: 'MISTRAL', deepseek: 'DEEPSEEK', together: 'TOGETHER', fireworks: 'FIREWORKS', perplexity: 'PERPLEXITY', cerebras: 'CEREBRAS', ollama: 'OLLAMA', custom: 'CUSTOM' };
+    const map = { starnet: 'STARNET', codex: 'GPT / CODEX', grok: 'GROK OAUTH', kimi: 'KIMI OAUTH', openrouter: 'OPENROUTER', openai: 'OPENAI API', anthropic: 'ANTHROPIC', gemini: 'GEMINI', xai: 'XAI', groq: 'GROQ', mistral: 'MISTRAL', deepseek: 'DEEPSEEK', together: 'TOGETHER', fireworks: 'FIREWORKS', perplexity: 'PERPLEXITY', cerebras: 'CEREBRAS', freellmapi: 'FREELLMAPI', ollama: 'OLLAMA', custom: 'CUSTOM' };
     return map[p] || String(p || 'openrouter').toUpperCase();
   }
   function normalizeProvider(p) {
@@ -96,6 +97,7 @@ const ModelDock = (() => {
     if (p === 'fireworks' || p === 'fireworks-ai') return 'fireworks';
     if (p === 'perplexity' || p === 'pplx' || p === 'sonar') return 'perplexity';
     if (p === 'cerebras') return 'cerebras';
+    if (p === 'freellmapi' || p === 'free-llm-api' || p === 'free-llm-api-local') return 'freellmapi';
     // managed credits — bearer is the linked device token (mirrors app.js + registry.js aliases)
     if (p === 'starnet' || p === 'starnet-cloud' || p === 'managed') return 'starnet';
     if (p === 'ollama' || p === 'ollama-local') return 'ollama';
@@ -199,7 +201,12 @@ const ModelDock = (() => {
   function mergeCurrent(list) {
     const current = getModel();
     const p = provider();
-    // Preserve a saved current model only while the active catalog is unavailable. Once a successful catalog
+    // Codex discovery can omit a saved model that still executes through the authenticated runtime.
+    // Keep that explicit choice, labeled unlisted rather than claiming availability or switching models.
+    if (current && p === 'codex' && !list.some(m => m.id === current && normalizeProvider(m.provider) === p) && catalogState[p] && catalogState[p].confirmed) {
+      list.unshift({ id: current, name: current, provider: p, unlistedCurrent: true });
+    }
+    // Preserve other saved current models only while the active catalog is unavailable. Once a successful catalog
     // says it is absent, reconcileCurrentModel() has either mapped it to a proven provider-native id or cleared
     // it. Re-inserting it here was the stale-model bug: a bare Anthropic id appeared selectable under STARNET.
     if (current && !list.some(m => m.id === current && normalizeProvider(m.provider) === p) && !(catalogState[p] && catalogState[p].confirmed)) {
@@ -228,6 +235,7 @@ const ModelDock = (() => {
     if (!(catalogState[p] && catalogState[p].confirmed)) return;
     const current = getModel();
     if (!current || (Array.isArray(list) && list.some(m => m && m.id === current))) return;
+    if (p === 'codex') return; // discovery is not an execution rejection; preserve the operator's choice
     const next = catalogEquivalent(current, p, list);
     const picked = next && list.find(m => m && m.id === next);
     const effort = picked ? clampEffortForModel(currentEffort(), picked) : currentEffort();
@@ -459,7 +467,7 @@ const ModelDock = (() => {
     renderList();
     // 'starnet' first: a linked station's own credits are the most direct way to run, and its catalog is
     // the whole managed lineup. providerEnabled() keeps it out of the list when no credits are configured.
-    const ids = ['starnet', 'codex', 'grok', 'kimi', 'openrouter', 'openai', 'anthropic', 'gemini', 'xai', 'groq', 'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'ollama', 'custom'];
+    const ids = ['starnet', 'codex', 'grok', 'kimi', 'openrouter', 'openai', 'anthropic', 'gemini', 'xai', 'groq', 'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'freellmapi', 'ollama', 'custom'];
     const active = provider();
     if (ids.indexOf(active) < 0) ids.unshift(active);
     const parts = await Promise.all(ids.map(p => fetchProviderModels(p, force)));
@@ -554,13 +562,13 @@ const ModelDock = (() => {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'model-dock-row' + (m.id === current && normalizeProvider(m.provider) === activeProvider ? ' sel' : '') + (m.fallback ? ' fallback' : '');
-      row.title = m.fallback ? m.id + ' — fallback (catalog offline, unverified)' : m.id;
+      row.title = m.unlistedCurrent ? m.id + ' — saved selection, not listed; availability unverified' : (m.fallback ? m.id + ' — fallback (catalog offline, unverified)' : m.id);
       row.dataset.provider = normalizeProvider(m.provider);
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', String(m.id === current && normalizeProvider(m.provider) === activeProvider));
       const name = document.createElement('span');
       name.className = 'model-dock-row-name';
-      name.textContent = modelLabel(m);
+      name.textContent = modelLabel(m) + (m.unlistedCurrent ? ' (saved, not listed)' : '');
       const eff = document.createElement('span');
       eff.className = 'model-dock-row-effort';
       eff.textContent = effortLabel(effectiveEffort(m));
@@ -809,7 +817,7 @@ const ModelDock = (() => {
   // `ensure: { id, provider }` guarantees a specific model (e.g. an agent's own pin) is present even if the
   // provider is unconfigured, so the picker can always show + preselect it. Returns [{ id, name, provider, … }].
   async function computeCatalog(force, ensure) {
-    const ids = ['codex', 'grok', 'kimi', 'openrouter', 'openai', 'anthropic', 'gemini', 'xai', 'groq', 'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'ollama', 'custom'];
+    const ids = ['codex', 'grok', 'kimi', 'openrouter', 'openai', 'anthropic', 'gemini', 'xai', 'groq', 'mistral', 'deepseek', 'together', 'fireworks', 'perplexity', 'cerebras', 'freellmapi', 'ollama', 'custom'];
     const active = provider();
     if (ids.indexOf(active) < 0) ids.unshift(active);
     const parts = await Promise.all(ids.map(p => fetchProviderModels(p, force).catch(() => [])));

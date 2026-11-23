@@ -371,7 +371,7 @@ const idx = fs.readFileSync(path.join(__dirname, '../sidecar/index.js'), 'utf8')
 const repl = idx.slice(idx.indexOf('function replaceAgentRoster('), idx.indexOf('function loadAgentRoster('));
 A.ok(/skills:\s*Array\.isArray\(a && a\.skills\)/.test(repl), 'replaceAgentRoster passes through per-agent skills[]');
 A.ok(/reasoningEffort:\s*\(a && a\.reasoningEffort\)/.test(repl), 'replaceAgentRoster passes through reasoningEffort');
-const save = idx.slice(idx.indexOf('function saveAgentRoster('), idx.indexOf('function saveAgentRoster(') + 600);
+const save = idx.slice(idx.indexOf('function saveAgentRoster('), idx.indexOf('// A permission card', idx.indexOf('function saveAgentRoster(')));
 A.ok(/skills:\s*Array\.isArray\(a\.skills\)/.test(save), 'saveAgentRoster persists skills (old rosters without it still load)');
 // injection site passes the roster record's skills as agentSkills; effort precedence adds the roster fallback
 A.ok(/agentSkills:\s*agentSkills/.test(idx), 'the skill-injection site passes the running agent\'s package as agentSkills');
@@ -420,6 +420,11 @@ const orch = fs.readFileSync(path.join(__dirname, '../sidecar/tools/builtin/orch
 A.ok(/deps\.classes[\s\S]{0,120}\.map\(c => c && c\.id\)/.test(orch), 'team.summon SPEC_IDS is composed from the injected shared catalog');
 A.ok(/SPECIALIST_CLASSES\s*=\s*\(sharedSpecialties\.BUILTINS/.test(idx), 'the sidecar composes the class list from the shared catalog');
 A.ok(/classes:\s*SPECIALIST_CLASSES/.test(idx), 'the shared class list is injected into the orchestration tools');
+A.ok(/sharedOrgSpecialties\s*=\s*require\('\.\.\/shared\/org-specialties\.js'\)/.test(idx), 'sidecar reads organizational roles from the shared derivative catalog');
+A.ok(/orgRole:\s*sharedOrgSpecialties\.roleForSpecialty\(s\.id\)/.test(idx), 'team.summon class metadata carries the same org role as the Recruitment Bay');
+const orchCore = fs.readFileSync(path.join(__dirname, '../sidecar/tools/builtin/orchestration-core.js'), 'utf8');
+A.ok(/ORG_CLASS_HINTS[\s\S]{0,500}c\.id \+ '=' \+ c\.orgRole/.test(orchCore), 'team.summon tells the lead which real classes are manager/worker roles');
+A.ok(/Organizational role never grants capabilities/.test(orchCore), 'team.summon role hint explicitly preserves capability authority');
 
 /* ---------- 4. SHARED-GEAR SKILL AVAILABILITY: a desk-only specialist still gets its class skills ---------- */
 // THE POINT of the rework: a specialist owns only a desk, but its SKILL PACKAGE (recipes) must reach its runs when

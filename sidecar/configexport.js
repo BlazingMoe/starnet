@@ -28,6 +28,8 @@
   const MAX_REDACTED_FIELDS = 512;
   const MAX_CONNECTOR_MAP_FIELDS = 256;
   const MAX_CONNECTOR_VALUE_LENGTH = 8192;
+  const MAX_CONNECTOR_BLOCKED_TOOLS = 256;
+  const MAX_CONNECTOR_TOOL_NAME_LENGTH = 128;
 
   // the sections a station backup carries. Order is stable so an exported file diffs cleanly across versions.
   // Each key maps to a live collector (export) + a live applier (import) wired in index.js. `secret:true` marks
@@ -67,6 +69,17 @@
     const out = {};
     for (const k of Object.keys(obj)) out[k] = String(obj[k] == null ? '' : obj[k]);
     return out;
+  }
+  function validConnectorToolName(value) {
+    const name = String(value == null ? '' : value);
+    return name.length > 0 && name.length <= MAX_CONNECTOR_TOOL_NAME_LENGTH && !/[\u0000-\u001f\u007f]/.test(name);
+  }
+  function connectorBlockedTools(value) {
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.length > MAX_CONNECTOR_BLOCKED_TOOLS || value.some(x => !validConnectorToolName(x))) {
+      throw new RangeError('connector blocked tool policy is invalid or exceeds the supported limit of ' + MAX_CONNECTOR_BLOCKED_TOOLS);
+    }
+    return Array.from(new Set(value.map(String)));
   }
 
   /* ---- REDACTION helpers: strip anything secret-shaped from a value before it enters the envelope. ---- */
@@ -152,6 +165,7 @@
       headers: hdr.value,
       env: env.value,
       timeoutMs: (typeof c.timeoutMs === 'number' && c.timeoutMs >= 0) ? c.timeoutMs : undefined,
+      blockedTools: connectorBlockedTools(c.blockedTools),
       // the honest "you'll need to re-enter this" markers — NAMES only, never values.
       configured: configured,
       redactedFields: uniqueRedactedFields,
@@ -258,6 +272,8 @@
         if (Object.prototype.hasOwnProperty.call(c, 'env') && !validConnectorMap(c.env)) return { ok: false, error: 'connector "' + c.id + '" environment is invalid or exceeds supported limits' };
         if (Object.prototype.hasOwnProperty.call(c, 'redactedFields') && !Array.isArray(c.redactedFields)) return { ok: false, error: 'connector "' + c.id + '" redacted fields must be an array' };
         if (Object.prototype.hasOwnProperty.call(c, 'missingFields') && !Array.isArray(c.missingFields)) return { ok: false, error: 'connector "' + c.id + '" missing fields must be an array' };
+        if (Object.prototype.hasOwnProperty.call(c, 'blockedTools') && !Array.isArray(c.blockedTools)) return { ok: false, error: 'connector "' + c.id + '" blockedTools must be an array' };
+        if (Array.isArray(c.blockedTools) && (c.blockedTools.length > MAX_CONNECTOR_BLOCKED_TOOLS || c.blockedTools.some(x => !validConnectorToolName(x)))) return { ok: false, error: 'connector "' + c.id + '" has an invalid blocked tool policy' };
         if (Array.isArray(c.redactedFields) && c.redactedFields.length > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many redacted fields' };
         if (Array.isArray(c.missingFields) && c.missingFields.length > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many missing fields' };
         if (new Set([].concat(c.redactedFields || [], c.missingFields || [])).size > MAX_REDACTED_FIELDS) return { ok: false, error: 'connector "' + c.id + '" has too many combined redacted fields' };
@@ -285,6 +301,9 @@
         if (typeof c.agentId === 'string') row.agentId = clampStr(c.agentId, 40);
         if (typeof c.cwd === 'string') row.cwd = clampStr(c.cwd, 1024);
         if (typeof c.label === 'string') row.label = clampStr(c.label, 120);
+        // Preserve absence for older backups so importing one over the same live service cannot silently
+        // erase a newer local deny-list and widen the connector.
+        if (Array.isArray(c.blockedTools)) row.blockedTools = Array.from(new Set(c.blockedTools.map(String)));
         return row;
       }).filter(c => c && c.id);
       // any connector that carried redacted secrets needs re-entry after import.
@@ -302,7 +321,7 @@
 
   return {
     SCHEMA, SECTIONS, MAX_CONNECTOR_ARGS, MAX_CONNECTOR_ARG_LENGTH, MAX_REDACTED_FIELDS,
-    MAX_CONNECTOR_MAP_FIELDS, MAX_CONNECTOR_VALUE_LENGTH,
+    MAX_CONNECTOR_MAP_FIELDS, MAX_CONNECTOR_VALUE_LENGTH, MAX_CONNECTOR_BLOCKED_TOOLS, MAX_CONNECTOR_TOOL_NAME_LENGTH,
     buildExport, parseImport, validConnectorMap,
     redactConnector, _redactMap: redactMap
   };

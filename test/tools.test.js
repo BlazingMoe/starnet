@@ -380,6 +380,22 @@ const call = (name, args, id) => ({ id: id || 'c1', name, args, argsRaw: JSON.st
     // The cap governs RETAINED CONTENT; the explanatory note rides on top at a fixed ~240 B. Pinned as
     // intentional — making the note eat the content budget would be the worse trade.
     A.ok(capped.content.length > 500, 'the note is additive to the cap, not carved out of it');
+    let completeContent = JSON.stringify('x'.repeat(498)), parkCalls = 0;
+    tiny.register({ name: 'complete', requiresCompleteOutput: true, run: async () => ({ content: completeContent }) });
+    const completeCtx = { parkOutput: async () => { parkCalls++; return { path: 'unused' }; } };
+    const exact = await tiny.dispatch(call('complete', {}), completeCtx);
+    A.eq(exact.ok, true, 'complete output at exact configured cap succeeds');
+    A.eq(JSON.parse(exact.content), 'x'.repeat(498), 'complete output remains valid JSON');
+    completeContent += ' ';
+    const over = await tiny.dispatch(call('complete', {}), completeCtx);
+    A.eq(over.ok, false, 'complete output one character over configured cap fails');
+    A.eq(over.summary, 'complete-output-required', 'complete output failure is explicit');
+    A.eq(parkCalls, 0, 'complete output failure cannot park a partial pack');
+    tiny.register({ name: 'preview', requiresCompleteOutput: true, run: async () => ({ content: '{}', fullContent: '{"full":true}' }) });
+    A.eq((await tiny.dispatch(call('preview', {}))).ok, false, 'complete output rejects pre-truncated preview');
+    const makeTool = require('../sidecar/tools/tool.js').makeTool;
+    A.eq(makeTool({}).requiresCompleteOutput, false, 'ordinary tools retain lossy output default');
+    A.eq(makeTool({ requiresCompleteOutput: 'true' }).requiresCompleteOutput, false, 'complete output requires explicit boolean opt-in');
     if (prev === undefined) delete process.env.SKYNET_TOOL_OUTPUT_MAX; else process.env.SKYNET_TOOL_OUTPUT_MAX = prev;
 
     /* PARKING: the elided middle must be RECOVERABLE. "narrow it" is sound advice for a search and useless

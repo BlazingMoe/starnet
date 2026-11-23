@@ -32,7 +32,10 @@ function fakeStack(tools) {
 (async () => {
   // ---------- 1. MANAGER: headers + timeout threading ----------
   {
-    const { seen, makeTransport, makeClient } = fakeStack([{ name: 'do_thing' }]);
+    const { seen, makeTransport, makeClient } = fakeStack([
+      { name: 'read_thing', annotations: { readOnlyHint: true } },
+      { name: 'do_thing', annotations: { destructiveHint: true } }
+    ]);
     const m = makeConnectorManager({ makeTransport, makeClient, makeToolDef: () => ({ name: 'x' }), timeoutMs: 30000 });
     const r = await m.configure('gh', { transport: 'http', url: 'https://mcp.example/x', token: 'sk-secret',
       headers: { 'X-Api-Version': '2024', 'X-Auth-Token': 'zzz' }, timeoutMs: 5000 });
@@ -49,6 +52,17 @@ function fakeStack(tools) {
     A.eq(s.headers['X-Api-Version'], '<set>', 'non-secret header value is masked to <set>, never echoed');
     A.ok(JSON.stringify(s).indexOf('zzz') === -1, 'header VALUE never leaves the summary');
     A.ok(JSON.stringify(s).indexOf('sk-secret') === -1, 'token VALUE never leaves the summary');
+    A.eq(s.toolDeclarations, { total: 2, readOnly: 1, allReadOnly: false }, 'summary counts server-declared read-only annotations without promoting them to trust');
+    A.eq(s.readOnlyTools, ['read_thing'], 'summary exposes only exact server-declared names for restriction presets');
+    A.eq(m.setBlockedTools('gh', ['do_thing']).ok, true, 'a published tool can be locally blocked without reconnecting');
+    A.eq(m.status('gh').blockedTools, ['do_thing'], 'summary keeps blocked tools visible for operator recovery');
+    A.eq(m.status('gh').toolCount, 1, 'blocked tool is removed from the enabled count');
+    A.eq(m.toolDefsFor('gh').length, 1, 'blocked tool is removed from agent projection');
+    let blockedCall = '';
+    try { await m.call('gh', 'do_thing', {}); } catch (e) { blockedCall = String((e && e.message) || e); }
+    A.ok(/not permitted by the host policy/.test(blockedCall), 'direct dispatch cannot bypass the local block');
+    A.eq(m.setBlockedTools('gh', ['invented']).ok, false, 'unknown tool cannot be smuggled into durable policy');
+    A.eq(m.setBlockedTools('gh', []).ok, true, 'operator can re-enable the advertised tool');
   }
 
   // headers + timeout are carried forward when a later configure() omits them
@@ -168,6 +182,15 @@ function fakeStack(tools) {
   A.ok(/\/api\/connectors\/refresh/.test(station), 'RELOAD hits the refresh endpoint');
   A.ok(/function badge/.test(station) && /connected/.test(station) && /error/.test(station), 'status badge (green/amber/red) present');
   A.ok(/mc-tools/.test(station), 'discovered-tools preview present');
+  A.ok(/c\.provenance/.test(station) && /CATALOG ENDPOINT|provenance\.label/.test(station), 'rows surface host-derived connector provenance');
+  A.ok(/Server declaration:/.test(station) && /not independently verified/.test(station), 'rows label read-only annotations as unverified server declarations');
+  A.ok(/data-act="tool-policy"/.test(station) && /\/api\/connectors\/policy/.test(station), 'each advertised tool has a local per-server policy toggle');
+  A.ok(/data-act="policy-readonly"/.test(station) && /data-act="policy-block-all"/.test(station) && /data-act="policy-restore-all"/.test(station),
+    'connector rows expose the three restriction-only policy presets');
+  A.ok(/advertised\.filter\(name => !declaredReadOnly\.has\(name\)\)/.test(station) && /host policy and consent still apply/.test(station),
+    'read-only preset blocks every undeclared tool and never claims the server hint grants authority');
+  A.ok(/no connector call was made/.test(station), 'tool policy result states that the change was local-only');
+  A.ok(/c\.provenance/.test(webStation) && /not independently verified/.test(webStation), 'web build carries the same provenance and annotation caveat');
   A.ok(/async function removeConnector\([\s\S]{0,500}if \(!r\.ok\)/.test(station),
     'connector delete checks HTTP success before claiming removal');
   A.ok(/function wireRemoveButtons\(\)/.test(station) && /ArmConfirm\.wire\(btn/.test(station) &&
@@ -199,6 +222,16 @@ function fakeStack(tools) {
   A.ok(/id:\s*'catalog'/.test(station) && /label:\s*'CATALOG'/.test(station), 'CATALOG tab registered on the connectors console');
   A.ok(/id="cc-list"/.test(station), 'catalog list container present');
   A.ok(/\/api\/connectors\/catalog/.test(station), 'catalog pane fetches GET /api/connectors/catalog');
+  A.ok(/id="cc-registry-search"/.test(station) && /id="cc-registry-go"/.test(station),
+    'catalog exposes an explicit official-registry search rather than an ambient background sync');
+  A.ok(/\/api\/connectors\/registry\?search=/.test(station) && /function ccRegistrySearch/.test(station),
+    'registry search uses the bounded sidecar route');
+  A.ok(/PREFILL MANUAL CONNECTOR/.test(station) && /REVIEW REGISTRY PREFILL — NOT CONNECTED/.test(station),
+    'compatible registry results only prefill the existing manual connector form');
+  A.ok(/No headers or secrets were imported/.test(station) && /Nothing was connected/.test(station),
+    'registry UI states the no-secret and no-connect boundary');
+  A.ok(/Publisher-supplied discovery metadata only/.test(station) && /not proof of vendor identity, safety, availability/.test(station),
+    'registry results are visibly untrusted metadata, not recommendations or liveness evidence');
   A.ok(/function ccCard/.test(station) && /function ccGroupHTML/.test(station), 'catalog card + category-group renderers present');
   // honest auth tiers: no-setup adds, apikey reveals a key field, oauth is listed-but-gated (never a dead click)
   A.ok(/data-cc-act="add"/.test(station), 'no-setup connectors get an ADD action');
@@ -218,6 +251,8 @@ function fakeStack(tools) {
   A.ok(/ccPending/.test(station), 'sign-in has a per-connector in-flight guard (no duplicate popups / concurrent pollers)');
   A.ok(/e\.authType === 'oauth'/.test(station), 'the UI gates on the authType tier from the catalog');
   const sidecar = fs.readFileSync(path.join(__dirname, '..', 'sidecar', 'index.js'), 'utf8');
+  A.ok(/exact: '\/api\/connectors\/registry'/.test(sidecar) && /connectorRegistryDiscovery\.search/.test(sidecar),
+    'sidecar routes registry discovery through the bounded projector');
   A.ok(/resolveConnectorOauthTarget\([^\n]+connectorCatalog, connectorConfigs\)/.test(sidecar),
     'OAuth start resolves both catalog and durably saved custom connector ids');
   A.ok(/connectorOauthPublicUrl[\s\S]{0,500}assertResolvedSafe/.test(sidecar) && /fetchImpl: connectorOauthFetch/.test(sidecar)
@@ -236,6 +271,8 @@ function fakeStack(tools) {
     'a catalog entry can expose named presets without multiplying duplicate cards');
   A.ok(/Array\.isArray\(e\.presets\)/.test(webStation) && /PRESETS ·/.test(webStation),
     'web build carries the same preset rendering');
+  A.ok(/id="cc-registry-search"/.test(webStation) && /PREFILL MANUAL CONNECTOR/.test(webStation),
+    'web build carries the same registry preview and manual-prefill boundary');
   // truthful telemetry: ADDED state comes from the backend `installed` flag, and live state is re-read after add
   const renderCatalog = require('node:vm').runInNewContext('(' + station.slice(station.indexOf('function ccCard('), station.indexOf('    function ccGroupHTML')) + ')', {
     CC_CHIP: { none: ['', 'no setup', 'green'] }, esc: x => String(x == null ? '' : x), ccSeal: () => '', location: { port: '8787' }

@@ -197,7 +197,8 @@ A.eq(runTeeView('agent.reasoning', { agentId: 'a1', runId: 'r1', on: true }), nu
 {
   const fs = require('fs');
   const path = require('path');
-  const world = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'world.js'), 'utf8');
+  // The production closure extractor below uses an LF boundary; normalize for Windows worktrees.
+  const world = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'app', 'world.js'), 'utf8').replace(/\r\n/g, '\n');
 
   const openAt = world.indexOf('const open = () => {');
   A.ok(openAt > 0, 'world.js owns the channel-bridge open()');

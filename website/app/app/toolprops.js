@@ -25,6 +25,30 @@
 const ToolProps = (() => {
   // exact-name grants that don't share a family prefix (from CAP_REGISTRY's notebook rows)
   const EXACT = {
+    'website.audit.pack': 'cabinet',
+    'website.audit.lighthouse_fixture': 'cabinet',
+    'website.audit.siteone': 'dish',
+    'website.leads.prepare': 'cabinet',
+    'etsy.pod.prepare': 'cabinet',
+    'fiverr.handoff.prepare': 'cabinet',
+    'service.studio.prepare': 'cabinet',
+    'visual.demo.plan': 'studio',
+    'visual.demo.export': 'studio',
+    'visual.demo.validate': 'studio',
+    'channel.content.prepare': 'cabinet',
+    'channel.render.prepare': 'cabinet',
+    'channel.youtube.prepare': 'cabinet',
+    'channel.youtube.initiate': 'cabinet',
+    'channel.youtube.status': 'cabinet',
+    'channel.youtube.upload': 'cabinet',
+    'channel.youtube.verify': 'cabinet',
+    'channel.render.submit': 'cabinet',
+    'channel.render.reconcile': 'cabinet',
+    'channel.render.finalize': 'cabinet',
+    'crm.demo.generate': 'cabinet', // Pure synthetic CRM generation shares the verified export capability.
+    'website.demo.generate': 'cabinet', // Pure demo generation shares the verified export capability.
+    'economics.calculate': 'cabinet', // Scenario arithmetic shares the dossier's cabinet capability.
+    'economics.reconcile': 'cabinet', // Supplied transaction reconciliation is pure cabinet arithmetic.
     web_search: 'dish',
     web_fetch: 'dish',
     web_request: 'dish',   // calling a third-party API is a WEB reach — the dish is the prop that projects it
@@ -33,6 +57,8 @@ const ToolProps = (() => {
     // this particular read never leaves the machine.
     'connectors.list': 'dish',
     voice_generate: 'studio',   // the studio makes audio as well as images — same prop, same pulse
+    'media.audio.edit': 'studio',
+    'media.inspect': 'studio',
     recall_conversation: 'notebook',
     'widget.get': 'notebook',
     'widget.set': 'notebook'   // Widget definitions/readings share the notebook-object (memory) grant.

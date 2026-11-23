@@ -174,6 +174,14 @@
       lastFeedbackAt: r.lastFeedbackAt || null,
       useCount: r.useCount || 0, trust: trust, pinned: !!r.pinned
     };
+    if (r.lessonSource && typeof r.lessonSource === 'object') out.lessonSource = Object.assign({}, r.lessonSource);
+    if (r.lessonPromotion && typeof r.lessonPromotion === 'object') {
+      // The binding itself stays server-side. The panel only needs to know this is an immutable,
+      // unverified project reference so it offers revocation instead of generic pin/edit/forget.
+      out.projectReference = true;
+      out.authority = 'reference-only';
+      out.trustLabel = 'unverified';
+    }
     if (now != null) out.effectiveTrust = decayTrust(trust, r.lastFeedbackAt || r.createdAt || r.ts || 0, now);
     return out;
   }

@@ -1,0 +1,9 @@
+option,criterion,evidence,source,uncertainty,fit
+Existing Moe and StarNet,Integration cost,Existing shared runtime and dossier recipe,S4/S5,Real provider acceptance remains open,Preferred foundation
+Existing Moe and StarNet,Research capability,Fixture exercises search fetch file creation and read-back,S5,Does not establish autonomous research quality,First acceptance target
+GPT Researcher,Integration cost,Separate Python package and MCP client,S1,Adapter dependencies and budgets untested,Bounded adapter candidate
+GPT Researcher,Research capability,Documented web/local research and cited reports,S1,Output quality in our tasks untested,Evaluate against baseline
+Open Deep Research,Integration cost,Separate runtime and archived repository,S2,Future maintenance unavailable from archived upstream,Reference only for now
+Open Deep Research,Research capability,Research/report stages and evaluation scripts,S2,Benchmark claims not reproduced,Reuse evaluation ideas
+Microsoft Agent Framework,Integration cost,Different implementation stack and orchestration runtime,S3,Migration effort not measured,No core replacement now
+Microsoft Agent Framework,Research capability,General agent/workflow orchestration,S3,No ready Moe decision-dossier integration verified,Architecture reference

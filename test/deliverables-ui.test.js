@@ -9,6 +9,8 @@ A.ok(md.indexOf('<script>') < 0 && md.indexOf('&lt;script&gt;') >= 0, 'Markdown 
 const csv = D.safeCsv('a,b,c\n1,"two, too",3\n4,5,6', 2, 2);
 A.ok(csv.indexOf('<table') >= 0 && csv.indexOf('two, too') >= 0, 'quoted CSV cells parse into a table');
 A.ok(csv.indexOf('<td>3</td>') < 0 && csv.indexOf('<td>4</td>') < 0, 'CSV preview obeys row and column bounds');
+const crlfCsv = D.safeCsv('item,amount\r\nWidget,42\r\n', 50, 20);
+A.eq((crlfCsv.match(/<tr>/g) || []).length, 2, 'a trailing CRLF does not fabricate an extra blank CSV record');
 
 A.eq(D.openUrl('/workshop-run/a/r/index.html', 'secret'), '/workshop-run/a/r/index.html?token=secret', 'sandboxed HTML navigation receives the launch token');
 A.eq(D.openUrl('/api/file?agent=a&path=x.md', 'secret'), '/api/file?agent=a&path=x.md&token=secret', 'file preview receives the launch token');

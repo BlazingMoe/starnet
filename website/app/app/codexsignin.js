@@ -35,6 +35,23 @@ function makeOAuthSignIn(paths) {
   let flow = null;    // { device_auth_id, user_code, deadline } — the in-flight device-code login
   let timer = null;   // the poll setTimeout handle
 
+  // The sidecar's boot-token guard is local authentication. A 403 alone is ambiguous (a provider may
+  // also return 403), so only its explicit token/origin/host denial is allowed to stop this flow.
+  const STALE_SESSION = typeof Friendly !== 'undefined' && Friendly.KINDS && Friendly.KINDS.stale_session
+    ? Friendly.KINDS.stale_session.msg : 'The station restarted — reload this page to reconnect.';
+  function localAuthDenied(status, response) {
+    return status === 403 && !response.parsed && /^forbidden (?:token|origin|host)$/i.test((response.body || '').trim());
+  }
+  async function readResponse(r) {
+    if (typeof r.text === 'function') {
+      const body = await r.text();
+      try { return { data: JSON.parse(body), body, parsed: true }; }
+      catch (_) { return { data: null, body, parsed: false }; }
+    }
+    try { return { data: await r.json(), body: '', parsed: true }; }
+    catch (_) { return { data: null, body: '', parsed: false }; }
+  }
+
   function cancel() {
     if (timer) { clearTimeout(timer); timer = null; }
     flow = null;
@@ -48,10 +65,13 @@ function makeOAuthSignIn(paths) {
     let d;
     try {
       const r = await fetch(paths.start, { method: 'POST' });
-      d = await r.json();
+      const response = await readResponse(r);
+      d = response.data;
+      if (localAuthDenied(r.status, response)) throw new Error(STALE_SESSION);
+      if (!d) throw new Error('start failed (' + r.status + ')');
       if (!r.ok) throw new Error(d.error || ('start failed (' + r.status + ')'));
     } catch (e) {
-      if (cb.onError) cb.onError('could not start sign-in: ' + ((e && e.message) || e));
+      if (cb.onError) cb.onError((e && e.message) === STALE_SESSION ? STALE_SESSION : 'could not start sign-in: ' + ((e && e.message) || e));
       return;
     }
     const my = flow = {
@@ -72,7 +92,15 @@ function makeOAuthSignIn(paths) {
       let j;
       try {
         const r = await fetch(paths.poll, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_auth_id: my.device_auth_id, user_code: my.user_code }) });
-        j = await r.json();
+        const response = await readResponse(r);
+        if (flow !== my) return;  // cancellation or replacement while the request was in flight
+        if (localAuthDenied(r.status, response)) {
+          flow = null;
+          if (cb.onError) cb.onError(STALE_SESSION);
+          return;
+        }
+        j = response.data;
+        if (!j) throw new Error('invalid poll response');
       } catch (e) { j = { status: 'pending' }; }   // transient network blip — keep polling
       if (flow !== my) return;                       // bailed out (back/disconnect) while awaiting
       if (j.status === 'connected') { flow = null; if (cb.onConnected) cb.onConnected(); return; }
