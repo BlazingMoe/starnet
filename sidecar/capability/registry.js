@@ -99,6 +99,7 @@
       { capId: 'cabinet', tool: 'economics.calculate', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'economics.reconcile', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'website.audit.pack', scope: 'read', requiresConsent: false, network: false },
+      { capId: 'cabinet', tool: 'website.audit.lighthouse_fixture', scope: 'execute', requiresConsent: true, network: false, deferred: true },
       { capId: 'cabinet', tool: 'website.leads.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'fiverr.handoff.prepare', scope: 'read', requiresConsent: false, network: false },
       { capId: 'cabinet', tool: 'service.studio.prepare', scope: 'read', requiresConsent: false, network: false },

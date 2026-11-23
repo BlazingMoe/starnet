@@ -86,6 +86,7 @@ const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STU
 const { makeMediaProductionTools } = require('./tools/builtin/media-production.js');
 const { makeExternalToolTools } = require('./tools/builtin/external-tools.js');
 const { makeSiteOneAuditTools } = require('./tools/builtin/siteone-audit.js');
+const { makeLighthouseAuditTools } = require('./tools/builtin/lighthouse-audit.js');
 const { makeExternalToolGovernor } = require('./external-tool-governor.js');
 const { makeSpotifyTools } = require('./tools/builtin/spotify.js');       // JUKEBOX: control/query the user's Spotify
 const { makeSpotifyStore } = require('./spotify/store.js');               // Spotify OAuth (PKCE) token store + auto-refresh
@@ -15705,6 +15706,13 @@ async function runOnce(o) {
     assertSafeUrl: skillWebInternals.assertSafeUrl,
     assertResolvedSafe: skillWebInternals.assertResolvedSafe,
     lookup: host => dns.promises.lookup(host, { all: true }),
+    hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+    clock: { now: () => Date.now() }
+  }).register(registry);
+  makeLighthouseAuditTools({
+    governor: externalToolGovernor,
+    fs,
+    chromePath: ENV('CHROME') || (process.platform === 'win32' ? 'F:\\chrome-win\\chrome.exe' : ''),
     hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
     clock: { now: () => Date.now() }
   }).register(registry);

@@ -33,6 +33,7 @@ const { makeVideoRenderTools } = require('../sidecar/tools/builtin/video-render.
 const { makeMediaProductionTools } = require('../sidecar/tools/builtin/media-production.js');
 const { makeExternalToolTools } = require('../sidecar/tools/builtin/external-tools.js');
 const { makeSiteOneAuditTools } = require('../sidecar/tools/builtin/siteone-audit.js');
+const { makeLighthouseAuditTools } = require('../sidecar/tools/builtin/lighthouse-audit.js');
 const { makeYoutubeUploadTools } = require('../sidecar/tools/builtin/youtube-upload.js');
 const { makeWebsiteDemoTools } = require('../sidecar/tools/builtin/website-demo.js');
 const { makeCrmDemoTools } = require('../sidecar/tools/builtin/crm-demo.js');
@@ -140,6 +141,7 @@ const fixture = {
   makeMediaProductionTools({ fsp, pathMod: path, root: ROOT }).register(registry);
   makeExternalToolTools({ governor: { inspect: () => ({ mode: 'LOW_RESOURCE_OPTIONAL_TOOLS', tools: [] }) } }).register(registry);
   makeSiteOneAuditTools({ governor: { run: async () => { throw Error('inert harness fixture'); } }, assertSafeUrl: value => new URL(value), assertResolvedSafe: async () => ({ address: '203.0.113.10', family: 4 }), clock: { now: () => 0 } }).register(registry);
+  makeLighthouseAuditTools({ governor: { root: path.join(os.tmpdir(), 'inert-external-tools'), run: async () => { throw Error('inert harness fixture'); } }, clock: { now: () => 0 } }).register(registry);
   makeYoutubeUploadTools().register(registry);
   makeCrmDemoTools().register(registry);
   makeWebsiteDemoTools().register(registry);
@@ -204,6 +206,7 @@ const fixture = {
   EXPECTED.push('crm.demo.generate');
   EXPECTED.push('channel.youtube.prepare', 'channel.youtube.initiate', 'channel.youtube.status', 'channel.youtube.upload', 'channel.youtube.verify');
   EXPECTED.push('website.audit.siteone');
+  EXPECTED.push('website.audit.lighthouse_fixture');
   A.eq(resolved.tools.slice().sort(), EXPECTED.slice().sort(), 'office objects resolve to the full toolset (object=capability is real)');
   for (const name of EXPECTED) A.ok(registry.get(name), 'tool registered: ' + name);
   for (const name of ['media.audio.edit', 'media.inspect']) A.ok(registry.get(name), 'studio media tool registered: ' + name);
