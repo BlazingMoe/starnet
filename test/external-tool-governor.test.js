@@ -13,7 +13,9 @@ const {makeExternalToolTools}=require('../sidecar/tools/builtin/external-tools.j
   const fakeOs={freemem:()=>4*1024*1024*1024,totalmem:()=>8*1024*1024*1024,cpus:()=>[{},{},{},{}]};
   let launches=0,lastOptions=null,release=null;
   function spawn(exe,args,options){launches++;lastOptions={exe,args,options};const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();child.kill=()=>{child.emit('close',null,'SIGTERM');};release=()=>{child.stdout.end('bounded result');child.stderr.end('review me');child.emit('close',0,null);};return child;}
-  const governor=makeExternalToolGovernor({root,os:fakeOs,spawn,now:(()=>{let n=1700000000000;return()=>++n;})(),randomBytes:()=>Buffer.from('010203040506','hex')});
+  const testClock={now:(()=>{let n=1700000000000;return()=>++n;})()};
+  const testRng={bytes:()=>Buffer.from('010203040506','hex')};
+  const governor=makeExternalToolGovernor({root,os:fakeOs,spawn,clock:testClock,rng:testRng});
   const view=governor.inspect();
   A.eq(view.policy.maxConcurrentExternalJobs,1,'all optional external production is serialized');
   A.eq(view.policy.automaticInstallOrDownload,false,'inspection never installs or downloads');
@@ -40,7 +42,7 @@ const {makeExternalToolTools}=require('../sidecar/tools/builtin/external-tools.j
   A.eq(governor.inspect().active,null,'exclusive slot is released after exit');
   A.eq(fs.existsSync(P.join(root,'.tmp',result.jobId)),false,'per-job temporary files are removed');
 
-  const mkdirFailure=makeExternalToolGovernor({root,os:fakeOs,spawn,fsp:{mkdir:async()=>{throw Error('disk unavailable');},rm:async()=>{}},randomBytes:()=>Buffer.from('010203040506','hex')});
+  const mkdirFailure=makeExternalToolGovernor({root,os:fakeOs,spawn,fsp:{mkdir:async()=>{throw Error('disk unavailable');},rm:async()=>{}},clock:testClock,rng:testRng});
   let setupFailed=false;try{await mkdirFailure.run('siteone',{args:['--help']});}catch(e){setupFailed=/disk unavailable/.test(String(e&&e.message));}
   A.eq(setupFailed,true,'temporary-directory setup failure is reported');
   A.eq(mkdirFailure.inspect().active,null,'setup failure releases the exclusive slot');

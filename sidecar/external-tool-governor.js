@@ -8,7 +8,6 @@ const OS = require('node:os');
 const FS = require('node:fs');
 const FSP = require('node:fs/promises');
 const CP = require('node:child_process');
-const crypto = require('node:crypto');
 const MIB = 1024 * 1024, OUTPUT_BYTES = 128 * 1024;
 
 const PROFILES = Object.freeze({
@@ -25,8 +24,10 @@ function inside(root,candidate){const rel=P.relative(root,candidate);return rel=
 function makeExternalToolGovernor(options={}){
   const root=P.resolve(String(options.root||''));
   if(!String(options.root||'').trim()||P.parse(root).root===root) throw Error('external tool root must be a specific directory');
+  if(!options.clock||typeof options.clock.now!=='function')throw Error('external tool governor requires an injected clock');
+  if(!options.rng||typeof options.rng.bytes!=='function')throw Error('external tool governor requires an injected rng');
   const fs=options.fs||FS,fsp=options.fsp||FSP,os=options.os||OS,spawn=options.spawn||CP.spawn;
-  const profiles=options.profiles||PROFILES,now=options.now||Date.now,randomBytes=options.randomBytes||crypto.randomBytes;
+  const profiles=options.profiles||PROFILES,now=()=>options.clock.now(),randomBytes=n=>options.rng.bytes(n);
   let active=null;
   function full(rel){if(typeof rel!=='string'||!rel||P.isAbsolute(rel)||rel.includes('\0'))throw Error('invalid external executable candidate');const x=P.resolve(root,rel);if(!inside(root,x))throw Error('external executable escapes configured root');return x;}
   function executable(profile){for(const rel of profile.candidates){const x=full(rel);try{if(fs.statSync(x).isFile())return x;}catch(_){}}return null;}

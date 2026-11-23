@@ -452,7 +452,11 @@ const WORKSPACES = ENV('WORKSPACES') ? path.resolve(ENV('WORKSPACES')) : default
 const EXTERNAL_TOOLS_ROOT = ENV('EXTERNAL_TOOLS_ROOT')
   ? path.resolve(ENV('EXTERNAL_TOOLS_ROOT'))
   : path.resolve(WORKSPACES, '..', 'external-tools');
-const externalToolGovernor = makeExternalToolGovernor({ root: EXTERNAL_TOOLS_ROOT, fs, fsp, os });
+const externalToolGovernor = makeExternalToolGovernor({
+  root: EXTERNAL_TOOLS_ROOT, fs, fsp, os,
+  clock: { now: () => Date.now() },
+  rng: { bytes: n => crypto.randomBytes(n) }
+});
 const outputArtifacts = makeOutputArtifacts({ fsp, fs, pathMod: path, root: WORKSPACES, crypto });
 
 const RECOVERY_CANDIDATE_ROOTS = workspaceCandidates({
