@@ -31,6 +31,7 @@ const { makeServiceStudioTools } = require('../sidecar/tools/builtin/service-stu
 const { makeChannelContentTools } = require('../sidecar/tools/builtin/channel-content.js');
 const { makeVideoRenderTools } = require('../sidecar/tools/builtin/video-render.js');
 const { makeMediaProductionTools } = require('../sidecar/tools/builtin/media-production.js');
+const { makeExternalToolTools } = require('../sidecar/tools/builtin/external-tools.js');
 const { makeYoutubeUploadTools } = require('../sidecar/tools/builtin/youtube-upload.js');
 const { makeWebsiteDemoTools } = require('../sidecar/tools/builtin/website-demo.js');
 const { makeCrmDemoTools } = require('../sidecar/tools/builtin/crm-demo.js');
@@ -136,6 +137,7 @@ const fixture = {
   makeChannelContentTools().register(registry);
   makeVideoRenderTools().register(registry);
   makeMediaProductionTools({ fsp, pathMod: path, root: ROOT }).register(registry);
+  makeExternalToolTools({ governor: { inspect: () => ({ mode: 'LOW_RESOURCE_OPTIONAL_TOOLS', tools: [] }) } }).register(registry);
   makeYoutubeUploadTools().register(registry);
   makeCrmDemoTools().register(registry);
   makeWebsiteDemoTools().register(registry);
