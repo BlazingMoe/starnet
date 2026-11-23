@@ -85,6 +85,7 @@ const { makeConnectorTools } = require('./tools/builtin/connectors.js');  // WEB
 const { makeVoiceTools } = require('./tools/builtin/voice.js');           // STUDIO: voice_generate — speech saved into the workspace as a playable clip
 const { makeMediaProductionTools } = require('./tools/builtin/media-production.js');
 const { makeExternalToolTools } = require('./tools/builtin/external-tools.js');
+const { makeSiteOneAuditTools } = require('./tools/builtin/siteone-audit.js');
 const { makeExternalToolGovernor } = require('./external-tool-governor.js');
 const { makeSpotifyTools } = require('./tools/builtin/spotify.js');       // JUKEBOX: control/query the user's Spotify
 const { makeSpotifyStore } = require('./spotify/store.js');               // Spotify OAuth (PKCE) token store + auto-refresh
@@ -15699,6 +15700,14 @@ async function runOnce(o) {
   // These tools never replace the lane's required rights review or human listening/playback.
   makeMediaProductionTools({ fsp, pathMod: path, root: WORKSPACES, pathTrust: runPathTrust }).register(registry);
   makeExternalToolTools({ governor: externalToolGovernor }).register(registry);
+  makeSiteOneAuditTools({
+    governor: externalToolGovernor,
+    assertSafeUrl: skillWebInternals.assertSafeUrl,
+    assertResolvedSafe: skillWebInternals.assertResolvedSafe,
+    lookup: host => dns.promises.lookup(host, { all: true }),
+    hash: text => crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+    clock: { now: () => Date.now() }
+  }).register(registry);
   // JUKEBOX (Spotify): registered every run, EXPOSED via a 'jukebox' object; no-op (clear error) until the user
   // connects Spotify in TOOLSETS. The OAuth session + auto-refresh live in the station-wide spotifyStore above.
   makeSpotifyTools({ store: spotifyStore }).register(registry);

@@ -42,6 +42,21 @@ const {makeExternalToolTools}=require('../sidecar/tools/builtin/external-tools.j
   A.eq(governor.inspect().active,null,'exclusive slot is released after exit');
   A.eq(fs.existsSync(P.join(root,'.tmp',result.jobId)),false,'per-job temporary files are removed');
 
+  let collectedTemp=null;release=null;
+  const collectedRun=governor.run('siteone',{
+    stageFiles:[{path:'siteone.conf',data:'# fixed\n'}],
+    argsFactory:({temp})=>{collectedTemp=temp;return['--config-file='+P.join(temp,'siteone.conf'),'--output-json-file='+P.join(temp,'report.json')];},
+    collectFiles:[{name:'report',path:'report.json',maxBytes:1024}]
+  });
+  while(!release||!collectedTemp)await new Promise(r=>setImmediate(r));
+  A.eq(await fsp.readFile(P.join(collectedTemp,'siteone.conf'),'utf8'),'# fixed\n','dedicated adapter can stage a bounded exact config under job temp');
+  await fsp.writeFile(P.join(collectedTemp,'report.json'),'{"ok":true}\n');
+  release();
+  const collected=await collectedRun;
+  A.eq(collected.files.report,{bytes:12,text:'{"ok":true}\n'},'bounded regular output file is collected before cleanup');
+  A.eq(collected.stdoutTruncated,false,'stdout truncation is explicit');
+  A.eq(fs.existsSync(collectedTemp),false,'collected job temp is removed after read');
+
   const mkdirFailure=makeExternalToolGovernor({root,os:fakeOs,spawn,fsp:{mkdir:async()=>{throw Error('disk unavailable');},rm:async()=>{}},clock:testClock,rng:testRng});
   let setupFailed=false;try{await mkdirFailure.run('siteone',{args:['--help']});}catch(e){setupFailed=/disk unavailable/.test(String(e&&e.message));}
   A.eq(setupFailed,true,'temporary-directory setup failure is reported');
@@ -52,7 +67,7 @@ const {makeExternalToolTools}=require('../sidecar/tools/builtin/external-tools.j
   const inspected=JSON.parse((await registered.run({})).content);
   A.eq(registered.name,'external.tools.inspect','model receives inspection only');
   A.eq(registered.scope,'read','inspection has no mutation scope');
-  A.eq(launches,1,'setup failure and inspection did not launch another process');
+  A.eq(launches,2,'setup failure and inspection did not launch another process');
   A.eq(inspected.mode,'LOW_RESOURCE_OPTIONAL_TOOLS','inspection explains the active policy');
   await fsp.rm(root,{recursive:true,force:true});
   delete process.env.STARNET_TEST_EXTERNAL_SECRET;

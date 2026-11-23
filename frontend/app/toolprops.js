@@ -26,6 +26,7 @@ const ToolProps = (() => {
   // exact-name grants that don't share a family prefix (from CAP_REGISTRY's notebook rows)
   const EXACT = {
     'website.audit.pack': 'cabinet',
+    'website.audit.siteone': 'dish',
     'website.leads.prepare': 'cabinet',
     'etsy.pod.prepare': 'cabinet',
     'fiverr.handoff.prepare': 'cabinet',

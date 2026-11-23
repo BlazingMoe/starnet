@@ -786,3 +786,4 @@ test/crm-demo.test.js
 
 test/visual-assets.test.js
 test/external-tool-governor.test.js
+test/siteone-audit.test.js

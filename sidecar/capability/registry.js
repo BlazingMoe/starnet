@@ -133,6 +133,9 @@
       // web_request calls a third-party API AS the Commander (it spends a stored key), so unlike the two
       // keyless readers above it always asks. Its unattended use is additionally gated per-key.
       { capId: 'web', tool: 'web_request', scope: 'execute', requiresConsent: true, network: true },
+      // Optional SiteOne is an attended external network process, not a passive read. Its dedicated adapter
+      // still restricts it to one public HTTPS page through an exact-host DNS-pinning proxy.
+      { capId: 'web', tool: 'website.audit.siteone', scope: 'execute', requiresConsent: true, network: true, deferred: true },
       // The INTEGRATION readout that keeps web_request honest: which connectors/keys are live, and which vetted
       // ones the Commander could add but has not. Rides `dish` because web_request is the route a key is actually
       // spent through — a station with no dish has no reach to advertise. Local read, no network, no consent, no

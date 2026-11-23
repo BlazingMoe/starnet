@@ -342,6 +342,8 @@ The built-in `external.tools.inspect` action is read-only. It reports exact-path
 
 Do not install every candidate in advance. Install a pinned reviewed version only when its dedicated adapter and identical-input comparison are ready. SiteOne/Lighthouse website audit is first; image, 3D and video programs remain optional until their own milestone. See [the commercial open-source adoption decision](research/2026-11-23-commercial-open-source-production-tools.md).
 
+`website.audit.siteone` is the first attended adapter. It is deferred from the normal prompt, belongs to the WEB/dish capability, declares external execution and network use, and always requires the ordinary consent card. It accepts only one public HTTPS URL without credentials, query, fragment or custom port. The crawl is fixed to one page, no assets/followed links, one worker, one request per second and no cache. A local exact-host DNS-pinning proxy prevents the external process from changing hosts or reaching private/loopback destinations; a cross-host redirect stops rather than broadening scope. The action returns the contents for one compact `siteone-evidence.json` file but does not write it. Use the **Private SiteOne Page Inspection** workflow to export through the normal consent-gated, byte-verified writer, review it as untrusted automated evidence, and only then manually carry verified observations into the separate Private Website Opportunity Pack. The adapter never installs SiteOne, logs in, sends mail, uploads, uses SiteOne AI features, publishes or certifies the inspected page.
+
 ## 10. Private readiness checklist
 
 A private working build is ready for daily use when:
